@@ -270,7 +270,6 @@ struct cal_ctx {
 	struct v4l2_fwnode_endpoint	endpoint;
 
 	struct v4l2_async_subdev asd;
-	struct v4l2_async_subdev *asd_list[1];
 
 	struct v4l2_fh		fh;
 	struct cal_dev		*dev;
@@ -1668,7 +1667,7 @@ static int of_cal_create_instance(struct cal_ctx *ctx, int inst)
 		if (!port) {
 			ctx_dbg(1, ctx, "No port node found for csi2 port:%d\n",
 				index);
-			goto cleanup_exit;
+			return -EINVAL;
 		}
 
 		/* Match the slice number with <REG> */
@@ -1684,7 +1683,7 @@ static int of_cal_create_instance(struct cal_ctx *ctx, int inst)
 	if (!found_port) {
 		ctx_dbg(1, ctx, "No port node matches csi2 port:%d\n",
 			inst);
-		goto cleanup_exit;
+		goto err_put_port;
 	}
 
 	ctx_dbg(3, ctx, "Scanning sub-device for csi2 port: %d\n",
@@ -1693,13 +1692,13 @@ static int of_cal_create_instance(struct cal_ctx *ctx, int inst)
 	ep_node = of_get_next_endpoint(port, ep_node);
 	if (!ep_node) {
 		ctx_dbg(3, ctx, "can't get next endpoint\n");
-		goto cleanup_exit;
+		goto err_put_port;
 	}
 
 	sensor_node = of_graph_get_remote_port_parent(ep_node);
 	if (!sensor_node) {
 		ctx_dbg(3, ctx, "can't get remote parent\n");
-		goto cleanup_exit;
+		goto err_put_ep_node;
 	}
 	asd->match_type = V4L2_ASYNC_MATCH_FWNODE;
 	asd->match.fwnode = of_fwnode_handle(sensor_node);
@@ -1707,14 +1706,14 @@ static int of_cal_create_instance(struct cal_ctx *ctx, int inst)
 	remote_ep = of_graph_get_remote_endpoint(ep_node);
 	if (!remote_ep) {
 		ctx_dbg(3, ctx, "can't get remote-endpoint\n");
-		goto cleanup_exit;
+		goto err_put_sensor_node;
 	}
 	v4l2_fwnode_endpoint_parse(of_fwnode_handle(remote_ep), endpoint);
 
 	if (endpoint->bus_type != V4L2_MBUS_CSI2) {
 		ctx_err(ctx, "Port:%d sub-device %s is not a CSI2 device\n",
 			inst, sensor_node->name);
-		goto cleanup_exit;
+		goto err_put_remote_ep;
 	}
 
 	/* Store Virtual Channel number */
@@ -1735,24 +1734,38 @@ static int of_cal_create_instance(struct cal_ctx *ctx, int inst)
 	ctx_dbg(1, ctx, "Port: %d found sub-device %s\n",
 		inst, sensor_node->name);
 
-	ctx->asd_list[0] = asd;
-	ctx->notifier.subdevs = ctx->asd_list;
-	ctx->notifier.num_subdevs = 1;
+	v4l2_async_notifier_init(&ctx->notifier);
+
+	ret = v4l2_async_notifier_add_subdev(&ctx->notifier, asd);
+	if (ret) {
+		ctx_err(ctx, "Error adding asd\n");
+		goto err_put_remote_ep;
+	}
+
 	ctx->notifier.ops = &cal_async_ops;
 	ret = v4l2_async_notifier_register(&ctx->v4l2_dev,
 					   &ctx->notifier);
 	if (ret) {
 		ctx_err(ctx, "Error registering async notifier\n");
 		ret = -EINVAL;
+		goto err_notifier_cleanup;
 	}
 
-cleanup_exit:
+	return 0;
+
+err_notifier_cleanup:
+	v4l2_async_notifier_cleanup(&ctx->notifier);
+	sensor_node = NULL;
+err_put_remote_ep:
 	if (remote_ep)
 		of_node_put(remote_ep);
+err_put_sensor_node:
 	if (sensor_node)
 		of_node_put(sensor_node);
+err_put_ep_node:
 	if (ep_node)
 		of_node_put(ep_node);
+err_put_port:
 	if (port)
 		of_node_put(port);
 
@@ -1810,8 +1823,10 @@ err_exit:
 static int cal_probe(struct platform_device *pdev)
 {
 	struct cal_dev *dev;
+	struct cal_ctx *ctx;
 	int ret;
 	int irq;
+	int i;
 
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
 	if (!dev)
@@ -1879,6 +1894,16 @@ static int cal_probe(struct platform_device *pdev)
 
 runtime_disable:
 	pm_runtime_disable(&pdev->dev);
+	for (i = 0; i < CAL_NUM_CONTEXT; i++) {
+		ctx = dev->ctx[i];
+		if (ctx) {
+			v4l2_async_notifier_unregister(&ctx->notifier);
+			v4l2_async_notifier_cleanup(&ctx->notifier);
+			v4l2_ctrl_handler_free(&ctx->ctrl_handler);
+			v4l2_device_unregister(&ctx->v4l2_dev);
+		}
+	}
+
 	return ret;
 }
 
@@ -1900,6 +1925,7 @@ static int cal_remove(struct platform_device *pdev)
 				video_device_node_name(&ctx->vdev));
 			camerarx_phy_disable(ctx);
 			v4l2_async_notifier_unregister(&ctx->notifier);
+			v4l2_async_notifier_cleanup(&ctx->notifier);
 			v4l2_ctrl_handler_free(&ctx->ctrl_handler);
 			v4l2_device_unregister(&ctx->v4l2_dev);
 			video_unregister_device(&ctx->vdev);
