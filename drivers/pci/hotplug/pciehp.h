@@ -87,9 +87,9 @@ do {									\
  * @pending_events: used by the IRQ handler to save events retrieved from the
  *	Slot Status register for later consumption by the IRQ thread
  * @state: current state machine position
- * @lock: protects reads and writes of @state;
- *	protects scheduling, execution and cancellation of @work
- * @work: work item to turn the slot on or off after 5 seconds
+ * @state_lock: protects reads and writes of @state;
+ *	protects scheduling, execution and cancellation of @button_work
+ * @button_work: work item to turn the slot on or off after 5 seconds
  *	in response to an Attention Button press
  * @hotplug_slot: pointer to the structure registered with the PCI hotplug core
  * @ist_running: flag to keep user request waiting while IRQ thread is running
@@ -115,8 +115,8 @@ struct controller {
 	unsigned int power_fault_detected;
 	atomic_t pending_events;
 	u8 state;
-	struct mutex lock;
-	struct delayed_work work;
+	struct mutex state_lock;
+	struct delayed_work button_work;
 	struct hotplug_slot *hotplug_slot;
 	unsigned int ist_running;
 	int request_result;
