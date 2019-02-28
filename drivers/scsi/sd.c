@@ -374,6 +374,7 @@ static const char *lbp_mode[] = {
 	[SD_LBP_FULL]		= "full",
 	[SD_LBP_UNMAP]		= "unmap",
 	[SD_LBP_WS16]		= "writesame_16",
+	[SD_LBP_WS16_NDOB]	= "writesame_16_ndob",
 	[SD_LBP_WS10]		= "writesame_10",
 	[SD_LBP_ZERO]		= "writesame_zero",
 	[SD_LBP_DISABLE]	= "disabled",
@@ -424,12 +425,14 @@ static DEVICE_ATTR_RW(provisioning_mode);
 
 /* sysfs_match_string() requires dense arrays */
 static const char *zeroing_mode[] = {
-	[SD_ZERO_DEFAULT]	= "default",
-	[SD_ZERO_WRITE]		= "write",
-	[SD_ZERO_WS]		= "writesame",
-	[SD_ZERO_WS16_UNMAP]	= "writesame_16_unmap",
-	[SD_ZERO_WS10_UNMAP]	= "writesame_10_unmap",
-	[SD_ZERO_DISABLE]	= "disabled",
+	[SD_ZERO_DEFAULT]		= "default",
+	[SD_ZERO_WRITE]			= "write",
+	[SD_ZERO_WS]			= "writesame",
+	[SD_ZERO_WS16_UNMAP_NDOB]	= "writesame_16_unmap_ndob",
+	[SD_ZERO_WS16_UNMAP]		= "writesame_16_unmap",
+	[SD_ZERO_WS10_UNMAP]		= "writesame_10_unmap",
+	[SD_ZERO_WS16_NDOB]		= "writesame_16_ndob",
+	[SD_ZERO_DISABLE]		= "disabled",
 };
 
 static ssize_t
@@ -838,13 +841,14 @@ static unsigned char sd_setup_protect_cmnd(struct scsi_cmnd *scmd,
  *
  * The possible values for provisioning_mode in sysfs are:
  *
- *   "default"	      - use heuristics outlined above to decide on command
- *   "full"           - the device does not support discard
- *   "unmap"          - use the UNMAP command
- *   "writesame_16"   - use the WRITE SAME(16) command with the UNMAP bit set
- *   "writesame_10"   - use the WRITE SAME(10) command with the UNMAP bit set
- *   "writesame_zero" - use WRITE SAME(16) with a zeroed payload, no UNMAP bit
- *   "disabled"	      - discards disabled due to command failure
+ *   "default"		 - use heuristics outlined above to decide on command
+ *   "full"		 - the device does not support discard
+ *   "unmap"		 - use the UNMAP command
+ *   "writesame_16"	 - use the WRITE SAME(16) command with the UNMAP bit set
+ *   "writesame_16_ndob" - use WRITE SAME(16) with UNMAP and NDOB bits set
+ *   "writesame_10"	 - use the WRITE SAME(10) command with the UNMAP bit set
+ *   "writesame_zero"	 - use WRITE SAME(16) with a zeroed payload, no UNMAP bit
+ *   "disabled"		 - discards disabled due to command failure
  */
 static void sd_config_discard(struct scsi_disk *sdkp, enum sd_lbp_mode mode)
 {
@@ -857,9 +861,12 @@ static void sd_config_discard(struct scsi_disk *sdkp, enum sd_lbp_mode mode)
 			if (sdkp->lbpvpd) { /* Logical Block Provisioning VPD */
 				if (sdkp->lbpu && sdkp->max_unmap_blocks)
 					mode = SD_LBP_UNMAP;
-				else if (sdkp->lbpws)
-					mode = SD_LBP_WS16;
-				else if (sdkp->lbpws10)
+				else if (sdkp->lbpws) {
+					if (sdkp->ndob)
+						mode = SD_LBP_WS16_NDOB;
+					else
+						mode = SD_LBP_WS16;
+				} else if (sdkp->lbpws10)
 					mode = SD_LBP_WS10;
 				else
 					mode = SD_LBP_FULL;
@@ -892,6 +899,7 @@ static void sd_config_discard(struct scsi_disk *sdkp, enum sd_lbp_mode mode)
 		break;
 
 	case SD_LBP_WS16:
+	case SD_LBP_WS16_NDOB:
 		if (sdkp->device->unmap_limit_for_ws)
 			max_blocks = sdkp->max_unmap_blocks;
 		else
@@ -960,7 +968,7 @@ static blk_status_t sd_setup_unmap_cmnd(struct scsi_cmnd *cmd)
 }
 
 static blk_status_t sd_setup_write_same16_cmnd(struct scsi_cmnd *cmd,
-		bool unmap)
+		bool unmap, bool ndob)
 {
 	struct scsi_device *sdp = cmd->device;
 	struct request *rq = scsi_cmd_to_rq(cmd);
@@ -969,23 +977,32 @@ static blk_status_t sd_setup_write_same16_cmnd(struct scsi_cmnd *cmd,
 	u32 nr_blocks = sectors_to_logical(sdp, blk_rq_sectors(rq));
 	u32 data_len = sdp->sector_size;
 
-	rq->special_vec.bv_page = mempool_alloc(sd_page_pool, GFP_ATOMIC);
-	if (!rq->special_vec.bv_page)
-		return BLK_STS_RESOURCE;
-	clear_highpage(rq->special_vec.bv_page);
-	rq->special_vec.bv_offset = 0;
-	rq->special_vec.bv_len = data_len;
+	if (ndob) {
+		rq->special_vec.bv_page = NULL;
+		rq->special_vec.bv_len = 0;
+	} else {
+		rq->special_vec.bv_page =
+			mempool_alloc(sd_page_pool, GFP_ATOMIC);
+		if (!rq->special_vec.bv_page)
+			return BLK_STS_RESOURCE;
+		clear_highpage(rq->special_vec.bv_page);
+		rq->special_vec.bv_len = data_len;
+	}
+
 	rq->rq_flags |= RQF_SPECIAL_PAYLOAD;
+	rq->special_vec.bv_offset = 0;
 
 	cmd->cmd_len = 16;
 	cmd->cmnd[0] = WRITE_SAME_16;
 	if (unmap)
 		cmd->cmnd[1] = 0x8; /* UNMAP */
+	if (ndob)
+		cmd->cmnd[1] |= 0x1; /* NDOB */
 	put_unaligned_be64(lba, &cmd->cmnd[2]);
 	put_unaligned_be32(nr_blocks, &cmd->cmnd[10]);
 
 	cmd->allowed = sdkp->max_retries;
-	cmd->transfersize = data_len;
+	cmd->transfersize = rq->special_vec.bv_len;
 	rq->timeout = unmap ? SD_TIMEOUT : SD_WRITE_SAME_TIMEOUT;
 
 	return scsi_alloc_sgtables(cmd);
@@ -1030,10 +1047,14 @@ static void sd_config_write_zeroes(struct scsi_disk *sdkp,
 	unsigned int logical_block_size = sdkp->device->sector_size;
 
 	if (mode == SD_ZERO_DEFAULT && !sdkp->zeroing_override) {
-		if (sdkp->lbprz && sdkp->lbpws)
+		if (sdkp->lbprz && sdkp->lbpws && sdkp->ndob)
+			mode = SD_ZERO_WS16_UNMAP_NDOB;
+		else if (sdkp->lbprz && sdkp->lbpws)
 			mode = SD_ZERO_WS16_UNMAP;
 		else if (sdkp->lbprz && sdkp->lbpws10)
 			mode = SD_ZERO_WS10_UNMAP;
+		else if (sdkp->max_ws_blocks && sdkp->ndob)
+			mode = SD_ZERO_WS16_NDOB;
 		else if (sdkp->max_ws_blocks)
 			mode = SD_ZERO_WS;
 		else
@@ -1058,8 +1079,10 @@ static blk_status_t sd_setup_write_zeroes_cmnd(struct scsi_cmnd *cmd)
 
 	if (!(rq->cmd_flags & REQ_NOUNMAP)) {
 		switch (sdkp->zeroing_mode) {
+		case SD_ZERO_WS16_UNMAP_NDOB:
+			return sd_setup_write_same16_cmnd(cmd, true, true);
 		case SD_ZERO_WS16_UNMAP:
-			return sd_setup_write_same16_cmnd(cmd, true);
+			return sd_setup_write_same16_cmnd(cmd, true, false);
 		case SD_ZERO_WS10_UNMAP:
 			return sd_setup_write_same10_cmnd(cmd, true);
 		}
@@ -1070,8 +1093,12 @@ static blk_status_t sd_setup_write_zeroes_cmnd(struct scsi_cmnd *cmd)
 		return BLK_STS_TARGET;
 	}
 
-	if (sdkp->ws16 || lba > 0xffffffff || nr_blocks > 0xffff)
-		return sd_setup_write_same16_cmnd(cmd, false);
+	if (sdkp->ws16 || lba > 0xffffffff || nr_blocks > 0xffff) {
+		if (sdkp->zeroing_mode == SD_ZERO_WS16_NDOB)
+			return sd_setup_write_same16_cmnd(cmd, false, true);
+		else
+			return sd_setup_write_same16_cmnd(cmd, false, false);
+	}
 
 	return sd_setup_write_same10_cmnd(cmd, false);
 }
@@ -1338,7 +1365,9 @@ static blk_status_t sd_init_command(struct scsi_cmnd *cmd)
 		case SD_LBP_UNMAP:
 			return sd_setup_unmap_cmnd(cmd);
 		case SD_LBP_WS16:
-			return sd_setup_write_same16_cmnd(cmd, true);
+			return sd_setup_write_same16_cmnd(cmd, true, false);
+		case SD_LBP_WS16_NDOB:
+			return sd_setup_write_same16_cmnd(cmd, true, true);
 		case SD_LBP_WS10:
 			return sd_setup_write_same10_cmnd(cmd, true);
 		case SD_LBP_ZERO:
@@ -3101,8 +3130,12 @@ static void sd_read_write_same(struct scsi_disk *sdkp, unsigned char *buffer)
 		rcu_read_unlock();
 	}
 
-	if (scsi_report_opcode(sdev, buffer, SD_BUF_SIZE, WRITE_SAME_16) == 1)
+	if (scsi_report_opcode(sdev, buffer, SD_BUF_SIZE, WRITE_SAME_16) == 1) {
 		sdkp->ws16 = 1;
+
+		if (get_unaligned_be16(&buffer[2]) >= 2)
+			sdkp->ndob = buffer[5] & 1;
+	}
 
 	if (scsi_report_opcode(sdev, buffer, SD_BUF_SIZE, WRITE_SAME) == 1)
 		sdkp->ws10 = 1;
