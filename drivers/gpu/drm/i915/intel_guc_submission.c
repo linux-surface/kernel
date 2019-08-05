@@ -1485,7 +1485,7 @@ int i915_guc_ipts_submission_enable(struct drm_i915_private *dev_priv,
 				  ctx);
 	if (IS_ERR(client)) {
 		DRM_ERROR("Failed to create normal GuC client!\n");
-		return -ENOMEM;
+		return PTR_ERR(client);
 	}
 
 	guc->ipts_client = client;
