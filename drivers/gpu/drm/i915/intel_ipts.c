@@ -29,6 +29,7 @@
 
 #include "intel_guc_submission.h"
 #include "i915_drv.h"
+#include "gem/i915_gem_context.h"
 
 #define SUPPORTED_IPTS_INTERFACE_VERSION	1
 
@@ -86,7 +87,7 @@ static intel_ipts_object_t *ipts_object_create(size_t size, u32 flags)
 	}
 
 	/* Allocate the new object */
-	gem_obj = i915_gem_object_create(dev_priv, size);
+	gem_obj = i915_gem_object_create_shmem(dev_priv, size);
 	if (gem_obj == NULL) {
 		ret = -ENOMEM;
 		goto err_out;
@@ -136,8 +137,8 @@ static int ipts_object_pin(intel_ipts_object_t* obj,
 	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	int ret = 0;
 
-	if (ipts_ctx->ppgtt) {
-		vm = &ipts_ctx->ppgtt->vm;
+	if (ipts_ctx->vm) {
+		vm = ipts_ctx->vm;
 	} else {
 		vm = &dev_priv->ggtt.vm;
 	}
@@ -173,7 +174,6 @@ static void ipts_object_unmap(intel_ipts_object_t* obj)
 static int create_ipts_context(void)
 {
 	struct i915_gem_context *ipts_ctx = NULL;
-	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	struct intel_context *ce = NULL;
 	int ret = 0;
 
@@ -192,12 +192,19 @@ static int create_ipts_context(void)
 		goto err_unlock;
 	}
 
-	ce = intel_context_pin(ipts_ctx, dev_priv->engine[RCS0]);
+	ce = i915_gem_context_get_engine(ipts_ctx, RCS0);
 	if (IS_ERR(ce)) {
 		DRM_ERROR("Failed to create intel context (error %ld)\n",
 			  PTR_ERR(ce));
 		ret = PTR_ERR(ce);
-		goto err_unlock;
+		goto err_ctx;
+	}
+
+	ret = intel_context_pin(ce);
+	if (ret) {
+		DRM_ERROR("Failed to pin intel context (error %d)\n", ret);
+		ret = PTR_ERR(ce);
+		goto err_ctx;
 	}
 
 	ret = execlists_context_deferred_alloc(ce, ce->engine);
@@ -223,7 +230,9 @@ static int create_ipts_context(void)
 	return 0;
 
 err_ctx:
-	if (ipts_ctx)
+	if (!IS_ERR_OR_NULL(ce))
+		intel_context_put(ce);
+	if (!IS_ERR_OR_NULL(ipts_ctx))
 		i915_gem_context_put(ipts_ctx);
 
 err_unlock:
@@ -235,23 +244,27 @@ err_unlock:
 static void destroy_ipts_context(void)
 {
 	struct i915_gem_context *ipts_ctx = NULL;
-	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	struct intel_context *ce = NULL;
 	int ret = 0;
 
 	ipts_ctx = intel_ipts.ipts_context;
 
-	ce = intel_context_lookup(ipts_ctx, dev_priv->engine[RCS0]);
+	ce = i915_gem_context_lookup_engine(ipts_ctx, RCS0);
+	if (IS_ERR(ce)) {
+		DRM_ERROR("i915_gem_context_lookup_engine failed: %ld\n", PTR_ERR(ce));
+		return;
+	}
 
 	/* Initialize the context right away.*/
 	ret = i915_mutex_lock_interruptible(intel_ipts.dev);
 	if (ret) {
-		DRM_ERROR("i915_mutex_lock_interruptible failed \n");
+		DRM_ERROR("i915_mutex_lock_interruptible failed\n");
 		return;
 	}
 
 	execlists_context_unpin(ce);
 	intel_context_unpin(ce);
+	intel_context_put(ce);
 	i915_gem_context_put(ipts_ctx);
 
 	mutex_unlock(&intel_ipts.dev->struct_mutex);
@@ -452,8 +465,8 @@ static int intel_ipts_map_buffer(u64 gfx_handle, intel_ipts_mapbuffer_t *mapbuf)
 		obj->cpu_addr = ipts_object_map(obj);
 	}
 
-	if (ipts_ctx->ppgtt) {
-		vm = &ipts_ctx->ppgtt->vm;
+	if (ipts_ctx->vm) {
+		vm = ipts_ctx->vm;
 	} else {
 		vm = &dev_priv->ggtt.vm;
 	}
