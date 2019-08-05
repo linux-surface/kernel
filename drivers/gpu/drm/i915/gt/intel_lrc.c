@@ -214,8 +214,8 @@ static struct virtual_engine *to_virtual_engine(struct intel_engine_cs *engine)
 	return container_of(engine, struct virtual_engine, base);
 }
 
-static int execlists_context_deferred_alloc(struct intel_context *ce,
-					    struct intel_engine_cs *engine);
+int execlists_context_deferred_alloc(struct intel_context *ce,
+				     struct intel_engine_cs *engine);
 static void execlists_init_reg_state(u32 *reg_state,
 				     struct intel_context *ce,
 				     struct intel_engine_cs *engine,
@@ -1423,7 +1423,7 @@ static void execlists_context_destroy(struct kref *kref)
 	intel_context_free(ce);
 }
 
-static void execlists_context_unpin(struct intel_context *ce)
+void execlists_context_unpin(struct intel_context *ce)
 {
 	i915_gem_context_unpin_hw_id(ce->gem_context);
 	i915_gem_object_unpin_map(ce->state->obj);
@@ -1496,7 +1496,7 @@ err:
 	return ret;
 }
 
-static int execlists_context_pin(struct intel_context *ce)
+int execlists_context_pin(struct intel_context *ce)
 {
 	return __execlists_context_pin(ce, ce->engine);
 }
@@ -2680,6 +2680,9 @@ int intel_execlists_submission_setup(struct intel_engine_cs *engine)
 		engine->init_context = gen8_init_rcs_context;
 		engine->emit_flush = gen8_emit_flush_render;
 		engine->emit_fini_breadcrumb = gen8_emit_fini_breadcrumb_rcs;
+
+		engine->irq_keep_mask |= GT_RENDER_PIPECTL_NOTIFY_INTERRUPT
+					<< GEN8_RCS_IRQ_SHIFT;
 	}
 
 	return 0;
@@ -2940,8 +2943,8 @@ static struct i915_timeline *get_timeline(struct i915_gem_context *ctx)
 		return i915_timeline_create(ctx->i915, NULL);
 }
 
-static int execlists_context_deferred_alloc(struct intel_context *ce,
-					    struct intel_engine_cs *engine)
+int execlists_context_deferred_alloc(struct intel_context *ce,
+				     struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_object *ctx_obj;
 	struct i915_vma *vma;

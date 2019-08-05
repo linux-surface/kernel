@@ -118,6 +118,11 @@ void intel_execlists_show_requests(struct intel_engine_cs *engine,
 							const char *prefix),
 				   unsigned int max);
 
+int execlists_context_pin(struct intel_context *ce);
+void execlists_context_unpin(struct intel_context *ce);
+int execlists_context_deferred_alloc(struct intel_context *ce,
+				     struct intel_engine_cs *engine);
+
 struct intel_context *
 intel_execlists_create_virtual(struct i915_gem_context *ctx,
 			       struct intel_engine_cs **siblings,

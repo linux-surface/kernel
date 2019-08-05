@@ -163,6 +163,9 @@ int i915_gem_context_reset_stats_ioctl(struct drm_device *dev, void *data,
 struct i915_gem_context *
 i915_gem_context_create_kernel(struct drm_i915_private *i915, int prio);
 
+struct i915_gem_context *
+i915_gem_context_create_ipts(struct drm_device *dev);
+
 static inline struct i915_gem_context *
 i915_gem_context_get(struct i915_gem_context *ctx)
 {

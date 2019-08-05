@@ -47,6 +47,7 @@
 #include "i915_trace.h"
 #include "intel_drv.h"
 #include "intel_pm.h"
+#include "intel_ipts.h"
 
 /**
  * DOC: interrupt handling
@@ -1570,6 +1571,9 @@ gen8_cs_irq_handler(struct intel_engine_cs *engine, u32 iir)
 		intel_engine_breadcrumbs_irq(engine);
 		tasklet |= intel_engine_needs_breadcrumb_tasklet(engine);
 	}
+
+	if (iir & GT_RENDER_PIPECTL_NOTIFY_INTERRUPT && i915_modparams.enable_ipts)
+		intel_ipts_notify_complete();
 
 	if (tasklet)
 		tasklet_hi_schedule(&engine->execlists.tasklet);
@@ -4120,7 +4124,8 @@ static void gen8_gt_irq_postinstall(struct drm_i915_private *dev_priv)
 
 	/* These are interrupts we'll toggle with the ring mask register */
 	u32 gt_interrupts[] = {
-		(GT_RENDER_USER_INTERRUPT << GEN8_RCS_IRQ_SHIFT |
+		(GT_RENDER_PIPECTL_NOTIFY_INTERRUPT << GEN8_RCS_IRQ_SHIFT |
+		 GT_RENDER_USER_INTERRUPT << GEN8_RCS_IRQ_SHIFT |
 		 GT_CONTEXT_SWITCH_INTERRUPT << GEN8_RCS_IRQ_SHIFT |
 		 GT_RENDER_USER_INTERRUPT << GEN8_BCS_IRQ_SHIFT |
 		 GT_CONTEXT_SWITCH_INTERRUPT << GEN8_BCS_IRQ_SHIFT),
