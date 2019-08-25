@@ -582,6 +582,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
 	return AE_OK;
 }
 
+struct acpi_serdev_add_device_from_resource_ctx {
+	acpi_handle ctrl_handle;
+	acpi_handle device_handle;
+	struct serdev_controller *ctrl;
+	struct acpi_device *device;
+};
+
+static acpi_status
+acpi_serdev_add_device_from_resource(struct acpi_resource *resource, void *data)
+{
+	struct acpi_serdev_add_device_from_resource_ctx* ctx = data;
+	struct acpi_resource_source *ctrl_name;
+	acpi_handle ctrl_handle;
+	acpi_status status;
+
+	if (resource->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
+		return AE_OK;
+
+	if (resource->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
+		return AE_OK;
+
+	ctrl_name = &resource->data.common_serial_bus.resource_source;
+	if (ctrl_name->string_length == 0 || !ctrl_name->string_ptr) {
+		return AE_OK;
+	}
+
+	status = acpi_get_handle(ctx->device_handle, ctrl_name->string_ptr,
+				 &ctrl_handle);
+	if (ACPI_FAILURE(status)) {
+		return AE_OK;
+	}
+
+	if (ctrl_handle == ctx->ctrl_handle) {
+		return acpi_serdev_register_device(ctx->ctrl, ctx->device);
+	}
+
+	return AE_OK;
+}
+
+static acpi_status
+acpi_serdev_add_devices_from_resources(acpi_handle handle, u32 level,
+				       void *data, void **return_value)
+{
+	struct acpi_serdev_add_device_from_resource_ctx *ctx = data;
+	acpi_status status;
+
+	ctx->device_handle = handle;
+
+	status = acpi_bus_get_device(handle, &ctx->device);
+	if (status) return AE_OK;
+
+	status = acpi_walk_resources(handle, METHOD_NAME__CRS,
+	                             acpi_serdev_add_device_from_resource,
+				     ctx);
+
+	if (status == AE_NOT_FOUND)
+		return AE_OK;		// not finding _CRS is not an error
+	else
+		return status;
+}
+
+static int
+acpi_serdev_register_devices_from_resources(acpi_handle handle,
+					    struct serdev_controller *ctrl)
+{
+	struct acpi_serdev_add_device_from_resource_ctx ctx = {
+		.ctrl = ctrl,
+		.ctrl_handle = handle,
+	};
+
+	return acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT, 128,
+				   acpi_serdev_add_devices_from_resources,
+				   NULL, &ctx, NULL);
+}
+
 static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
 				       void *data, void **return_value)
 {
@@ -589,6 +664,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
 	struct acpi_device *adev;
 
 	if (acpi_bus_get_device(handle, &adev))
+		return AE_OK;
+
+	if (acpi_device_enumerated(adev))
 		return AE_OK;
 
 	return acpi_serdev_register_device(ctrl, adev);
@@ -607,6 +685,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
 				     acpi_serdev_add_device, NULL, ctrl, NULL);
 	if (ACPI_FAILURE(status))
 		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
+
+	if (!ctrl->serdev) {
+		status = acpi_serdev_register_devices_from_resources(handle, ctrl);
+		if (ACPI_FAILURE(status)) {
+			dev_dbg(&ctrl->dev,
+			        "failed to register serdev slaves from resources: %x\n",
+				status);
+		}
+	}
 
 	if (!ctrl->serdev)
 		return -ENODEV;
