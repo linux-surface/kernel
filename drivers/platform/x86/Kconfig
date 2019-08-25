@@ -1335,6 +1335,7 @@ config PCENGINES_APU2
 	  will be called pcengines-apuv2.
 
 source "drivers/platform/x86/intel_speed_select_if/Kconfig"
+source "drivers/platform/x86/surface_sam/Kconfig"
 
 endif # X86_PLATFORM_DEVICES
 
