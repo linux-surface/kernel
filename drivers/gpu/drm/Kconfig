@@ -239,7 +239,7 @@ source "drivers/gpu/drm/amd/amdgpu/Kconfig"
 
 source "drivers/gpu/drm/nouveau/Kconfig"
 
-source "drivers/gpu/drm/i915/Kconfig"
+source "drivers/gpu/drm/i915_legacy/Kconfig"
 
 config DRM_VGEM
 	tristate "Virtual GEM provider"
