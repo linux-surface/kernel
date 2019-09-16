@@ -104,13 +104,26 @@ int intel_digital_connector_atomic_set_property(struct drm_connector *connector,
 	return -EINVAL;
 }
 
-int intel_digital_connector_atomic_check(struct drm_connector *conn,
-					 struct drm_connector_state *new_state)
+
+static bool blob_equal(const struct drm_property_blob *a,
+		       const struct drm_property_blob *b)
 {
+	if (a && b)
+		return a->length == b->length &&
+			!memcmp(a->data, b->data, a->length);
+
+	return !a == !b;
+}
+
+int intel_digital_connector_atomic_check(struct drm_connector *conn,
+					 struct drm_atomic_state *state)
+{
+	struct drm_connector_state *new_state =
+		drm_atomic_get_new_connector_state(state, conn);
 	struct intel_digital_connector_state *new_conn_state =
 		to_intel_digital_connector_state(new_state);
 	struct drm_connector_state *old_state =
-		drm_atomic_get_old_connector_state(new_state->state, conn);
+		drm_atomic_get_old_connector_state(state, conn);
 	struct intel_digital_connector_state *old_conn_state =
 		to_intel_digital_connector_state(old_state);
 	struct drm_crtc_state *crtc_state;
@@ -120,7 +133,7 @@ int intel_digital_connector_atomic_check(struct drm_connector *conn,
 	if (!new_state->crtc)
 		return 0;
 
-	crtc_state = drm_atomic_get_new_crtc_state(new_state->state, new_state->crtc);
+	crtc_state = drm_atomic_get_new_crtc_state(state, new_state->crtc);
 
 	/*
 	 * These properties are handled by fastset, and might not end
@@ -131,7 +144,9 @@ int intel_digital_connector_atomic_check(struct drm_connector *conn,
 	    new_conn_state->base.colorspace != old_conn_state->base.colorspace ||
 	    new_conn_state->base.picture_aspect_ratio != old_conn_state->base.picture_aspect_ratio ||
 	    new_conn_state->base.content_type != old_conn_state->base.content_type ||
-	    new_conn_state->base.scaling_mode != old_conn_state->base.scaling_mode)
+	    new_conn_state->base.scaling_mode != old_conn_state->base.scaling_mode ||
+	    !blob_equal(new_conn_state->base.hdr_output_metadata,
+			old_conn_state->base.hdr_output_metadata))
 		crtc_state->mode_changed = true;
 
 	return 0;
