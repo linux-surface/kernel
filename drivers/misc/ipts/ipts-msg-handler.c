@@ -189,17 +189,6 @@ int ipts_restart(ipts_info_t *ipts)
 	return ret;
 }
 
-int ipts_switch_sensor_mode(ipts_info_t *ipts, int new_sensor_mode)
-{
-	int ret = 0;
-
-        ipts->new_sensor_mode = new_sensor_mode;
-	ipts->switch_sensor_mode = true;
-        ret = ipts_send_sensor_quiesce_io_cmd(ipts);
-
-	return ret;
-}
-
 #define rsp_failed(ipts, cmd, status) ipts_err(ipts, \
 				"0x%08x failed status = %d\n", cmd, status);
 
