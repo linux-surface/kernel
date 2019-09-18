@@ -20,7 +20,6 @@
 int ipts_handle_cmd(ipts_info_t *ipts, u32 cmd, void *data, int data_size);
 int ipts_start(ipts_info_t *ipts);
 void ipts_stop(ipts_info_t *ipts);
-int ipts_switch_sensor_mode(ipts_info_t *ipts, int new_sensor_mode);
 int ipts_handle_resp(ipts_info_t *ipts, touch_sensor_msg_m2h_t *m2h_msg,
                      u32 msg_len);
 int ipts_handle_processed_data(ipts_info_t *ipts);
