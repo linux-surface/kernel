@@ -1615,7 +1615,7 @@ static void surfacegen5_acpi_ssh_remove(struct serdev_device *serdev)
 {
 	struct surfacegen5_ec *ec;
 	unsigned long flags;
-	int status;
+	//int status;
 
 	ec = surfacegen5_ec_acquire_init();
 	if (!ec) {
@@ -1625,10 +1625,10 @@ static void surfacegen5_acpi_ssh_remove(struct serdev_device *serdev)
 	surfacegen5_ssh_sysfs_unregister(&serdev->dev);
 
 	// suspend EC and disable events
-	status = surfacegen5_ssh_ec_suspend(ec);
-	if (status) {
-		dev_err(&serdev->dev, "failed to suspend EC: %d\n", status);
-	}
+	//status = surfacegen5_ssh_ec_suspend(ec);
+	//if (status) {
+	//	dev_err(&serdev->dev, "failed to suspend EC: %d\n", status);
+	//}
 
 	// make sure all events (received up to now) have been properly handled
 	flush_workqueue(ec->events.queue_ack);
