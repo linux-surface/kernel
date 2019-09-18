@@ -166,8 +166,8 @@
 
 #define ACTIVE_PRIORITY (I915_PRIORITY_NOSEMAPHORE)
 
-static int execlists_context_deferred_alloc(struct intel_context *ce,
-					    struct intel_engine_cs *engine);
+int execlists_context_deferred_alloc(struct intel_context *ce,
+				     struct intel_engine_cs *engine);
 static void execlists_init_reg_state(u32 *reg_state,
 				     struct intel_context *ce,
 				     struct intel_engine_cs *engine,
@@ -1183,7 +1183,7 @@ static void __context_unpin(struct i915_vma *vma)
 	__i915_vma_unpin(vma);
 }
 
-static void execlists_context_unpin(struct intel_context *ce)
+void execlists_context_unpin(struct intel_context *ce)
 {
 	struct intel_engine_cs *engine;
 
@@ -1285,7 +1285,7 @@ err:
 	return ret;
 }
 
-static int execlists_context_pin(struct intel_context *ce)
+int execlists_context_pin(struct intel_context *ce)
 {
 	return __execlists_context_pin(ce, ce->engine);
 }
@@ -2520,6 +2520,9 @@ int logical_render_ring_init(struct intel_engine_cs *engine)
 	engine->emit_flush = gen8_emit_flush_render;
 	engine->emit_fini_breadcrumb = gen8_emit_fini_breadcrumb_rcs;
 
+	engine->irq_keep_mask |= GT_RENDER_PIPECTL_NOTIFY_INTERRUPT
+				<< GEN8_RCS_IRQ_SHIFT;
+
 	ret = logical_ring_init(engine);
 	if (ret)
 		return ret;
@@ -2881,8 +2884,8 @@ static struct i915_timeline *get_timeline(struct i915_gem_context *ctx)
 		return i915_timeline_create(ctx->i915, NULL);
 }
 
-static int execlists_context_deferred_alloc(struct intel_context *ce,
-					    struct intel_engine_cs *engine)
+int execlists_context_deferred_alloc(struct intel_context *ce,
+				     struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_object *ctx_obj;
 	struct i915_vma *vma;

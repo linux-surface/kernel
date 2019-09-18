@@ -39,6 +39,7 @@
 #include "intel_guc_submission.h"
 #include "intel_hdcp.h"
 #include "intel_hdmi.h"
+#include "intel_ipts.h"
 #include "intel_pm.h"
 #include "intel_psr.h"
 
@@ -4567,6 +4568,64 @@ static const struct file_operations i915_fifo_underrun_reset_ops = {
 	.llseek = default_llseek,
 };
 
+static ssize_t
+i915_ipts_cleanup_write(struct file *filp,
+			       const char __user *ubuf,
+			       size_t cnt, loff_t *ppos)
+{
+	struct drm_i915_private *dev_priv = filp->private_data;
+	struct drm_device *dev = &dev_priv->drm;
+	int ret;
+	bool flag;
+
+	ret = kstrtobool_from_user(ubuf, cnt, &flag);
+	if (ret)
+		return ret;
+
+	if (!flag)
+		return cnt;
+
+	ipts_cleanup(dev);
+
+	return cnt;
+}
+
+static const struct file_operations i915_ipts_cleanup_ops = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.write = i915_ipts_cleanup_write,
+	.llseek = default_llseek,
+};
+
+static ssize_t
+i915_ipts_init_write(struct file *filp,
+			       const char __user *ubuf,
+			       size_t cnt, loff_t *ppos)
+{
+	struct drm_i915_private *dev_priv = filp->private_data;
+	struct drm_device *dev = &dev_priv->drm;
+	int ret;
+	bool flag;
+
+	ret = kstrtobool_from_user(ubuf, cnt, &flag);
+	if (ret)
+		return ret;
+
+	if (!flag)
+		return cnt;
+
+	ipts_init(dev);
+
+	return cnt;
+}
+
+static const struct file_operations i915_ipts_init_ops = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.write = i915_ipts_init_write,
+	.llseek = default_llseek,
+};
+
 static const struct drm_info_list i915_debugfs_list[] = {
 	{"i915_capabilities", i915_capabilities, 0},
 	{"i915_gem_objects", i915_gem_object_info, 0},
@@ -4642,7 +4701,9 @@ static const struct i915_debugfs_files {
 	{"i915_hpd_short_storm_ctl", &i915_hpd_short_storm_ctl_fops},
 	{"i915_ipc_status", &i915_ipc_status_fops},
 	{"i915_drrs_ctl", &i915_drrs_ctl_fops},
-	{"i915_edp_psr_debug", &i915_edp_psr_debug_fops}
+	{"i915_edp_psr_debug", &i915_edp_psr_debug_fops},
+	{"i915_ipts_cleanup", &i915_ipts_cleanup_ops},
+	{"i915_ipts_init", &i915_ipts_init_ops},
 };
 
 int i915_debugfs_register(struct drm_i915_private *dev_priv)
