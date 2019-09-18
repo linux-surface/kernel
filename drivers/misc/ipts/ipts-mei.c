@@ -39,43 +39,6 @@ static struct mei_cl_device_id ipts_mei_cl_tbl[] = {
 	{}
 };
 
-static ssize_t sensor_mode_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	ipts_info_t *ipts;
-	ipts = dev_get_drvdata(dev);
-
-	return sprintf(buf, "%d\n", ipts->sensor_mode);
-}
-
-//TODO: Verify the function implementation
-static ssize_t sensor_mode_store(struct device *dev,
-				struct device_attribute *attr, const char *buf,
-				size_t count)
-{
-	int ret;
-	long val;
-	ipts_info_t *ipts;
-
-	ipts = dev_get_drvdata(dev);
-	ret = kstrtol(buf, 10, &val);
-	if (ret)
-	   return ret;
-
-	ipts_dbg(ipts, "try sensor mode = %ld\n", val);
-
-	switch (val) {
-		case TOUCH_SENSOR_MODE_HID:
-			break;
-		case TOUCH_SENSOR_MODE_RAW_DATA:
-			break;
-		default:
-			ipts_err(ipts, "sensor mode %ld is not supported\n", val);
-	}
-
-	return count;
-}
-
 static ssize_t device_info_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -89,12 +52,9 @@ static ssize_t device_info_show(struct device *dev,
 			ipts->device_info.vendor_id, ipts->device_info.device_id,
 			ipts->device_info.hw_rev, ipts->device_info.fw_rev);
 }
-
-static DEVICE_ATTR_RW(sensor_mode);
 static DEVICE_ATTR_RO(device_info);
 
 static struct attribute *ipts_attrs[] = {
-	&dev_attr_sensor_mode.attr,
 	&dev_attr_device_info.attr,
 	NULL
 };
