@@ -562,6 +562,18 @@ static bool needs_preempt_context(struct drm_i915_private *i915)
 	return HAS_EXECLISTS(i915);
 }
 
+struct i915_gem_context *i915_gem_context_create_ipts(struct drm_device *dev)
+{
+	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct i915_gem_context *ctx;
+
+	BUG_ON(!mutex_is_locked(&dev->struct_mutex));
+
+	ctx = i915_gem_create_context(dev_priv, 0);
+
+	return ctx;
+}
+
 int i915_gem_contexts_init(struct drm_i915_private *dev_priv)
 {
 	struct i915_gem_context *ctx;

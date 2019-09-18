@@ -63,6 +63,7 @@
 #include "intel_sprite.h"
 #include "intel_uc.h"
 #include "intel_workarounds.h"
+#include "intel_ipts.h"
 
 static struct drm_driver driver;
 
@@ -722,6 +723,9 @@ static int i915_load_modeset_init(struct drm_device *dev)
 	intel_hpd_init(dev_priv);
 
 	intel_init_ipc(dev_priv);
+
+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
+		intel_ipts_init(dev);
 
 	return 0;
 
@@ -1917,6 +1921,9 @@ void i915_driver_unload(struct drm_device *dev)
 	struct pci_dev *pdev = dev_priv->drm.pdev;
 
 	disable_rpm_wakeref_asserts(dev_priv);
+
+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
+		intel_ipts_cleanup(dev);
 
 	i915_driver_unregister(dev_priv);
 
