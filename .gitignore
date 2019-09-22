@@ -161,6 +161,9 @@ signing_key.priv
 signing_key.x509
 x509.genkey
 
+# Secureboot certificate
+/keys/
+
 # Kconfig presets
 /all.config
 /alldef.config
