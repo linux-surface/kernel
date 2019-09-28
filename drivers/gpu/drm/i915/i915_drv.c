@@ -47,11 +47,12 @@
 #include <drm/i915_drm.h>
 
 #include "i915_drv.h"
-#include "i915_trace.h"
 #include "i915_pmu.h"
 #include "i915_query.h"
+#include "i915_trace.h"
 #include "i915_vgpu.h"
 #include "intel_drv.h"
+#include "intel_ipts.h"
 #include "intel_uc.h"
 
 static struct drm_driver driver;
@@ -695,6 +696,9 @@ static int i915_load_modeset_init(struct drm_device *dev)
 
 	/* Only enable hotplug handling once the fbdev is fully set up. */
 	intel_hpd_init(dev_priv);
+
+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
+		ipts_init(dev);
 
 	return 0;
 
@@ -1437,6 +1441,9 @@ void i915_driver_unload(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct pci_dev *pdev = dev_priv->drm.pdev;
+
+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
+		ipts_cleanup(dev);
 
 	i915_driver_unregister(dev_priv);
 
