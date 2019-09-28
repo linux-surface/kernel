@@ -69,6 +69,7 @@ struct intel_guc {
 
 	struct intel_guc_client *execbuf_client;
 	struct intel_guc_client *preempt_client;
+	struct intel_guc_client *ipts_client;
 
 	struct guc_preempt_work preempt_work[I915_NUM_ENGINES];
 	struct workqueue_struct *preempt_wq;

@@ -106,4 +106,12 @@ void intel_lr_context_resume(struct drm_i915_private *dev_priv);
 
 void intel_execlists_set_default_submission(struct intel_engine_cs *engine);
 
+struct intel_context *
+execlists_context_pin(struct intel_engine_cs *engine,
+		      struct i915_gem_context *ctx);
+void execlists_context_unpin(struct intel_context *ce);
+int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
+					    struct intel_engine_cs *engine,
+						struct intel_context *ce);
+
 #endif /* _INTEL_LRC_H_ */

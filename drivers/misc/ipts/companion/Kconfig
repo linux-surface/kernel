@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+config INTEL_IPTS_SURFACE
+	tristate "IPTS companion driver for Microsoft Surface"
+	depends on INTEL_IPTS && ACPI
+	help
+	  IPTS companion driver for Microsoft Surface. This driver is
+	  responsible for loading firmware using surface-specific hardware IDs.
+	  If you have a Microsoft Surface using IPTS, select y or m here.
