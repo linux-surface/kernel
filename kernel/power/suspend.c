@@ -526,6 +526,8 @@ int suspend_devices_and_enter(suspend_state_t state)
 	goto Resume_devices;
 }
 
+unsigned int resume_delay = 3000;
+
 /**
  * suspend_finish - Clean up before finishing the suspend sequence.
  *
@@ -534,6 +536,15 @@ int suspend_devices_and_enter(suspend_state_t state)
  */
 static void suspend_finish(void)
 {
+	if (resume_delay) {
+		/* Give kernel threads a head start, such that usb-storage
+		 * can detect devices before syslog attempts to write log
+		 * messages from the suspend code.
+		 */
+		thaw_kernel_threads();
+		pr_debug("PM: Sleeping for %d milliseconds.\n", resume_delay);
+		msleep(resume_delay);
+	}
 	suspend_thaw_processes();
 	pm_notifier_call_chain(PM_POST_SUSPEND);
 	pm_restore_console();
