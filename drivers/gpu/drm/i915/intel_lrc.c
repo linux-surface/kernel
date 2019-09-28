@@ -164,9 +164,6 @@
 #define WA_TAIL_DWORDS 2
 #define WA_TAIL_BYTES (sizeof(u32) * WA_TAIL_DWORDS)
 
-static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
-					    struct intel_engine_cs *engine,
-					    struct intel_context *ce);
 static void execlists_init_reg_state(u32 *reg_state,
 				     struct i915_gem_context *ctx,
 				     struct intel_engine_cs *engine,
@@ -1292,7 +1289,7 @@ static void execlists_context_destroy(struct intel_context *ce)
 	i915_gem_object_put(ce->state->obj);
 }
 
-static void execlists_context_unpin(struct intel_context *ce)
+void execlists_context_unpin(struct intel_context *ce)
 {
 	intel_ring_unpin(ce->ring);
 
@@ -1379,7 +1376,7 @@ static const struct intel_context_ops execlists_context_ops = {
 	.destroy = execlists_context_destroy,
 };
 
-static struct intel_context *
+struct intel_context *
 execlists_context_pin(struct intel_engine_cs *engine,
 		      struct i915_gem_context *ctx)
 {
@@ -2470,6 +2467,9 @@ int logical_render_ring_init(struct intel_engine_cs *engine)
 
 	logical_ring_setup(engine);
 
+	engine->irq_keep_mask |= GT_RENDER_PIPECTL_NOTIFY_INTERRUPT
+							<< GEN8_RCS_IRQ_SHIFT;
+
 	if (HAS_L3_DPF(dev_priv))
 		engine->irq_keep_mask |= GT_RENDER_L3_PARITY_ERROR_INTERRUPT;
 
@@ -2734,7 +2734,7 @@ err_unpin_ctx:
 	return ret;
 }
 
-static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
+int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
 					    struct intel_engine_cs *engine,
 					    struct intel_context *ce)
 {
