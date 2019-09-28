@@ -2634,8 +2634,8 @@ void intel_dp_sink_dpms(struct intel_dp *intel_dp, int mode)
 		return;
 
 	if (mode != DRM_MODE_DPMS_ON) {
-		if (downstream_hpd_needs_d0(intel_dp))
-			return;
+		//if (downstream_hpd_needs_d0(intel_dp))
+		//	return;
 
 		ret = drm_dp_dpcd_writeb(&intel_dp->aux, DP_SET_POWER,
 					 DP_SET_POWER_D3);
