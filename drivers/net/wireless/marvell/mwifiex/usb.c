@@ -144,6 +144,8 @@ static int mwifiex_usb_recv(struct mwifiex_adapter *adapter,
 		skb_queue_tail(&adapter->rx_data_q, skb);
 		adapter->data_received = true;
 		atomic_inc(&adapter->rx_pending);
+		if (adapter->rx_work_enabled)
+			mwifiex_queue_rx_work(adapter);
 		break;
 	default:
 		mwifiex_dbg(adapter, ERROR,

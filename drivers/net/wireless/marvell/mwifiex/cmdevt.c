@@ -1000,6 +1000,7 @@ mwifiex_cmd_timeout_func(struct timer_list *t)
 		if (cmd_node->wait_q_enabled) {
 			adapter->cmd_wait_q.status = -ETIMEDOUT;
 			mwifiex_cancel_pending_ioctl(adapter);
+			adapter->cmd_sent = false;
 		}
 	}
 	if (adapter->hw_status == MWIFIEX_HW_STATUS_INITIALIZING) {
@@ -1007,11 +1008,11 @@ mwifiex_cmd_timeout_func(struct timer_list *t)
 		return;
 	}
 
-	if (adapter->if_ops.device_dump)
-		adapter->if_ops.device_dump(adapter);
+	//if (adapter->if_ops.device_dump)
+	//	adapter->if_ops.device_dump(adapter);
 
-	if (adapter->if_ops.card_reset)
-		adapter->if_ops.card_reset(adapter);
+	//if (adapter->if_ops.card_reset)
+	//	adapter->if_ops.card_reset(adapter);
 }
 
 void
@@ -1577,6 +1578,7 @@ int mwifiex_ret_get_hw_spec(struct mwifiex_private *priv,
 						    adapter->key_api_minor_ver);
 					break;
 				case FW_API_VER_ID:
+				case FW_KEY_API_VER_ID:
 					adapter->fw_api_ver =
 							api_rev->major_ver;
 					mwifiex_dbg(adapter, INFO,

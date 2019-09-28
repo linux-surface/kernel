@@ -909,6 +909,7 @@ struct mwifiex_adapter {
 	spinlock_t main_proc_lock;
 	u32 mwifiex_processing;
 	u8 more_task_flag;
+	u8 more_rx_task_flag;
 	u16 tx_buf_size;
 	u16 curr_tx_buf_size;
 	/* sdio single port rx aggregation capability */
@@ -1695,6 +1696,7 @@ void mwifiex_upload_device_dump(struct mwifiex_adapter *adapter);
 void *mwifiex_alloc_dma_align_buf(int rx_len, gfp_t flags);
 void mwifiex_fw_dump_event(struct mwifiex_private *priv);
 void mwifiex_queue_main_work(struct mwifiex_adapter *adapter);
+void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter);
 int mwifiex_get_wakeup_reason(struct mwifiex_private *priv, u16 action,
 			      int cmd_type,
 			      struct mwifiex_ds_wakeup_reason *wakeup_reason);

@@ -30,8 +30,8 @@ static bool drcs;
 module_param(drcs, bool, 0644);
 MODULE_PARM_DESC(drcs, "multi-channel operation:1, single-channel operation:0");
 
-static bool disable_auto_ds;
-module_param(disable_auto_ds, bool, 0);
+static bool disable_auto_ds = 1;
+module_param(disable_auto_ds, bool, 0644);
 MODULE_PARM_DESC(disable_auto_ds,
 		 "deepsleep enabled=0(default), deepsleep disabled=1");
 /*
