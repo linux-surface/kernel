@@ -163,6 +163,7 @@ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter)
 	spin_lock_irqsave(&adapter->main_proc_lock, flags);
 	if (adapter->mwifiex_processing) {
 		adapter->more_task_flag = true;
+		adapter->more_rx_task_flag = true;
 		spin_unlock_irqrestore(&adapter->main_proc_lock, flags);
 	} else {
 		spin_unlock_irqrestore(&adapter->main_proc_lock, flags);
@@ -171,18 +172,20 @@ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter)
 }
 EXPORT_SYMBOL_GPL(mwifiex_queue_main_work);
 
-static void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter)
+void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
 	if (adapter->rx_processing) {
+		adapter->more_rx_task_flag = true;
 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
 	} else {
 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
 		queue_work(adapter->rx_workqueue, &adapter->rx_work);
 	}
 }
+EXPORT_SYMBOL_GPL(mwifiex_queue_rx_work);
 
 static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
 {
@@ -192,6 +195,7 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
 
 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
 	if (adapter->rx_processing || adapter->rx_locked) {
+		adapter->more_rx_task_flag = true;
 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
 		goto exit_rx_proc;
 	} else {
@@ -199,6 +203,7 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
 	}
 
+rx_process_start:
 	/* Check for Rx data */
 	while ((skb = skb_dequeue(&adapter->rx_data_q))) {
 		atomic_dec(&adapter->rx_pending);
@@ -220,6 +225,11 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
 		}
 	}
 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
+	if (adapter->more_rx_task_flag) {
+		adapter->more_rx_task_flag = false;
+		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+		goto rx_process_start;
+	}
 	adapter->rx_processing = false;
 	spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
 
@@ -283,10 +293,9 @@ process_start:
 				mwifiex_process_hs_config(adapter);
 			if (adapter->if_ops.process_int_status)
 				adapter->if_ops.process_int_status(adapter);
+			if (adapter->rx_work_enabled && adapter->data_received)
+				mwifiex_queue_rx_work(adapter);
 		}
-
-		if (adapter->rx_work_enabled && adapter->data_received)
-			mwifiex_queue_rx_work(adapter);
 
 		/* Need to wake up the card ? */
 		if ((adapter->ps_state == PS_STATE_SLEEP) &&

@@ -428,7 +428,10 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
 		mwifiex_dbg(priv->adapter, INFO,
 			    "info: ignore timeout value for IEEE Power Save\n");
 
-	ps_mode = enabled;
+	//ps_mode = enabled;
+
+	mwifiex_dbg(priv->adapter, INFO, "overriding ps_mode to false\n");
+	ps_mode = 0;
 
 	return mwifiex_drv_set_power(priv, &ps_mode);
 }
