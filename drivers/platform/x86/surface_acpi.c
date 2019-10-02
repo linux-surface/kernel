@@ -3540,8 +3540,18 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 	{
 		.ident = "Surface Pro 5",
 		.matches = {
+			/* match for SKU here due to generic product name "Surface Pro" */
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 2017"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+		.driver_data = (void *)&si_device_pro_5,
+	},
+	{
+		.ident = "Surface Pro 5 (LTE)",
+		.matches = {
+			/* match for SKU here due to generic product name "Surface Pro" */
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
 		},
 		.driver_data = (void *)&si_device_pro_5,
 	},
