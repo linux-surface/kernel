@@ -7,6 +7,24 @@
 
 #define IPTS_SURFACE_FW_PATH_FMT "intel/ipts/%s/%s"
 
+#define __IPTS_SURFACE_FIRMWARE(X, Y)				\
+	MODULE_FIRMWARE("intel/ipts/" X "/" Y)
+
+#define IPTS_SURFACE_FIRMWARE(X)				\
+	__IPTS_SURFACE_FIRMWARE(X, "config.bin");		\
+	__IPTS_SURFACE_FIRMWARE(X, "intel_desc.bin");		\
+	__IPTS_SURFACE_FIRMWARE(X, "intel_fw_config.bin");	\
+	__IPTS_SURFACE_FIRMWARE(X, "vendor_desc.bin");		\
+	__IPTS_SURFACE_FIRMWARE(X, "vendor_kernel.bin")
+
+IPTS_SURFACE_FIRMWARE("MSHW0076");
+IPTS_SURFACE_FIRMWARE("MSHW0078");
+IPTS_SURFACE_FIRMWARE("MSHW0079");
+IPTS_SURFACE_FIRMWARE("MSHW0101");
+IPTS_SURFACE_FIRMWARE("MSHW0102");
+IPTS_SURFACE_FIRMWARE("MSHW0103");
+IPTS_SURFACE_FIRMWARE("MSHW0137");
+
 int ipts_surface_request_firmware(const struct firmware **fw, const char *name,
 	struct device *device, void *data)
 {
