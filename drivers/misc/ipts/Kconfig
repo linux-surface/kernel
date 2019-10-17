@@ -1,7 +1,7 @@
 config INTEL_IPTS
 	tristate "Intel Precise Touch & Stylus"
 	select INTEL_MEI
-	depends on X86 && PCI && HID
+	depends on X86 && PCI && HID && DRM_I915
 	help
 	  Intel Precise Touch & Stylus support
 	  Supported SoCs:
