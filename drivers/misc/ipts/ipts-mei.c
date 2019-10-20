@@ -19,6 +19,7 @@
 #include <linux/hid.h>
 #include <linux/dma-mapping.h>
 #include <linux/kthread.h>
+#include <linux/ipts-binary.h>
 
 #include "ipts.h"
 #include "ipts-companion.h"
@@ -26,7 +27,6 @@
 #include "ipts-params.h"
 #include "ipts-msg-handler.h"
 #include "ipts-mei-msgs.h"
-#include "ipts-binary-spec.h"
 #include "ipts-state.h"
 
 #define IPTS_DRIVER_NAME	"ipts"

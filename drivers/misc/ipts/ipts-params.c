@@ -4,12 +4,16 @@
 
 struct ipts_params ipts_modparams = {
 	.ignore_fw_fallback = false,
+	.ignore_config_fallback = false,
 	.ignore_companion = false,
 	.no_feedback = -1,
 };
 
 module_param_named(ignore_fw_fallback, ipts_modparams.ignore_fw_fallback, bool, 0400);
 MODULE_PARM_DESC(ignore_fw_fallback, "Don't use the IPTS firmware fallback path");
+
+module_param_named(ignore_config_fallback, ipts_modparams.ignore_config_fallback, bool, 0400);
+MODULE_PARM_DESC(ignore_config_fallback, "Don't try to load the IPTS firmware config from a file");
 
 module_param_named(ignore_companion, ipts_modparams.ignore_companion, bool, 0400);
 MODULE_PARM_DESC(ignore_companion, "Don't use a companion driver to load firmware");

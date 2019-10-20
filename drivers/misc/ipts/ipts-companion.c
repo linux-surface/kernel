@@ -1,5 +1,6 @@
 #include <linux/firmware.h>
 #include <linux/ipts.h>
+#include <linux/ipts-binary.h>
 #include <linux/ipts-companion.h>
 #include <linux/mutex.h>
 
@@ -8,6 +9,7 @@
 #include "ipts-params.h"
 
 #define IPTS_FW_PATH_FMT "intel/ipts/%s"
+#define IPTS_FW_CONFIG_FILE "ipts_fw_config.bin"
 
 ipts_companion_t *ipts_companion;
 DEFINE_MUTEX(ipts_companion_lock);
@@ -115,4 +117,87 @@ request_firmware_return:
 
 	mutex_unlock(&ipts_companion_lock);
 	return ret;
+}
+
+ipts_bin_fw_list_t *ipts_alloc_fw_list(ipts_bin_fw_info_t **fw)
+{
+	int size, len, i, j;
+	ipts_bin_fw_list_t *fw_list;
+	char *itr;
+
+	// Figure out the amount of firmware files inside of the array
+	len = 0;
+	while (fw[len] != NULL) {
+		len++;
+	}
+
+	// Determine the size that the final list will need in memory
+	size = sizeof(ipts_bin_fw_list_t);
+	for (i = 0; i < len; i++) {
+		size += sizeof(ipts_bin_fw_info_t);
+		size += sizeof(ipts_bin_data_file_info_t) *
+				fw[i]->num_of_data_files;
+	}
+
+	fw_list = kmalloc(size, GFP_KERNEL);
+	fw_list->num_of_fws = len;
+	itr = (char *)fw_list->fw_info;
+	for (i = 0; i < len; i++) {
+		*(ipts_bin_fw_info_t *)itr = *fw[i];
+		itr += sizeof(ipts_bin_fw_info_t);
+
+		for (j = 0; j < fw[i]->num_of_data_files; j++) {
+			*(ipts_bin_data_file_info_t *)itr = fw[i]->data_file[j];
+			itr += sizeof(ipts_bin_data_file_info_t);
+		}
+	}
+
+	return fw_list;
+}
+
+int ipts_request_firmware_config(ipts_info_t *ipts, ipts_bin_fw_list_t **cfg)
+{
+	int ret = 0;
+	const struct firmware *config_fw = NULL;
+	mutex_lock(&ipts_companion_lock);
+
+	// Check if a companion was registered. If not, skip
+	// forward and try to load the firmware config from a file
+	if (ipts_modparams.ignore_companion || ipts_companion == NULL) {
+		goto config_fallback;
+	}
+
+	if (ipts_companion->firmware_config != NULL) {
+		*cfg = ipts_alloc_fw_list(ipts_companion->firmware_config);
+		goto config_return;
+	}
+
+config_fallback:
+
+	// If fallback loading for the firmware config was disabled, abort.
+	// Return -ENOENT as no config file was found.
+	if (ipts_modparams.ignore_config_fallback) {
+		ret = -ENOENT;
+		goto config_return;
+	}
+
+	// No firmware config was found by the companion driver,
+	// try loading it from a file now
+	mutex_unlock(&ipts_companion_lock);
+	ret = ipts_request_firmware(&config_fw, IPTS_FW_CONFIG_FILE,
+			&ipts->cldev->dev);
+	mutex_lock(&ipts_companion_lock);
+
+	if (!ret) {
+		*cfg = (ipts_bin_fw_list_t *)config_fw->data;
+		goto config_return;
+	}
+
+	release_firmware(config_fw);
+
+config_return:
+
+	mutex_unlock(&ipts_companion_lock);
+	return ret;
+
 }
