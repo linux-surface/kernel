@@ -4,7 +4,7 @@
 #
 
 obj-$(CONFIG_INTEL_IPTS)+= intel-ipts.o
-intel-ipts-objs += ipts-fw.o
+intel-ipts-objs += ipts-companion.o
 intel-ipts-objs += ipts-mei.o
 intel-ipts-objs += ipts-hid.o
 intel-ipts-objs += ipts-msg-handler.o

@@ -1,0 +1,7 @@
+#ifndef _INTEL_IPTS_IPTS_H_
+#define _INTEL_IPTS_IPTS_H_
+
+#define MAX_IOCL_FILE_NAME_LEN 80
+#define MAX_IOCL_FILE_PATH_LEN 256
+
+#endif // _INTEL_IPTS_IPTS_H_

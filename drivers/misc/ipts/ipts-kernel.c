@@ -1,11 +1,10 @@
 #include <linux/module.h>
 #include <linux/firmware.h>
+#include <linux/ipts.h>
 #include <linux/vmalloc.h>
-#include <linux/intel_ipts_fw.h>
-#include <linux/intel_ipts_if.h>
 
 #include "ipts.h"
-#include "ipts-fw.h"
+#include "ipts-companion.h"
 #include "ipts-resource.h"
 #include "ipts-binary-spec.h"
 #include "ipts-state.h"

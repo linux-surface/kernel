@@ -20,7 +20,7 @@
 #include <linux/types.h>
 #include <linux/mei_cl_bus.h>
 #include <linux/hid.h>
-#include <linux/intel_ipts_if.h>
+#include <linux/ipts-gfx.h>
 
 #include "ipts-mei-msgs.h"
 #include "ipts-state.h"
