@@ -1,37 +1,15 @@
 #include <linux/module.h>
 #include <linux/firmware.h>
 #include <linux/ipts.h>
+#include <linux/ipts-binary.h>
 #include <linux/vmalloc.h>
 
 #include "ipts.h"
 #include "ipts-companion.h"
 #include "ipts-resource.h"
-#include "ipts-binary-spec.h"
 #include "ipts-state.h"
 #include "ipts-msg-handler.h"
 #include "ipts-gfx.h"
-
-#pragma pack(1)
-typedef struct bin_data_file_info {
-    u32 io_buffer_type;
-    u32 flags;
-    char file_name[MAX_IOCL_FILE_NAME_LEN];
-} bin_data_file_info_t;
-
-typedef struct bin_fw_info {
-	char fw_name[MAX_IOCL_FILE_NAME_LEN];
-
-	/* list of parameters to load a kernel */
-	s32 vendor_output;	/* output index. -1 for no use */
-	u32 num_of_data_files;
-	bin_data_file_info_t data_file[];
-} bin_fw_info_t;
-
-typedef struct bin_fw_list {
-	u32 num_of_fws;
-	bin_fw_info_t fw_info[];
-} bin_fw_list_t;
-#pragma pack()
 
 /* OpenCL kernel */
 typedef struct bin_workload {
@@ -80,7 +58,7 @@ typedef struct bin_parse_info {
 	int size;
 	int parsed;
 
-	bin_fw_info_t *fw_info;
+	ipts_bin_fw_info_t *fw_info;
 
 	/* only used by postprocessing */
 	bin_kernel_info_t *vendor_kernel;
@@ -92,16 +70,11 @@ typedef struct bin_parse_info {
 #define SBA_OFFSET_BYTES			16384
 #define LASTSUBMITID_DEFAULT_VALUE		-1
 
-#define IPTS_FW_CONFIG_FILE			"ipts_fw_config.bin"
-
 #define IPTS_INPUT_ON				((u32)1 << IPTS_INPUT)
 #define IPTS_OUTPUT_ON				((u32)1 << IPTS_OUTPUT)
 #define IPTS_CONFIGURATION_ON			((u32)1 << IPTS_CONFIGURATION)
 #define IPTS_CALIBRATION_ON			((u32)1 << IPTS_CALIBRATION)
 #define IPTS_FEATURE_ON				((u32)1 << IPTS_FEATURE)
-
-#define	DATA_FILE_FLAG_SHARE			0x00000001
-#define	DATA_FILE_FLAG_ALLOC_CONTIGUOUS		0x00000002
 
 static int bin_read_fw(ipts_info_t *ipts, const char *fw_name,
 						u8* data, int size)
@@ -130,8 +103,8 @@ rel_return:
 }
 
 
-static bin_data_file_info_t* bin_get_data_file_info(bin_fw_info_t* fw_info,
-							u32 io_buffer_type)
+static ipts_bin_data_file_info_t* bin_get_data_file_info(
+		ipts_bin_fw_info_t* fw_info, u32 io_buffer_type)
 {
 	int i;
 
@@ -146,18 +119,18 @@ static bin_data_file_info_t* bin_get_data_file_info(bin_fw_info_t* fw_info,
 	return &fw_info->data_file[i];
 }
 
-static inline bool is_shared_data(const bin_data_file_info_t *data_file)
+static inline bool is_shared_data(const ipts_bin_data_file_info_t *data_file)
 {
 	if (data_file)
-		return (!!(data_file->flags & DATA_FILE_FLAG_SHARE));
+		return (!!(data_file->flags & IPTS_DATA_FILE_FLAG_SHARE));
 
 	return false;
 }
 
-static inline bool is_alloc_cont_data(const bin_data_file_info_t *data_file)
+static inline bool is_alloc_cont_data(const ipts_bin_data_file_info_t *data_file)
 {
 	if (data_file)
-		return (!!(data_file->flags & DATA_FILE_FLAG_ALLOC_CONTIGUOUS));
+		return (!!(data_file->flags & IPTS_DATA_FILE_FLAG_ALLOC_CONTIGUOUS));
 
 	return false;
 }
@@ -331,7 +304,7 @@ static int bin_read_res_list(ipts_info_t *ipts,
 	ipts_bin_res_list_t *res_list;
 	ipts_bin_res_t *res;
 	intel_ipts_mapbuffer_t *buf;
-	bin_data_file_info_t *data_file;
+	ipts_bin_data_file_info_t *data_file;
 	u8 *bin_data;
 	int i, size, parsed, parallel_idx, num_of_parallels, output_idx = -1;
 	int buf_idx, num_of_alloc;
@@ -879,13 +852,13 @@ static void unload_kernel(ipts_info_t *ipts, bin_kernel_info_t *kernel)
 	}
 }
 
-static int setup_kernel(ipts_info_t *ipts, bin_fw_list_t *fw_list)
+static int setup_kernel(ipts_info_t *ipts, ipts_bin_fw_list_t *fw_list)
 {
 	bin_kernel_list_t *kernel_list = NULL;
 	bin_kernel_info_t *kernel = NULL;
 	const struct firmware *fw = NULL;
 	bin_workload_t *wl;
-	bin_fw_info_t *fw_info;
+	ipts_bin_fw_info_t *fw_info;
 	char *fw_name, *fw_data;
 	bin_parse_info_t parse_info;
 	int ret = 0, kernel_idx = 0, num_of_kernels = 0;
@@ -902,7 +875,7 @@ static int setup_kernel(ipts_info_t *ipts, bin_fw_list_t *fw_list)
 
 	fw_data = (char *)&fw_list->fw_info[0];
 	for (kernel_idx = 0; kernel_idx < num_of_kernels; kernel_idx++) {
-		fw_info = (bin_fw_info_t *)fw_data;
+		fw_info = (ipts_bin_fw_info_t *)fw_data;
 		fw_name = &fw_info->fw_name[0];
 		vendor_output_idx = fw_info->vendor_output;
 		ret = ipts_request_firmware(&fw, fw_name, &ipts->cldev->dev);
@@ -930,8 +903,8 @@ static int setup_kernel(ipts_info_t *ipts, bin_fw_list_t *fw_list)
 		total_workload += kernel[kernel_idx].guc_wq_item->size;
 
 		/* advance to the next kernel */
-		fw_data += sizeof(bin_fw_info_t);
-		fw_data += sizeof(bin_data_file_info_t) * fw_info->num_of_data_files;
+		fw_data += sizeof(ipts_bin_fw_info_t);
+		fw_data += sizeof(ipts_bin_data_file_info_t) * fw_info->num_of_data_files;
 	}
 
 	ipts_set_wq_item_size(ipts, total_workload);
@@ -997,9 +970,7 @@ static void release_kernel(ipts_info_t *ipts)
 
 int ipts_init_kernels(ipts_info_t *ipts)
 {
-	const struct firmware *config_fw = NULL;
-	const char *config_fw_path = IPTS_FW_CONFIG_FILE;
-	bin_fw_list_t *fw_list;
+	ipts_bin_fw_list_t *fw_list;
 	int ret;
 
 	ret = ipts_open_gpu(ipts);
@@ -1008,25 +979,19 @@ int ipts_init_kernels(ipts_info_t *ipts)
 		return ret;
 	}
 
-	ret = ipts_request_firmware(&config_fw, config_fw_path,	&ipts->cldev->dev);
+	ret = ipts_request_firmware_config(ipts, &fw_list);
 	if (ret) {
-		ipts_err(ipts, "request firmware error : %d\n", ret);
+		ipts_err(ipts, "request firmware config error : %d\n", ret);
 		goto close_gpu;
 	}
 
-	fw_list = (bin_fw_list_t *)config_fw->data;
 	ret = setup_kernel(ipts, fw_list);
 	if (ret) {
 		ipts_err(ipts, "setup kernel error : %d\n", ret);
-		goto close_firmware;
+		goto close_gpu;
 	}
 
-	release_firmware(config_fw);
-
 	return ret;
-
-close_firmware:
-	release_firmware(config_fw);
 
 close_gpu:
 	ipts_close_gpu(ipts);

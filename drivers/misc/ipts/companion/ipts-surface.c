@@ -10,7 +10,6 @@
 #define IPTS_SURFACE_FIRMWARE(X)					\
 	MODULE_FIRMWARE("intel/ipts/" X "/config.bin");			\
 	MODULE_FIRMWARE("intel/ipts/" X "/intel_desc.bin");		\
-	MODULE_FIRMWARE("intel/ipts/" X "/ipts_fw_config.bin");		\
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_desc.bin");		\
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_kernel.bin");		\
 
@@ -28,8 +27,40 @@ int ipts_surface_request_firmware(const struct firmware **fw, const char *name,
 	return request_firmware(fw, fw_path, device);
 }
 
+static ipts_bin_fw_info_t ipts_surface_vendor_kernel = {
+	.fw_name = "vendor_kernel.bin",
+	.vendor_output = -1,
+	.num_of_data_files = 3,
+	.data_file = {
+		{
+			.io_buffer_type = IPTS_CONFIGURATION,
+			.flags = IPTS_DATA_FILE_FLAG_NONE,
+			.file_name = "config.bin",
+		},
+
+		// The following files are part of the config, but they don't
+		// exist, and the driver never requests them.
+		{
+			.io_buffer_type = IPTS_CALIBRATION,
+			.flags = IPTS_DATA_FILE_FLAG_NONE,
+			.file_name = "calib.bin",
+		},
+		{
+			.io_buffer_type = IPTS_FEATURE,
+			.flags = IPTS_DATA_FILE_FLAG_SHARE,
+			.file_name = "feature.bin",
+		},
+	},
+};
+
+static ipts_bin_fw_info_t *ipts_surface_fw_config[] = {
+	&ipts_surface_vendor_kernel,
+	NULL,
+};
+
 static ipts_companion_t ipts_surface_companion = {
 	.firmware_request = &ipts_surface_request_firmware,
+	.firmware_config = ipts_surface_fw_config,
 	.name = "ipts_surface",
 };
 

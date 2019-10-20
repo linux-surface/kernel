@@ -20,11 +20,11 @@
 #include <linux/types.h>
 #include <linux/mei_cl_bus.h>
 #include <linux/hid.h>
+#include <linux/ipts-binary.h>
 #include <linux/ipts-gfx.h>
 
 #include "ipts-mei-msgs.h"
 #include "ipts-state.h"
-#include "ipts-binary-spec.h"
 
 #define ENABLE_IPTS_DEBUG		/* enable IPTS debug */
 
