@@ -20,7 +20,7 @@
 #include <linux/dmi.h>
 
 #include "ipts.h"
-#include "ipts-fw.h"
+#include "ipts-companion.h"
 #include "ipts-params.h"
 #include "ipts-resource.h"
 #include "ipts-sensor-regs.h"

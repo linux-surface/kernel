@@ -19,10 +19,9 @@
 #include <linux/hid.h>
 #include <linux/dma-mapping.h>
 #include <linux/kthread.h>
-#include <linux/intel_ipts_if.h>
 
 #include "ipts.h"
-#include "ipts-fw.h"
+#include "ipts-companion.h"
 #include "ipts-hid.h"
 #include "ipts-params.h"
 #include "ipts-msg-handler.h"
@@ -137,8 +136,8 @@ static int ipts_mei_cl_probe(struct mei_cl_device *cldev,
 	ipts_info_t *ipts = NULL;
 
 	// Check if a companion driver for firmware loading was registered
-	// If not, defer probing until it was properly registere
-	if (!ipts_fw_handler_available() && !ipts_modparams.ignore_companion) {
+	// If not, defer probing until it was properly registered
+	if (!ipts_companion_available() && !ipts_modparams.ignore_companion) {
 		return -EPROBE_DEFER;
 	}
 

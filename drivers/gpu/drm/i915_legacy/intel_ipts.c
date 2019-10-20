@@ -24,7 +24,7 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/module.h>
-#include <linux/intel_ipts_if.h>
+#include <linux/ipts-gfx.h>
 #include <drm/drmP.h>
 
 #include "intel_guc_submission.h"
