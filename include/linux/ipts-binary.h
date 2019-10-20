@@ -14,14 +14,17 @@
  *
  */
 
-#ifndef _IPTS_BINARY_SPEC_H
-#define _IPTS_BINARY_SPEC_H
+#ifndef _INTEL_IPTS_BINARY_H_
+#define _INTEL_IPTS_BINARY_H_
+
+#include <linux/ipts.h>
+#include <linux/types.h>
 
 #define IPTS_BIN_HEADER_VERSION 2
 
 #pragma pack(1)
 
-/* we support 16 output buffers(1:feedback, 15:HID) */
+// we support 16 output buffers (1:feedback, 15:HID)
 #define  MAX_NUM_OUTPUT_BUFFERS 16
 
 typedef enum {
@@ -39,35 +42,35 @@ typedef enum {
 
 typedef struct ipts_bin_header {
 	char str[4];
-	unsigned int version;
+	u32 version;
 
 #if IPTS_BIN_HEADER_VERSION > 1
-	unsigned int gfxcore;
-	unsigned int revid;
+	u32 gfxcore;
+	u32 revid;
 #endif
 } ipts_bin_header_t;
 
 typedef struct ipts_bin_alloc {
-	unsigned int handle;
-	unsigned int reserved;
+	u32 handle;
+	u32 reserved;
 } ipts_bin_alloc_t;
 
 typedef struct ipts_bin_alloc_list {
-	unsigned int num;
+	u32 num;
 	ipts_bin_alloc_t alloc[];
 } ipts_bin_alloc_list_t;
 
 typedef struct ipts_bin_cmdbuf {
-	unsigned int size;
+	u32 size;
 	char data[];
 } ipts_bin_cmdbuf_t;
 
 typedef struct ipts_bin_res {
-	unsigned int handle;
+	u32 handle;
 	ipts_bin_res_type_t type;
-	unsigned int initialize;
-	unsigned int aligned_size;
-	unsigned int size;
+	u32 initialize;
+	u32 aligned_size;
+	u32 size;
 	char data[];
 } ipts_bin_res_t;
 
@@ -81,38 +84,62 @@ typedef enum {
 
 typedef struct ipts_bin_io_header {
 	char str[10];
-	unsigned short type;
+	u16 type;
 } ipts_bin_io_header_t;
 
 typedef struct ipts_bin_res_list {
-	unsigned int num;
+	u32 num;
 	ipts_bin_res_t res[];
 } ipts_bin_res_list_t;
 
 typedef struct ipts_bin_patch {
-	unsigned int index;
-	unsigned int reserved1[2];
-	unsigned int alloc_offset;
-	unsigned int patch_offset;
-	unsigned int reserved2;
+	u32 index;
+	u32 reserved1[2];
+	u32 alloc_offset;
+	u32 patch_offset;
+	u32 reserved2;
 } ipts_bin_patch_t;
 
 typedef struct ipts_bin_patch_list {
-	unsigned int num;
+	u32 num;
 	ipts_bin_patch_t patch[];
 } ipts_bin_patch_list_t;
 
 typedef struct ipts_bin_guc_wq_info {
-	unsigned int batch_offset;
-	unsigned int size;
+	u32 batch_offset;
+	u32 size;
 	char data[];
 } ipts_bin_guc_wq_info_t;
 
 typedef struct ipts_bin_bufid_patch {
-	unsigned int imm_offset;
-	unsigned int mem_offset;
+	u32 imm_offset;
+	u32 mem_offset;
 } ipts_bin_bufid_patch_t;
+
+typedef enum {
+	IPTS_DATA_FILE_FLAG_NONE,
+	IPTS_DATA_FILE_FLAG_SHARE,
+	IPTS_DATA_FILE_FLAG_ALLOC_CONTIGUOUS,
+} ipts_bin_data_file_flags_t;
+
+typedef struct ipts_bin_data_file_info {
+	u32 io_buffer_type;
+	u32 flags;
+	char file_name[MAX_IOCL_FILE_NAME_LEN];
+} ipts_bin_data_file_info_t;
+
+typedef struct ipts_bin_fw_info {
+	char fw_name[MAX_IOCL_FILE_NAME_LEN];
+	s32 vendor_output;	// output index. -1 for no use
+	u32 num_of_data_files;
+	ipts_bin_data_file_info_t data_file[];
+} ipts_bin_fw_info_t;
+
+typedef struct ipts_bin_fw_list {
+	u32 num_of_fws;
+	ipts_bin_fw_info_t fw_info[];
+} ipts_bin_fw_list_t;
 
 #pragma pack()
 
-#endif /* _IPTS_BINARY_SPEC_H */
+#endif // _INTEL_IPTS_BINARY_H_
