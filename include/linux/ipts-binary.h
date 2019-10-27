@@ -117,9 +117,9 @@ typedef struct ipts_bin_bufid_patch {
 } ipts_bin_bufid_patch_t;
 
 typedef enum {
-	IPTS_DATA_FILE_FLAG_NONE,
-	IPTS_DATA_FILE_FLAG_SHARE,
-	IPTS_DATA_FILE_FLAG_ALLOC_CONTIGUOUS,
+	IPTS_DATA_FILE_FLAG_NONE = 0,
+	IPTS_DATA_FILE_FLAG_SHARE = 1,
+	IPTS_DATA_FILE_FLAG_ALLOC_CONTIGUOUS = 2,
 } ipts_bin_data_file_flags_t;
 
 typedef struct ipts_bin_data_file_info {

@@ -35,17 +35,15 @@ bool ipts_companion_available(void)
 
 int ipts_add_companion(ipts_companion_t *companion)
 {
-	int ret = 0;
+	int ret;
 	mutex_lock(&ipts_companion_lock);
 
-	if (ipts_companion != NULL) {
+	if (ipts_companion == NULL) {
+		ret = 0;
+		ipts_companion = companion;
+	} else {
 		ret = -EBUSY;
-		goto add_companion_return;
 	}
-
-	ipts_companion = companion;
-
-add_companion_return:
 
 	mutex_unlock(&ipts_companion_lock);
 	return ret;
@@ -54,22 +52,16 @@ EXPORT_SYMBOL_GPL(ipts_add_companion);
 
 int ipts_remove_companion(ipts_companion_t *companion)
 {
-	int ret = 0;
+	int ret;
 	mutex_lock(&ipts_companion_lock);
 
-	if (ipts_companion == NULL || companion == NULL) {
-		ret = 0;
-		goto remove_companion_return;
-	}
-
-	if (ipts_companion->name != companion->name) {
+	if (ipts_companion != NULL && companion != NULL &&
+			ipts_companion->name != companion->name) {
 		ret = -EPERM;
-		goto remove_companion_return;
+	} else {
+		ret = 0;
+		ipts_companion = NULL;
 	}
-
-	ipts_companion = NULL;
-
-remove_companion_return:
 
 	mutex_unlock(&ipts_companion_lock);
 	return ret;
@@ -95,7 +87,7 @@ int ipts_request_firmware(const struct firmware **fw, const char *name,
 		goto request_firmware_fallback;
 	}
 
-	ret = ipts_companion->firmware_request(fw, name, device, ipts_companion);
+	ret = ipts_companion->firmware_request(ipts_companion, fw, name, device);
 	if (!ret) {
 		goto request_firmware_return;
 	}
@@ -119,7 +111,7 @@ request_firmware_return:
 	return ret;
 }
 
-ipts_bin_fw_list_t *ipts_alloc_fw_list(ipts_bin_fw_info_t **fw)
+static ipts_bin_fw_list_t *ipts_alloc_fw_list(ipts_bin_fw_info_t **fw)
 {
 	int size, len, i, j;
 	ipts_bin_fw_list_t *fw_list;
@@ -157,19 +149,21 @@ ipts_bin_fw_list_t *ipts_alloc_fw_list(ipts_bin_fw_info_t **fw)
 
 int ipts_request_firmware_config(ipts_info_t *ipts, ipts_bin_fw_list_t **cfg)
 {
-	int ret = 0;
+	int ret;
 	const struct firmware *config_fw = NULL;
 	mutex_lock(&ipts_companion_lock);
 
 	// Check if a companion was registered. If not, skip
 	// forward and try to load the firmware config from a file
 	if (ipts_modparams.ignore_companion || ipts_companion == NULL) {
+		mutex_unlock(&ipts_companion_lock);
 		goto config_fallback;
 	}
 
 	if (ipts_companion->firmware_config != NULL) {
 		*cfg = ipts_alloc_fw_list(ipts_companion->firmware_config);
-		goto config_return;
+		mutex_unlock(&ipts_companion_lock);
+		return 0;
 	}
 
 config_fallback:
@@ -177,27 +171,20 @@ config_fallback:
 	// If fallback loading for the firmware config was disabled, abort.
 	// Return -ENOENT as no config file was found.
 	if (ipts_modparams.ignore_config_fallback) {
-		ret = -ENOENT;
-		goto config_return;
+		return -ENOENT;
 	}
 
 	// No firmware config was found by the companion driver,
 	// try loading it from a file now
-	mutex_unlock(&ipts_companion_lock);
 	ret = ipts_request_firmware(&config_fw, IPTS_FW_CONFIG_FILE,
 			&ipts->cldev->dev);
-	mutex_lock(&ipts_companion_lock);
 
 	if (!ret) {
 		*cfg = (ipts_bin_fw_list_t *)config_fw->data;
-		goto config_return;
+	} else {
+		release_firmware(config_fw);
 	}
 
-	release_firmware(config_fw);
-
-config_return:
-
-	mutex_unlock(&ipts_companion_lock);
 	return ret;
 
 }

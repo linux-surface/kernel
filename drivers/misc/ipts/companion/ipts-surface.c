@@ -13,8 +13,9 @@
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_desc.bin");		\
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_kernel.bin");		\
 
-int ipts_surface_request_firmware(const struct firmware **fw, const char *name,
-		struct device *device, ipts_companion_t *companion)
+int ipts_surface_request_firmware(ipts_companion_t *companion,
+		const struct firmware **fw, const char *name,
+		struct device *device)
 {
 	char fw_path[MAX_IOCL_FILE_PATH_LEN];
 
@@ -77,7 +78,7 @@ static int ipts_surface_probe(struct platform_device *pdev)
 	ipts_surface_companion.data = (void *)acpi_device_hid(adev);
 	ret = ipts_add_companion(&ipts_surface_companion);
 	if (ret) {
-		dev_info(&pdev->dev, "Adding IPTS companion failed, "
+		dev_warn(&pdev->dev, "Adding IPTS companion failed, "
 				"error: %d\n", ret);
 		return ret;
 	}
@@ -89,7 +90,7 @@ static int ipts_surface_remove(struct platform_device *pdev)
 {
 	int ret = ipts_remove_companion(&ipts_surface_companion);
 	if (ret) {
-		dev_info(&pdev->dev, "Removing IPTS companion failed, "
+		dev_warn(&pdev->dev, "Removing IPTS companion failed, "
 				"error: %d\n", ret);
 	}
 
