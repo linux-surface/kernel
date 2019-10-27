@@ -1,3 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ *
+ * Intel Precise Touch & Stylus
+ * Copyright (c) 2016 Intel Corporation
+ *
+ */
+
 #ifndef _IPTS_PARAMS_H_
 #define _IPTS_PARAMS_H_
 
