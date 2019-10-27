@@ -1,36 +1,30 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Intel Precise Touch & Stylus device driver
- * Copyright (c) 2016, Intel Corporation.
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+ * Intel Precise Touch & Stylus
+ * Copyright (c) 2016 Intel Corporation
  *
  */
-#include <linux/debugfs.h>
+
 #include <linux/ctype.h>
+#include <linux/debugfs.h>
 #include <linux/uaccess.h>
 
 #include "ipts.h"
-#include "ipts-sensor-regs.h"
 #include "ipts-msg-handler.h"
+#include "ipts-sensor-regs.h"
 #include "ipts-state.h"
 #include "../mei/mei_dev.h"
 
-const char ipts_status_fmt[] = "ipts state : %01d\n";
-const char ipts_debug_fmt[] = ">> tdt : fw status : %s\n"
-							  ">> == DB s:%x, c:%x ==\n"
-							  ">> == WQ h:%u, t:%u ==\n";
+static const char ipts_status_fmt[] = "ipts state : %01d\n";
+static const char ipts_debug_fmt[] = ">> tdt : fw status : %s\n"
+	">> == DB s:%x, c:%x ==\n"
+	">> == WQ h:%u, t:%u ==\n";
 
 static ssize_t ipts_dbgfs_status_read(struct file *fp, char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+		size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	char status[256];
 	int len = 0;
 
@@ -45,15 +39,15 @@ static ssize_t ipts_dbgfs_status_read(struct file *fp, char __user *ubuf,
 }
 
 static const struct file_operations ipts_status_dbgfs_fops = {
-        .open = simple_open,
-        .read = ipts_dbgfs_status_read,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.read = ipts_dbgfs_status_read,
+	.llseek = generic_file_llseek,
 };
 
-static ssize_t ipts_dbgfs_quiesce_io_cmd_write(struct file *fp, const char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+static ssize_t ipts_dbgfs_quiesce_io_cmd_write(struct file *fp,
+		const char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	bool result;
 	int rc;
 
@@ -65,20 +59,19 @@ static ssize_t ipts_dbgfs_quiesce_io_cmd_write(struct file *fp, const char __use
 		return -EINVAL;
 
 	ipts_send_sensor_quiesce_io_cmd(ipts);
-
 	return cnt;
 }
 
 static const struct file_operations ipts_quiesce_io_cmd_dbgfs_fops = {
-        .open = simple_open,
-        .write = ipts_dbgfs_quiesce_io_cmd_write,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.write = ipts_dbgfs_quiesce_io_cmd_write,
+	.llseek = generic_file_llseek,
 };
 
-static ssize_t ipts_dbgfs_clear_mem_window_cmd_write(struct file *fp, const char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+static ssize_t ipts_dbgfs_clear_mem_window_cmd_write(struct file *fp,
+		const char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	bool result;
 	int rc;
 
@@ -95,40 +88,35 @@ static ssize_t ipts_dbgfs_clear_mem_window_cmd_write(struct file *fp, const char
 }
 
 static const struct file_operations ipts_clear_mem_window_cmd_dbgfs_fops = {
-        .open = simple_open,
-        .write = ipts_dbgfs_clear_mem_window_cmd_write,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.write = ipts_dbgfs_clear_mem_window_cmd_write,
+	.llseek = generic_file_llseek,
 };
 
 static ssize_t ipts_dbgfs_debug_read(struct file *fp, char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+		size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	char dbg_info[1024];
 	int len = 0;
 
 	char fw_sts_str[MEI_FW_STATUS_STR_SZ];
 	u32 *db, *head, *tail;
-	intel_ipts_wq_info_t* wq_info;
+	struct ipts_wq_info *wq_info;
 
 	wq_info = &ipts->resource.wq_info;
-
 	mei_fw_status_str(ipts->cldev->bus, fw_sts_str, MEI_FW_STATUS_STR_SZ);
-	// pr_info(">> tdt : fw status : %s\n", fw_sts_str);
 
-	db = (u32*)wq_info->db_addr;
-	head = (u32*)wq_info->wq_head_addr;
-	tail = (u32*)wq_info->wq_tail_addr;
-	// pr_info(">> == DB s:%x, c:%x ==\n", *db, *(db+1));
-	// pr_info(">> == WQ h:%u, t:%u ==\n", *head, *tail);
+	db = (u32 *)wq_info->db_addr;
+	head = (u32 *)wq_info->wq_head_addr;
+	tail = (u32 *)wq_info->wq_tail_addr;
 
 	if (cnt < sizeof(ipts_debug_fmt) - 3)
 		return -EINVAL;
 
 	len = scnprintf(dbg_info, 1024, ipts_debug_fmt,
-							fw_sts_str,
-							*db, *(db+1),
-							*head, *tail);
+		fw_sts_str, *db, *(db+1), *head, *tail);
+
 	if (len < 0)
 		return -EIO;
 
@@ -136,40 +124,38 @@ static ssize_t ipts_dbgfs_debug_read(struct file *fp, char __user *ubuf,
 }
 
 static const struct file_operations ipts_debug_dbgfs_fops = {
-        .open = simple_open,
-        .read = ipts_dbgfs_debug_read,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.read = ipts_dbgfs_debug_read,
+	.llseek = generic_file_llseek,
 };
 
-static ssize_t ipts_dbgfs_ipts_restart_write(struct file *fp, const char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+static ssize_t ipts_dbgfs_ipts_restart_write(struct file *fp,
+		const char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	bool result;
 	int rc;
 
 	rc = kstrtobool_from_user(ubuf, cnt, &result);
 	if (rc)
 		return rc;
-
 	if (!result)
 		return -EINVAL;
 
 	ipts_restart(ipts);
-
 	return cnt;
 }
 
 static const struct file_operations ipts_ipts_restart_dbgfs_fops = {
-        .open = simple_open,
-        .write = ipts_dbgfs_ipts_restart_write,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.write = ipts_dbgfs_ipts_restart_write,
+	.llseek = generic_file_llseek,
 };
 
-static ssize_t ipts_dbgfs_ipts_stop_write(struct file *fp, const char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+static ssize_t ipts_dbgfs_ipts_stop_write(struct file *fp,
+		const char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	bool result;
 	int rc;
 
@@ -181,20 +167,19 @@ static ssize_t ipts_dbgfs_ipts_stop_write(struct file *fp, const char __user *ub
 		return -EINVAL;
 
 	ipts_stop(ipts);
-
 	return cnt;
 }
 
 static const struct file_operations ipts_ipts_stop_dbgfs_fops = {
-        .open = simple_open,
-        .write = ipts_dbgfs_ipts_stop_write,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.write = ipts_dbgfs_ipts_stop_write,
+	.llseek = generic_file_llseek,
 };
 
-static ssize_t ipts_dbgfs_ipts_start_write(struct file *fp, const char __user *ubuf,
-						size_t cnt, loff_t *ppos)
+static ssize_t ipts_dbgfs_ipts_start_write(struct file *fp,
+		const char __user *ubuf, size_t cnt, loff_t *ppos)
 {
-	ipts_info_t *ipts = fp->private_data;
+	struct ipts_info *ipts = fp->private_data;
 	bool result;
 	int rc;
 
@@ -206,17 +191,16 @@ static ssize_t ipts_dbgfs_ipts_start_write(struct file *fp, const char __user *u
 		return -EINVAL;
 
 	ipts_start(ipts);
-
 	return cnt;
 }
 
 static const struct file_operations ipts_ipts_start_dbgfs_fops = {
-        .open = simple_open,
-        .write = ipts_dbgfs_ipts_start_write,
-        .llseek = generic_file_llseek,
+	.open = simple_open,
+	.write = ipts_dbgfs_ipts_start_write,
+	.llseek = generic_file_llseek,
 };
 
-void ipts_dbgfs_deregister(ipts_info_t* ipts)
+void ipts_dbgfs_deregister(struct ipts_info *ipts)
 {
 	if (!ipts->dbgfs_dir)
 		return;
@@ -225,7 +209,7 @@ void ipts_dbgfs_deregister(ipts_info_t* ipts)
 	ipts->dbgfs_dir = NULL;
 }
 
-int ipts_dbgfs_register(ipts_info_t* ipts, const char *name)
+int ipts_dbgfs_register(struct ipts_info *ipts, const char *name)
 {
 	struct dentry *dir, *f;
 
@@ -233,59 +217,61 @@ int ipts_dbgfs_register(ipts_info_t* ipts, const char *name)
 	if (!dir)
 		return -ENOMEM;
 
-        f = debugfs_create_file("status", S_IRUSR, dir,
-                                ipts, &ipts_status_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs status creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("status", 0200, dir, ipts,
+		&ipts_status_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs status creation failed\n");
+		goto err;
+	}
 
-        f = debugfs_create_file("quiesce_io_cmd", S_IWUSR, dir,
-                                ipts, &ipts_quiesce_io_cmd_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs quiesce_io_cmd creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("quiesce_io_cmd", 0200, dir, ipts,
+		&ipts_quiesce_io_cmd_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs quiesce_io_cmd creation failed\n");
+		goto err;
+	}
 
-        f = debugfs_create_file("clear_mem_window_cmd", S_IWUSR, dir,
-                                ipts, &ipts_clear_mem_window_cmd_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs clear_mem_window_cmd creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("clear_mem_window_cmd", 0200, dir, ipts,
+		&ipts_clear_mem_window_cmd_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs clear_mem_window_cmd creation failed\n");
+		goto err;
+	}
 
-        f = debugfs_create_file("debug", S_IRUSR, dir,
-                                ipts, &ipts_debug_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs debug creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("debug", 0200, dir, ipts,
+		&ipts_debug_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs debug creation failed\n");
+		goto err;
+	}
 
-        f = debugfs_create_file("ipts_restart", S_IWUSR, dir,
-                                ipts, &ipts_ipts_restart_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs ipts_restart creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("ipts_restart", 0200, dir, ipts,
+		&ipts_ipts_restart_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs ipts_restart creation failed\n");
+		goto err;
+	}
 
-        f = debugfs_create_file("ipts_stop", S_IWUSR, dir,
-                                ipts, &ipts_ipts_stop_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs ipts_stop creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("ipts_stop", 0200, dir, ipts,
+		&ipts_ipts_stop_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs ipts_stop creation failed\n");
+		goto err;
+	}
 
-        f = debugfs_create_file("ipts_start", S_IWUSR, dir,
-                                ipts, &ipts_ipts_start_dbgfs_fops);
-        if (!f) {
-                ipts_err(ipts, "debugfs ipts_start creation failed\n");
-                goto err;
-        }
+	f = debugfs_create_file("ipts_start", 0200, dir, ipts,
+		&ipts_ipts_start_dbgfs_fops);
+	if (!f) {
+		ipts_err(ipts, "debugfs ipts_start creation failed\n");
+		goto err;
+	}
 
 	ipts->dbgfs_dir = dir;
 
 	return 0;
+
 err:
 	ipts_dbgfs_deregister(ipts);
+
 	return -ENODEV;
 }
