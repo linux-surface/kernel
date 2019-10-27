@@ -6,8 +6,8 @@
 
 typedef struct ipts_companion ipts_companion_t;
 
-typedef int (*ipts_fw_handler_t)(const struct firmware **, const char *,
-		struct device *, ipts_companion_t *companion);
+typedef int (*ipts_fw_handler_t)(ipts_companion_t *, const struct firmware **,
+		const char *, struct device *);
 
 struct ipts_companion {
 	ipts_fw_handler_t firmware_request;
