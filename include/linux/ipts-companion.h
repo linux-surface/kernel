@@ -1,22 +1,29 @@
-#ifndef _INTEL_IPTS_COMPANION_H_
-#define _INTEL_IPTS_COMPANION_H_
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ *
+ * Intel Precise Touch & Stylus
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2019 Dorian Stoll
+ *
+ */
+
+#ifndef IPTS_COMPANION_H
+#define IPTS_COMPANION_H
 
 #include <linux/firmware.h>
 #include <linux/ipts-binary.h>
 
-typedef struct ipts_companion ipts_companion_t;
-
-typedef int (*ipts_fw_handler_t)(ipts_companion_t *, const struct firmware **,
-		const char *, struct device *);
-
 struct ipts_companion {
-	ipts_fw_handler_t firmware_request;
-	ipts_bin_fw_info_t **firmware_config;
+	int (*firmware_request)(struct ipts_companion *companion,
+		const struct firmware **fw,
+		const char *name, struct device *device);
+
+	struct ipts_bin_fw_info **firmware_config;
 	void *data;
 	const char *name;
 };
 
-int ipts_add_companion(ipts_companion_t *companion);
-int ipts_remove_companion(ipts_companion_t *companion);
+int ipts_add_companion(struct ipts_companion *companion);
+int ipts_remove_companion(struct ipts_companion *companion);
 
-#endif // _INTEL_IPTS_COMPANION_H_
+#endif // IPTS_COMPANION_H
