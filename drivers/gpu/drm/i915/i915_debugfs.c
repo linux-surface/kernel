@@ -4697,7 +4697,7 @@ static const struct file_operations i915_fifo_underrun_reset_ops = {
 };
 
 static ssize_t
-i915_intel_ipts_cleanup_write(struct file *filp,
+i915_ipts_cleanup_write(struct file *filp,
 			       const char __user *ubuf,
 			       size_t cnt, loff_t *ppos)
 {
@@ -4713,20 +4713,20 @@ i915_intel_ipts_cleanup_write(struct file *filp,
 	if (!flag)
 		return cnt;
 
-	intel_ipts_cleanup(dev);
+	ipts_cleanup(dev);
 
 	return cnt;
 }
 
-static const struct file_operations i915_intel_ipts_cleanup_ops = {
+static const struct file_operations i915_ipts_cleanup_ops = {
 	.owner = THIS_MODULE,
 	.open = simple_open,
-	.write = i915_intel_ipts_cleanup_write,
+	.write = i915_ipts_cleanup_write,
 	.llseek = default_llseek,
 };
 
 static ssize_t
-i915_intel_ipts_init_write(struct file *filp,
+i915_ipts_init_write(struct file *filp,
 			       const char __user *ubuf,
 			       size_t cnt, loff_t *ppos)
 {
@@ -4742,15 +4742,15 @@ i915_intel_ipts_init_write(struct file *filp,
 	if (!flag)
 		return cnt;
 
-	intel_ipts_init(dev);
+	ipts_init(dev);
 
 	return cnt;
 }
 
-static const struct file_operations i915_intel_ipts_init_ops = {
+static const struct file_operations i915_ipts_init_ops = {
 	.owner = THIS_MODULE,
 	.open = simple_open,
-	.write = i915_intel_ipts_init_write,
+	.write = i915_ipts_init_write,
 	.llseek = default_llseek,
 };
 
@@ -4833,8 +4833,8 @@ static const struct i915_debugfs_files {
 	{"i915_ipc_status", &i915_ipc_status_fops},
 	{"i915_drrs_ctl", &i915_drrs_ctl_fops},
 	{"i915_edp_psr_debug", &i915_edp_psr_debug_fops},
-	{"i915_intel_ipts_cleanup", &i915_intel_ipts_cleanup_ops},
-	{"i915_intel_ipts_init", &i915_intel_ipts_init_ops},
+	{"i915_ipts_cleanup", &i915_ipts_cleanup_ops},
+	{"i915_ipts_init", &i915_ipts_init_ops},
 };
 
 int i915_debugfs_register(struct drm_i915_private *dev_priv)

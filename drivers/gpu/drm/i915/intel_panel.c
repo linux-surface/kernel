@@ -661,7 +661,7 @@ static void lpt_disable_backlight(const struct drm_connector_state *old_conn_sta
 	u32 tmp;
 
 	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
-		intel_ipts_notify_backlight_status(false);
+		ipts_notify_backlight_status(false);
 
 	intel_panel_actually_set_backlight(old_conn_state, 0);
 
@@ -852,7 +852,7 @@ static void lpt_enable_backlight(const struct intel_crtc_state *crtc_state,
 	intel_panel_actually_set_backlight(conn_state, panel->backlight.level);
 
 	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
-		intel_ipts_notify_backlight_status(true);
+		ipts_notify_backlight_status(true);
 }
 
 static void pch_enable_backlight(const struct intel_crtc_state *crtc_state,
