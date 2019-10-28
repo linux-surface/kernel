@@ -11,7 +11,9 @@
 
 #include "ipts.h"
 #include "ipts-msg-handler.h"
+#include "ipts-params.h"
 #include "ipts-state.h"
+#include "../mei/mei_dev.h"
 
 static void gfx_processing_complete(void *data)
 {
@@ -60,10 +62,6 @@ static void disconnect_gfx(struct ipts_info *ipts)
 	ipts_disconnect(ipts->gfx_info.gfx_handle);
 }
 
-#ifdef RUN_DBG_THREAD
-
-#include "../mei/mei_dev.h"
-
 static struct task_struct *dbg_thread;
 
 // TODO: Document the meaning of the values (Arda Coskunses comment on Github)
@@ -107,8 +105,6 @@ static int ipts_dbg_thread(void *data)
 	return 0;
 }
 
-#endif
-
 int ipts_open_gpu(struct ipts_info *ipts)
 {
 	int ret = 0;
@@ -126,9 +122,9 @@ int ipts_open_gpu(struct ipts_info *ipts)
 		return ret;
 	}
 
-#ifdef RUN_DBG_THREAD
-	dbg_thread = kthread_run(ipts_dbg_thread, (void *)ipts, "ipts_debug");
-#endif
+	if (ipts_modparams.debug_thread)
+		dbg_thread = kthread_run(
+			ipts_dbg_thread, (void *)ipts, "ipts_debug");
 
 	return 0;
 }
@@ -137,9 +133,8 @@ void ipts_close_gpu(struct ipts_info *ipts)
 {
 	disconnect_gfx(ipts);
 
-#ifdef RUN_DBG_THREAD
-	kthread_stop(dbg_thread);
-#endif
+	if (ipts_modparams.debug_thread)
+		kthread_stop(dbg_thread);
 }
 
 struct ipts_mapbuffer *ipts_map_buffer(struct ipts_info *ipts,
