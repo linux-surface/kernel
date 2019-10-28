@@ -16,6 +16,9 @@ struct ipts_params {
 	bool ignore_config_fallback;
 	bool ignore_companion;
 	int no_feedback;
+
+	bool debug;
+	bool debug_thread;
 };
 
 extern struct ipts_params ipts_modparams;

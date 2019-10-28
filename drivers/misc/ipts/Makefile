@@ -5,6 +5,7 @@
 #
 
 obj-$(CONFIG_INTEL_IPTS)+= intel-ipts.o
+intel-ipts-objs += ipts.o
 intel-ipts-objs += ipts-companion.o
 intel-ipts-objs += ipts-mei.o
 intel-ipts-objs += ipts-hid.o

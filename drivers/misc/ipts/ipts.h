@@ -18,29 +18,6 @@
 #include "ipts-mei-msgs.h"
 #include "ipts-state.h"
 
-// Enable IPTS debug
-#define ENABLE_IPTS_DEBUG
-
-#ifdef ENABLE_IPTS_DEBUG
-
-#define ipts_info(ipts, format, arg...) \
-	dev_info(&ipts->cldev->dev, format, ##arg)
-
-#define ipts_dbg(ipts, format, arg...) \
-	dev_info(&ipts->cldev->dev, format, ##arg)
-
-// #define RUN_DBG_THREAD
-
-#else
-
-#define ipts_info(ipts, format, arg...) do {} while (0)
-#define ipts_dbg(ipts, format, arg...) do {} while (0)
-
-#endif
-
-#define ipts_err(ipts, format, arg...) \
-	dev_err(&ipts->cldev->dev, format, ##arg)
-
 #define HID_PARALLEL_DATA_BUFFERS TOUCH_SENSOR_MAX_DATA_BUFFERS
 
 #define IPTS_MAX_RETRY 3
@@ -125,6 +102,13 @@ void ipts_dbgfs_deregister(struct ipts_info *ipts);
 static int ipts_dbgfs_register(struct ipts_info *ipts, const char *name);
 static void ipts_dbgfs_deregister(struct ipts_info *ipts);
 #endif
+
+void ipts_info(struct ipts_info *ipts, const char *fmt, ...);
+void ipts_dbg(struct ipts_info *ipts, const char *fmt, ...);
+
+// Because ipts_err is unconditional, this can stay a macro for now
+#define ipts_err(ipts, format, arg...) \
+	dev_err(&ipts->cldev->dev, format, ##arg)
 
 /*
  * Inline functions
