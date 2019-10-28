@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ *
+ * Intel Precise Touch & Stylus
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2019 Dorian Stoll
+ *
+ */
+
 #include <linux/acpi.h>
 #include <linux/firmware.h>
 #include <linux/ipts.h>
@@ -7,28 +16,31 @@
 
 #define IPTS_SURFACE_FW_PATH_FMT "intel/ipts/%s/%s"
 
+/*
+ * checkpatch complains about this and wants it wrapped with do { } while(0);
+ * Since this would absolutely not work, just ignore checkpatch in this case.
+ */
 #define IPTS_SURFACE_FIRMWARE(X)					\
 	MODULE_FIRMWARE("intel/ipts/" X "/config.bin");			\
 	MODULE_FIRMWARE("intel/ipts/" X "/intel_desc.bin");		\
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_desc.bin");		\
-	MODULE_FIRMWARE("intel/ipts/" X "/vendor_kernel.bin");		\
+	MODULE_FIRMWARE("intel/ipts/" X "/vendor_kernel.bin")
 
-int ipts_surface_request_firmware(ipts_companion_t *companion,
+int ipts_surface_request_firmware(struct ipts_companion *companion,
 		const struct firmware **fw, const char *name,
 		struct device *device)
 {
 	char fw_path[MAX_IOCL_FILE_PATH_LEN];
 
-	if (companion == NULL || companion->data == NULL) {
+	if (companion == NULL || companion->data == NULL)
 		return -ENOENT;
-	}
 
 	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_SURFACE_FW_PATH_FMT,
-			(const char *)companion->data, name);
+		(const char *)companion->data, name);
 	return request_firmware(fw, fw_path, device);
 }
 
-static ipts_bin_fw_info_t ipts_surface_vendor_kernel = {
+static struct ipts_bin_fw_info ipts_surface_vendor_kernel = {
 	.fw_name = "vendor_kernel.bin",
 	.vendor_output = -1,
 	.num_of_data_files = 3,
@@ -54,12 +66,12 @@ static ipts_bin_fw_info_t ipts_surface_vendor_kernel = {
 	},
 };
 
-static ipts_bin_fw_info_t *ipts_surface_fw_config[] = {
+static struct ipts_bin_fw_info *ipts_surface_fw_config[] = {
 	&ipts_surface_vendor_kernel,
 	NULL,
 };
 
-static ipts_companion_t ipts_surface_companion = {
+static struct ipts_companion ipts_surface_companion = {
 	.firmware_request = &ipts_surface_request_firmware,
 	.firmware_config = ipts_surface_fw_config,
 	.name = "ipts_surface",
@@ -67,7 +79,7 @@ static ipts_companion_t ipts_surface_companion = {
 
 static int ipts_surface_probe(struct platform_device *pdev)
 {
-	int ret;
+	int r;
 	struct acpi_device *adev = ACPI_COMPANION(&pdev->dev);
 
 	if (!adev) {
@@ -76,11 +88,11 @@ static int ipts_surface_probe(struct platform_device *pdev)
 	}
 
 	ipts_surface_companion.data = (void *)acpi_device_hid(adev);
-	ret = ipts_add_companion(&ipts_surface_companion);
-	if (ret) {
-		dev_warn(&pdev->dev, "Adding IPTS companion failed, "
-				"error: %d\n", ret);
-		return ret;
+
+	r = ipts_add_companion(&ipts_surface_companion);
+	if (r) {
+		dev_warn(&pdev->dev, "Adding IPTS companion failed: %d\n", r);
+		return r;
 	}
 
 	return 0;
@@ -88,10 +100,11 @@ static int ipts_surface_probe(struct platform_device *pdev)
 
 static int ipts_surface_remove(struct platform_device *pdev)
 {
-	int ret = ipts_remove_companion(&ipts_surface_companion);
-	if (ret) {
-		dev_warn(&pdev->dev, "Removing IPTS companion failed, "
-				"error: %d\n", ret);
+	int r = ipts_remove_companion(&ipts_surface_companion);
+
+	if (r) {
+		dev_warn(&pdev->dev, "Removing IPTS companion failed: %d\n", r);
+		return r;
 	}
 
 	return 0;
