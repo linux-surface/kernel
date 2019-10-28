@@ -1,21 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  *
- * Intel Precise Touch & Stylus binary spec
- * Copyright (c) 2016 Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+ * Intel Precise Touch & Stylus
+ * Copyright (c) 2016 Intel Corporation
  *
  */
 
-#ifndef _INTEL_IPTS_BINARY_H_
-#define _INTEL_IPTS_BINARY_H_
+#ifndef IPTS_BINARY_H
+#define IPTS_BINARY_H
 
 #include <linux/ipts.h>
 #include <linux/types.h>
@@ -27,7 +19,7 @@
 // we support 16 output buffers (1:feedback, 15:HID)
 #define  MAX_NUM_OUTPUT_BUFFERS 16
 
-typedef enum {
+enum ipts_bin_res_type {
 	IPTS_BIN_KERNEL,
 	IPTS_BIN_RO_DATA,
 	IPTS_BIN_RW_DATA,
@@ -38,9 +30,9 @@ typedef enum {
 	IPTS_BIN_ALLOCATION_LIST,
 	IPTS_BIN_COMMAND_BUFFER_PACKET,
 	IPTS_BIN_TAG,
-} ipts_bin_res_type_t;
+};
 
-typedef struct ipts_bin_header {
+struct ipts_bin_header {
 	char str[4];
 	u32 version;
 
@@ -48,98 +40,101 @@ typedef struct ipts_bin_header {
 	u32 gfxcore;
 	u32 revid;
 #endif
-} ipts_bin_header_t;
+};
 
-typedef struct ipts_bin_alloc {
+struct ipts_bin_alloc {
 	u32 handle;
 	u32 reserved;
-} ipts_bin_alloc_t;
+};
 
-typedef struct ipts_bin_alloc_list {
+struct ipts_bin_alloc_list {
 	u32 num;
-	ipts_bin_alloc_t alloc[];
-} ipts_bin_alloc_list_t;
+	struct ipts_bin_alloc alloc[];
+};
 
-typedef struct ipts_bin_cmdbuf {
+struct ipts_bin_cmdbuf {
 	u32 size;
 	char data[];
-} ipts_bin_cmdbuf_t;
+};
 
-typedef struct ipts_bin_res {
+struct ipts_bin_res {
 	u32 handle;
-	ipts_bin_res_type_t type;
+	enum ipts_bin_res_type type;
 	u32 initialize;
 	u32 aligned_size;
 	u32 size;
 	char data[];
-} ipts_bin_res_t;
+};
 
-typedef enum {
+enum ipts_bin_io_buffer_type {
 	IPTS_INPUT,
 	IPTS_OUTPUT,
 	IPTS_CONFIGURATION,
 	IPTS_CALIBRATION,
 	IPTS_FEATURE,
-} ipts_bin_io_buffer_type_t;
+};
 
-typedef struct ipts_bin_io_header {
+struct ipts_bin_io_header {
 	char str[10];
 	u16 type;
-} ipts_bin_io_header_t;
+};
 
-typedef struct ipts_bin_res_list {
+struct ipts_bin_res_list {
 	u32 num;
-	ipts_bin_res_t res[];
-} ipts_bin_res_list_t;
+	struct ipts_bin_res res[];
+};
 
-typedef struct ipts_bin_patch {
+struct ipts_bin_patch {
 	u32 index;
 	u32 reserved1[2];
 	u32 alloc_offset;
 	u32 patch_offset;
 	u32 reserved2;
-} ipts_bin_patch_t;
+};
 
-typedef struct ipts_bin_patch_list {
+struct ipts_bin_patch_list {
 	u32 num;
-	ipts_bin_patch_t patch[];
-} ipts_bin_patch_list_t;
+	struct ipts_bin_patch patch[];
+};
 
-typedef struct ipts_bin_guc_wq_info {
+struct ipts_bin_guc_wq_info {
 	u32 batch_offset;
 	u32 size;
 	char data[];
-} ipts_bin_guc_wq_info_t;
+};
 
-typedef struct ipts_bin_bufid_patch {
+struct ipts_bin_bufid_patch {
 	u32 imm_offset;
 	u32 mem_offset;
-} ipts_bin_bufid_patch_t;
+};
 
-typedef enum {
+enum ipts_bin_data_file_flags {
 	IPTS_DATA_FILE_FLAG_NONE = 0,
 	IPTS_DATA_FILE_FLAG_SHARE = 1,
 	IPTS_DATA_FILE_FLAG_ALLOC_CONTIGUOUS = 2,
-} ipts_bin_data_file_flags_t;
+};
 
-typedef struct ipts_bin_data_file_info {
+struct ipts_bin_data_file_info {
 	u32 io_buffer_type;
 	u32 flags;
 	char file_name[MAX_IOCL_FILE_NAME_LEN];
-} ipts_bin_data_file_info_t;
+};
 
-typedef struct ipts_bin_fw_info {
+struct ipts_bin_fw_info {
 	char fw_name[MAX_IOCL_FILE_NAME_LEN];
-	s32 vendor_output;	// output index. -1 for no use
-	u32 num_of_data_files;
-	ipts_bin_data_file_info_t data_file[];
-} ipts_bin_fw_info_t;
 
-typedef struct ipts_bin_fw_list {
+	// output index. -1 for no use
+	s32 vendor_output;
+
+	u32 num_of_data_files;
+	struct ipts_bin_data_file_info data_file[];
+};
+
+struct ipts_bin_fw_list {
 	u32 num_of_fws;
-	ipts_bin_fw_info_t fw_info[];
-} ipts_bin_fw_list_t;
+	struct ipts_bin_fw_info fw_info[];
+};
 
 #pragma pack()
 
-#endif // _INTEL_IPTS_BINARY_H_
+#endif // IPTS_BINARY_H
