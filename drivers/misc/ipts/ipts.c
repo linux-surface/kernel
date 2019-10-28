@@ -10,7 +10,7 @@
 #include <stdarg.h>
 
 #include "ipts.h"
-#include "ipts-params.h"
+#include "params.h"
 
 static void ipts_printk(const char *level, const struct device *dev,
 		struct va_format *vaf)

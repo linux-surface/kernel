@@ -8,10 +8,10 @@
 
 #include <linux/mei_cl_bus.h>
 
+#include "hid.h"
 #include "ipts.h"
-#include "ipts-hid.h"
-#include "ipts-mei-msgs.h"
-#include "ipts-resource.h"
+#include "mei-msgs.h"
+#include "resource.h"
 
 #define rsp_failed(ipts, cmd, status) \
 	ipts_err(ipts, "0x%08x failed status = %d\n", cmd, status)

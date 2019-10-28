@@ -8,7 +8,7 @@
 
 #include <linux/moduleparam.h>
 
-#include "ipts-params.h"
+#include "params.h"
 
 #define IPTS_PARAM(NAME, TYPE, PERM, DESC)				\
 	module_param_named(NAME, ipts_modparams.NAME, TYPE, PERM);	\

@@ -11,7 +11,7 @@
 
 #include <linux/build_bug.h>
 
-#include "ipts-sensor-regs.h"
+#include "sensor-regs.h"
 
 #pragma pack(1)
 

@@ -12,12 +12,12 @@
 #include <linux/ipts-binary.h>
 #include <linux/vmalloc.h>
 
+#include "companion.h"
+#include "gfx.h"
 #include "ipts.h"
-#include "ipts-companion.h"
-#include "ipts-gfx.h"
-#include "ipts-msg-handler.h"
-#include "ipts-resource.h"
-#include "ipts-state.h"
+#include "msg-handler.h"
+#include "resource.h"
+#include "state.h"
 
 #define BDW_SURFACE_BASE_ADDRESS   0x6101000e
 #define SURFACE_STATE_OFFSET_WORD  4

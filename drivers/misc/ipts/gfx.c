@@ -10,9 +10,9 @@
 #include <linux/kthread.h>
 
 #include "ipts.h"
-#include "ipts-msg-handler.h"
-#include "ipts-params.h"
-#include "ipts-state.h"
+#include "msg-handler.h"
+#include "params.h"
+#include "state.h"
 #include "../mei/mei_dev.h"
 
 static void gfx_processing_complete(void *data)
