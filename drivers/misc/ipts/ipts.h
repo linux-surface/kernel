@@ -15,8 +15,8 @@
 #include <linux/mei_cl_bus.h>
 #include <linux/types.h>
 
-#include "ipts-mei-msgs.h"
-#include "ipts-state.h"
+#include "mei-msgs.h"
+#include "state.h"
 
 #define HID_PARALLEL_DATA_BUFFERS TOUCH_SENSOR_MAX_DATA_BUFFERS
 

@@ -9,8 +9,8 @@
 #include <linux/dma-mapping.h>
 
 #include "ipts.h"
-#include "ipts-kernel.h"
-#include "ipts-mei-msgs.h"
+#include "kernel.h"
+#include "mei-msgs.h"
 
 static void free_common_resource(struct ipts_info *ipts)
 {
