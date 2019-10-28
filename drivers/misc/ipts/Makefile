@@ -5,15 +5,15 @@
 #
 
 obj-$(CONFIG_INTEL_IPTS)+= intel-ipts.o
+intel-ipts-objs += companion.o
 intel-ipts-objs += ipts.o
-intel-ipts-objs += ipts-companion.o
-intel-ipts-objs += ipts-mei.o
-intel-ipts-objs += ipts-hid.o
-intel-ipts-objs += ipts-msg-handler.o
-intel-ipts-objs += ipts-kernel.o
-intel-ipts-objs += ipts-params.o
-intel-ipts-objs += ipts-resource.o
-intel-ipts-objs += ipts-gfx.o
-intel-ipts-$(CONFIG_DEBUG_FS) += ipts-dbgfs.o
+intel-ipts-objs += mei.o
+intel-ipts-objs += hid.o
+intel-ipts-objs += msg-handler.o
+intel-ipts-objs += kernel.o
+intel-ipts-objs += params.o
+intel-ipts-objs += resource.o
+intel-ipts-objs += gfx.o
+intel-ipts-$(CONFIG_DEBUG_FS) += dbgfs.o
 
 obj-y += companion/

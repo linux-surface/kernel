@@ -14,13 +14,13 @@
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 
+#include "companion.h"
+#include "hid.h"
 #include "ipts.h"
-#include "ipts-companion.h"
-#include "ipts-hid.h"
-#include "ipts-params.h"
-#include "ipts-msg-handler.h"
-#include "ipts-mei-msgs.h"
-#include "ipts-state.h"
+#include "params.h"
+#include "msg-handler.h"
+#include "mei-msgs.h"
+#include "state.h"
 
 #define IPTS_DRIVER_NAME "ipts"
 #define IPTS_MEI_UUID UUID_LE(0x3e8d0870, 0x271a, 0x4208, \

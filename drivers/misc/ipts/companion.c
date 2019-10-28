@@ -12,9 +12,9 @@
 #include <linux/ipts-companion.h>
 #include <linux/mutex.h>
 
+#include "companion.h"
 #include "ipts.h"
-#include "ipts-companion.h"
-#include "ipts-params.h"
+#include "params.h"
 
 #define IPTS_FW_PATH_FMT "intel/ipts/%s"
 #define IPTS_FW_CONFIG_FILE "ipts_fw_config.bin"

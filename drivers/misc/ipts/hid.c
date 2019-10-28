@@ -12,13 +12,13 @@
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 
+#include "companion.h"
+#include "hid.h"
 #include "ipts.h"
-#include "ipts-companion.h"
-#include "ipts-hid.h"
-#include "ipts-msg-handler.h"
-#include "ipts-params.h"
-#include "ipts-resource.h"
-#include "ipts-sensor-regs.h"
+#include "msg-handler.h"
+#include "params.h"
+#include "resource.h"
+#include "sensor-regs.h"
 
 #define HID_DESC_INTEL  "intel_desc.bin"
 #define HID_DESC_VENDOR "vendor_desc.bin"

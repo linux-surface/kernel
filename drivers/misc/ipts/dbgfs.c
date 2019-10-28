@@ -11,9 +11,9 @@
 #include <linux/uaccess.h>
 
 #include "ipts.h"
-#include "ipts-msg-handler.h"
-#include "ipts-sensor-regs.h"
-#include "ipts-state.h"
+#include "msg-handler.h"
+#include "sensor-regs.h"
+#include "state.h"
 #include "../mei/mei_dev.h"
 
 static const char ipts_status_fmt[] = "ipts state : %01d\n";
