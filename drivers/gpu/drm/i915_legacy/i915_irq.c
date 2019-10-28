@@ -40,8 +40,8 @@
 #include "i915_drv.h"
 #include "i915_trace.h"
 #include "intel_drv.h"
-#include "intel_psr.h"
 #include "intel_ipts.h"
+#include "intel_psr.h"
 
 /**
  * DOC: interrupt handling
@@ -1522,7 +1522,7 @@ gen8_cs_irq_handler(struct intel_engine_cs *engine, u32 iir)
 	}
 
 	if (iir & GT_RENDER_PIPECTL_NOTIFY_INTERRUPT && i915_modparams.enable_ipts)
-		intel_ipts_notify_complete();
+		ipts_notify_complete();
 
 	if (tasklet)
 		tasklet_hi_schedule(&engine->execlists.tasklet);
