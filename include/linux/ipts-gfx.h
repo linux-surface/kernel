@@ -14,8 +14,8 @@
  *
  */
 
-#ifndef INTEL_IPTS_IF_H
-#define INTEL_IPTS_IF_H
+#ifndef _INTEL_IPTS_GFX_H_
+#define _INTEL_IPTS_GFX_H_
 
 enum {
 	IPTS_INTERFACE_V1 = 1,
@@ -42,10 +42,10 @@ typedef struct intel_ipts_wq_info {
 	u32 wq_size;
 	u64 wq_addr;
 	u64 wq_phy_addr;
-	u64 wq_head_addr;	/* head of wq is managed by GPU */
-	u64 wq_head_phy_addr;	/* head of wq is managed by GPU */
-	u64 wq_tail_addr;	/* tail of wq is managed by CSME */
-	u64 wq_tail_phy_addr;	/* tail of wq is managed by CSME */
+	u64 wq_head_addr;	// head of wq is managed by GPU
+	u64 wq_head_phy_addr;	// head of wq is managed by GPU
+	u64 wq_tail_addr;	// tail of wq is managed by CSME
+	u64 wq_tail_phy_addr;	// tail of wq is managed by CSME
 } intel_ipts_wq_info_t;
 
 typedef struct intel_ipts_ops {
@@ -60,17 +60,16 @@ typedef struct intel_ipts_callback {
 } intel_ipts_callback_t;
 
 typedef struct intel_ipts_connect {
-	struct device *client;		/* input : client device for PM setup */
-        intel_ipts_callback_t ipts_cb;	/* input : callback addresses */
-	void *data;			/* input : callback data */
-        u32 if_version;			/* input : interface version */
-
-        u32 gfx_version;		/* output : gfx version */
-        u64 gfx_handle;			/* output : gfx handle */
-	intel_ipts_ops_t ipts_ops;	/* output : gfx ops for IPTS */
+	struct device *client;		// input : client device for PM setup
+	intel_ipts_callback_t ipts_cb;	// input : callback addresses
+	void *data;			// input : callback data
+	u32 if_version;			// input : interface version
+	u32 gfx_version;		// output : gfx version
+	u64 gfx_handle;			// output : gfx handle
+	intel_ipts_ops_t ipts_ops;	// output : gfx ops for IPTS
 } intel_ipts_connect_t;
 
 int intel_ipts_connect(intel_ipts_connect_t *ipts_connect);
 void intel_ipts_disconnect(uint64_t gfx_handle);
 
-#endif // INTEL_IPTS_IF_H
+#endif // _INTEL_IPTS_GFX_H_

@@ -5,6 +5,7 @@
 
 struct ipts_params {
 	bool ignore_fw_fallback;
+	bool ignore_config_fallback;
 	bool ignore_companion;
 	int no_feedback;
 };

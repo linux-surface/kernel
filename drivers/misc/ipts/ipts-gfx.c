@@ -15,7 +15,6 @@
  */
 #include <linux/kthread.h>
 #include <linux/delay.h>
-#include <linux/intel_ipts_if.h>
 
 #include "ipts.h"
 #include "ipts-msg-handler.h"
