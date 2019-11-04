@@ -2265,14 +2265,13 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
 int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 {
 	struct mwifiex_adapter *adapter = priv->adapter;
-	int ret;
 	struct mwifiex_ds_11n_amsdu_aggr_ctrl amsdu_aggr_ctrl;
-	struct mwifiex_ds_auto_ds auto_ds;
 	enum state_11d_t state_11d;
 	struct mwifiex_ds_11n_tx_cfg tx_cfg;
 	u8 sdio_sp_rx_aggr_enable;
 	u16 packet_aggr_enable;
 	int data;
+	int ret;
 
 	if (first_sta) {
 		if (priv->adapter->iface_type == MWIFIEX_PCIE) {
@@ -2394,18 +2393,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 			       &priv->curr_pkt_filter, true);
 	if (ret)
 		return -1;
-
-	if (!disable_auto_ds && first_sta &&
-	    priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
-		/* Enable auto deep sleep */
-		auto_ds.auto_ds = DEEP_SLEEP_ON;
-		auto_ds.idle_time = DEEP_SLEEP_IDLE_TIME;
-		ret = mwifiex_send_cmd(priv, HostCmd_CMD_802_11_PS_MODE_ENH,
-				       EN_AUTO_PS, BITMAP_AUTO_DS,
-				       &auto_ds, true);
-		if (ret)
-			return -1;
-	}
 
 	if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 		/* Send cmd to FW to enable/disable 11D function */
