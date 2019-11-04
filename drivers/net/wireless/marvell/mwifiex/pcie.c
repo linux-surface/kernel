@@ -149,37 +149,39 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
  */
 static int mwifiex_pcie_suspend(struct device *dev)
 {
-	struct mwifiex_adapter *adapter;
-	struct pcie_service_card *card;
 	struct pci_dev *pdev = to_pci_dev(dev);
+	struct pcie_service_card *card = pci_get_drvdata(pdev);
+	struct mwifiex_adapter *adapter;
+	struct mwifiex_private *priv;
+	const struct mwifiex_pcie_card_reg *reg;
+	u32 fw_status;
+	int ret;
 
-	card = pci_get_drvdata(pdev);
 
 	/* Might still be loading firmware */
 	wait_for_completion(&card->fw_done);
 
 	adapter = card->adapter;
-	if (!adapter) {
-		dev_err(dev, "adapter is not valid\n");
+	if (!adapter || !adapter->priv_num)
 		return 0;
+
+	reg = card->pcie.reg;
+	if (reg)
+		ret = mwifiex_read_reg(adapter, reg->fw_status, &fw_status);
+	else
+		fw_status = -1;
+
+	if (fw_status == FIRMWARE_READY_PCIE && !adapter->mfg_mode) {
+		mwifiex_deauthenticate_all(adapter);
+
+		priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
+
+		mwifiex_disable_auto_ds(priv);
+
+		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
 	}
 
-	mwifiex_enable_wake(adapter);
-
-	/* Enable the Host Sleep */
-	if (!mwifiex_enable_hs(adapter)) {
-		mwifiex_dbg(adapter, ERROR,
-			    "cmd: failed to suspend\n");
-		clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
-		mwifiex_disable_wake(adapter);
-		return -EFAULT;
-	}
-
-	flush_workqueue(adapter->workqueue);
-
-	/* Indicate device suspended */
-	set_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
-	clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
+	mwifiex_remove_card(adapter);
 
 	return 0;
 }
@@ -194,30 +196,29 @@ static int mwifiex_pcie_suspend(struct device *dev)
  */
 static int mwifiex_pcie_resume(struct device *dev)
 {
-	struct mwifiex_adapter *adapter;
-	struct pcie_service_card *card;
 	struct pci_dev *pdev = to_pci_dev(dev);
+	struct pcie_service_card *card = pci_get_drvdata(pdev);
+	int ret;
 
-	card = pci_get_drvdata(pdev);
+	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
+		 pdev->vendor, pdev->device, pdev->revision);
 
-	if (!card->adapter) {
-		dev_err(dev, "adapter structure is not valid\n");
-		return 0;
+	init_completion(&card->fw_done);
+
+	card->dev = pdev;
+
+	/* device tree node parsing and platform specific configuration */
+	if (pdev->dev.of_node) {
+		ret = mwifiex_pcie_probe_of(&pdev->dev);
+		if (ret)
+			return ret;
 	}
 
-	adapter = card->adapter;
-
-	if (!test_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags)) {
-		mwifiex_dbg(adapter, WARN,
-			    "Device already resumed\n");
-		return 0;
+	if (mwifiex_add_card(card, &card->fw_done, &pcie_ops,
+			MWIFIEX_PCIE, &pdev->dev)) {
+		pr_err("%s failed\n", __func__);
+		return -1;
 	}
-
-	clear_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
-
-	mwifiex_cancel_hs(mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA),
-			  MWIFIEX_ASYNC_CMD);
-	mwifiex_disable_wake(adapter);
 
 	return 0;
 }
@@ -270,6 +271,8 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
 		pr_err("%s failed\n", __func__);
 		return -1;
 	}
+
+	pdev->bus->self->bridge_d3 = false;
 
 	return 0;
 }
