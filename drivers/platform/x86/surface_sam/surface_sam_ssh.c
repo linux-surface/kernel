@@ -1220,7 +1220,7 @@ static int ssh_receive_buf(struct serdev_device *serdev,
 }
 
 
-#ifdef CONFIG_SURFACE_ACPI_SSH_DEBUG_DEVICE
+#ifdef CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE
 
 #include <linux/sysfs.h>
 
@@ -1306,7 +1306,7 @@ void surface_sam_ssh_sysfs_unregister(struct device *dev)
 {
 }
 
-#endif	/* CONFIG_SURFACE_ACPI_SSH_DEBUG_DEVICE */
+#endif	/* CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE */
 
 
 static acpi_status
