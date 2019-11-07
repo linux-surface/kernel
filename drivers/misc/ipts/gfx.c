@@ -64,7 +64,6 @@ static void disconnect_gfx(struct ipts_info *ipts)
 
 static struct task_struct *dbg_thread;
 
-// TODO: Document the meaning of the values (Arda Coskunses comment on Github)
 static void ipts_print_dbg_info(struct ipts_info *ipts)
 {
 	char fw_sts_str[MEI_FW_STATUS_STR_SZ];
@@ -79,8 +78,15 @@ static void ipts_print_dbg_info(struct ipts_info *ipts)
 	db = (u32 *)wq_info->db_addr;
 	head = (u32 *)wq_info->wq_head_addr;
 	tail = (u32 *)wq_info->wq_tail_addr;
-	pr_info(">> == DB s:%x, c:%x ==\n", *db, *(db+1));
-	pr_info(">> == WQ h:%u, t:%u ==\n", *head, *tail);
+
+	// Every time the ME has filled up the touch input buffer, and the GuC
+	// doorbell is rang, the doorbell count will increase by one
+	// The workqueue is the queue of touch events that the GuC has to
+	// process. Head is the currently processed event, while tail is
+	// the last one that is currently available. If head and tail are
+	// not equal, this can be an indicator for GuC / GPU hang.
+	pr_info(">> == Doorbell status:%x, count:%x ==\n", *db, *(db+1));
+	pr_info(">> == Workqueue head:%u, tail:%u ==\n", *head, *tail);
 }
 
 static int ipts_dbg_thread(void *data)
