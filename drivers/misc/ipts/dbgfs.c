@@ -18,8 +18,8 @@
 
 static const char ipts_status_fmt[] = "ipts state : %01d\n";
 static const char ipts_debug_fmt[] = ">> tdt : fw status : %s\n"
-	">> == DB s:%x, c:%x ==\n"
-	">> == WQ h:%u, t:%u ==\n";
+	">> == Doorbell status:%x, count:%x ==\n"
+	">> == Workqueue head:%u, tail:%u ==\n";
 
 static ssize_t ipts_dbgfs_status_read(struct file *fp, char __user *ubuf,
 		size_t cnt, loff_t *ppos)
