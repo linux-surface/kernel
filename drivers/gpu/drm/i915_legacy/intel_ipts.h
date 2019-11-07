@@ -24,11 +24,11 @@
 #ifndef _INTEL_IPTS_H_
 #define _INTEL_IPTS_H_
 
-struct drm_device;
+#include <drm/drm_device.h>
 
-int intel_ipts_init(struct drm_device *dev);
-void intel_ipts_cleanup(struct drm_device *dev);
-int intel_ipts_notify_backlight_status(bool backlight_on);
-int intel_ipts_notify_complete(void);
+int ipts_init(struct drm_device *dev);
+void ipts_cleanup(struct drm_device *dev);
+int ipts_notify_backlight_status(bool backlight_on);
+int ipts_notify_complete(void);
 
 #endif //_INTEL_IPTS_H_
