@@ -47,24 +47,6 @@ struct kernel_output_payload_error {
 	char string[128];
 };
 
-static const struct dmi_system_id no_feedback_dmi_table[] = {
-	{
-		.matches = {
-			DMI_EXACT_MATCH(DMI_SYS_VENDOR,
-					"Microsoft Corporation"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
-		},
-	},
-	{
-		.matches = {
-			DMI_EXACT_MATCH(DMI_SYS_VENDOR,
-					"Microsoft Corporation"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
-		},
-	},
-	{ }
-};
-
 static int ipts_hid_get_descriptor(struct ipts_info *ipts,
 		u8 **desc, int *size)
 {
@@ -448,6 +430,10 @@ static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 	 * The most desirable fix could be done by raising IPTS GuC priority.
 	 * Until we find a better solution, use this workaround.
 	 *
+	 * The decision which devices have no_feedback enabled by default is
+	 * made by the companion driver. If no companion driver was loaded,
+	 * no_feedback is disabled and the default behaviour is used.
+	 *
 	 * Link to the comment where sebanc found this workaround:
 	 * https://github.com/jakeday/linux-surface/issues/374#issuecomment-508234110
 	 * (Touch and pen issue persists · Issue #374 · jakeday/linux-surface)
@@ -458,12 +444,8 @@ static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 	 */
 	if (fb_buf) {
 		// A negative value means "decide by dmi table"
-		if (ipts_modparams.no_feedback < 0) {
-			if (dmi_check_system(no_feedback_dmi_table))
-				ipts_modparams.no_feedback = true;
-			else
-				ipts_modparams.no_feedback = false;
-		}
+		if (ipts_modparams.no_feedback < 0)
+			ipts_modparams.no_feedback = ipts_needs_no_feedback();
 
 		if (ipts_modparams.no_feedback)
 			return 0;

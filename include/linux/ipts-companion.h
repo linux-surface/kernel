@@ -14,6 +14,7 @@
 #include <linux/ipts-binary.h>
 
 struct ipts_companion {
+	bool (*needs_no_feedback)(struct ipts_companion *companion);
 	int (*firmware_request)(struct ipts_companion *companion,
 		const struct firmware **fw,
 		const char *name, struct device *device);
