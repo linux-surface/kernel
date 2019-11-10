@@ -66,9 +66,10 @@
 #define SSH_READ_BUF_LEN		512		// must be power of 2
 #define SSH_EVAL_BUF_LEN		SSH_MAX_WRITE	// also works for reading
 
-#define SSH_FRAME_TYPE_CMD		0x80
-#define SSH_FRAME_TYPE_ACK		0x40
-#define SSH_FRAME_TYPE_RETRY		0x04
+#define SSH_FRAME_TYPE_CMD_NOACK	0x00	// request/event that does not to be ACKed
+#define SSH_FRAME_TYPE_CMD		0x80	// request/event
+#define SSH_FRAME_TYPE_ACK		0x40	// ACK for request/event
+#define SSH_FRAME_TYPE_RETRY		0x04	// error or retry indicator
 
 #define SSH_FRAME_OFFS_CTRL		SSH_BYTELEN_SYNC
 #define SSH_FRAME_OFFS_CTRL_CRC		(SSH_FRAME_OFFS_CTRL + SSH_BYTELEN_CTRL)
@@ -78,8 +79,8 @@
 
 /*
  * A note on Request IDs (RQIDs):
- *	0x0000 is not a valid RQID
- *	0x0001 is valid, but reserved for Surface Laptop keyboard events
+ * 	0x0000 is not a valid RQID
+ * 	0x0001 is valid, but reserved for Surface Laptop keyboard events
  */
 #define SAM_NUM_EVENT_TYPES		((1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1)
 
@@ -109,8 +110,8 @@ struct ssh_frame_ctrl {
 struct ssh_frame_cmd {
 	u8 type;
 	u8 tc;
-	u8 outgoing;		// assumed to be 0x01 for SSH to SAM messages, 0x00 otherwise
-	u8 incoming;		// assumed to be 0x01 for SAM to SSH messages, 0x00 otherwise
+	u8 pri_out;
+	u8 pri_in;
 	u8 iid;
 	u8 rqid_lo;		// id for request/response matching (low byte)
 	u8 rqid_hi;		// id for request/response matching (high byte)
@@ -220,11 +221,6 @@ static struct sam_ssh_ec ssh_ec = {
 };
 
 
-static int surface_sam_ssh_rqst_unlocked(struct sam_ssh_ec *ec,
-					 const struct surface_sam_ssh_rqst *rqst,
-					 struct surface_sam_ssh_buf *result);
-
-
 inline static struct sam_ssh_ec *surface_sam_ssh_acquire(void)
 {
 	struct sam_ssh_ec *ec = &ssh_ec;
@@ -283,15 +279,14 @@ inline static bool sam_rqid_is_event(u16 rqid) {
 
 int surface_sam_ssh_enable_event_source(u8 tc, u8 unknown, u16 rqid)
 {
-	struct sam_ssh_ec *ec;
-
 	u8 pld[4] = { tc, unknown, rqid & 0xff, rqid >> 8 };
 	u8 buf[1] = { 0x00 };
 
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = 0x01,
-		.iid = 0x00,
 		.cid = 0x0b,
+		.iid = 0x00,
+		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 		.snc = 0x01,
 		.cdl = 0x04,
 		.pld = pld,
@@ -310,28 +305,14 @@ int surface_sam_ssh_enable_event_source(u8 tc, u8 unknown, u16 rqid)
 		return -EINVAL;
 	}
 
-	ec = surface_sam_ssh_acquire_init();
-	if (!ec) {
-		printk(KERN_WARNING SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
-		return -ENXIO;
-	}
-
-	if (ec->state == SSH_EC_SUSPENDED) {
-		dev_warn(&ec->serdev->dev, SSH_RQST_TAG "embedded controller is suspended\n");
-
-		surface_sam_ssh_release(ec);
-		return -EPERM;
-	}
-
-	status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
+	status = surface_sam_ssh_rqst(&rqst, &result);
 
 	if (buf[0] != 0x00) {
-		dev_warn(&ec->serdev->dev,
-		         "unexpected result while enabling event source: 0x%02x\n",
-			 buf[0]);
+		printk(KERN_WARNING SSH_RQST_TAG_FULL
+		       "unexpected result while enabling event source: 0x%02x\n",
+		       buf[0]);
 	}
 
-	surface_sam_ssh_release(ec);
 	return status;
 
 }
@@ -339,15 +320,14 @@ EXPORT_SYMBOL_GPL(surface_sam_ssh_enable_event_source);
 
 int surface_sam_ssh_disable_event_source(u8 tc, u8 unknown, u16 rqid)
 {
-	struct sam_ssh_ec *ec;
-
 	u8 pld[4] = { tc, unknown, rqid & 0xff, rqid >> 8 };
 	u8 buf[1] = { 0x00 };
 
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = 0x01,
-		.iid = 0x00,
 		.cid = 0x0c,
+		.iid = 0x00,
+		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 		.snc = 0x01,
 		.cdl = 0x04,
 		.pld = pld,
@@ -366,31 +346,22 @@ int surface_sam_ssh_disable_event_source(u8 tc, u8 unknown, u16 rqid)
 		return -EINVAL;
 	}
 
-	ec = surface_sam_ssh_acquire_init();
-	if (!ec) {
-		printk(KERN_WARNING SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
-		return -ENXIO;
-	}
-
-	if (ec->state == SSH_EC_SUSPENDED) {
-		dev_warn(&ec->serdev->dev, SSH_RQST_TAG "embedded controller is suspended\n");
-
-		surface_sam_ssh_release(ec);
-		return -EPERM;
-	}
-
-	status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
+	status = surface_sam_ssh_rqst(&rqst, &result);
 
 	if (buf[0] != 0x00) {
-		dev_warn(&ec->serdev->dev,
-		         "unexpected result while disabling event source: 0x%02x\n",
-			 buf[0]);
+		printk(KERN_WARNING SSH_RQST_TAG_FULL
+		       "unexpected result while disabling event source: 0x%02x\n",
+		       buf[0]);
 	}
 
-	surface_sam_ssh_release(ec);
 	return status;
 }
 EXPORT_SYMBOL_GPL(surface_sam_ssh_disable_event_source);
+
+static unsigned long sam_event_default_delay(struct surface_sam_ssh_event *event, void *data)
+{
+	return event->pri == SURFACE_SAM_PRIORITY_HIGH ? SURFACE_SAM_SSH_EVENT_IMMEDIATE : 0;
+}
 
 int surface_sam_ssh_set_delayed_event_handler(
 		u16 rqid, surface_sam_ssh_event_handler_fn fn,
@@ -407,6 +378,10 @@ int surface_sam_ssh_set_delayed_event_handler(
 	ec = surface_sam_ssh_acquire_init();
 	if (!ec) {
 		return -ENXIO;
+	}
+
+	if (!delay) {
+		delay = sam_event_default_delay;
 	}
 
 	spin_lock_irqsave(&ec->events.lock, flags);
@@ -531,8 +506,8 @@ inline static void ssh_write_cmd(struct ssh_writer *writer,
 
 	cmd->type     = SSH_FRAME_TYPE_CMD;
 	cmd->tc       = rqst->tc;
-	cmd->outgoing = 0x01;
-	cmd->incoming = 0x00;
+	cmd->pri_out  = rqst->pri;
+	cmd->pri_in   = 0x00;
 	cmd->iid      = rqst->iid;
 	cmd->rqid_lo  = rqid_lo;
 	cmd->rqid_hi  = rqid_hi;
@@ -692,10 +667,12 @@ static int surface_sam_ssh_rqst_unlocked(struct sam_ssh_ec *ec,
 		}
 
 		// send ACK
-		ssh_write_msg_ack(ec, packet.seq);
-		status = ssh_writer_flush(ec);
-		if (status) {
-			goto out;
+		if (packet.type == SSH_FRAME_TYPE_CMD) {
+			ssh_write_msg_ack(ec, packet.seq);
+			status = ssh_writer_flush(ec);
+			if (status) {
+				goto out;
+			}
 		}
 	}
 
@@ -736,8 +713,9 @@ static int surface_sam_ssh_ec_resume(struct sam_ssh_ec *ec)
 
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = 0x01,
-		.iid = 0x00,
 		.cid = 0x16,
+		.iid = 0x00,
+		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 		.snc = 0x01,
 		.cdl = 0x00,
 		.pld = NULL,
@@ -769,8 +747,9 @@ static int surface_sam_ssh_ec_suspend(struct sam_ssh_ec *ec)
 
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = 0x01,
-		.iid = 0x00,
 		.cid = 0x15,
+		.iid = 0x00,
+		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 		.snc = 0x01,
 		.cdl = 0x00,
 		.pld = NULL,
@@ -939,27 +918,30 @@ static void ssh_handle_event(struct sam_ssh_ec *ec, const u8 *buf)
 		return;
 	}
 
-	refcount_set(&work->refcount, 2);
+	refcount_set(&work->refcount, 1);
 	work->ec         = ec;
 	work->seq        = ctrl->seq;
 	work->event.rqid = (cmd->rqid_hi << 8) | cmd->rqid_lo;
 	work->event.tc   = cmd->tc;
-	work->event.iid  = cmd->iid;
 	work->event.cid  = cmd->cid;
+	work->event.iid  = cmd->iid;
+	work->event.pri  = cmd->pri_in;
 	work->event.len  = pld_len;
 	work->event.pld  = ((u8*) work) + sizeof(struct ssh_event_work);
 
 	memcpy(work->event.pld, buf + SSH_FRAME_OFFS_CMD_PLD, pld_len);
 
-	INIT_WORK(&work->work_ack, surface_sam_ssh_event_work_ack_handler);
-	queue_work(ec->events.queue_ack, &work->work_ack);
+	// queue ACK for if required
+	if (ctrl->type == SSH_FRAME_TYPE_CMD) {
+		refcount_set(&work->refcount, 2);
+		INIT_WORK(&work->work_ack, surface_sam_ssh_event_work_ack_handler);
+		queue_work(ec->events.queue_ack, &work->work_ack);
+	}
 
 	spin_lock_irqsave(&ec->events.lock, flags);
 	handler_data = ec->events.handler[work->event.rqid - 1].data;
-	delay_fn     = ec->events.handler[work->event.rqid - 1].delay;
-	if (delay_fn) {
-		delay = delay_fn(&work->event, handler_data);
-	}
+	delay_fn = ec->events.handler[work->event.rqid - 1].delay;
+	delay = delay_fn(&work->event, handler_data);
 	spin_unlock_irqrestore(&ec->events.lock, flags);
 
 	// immediate execution for high priority events (e.g. keyboard)
@@ -1025,7 +1007,7 @@ static int ssh_receive_msg_ctrl(struct sam_ssh_ec *ec, const u8 *buf, size_t siz
 	} else {
 		dev_warn(dev, SSH_RECV_TAG
 			 "dropping frame: not enough space in fifo (type = %d)\n",
-			 SSH_FRAME_TYPE_CMD);
+			 ctrl->type);
 
 		return SSH_MSG_LEN_CTRL;	// discard message
 	}
@@ -1133,7 +1115,7 @@ static int ssh_receive_msg_cmd(struct sam_ssh_ec *ec, const u8 *buf, size_t size
 	} else {
 		dev_warn(dev, SSH_RECV_TAG
 			 "dropping frame: not enough space in fifo (type = %d)\n",
-			 SSH_FRAME_TYPE_CMD);
+			 ctrl->type);
 
 		return SSH_MSG_LEN_CTRL;	// discard message
 	}
@@ -1169,6 +1151,7 @@ static int ssh_eval_buf(struct sam_ssh_ec *ec, const u8 *buf, size_t size)
 		return ssh_receive_msg_ctrl(ec, buf, size);
 
 	case SSH_FRAME_TYPE_CMD:
+	case SSH_FRAME_TYPE_CMD_NOACK:
 		return ssh_receive_msg_cmd(ec, buf, size);
 
 	default:
@@ -1228,6 +1211,15 @@ static char sam_ssh_debug_rqst_buf_sysfs[SURFACE_SAM_SSH_MAX_RQST_RESPONSE + 1] 
 static char sam_ssh_debug_rqst_buf_pld[SURFACE_SAM_SSH_MAX_RQST_PAYLOAD] = { 0 };
 static char sam_ssh_debug_rqst_buf_res[SURFACE_SAM_SSH_MAX_RQST_RESPONSE] = { 0 };
 
+struct sysfs_rqst {
+	u8 tc;
+	u8 cid;
+	u8 iid;
+	u8 pri;
+	u8 snc;
+	u8 cdl;
+	u8 pld[0];
+} __packed;
 
 static ssize_t rqst_read(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
                          char *buf, loff_t offs, size_t count)
@@ -1243,27 +1235,35 @@ static ssize_t rqst_read(struct file *f, struct kobject *kobj, struct bin_attrib
 static ssize_t rqst_write(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
 			  char *buf, loff_t offs, size_t count)
 {
+	struct sysfs_rqst *input;
 	struct surface_sam_ssh_rqst rqst = {};
 	struct surface_sam_ssh_buf result = {};
 	int status;
 
 	// check basic write constriants
-	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + 5) {
+	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + sizeof(struct sysfs_rqst)) {
 		return -EINVAL;
 	}
+
+	if (count < sizeof(struct sysfs_rqst)) {
+		return -EINVAL;
+	}
+
+	input = (struct sysfs_rqst *)buf;
 
 	// payload length should be consistent with data provided
-	if (buf[4] + 5 != count) {
+	if (input->cdl + sizeof(struct sysfs_rqst) != count) {
 		return -EINVAL;
 	}
 
-	rqst.tc  = buf[0];
-	rqst.iid = buf[1];
-	rqst.cid = buf[2];
-	rqst.snc = buf[3];
-	rqst.cdl = buf[4];
+	rqst.tc  = input->tc;
+	rqst.cid = input->cid;
+	rqst.iid = input->iid;
+	rqst.pri = input->pri;
+	rqst.snc = input->snc;
+	rqst.cdl = input->cdl;
 	rqst.pld = sam_ssh_debug_rqst_buf_pld;
-	memcpy(sam_ssh_debug_rqst_buf_pld, buf + 5, count - 5);
+	memcpy(sam_ssh_debug_rqst_buf_pld, &input->pld[0], input->cdl);
 
 	result.cap = SURFACE_SAM_SSH_MAX_RQST_RESPONSE;
 	result.len = 0;
