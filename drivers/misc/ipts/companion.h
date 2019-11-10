@@ -15,7 +15,7 @@
 #include "ipts.h"
 
 bool ipts_companion_available(void);
-bool ipts_needs_no_feedback(void);
+unsigned int ipts_get_quirks(void);
 
 int ipts_request_firmware(const struct firmware **fw, const char *name,
 		struct device *device);

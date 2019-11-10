@@ -210,19 +210,19 @@ config_fallback:
 
 }
 
-bool ipts_needs_no_feedback(void)
+unsigned int ipts_get_quirks(void)
 {
-	bool ret;
+	unsigned int ret;
 
 	// Make sure that access to the companion is synchronized
 	mutex_lock(&ipts_companion_lock);
 
 	// If the companion is ignored, or doesn't exist, assume that
-	// the device doesn't need no_feedback enabled
+	// the device doesn't have any quirks
 	if (ipts_modparams.ignore_companion || ipts_companion == NULL)
-		ret = false;
+		ret = IPTS_QUIRK_NONE;
 	else
-		ret = ipts_companion->needs_no_feedback(ipts_companion);
+		ret = ipts_companion->get_quirks(ipts_companion);
 
 	mutex_unlock(&ipts_companion_lock);
 

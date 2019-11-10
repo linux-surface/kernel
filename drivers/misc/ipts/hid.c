@@ -9,6 +9,7 @@
 #include <linux/dmi.h>
 #include <linux/firmware.h>
 #include <linux/hid.h>
+#include <linux/ipts.h>
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 
@@ -444,8 +445,12 @@ static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 	 */
 	if (fb_buf) {
 		// A negative value means "decide by dmi table"
-		if (ipts_modparams.no_feedback < 0)
-			ipts_modparams.no_feedback = ipts_needs_no_feedback();
+		if (ipts_modparams.no_feedback < 0) {
+			if (ipts_get_quirks() & IPTS_QUIRK_NO_FEEDBACK)
+				ipts_modparams.no_feedback = true;
+			else
+				ipts_modparams.no_feedback = false;
+		}
 
 		if (ipts_modparams.no_feedback)
 			return 0;
