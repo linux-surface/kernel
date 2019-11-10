@@ -28,49 +28,49 @@
 
 struct ipts_surface_data {
 	const char *hid;
-	bool no_feedback;
+	unsigned int quirks;
 };
 
 // Surface Book 1 / Surface Studio
 static const struct ipts_surface_data ipts_surface_mshw0076 = {
 	.hid = "MSHW0076",
-	.no_feedback = true,
+	.quirks = IPTS_QUIRK_NO_FEEDBACK,
 };
 
 // Surface Pro 4
 static const struct ipts_surface_data ipts_surface_mshw0078 = {
 	.hid = "MSHW0078",
-	.no_feedback = true,
+	.quirks = IPTS_QUIRK_NO_FEEDBACK,
 };
 
 // Surface Laptop 1 / 2
 static const struct ipts_surface_data ipts_surface_mshw0079 = {
 	.hid = "MSHW0079",
-	.no_feedback = false,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 // Surface Pro 5 / 6
 static const struct ipts_surface_data ipts_surface_mshw0101 = {
 	.hid = "MSHW0101",
-	.no_feedback = false,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 // Surface Book 2 15"
 static const struct ipts_surface_data ipts_surface_mshw0102 = {
 	.hid = "MSHW0102",
-	.no_feedback = false,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 // Unknown, but firmware exists
 static const struct ipts_surface_data ipts_surface_mshw0103 = {
 	.hid = "MSHW0103",
-	.no_feedback = false,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 // Surface Book 2 13"
 static const struct ipts_surface_data ipts_surface_mshw0137 = {
 	.hid = "MSHW0137",
-	.no_feedback = false,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 /*
@@ -83,7 +83,7 @@ int ipts_surface_request_firmware(struct ipts_companion *companion,
 		const struct firmware **fw, const char *name,
 		struct device *device);
 
-bool ipts_surface_needs_no_feedback(struct ipts_companion *companion);
+unsigned int ipts_surface_get_quirks(struct ipts_companion *companion);
 
 static struct ipts_bin_fw_info ipts_surface_vendor_kernel = {
 	.fw_name = "vendor_kernel.bin",
@@ -119,7 +119,7 @@ static struct ipts_bin_fw_info *ipts_surface_fw_config[] = {
 static struct ipts_companion ipts_surface_companion = {
 	.firmware_request = &ipts_surface_request_firmware,
 	.firmware_config = ipts_surface_fw_config,
-	.needs_no_feedback = &ipts_surface_needs_no_feedback,
+	.get_quirks = &ipts_surface_get_quirks,
 	.name = "ipts_surface",
 };
 
@@ -140,18 +140,18 @@ int ipts_surface_request_firmware(struct ipts_companion *companion,
 	return request_firmware(fw, fw_path, device);
 }
 
-bool ipts_surface_needs_no_feedback(struct ipts_companion *companion)
+unsigned int ipts_surface_get_quirks(struct ipts_companion *companion)
 {
 	struct ipts_surface_data *data;
 
-	// In case something went wrong, assume that the device doesn't
-	// need the no_feedback option set
+	// In case something went wrong, assume that the
+	// device doesn't have any quirks
 	if (companion == NULL || companion->data == NULL)
-		return false;
+		return IPTS_QUIRK_NONE;
 
 	data = (struct ipts_surface_data *)companion->data;
 
-	return data->no_feedback;
+	return data->quirks;
 }
 
 static int ipts_surface_probe(struct platform_device *pdev)
