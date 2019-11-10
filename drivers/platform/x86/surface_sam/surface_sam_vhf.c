@@ -181,16 +181,6 @@ static int vhf_event_handler(struct surface_sam_ssh_event *event, void *data)
 	return 0;
 }
 
-static unsigned long vhf_event_delay(struct surface_sam_ssh_event *event, void *data)
-{
-	// high priority immediate execution for keyboard events
-	if (event->tc == 0x08 && (event->cid == 0x03 || event->cid == 0x04)) {
-		return SURFACE_SAM_SSH_EVENT_IMMEDIATE;
-	}
-
-	return 0;
-}
-
 static int surface_sam_vhf_probe(struct platform_device *pdev)
 {
 	struct vhf_drvdata *drvdata;
@@ -224,10 +214,9 @@ static int surface_sam_vhf_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, drvdata);
 
-	status = surface_sam_ssh_set_delayed_event_handler(
+	status = surface_sam_ssh_set_event_handler(
 			SAM_EVENT_VHF_RQID,
 	                vhf_event_handler,
-	                vhf_event_delay,
 			&drvdata->event_ctx);
 	if (status) {
 		goto err_add_hid;
