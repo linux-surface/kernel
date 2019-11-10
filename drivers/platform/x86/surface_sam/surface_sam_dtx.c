@@ -102,8 +102,9 @@ static int surface_sam_query_opmpde(void)
 
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = SAM_RQST_DTX_TC,
-		.iid = 0,
 		.cid = SAM_RQST_DTX_CID_GET_OPMODE,
+		.iid = 0,
+		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 		.snc = 1,
 		.cdl = 0,
 		.pld = NULL,
@@ -132,8 +133,9 @@ static int dtx_cmd_simple(u8 cid)
 {
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = SAM_RQST_DTX_TC,
-		.iid = 0,
 		.cid = cid,
+		.iid = 0,
+		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 		.snc = 0,
 		.cdl = 0,
 		.pld = NULL,
