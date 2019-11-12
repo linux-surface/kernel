@@ -613,6 +613,7 @@ struct platform_driver surface_sam_dtx = {
 	.driver = {
 		.name = "surface_sam_dtx",
 		.acpi_match_table = ACPI_PTR(surface_sam_dtx_match),
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 module_platform_driver(surface_sam_dtx);

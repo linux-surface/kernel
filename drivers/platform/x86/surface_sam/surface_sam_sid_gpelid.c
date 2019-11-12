@@ -204,6 +204,7 @@ struct platform_driver surface_sam_sid_gpelid = {
 	.driver = {
 		.name = "surface_sam_sid_gpelid",
 		.pm = &surface_sam_sid_gpelid_pm,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 module_platform_driver(surface_sam_sid_gpelid);

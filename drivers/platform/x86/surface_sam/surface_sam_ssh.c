@@ -7,7 +7,6 @@
 #include <linux/acpi.h>
 #include <linux/completion.h>
 #include <linux/crc-ccitt.h>
-#include <linux/device.h>
 #include <linux/dmaengine.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
@@ -385,6 +384,11 @@ int surface_sam_ssh_set_delayed_event_handler(
 	}
 
 	spin_lock_irqsave(&ec->events.lock, flags);
+	// check if we already have a handler
+	if (ec->events.handler[rqid - 1].handler) {
+		spin_unlock_irqrestore(&ec->events.lock, flags);
+		return -EINVAL;
+	}
 
 	// 0 is not a valid event RQID
 	ec->events.handler[rqid - 1].handler = fn;
@@ -905,7 +909,7 @@ static void ssh_handle_event(struct sam_ssh_ec *ec, const u8 *buf)
 
 	surface_sam_ssh_event_handler_delay delay_fn;
 	void *handler_data;
-	unsigned long delay = 0;
+	unsigned long delay;
 
 	ctrl = (const struct ssh_frame_ctrl *)(buf + SSH_FRAME_OFFS_CTRL);
 	cmd  = (const struct ssh_frame_cmd  *)(buf + SSH_FRAME_OFFS_CMD);
@@ -941,7 +945,12 @@ static void ssh_handle_event(struct sam_ssh_ec *ec, const u8 *buf)
 	spin_lock_irqsave(&ec->events.lock, flags);
 	handler_data = ec->events.handler[work->event.rqid - 1].data;
 	delay_fn = ec->events.handler[work->event.rqid - 1].delay;
-	delay = delay_fn(&work->event, handler_data);
+
+	/* Note:
+	 * We need to check delay_fn here: This may have never been set as we
+	 * can't guarantee that events only occur when they have been enabled.
+	 */
+	delay = delay_fn ? delay_fn(&work->event, handler_data) : 0;
 	spin_unlock_irqrestore(&ec->events.lock, flags);
 
 	// immediate execution for high priority events (e.g. keyboard)
@@ -1364,51 +1373,6 @@ ssh_setup_from_resource(struct acpi_resource *resource, void *context)
 }
 
 
-static bool ssh_idma_filter(struct dma_chan *chan, void *param)
-{
-	// see dw8250_idma_filter
-	return param == chan->device->dev;
-}
-
-static int ssh_check_dma(struct serdev_device *serdev)
-{
-	struct device *dev = serdev->ctrl->dev.parent;
-	struct dma_chan *rx, *tx;
-	dma_cap_mask_t mask;
-	int status = 0;
-
-	/*
-	 * The EC UART requires DMA for proper communication. If we don't use DMA,
-	 * we'll drop bytes when the system has high load, e.g. during boot. This
-	 * causes some ugly behaviour, i.e. battery information (_BIX) messages
-	 * failing frequently. We're making sure the required DMA channels are
-	 * available here so serial8250_do_startup is able to grab them later
-	 * instead of silently falling back to a non-DMA approach.
-	 */
-
-	dma_cap_zero(mask);
-	dma_cap_set(DMA_SLAVE, mask);
-
-	rx = dma_request_slave_channel_compat(mask, ssh_idma_filter, dev->parent, dev, "rx");
-	if (IS_ERR_OR_NULL(rx)) {
-		status = rx ? PTR_ERR(rx) : -EPROBE_DEFER;
-		goto out;
-	}
-
-	tx = dma_request_slave_channel_compat(mask, ssh_idma_filter, dev->parent, dev, "tx");
-	if (IS_ERR_OR_NULL(tx)) {
-		status = tx ? PTR_ERR(tx) : -EPROBE_DEFER;
-		goto release_rx;
-	}
-
-	dma_release_channel(tx);
-release_rx:
-	dma_release_channel(rx);
-out:
-	return status;
-}
-
-
 static int surface_sam_ssh_suspend(struct device *dev)
 {
 	struct sam_ssh_ec *ec;
@@ -1476,12 +1440,6 @@ static int surface_sam_ssh_probe(struct serdev_device *serdev)
 	acpi_status status;
 
 	dev_dbg(&serdev->dev, "probing\n");
-
-	// ensure DMA is ready before we set up the device
-	status = ssh_check_dma(serdev);
-	if (status) {
-		return status;
-	}
 
 	// allocate buffers
 	write_buf = kzalloc(SSH_WRITE_BUF_LEN, GFP_KERNEL);
@@ -1682,9 +1640,33 @@ struct serdev_device_driver surface_sam_ssh = {
 		.name = "surface_sam_ssh",
 		.acpi_match_table = ACPI_PTR(surface_sam_ssh_match),
 		.pm = &surface_sam_ssh_pm_ops,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
-module_serdev_device_driver(surface_sam_ssh);
+
+
+static int __init surface_sam_ssh_init(void)
+{
+	return serdev_device_driver_register(&surface_sam_ssh);
+}
+
+static void __exit surface_sam_ssh_exit(void)
+{
+	serdev_device_driver_unregister(&surface_sam_ssh);
+}
+
+/*
+ * Ensure that the driver is loaded late due to some issues with the UART
+ * communication. Specifically, we want to ensure that DMA is ready and being
+ * used. Not using DMA can result in spurious communication failures,
+ * especially during boot, which among other things will result in wrong
+ * battery information (via ACPI _BIX) being displayed. Using a late init_call
+ * instead of the normal module_init gives the DMA subsystem time to
+ * initialize and via that results in a more stable communication, avoiding
+ * such failures.
+ */
+late_initcall(surface_sam_ssh_init);
+module_exit(surface_sam_ssh_exit);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Serial Hub Driver for 5th Generation Surface Devices");
