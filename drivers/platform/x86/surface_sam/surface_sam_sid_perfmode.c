@@ -209,6 +209,7 @@ struct platform_driver surface_sam_sid_perfmode = {
 	.remove = surface_sam_sid_perfmode_remove,
 	.driver = {
 		.name = "surface_sam_sid_perfmode",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 module_platform_driver(surface_sam_sid_perfmode);

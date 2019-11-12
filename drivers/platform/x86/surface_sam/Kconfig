@@ -9,7 +9,7 @@ menuconfig SURFACE_SAM
       functionalities on these devices, including battery status, keyboard
       events (on the Laptops) and many more.
 
-      Say Y here if you have a Microsoft Surface device with a SAM device
+      Say M/Y here if you have a Microsoft Surface device with a SAM device
       (i.e. 5th generation or later).
 
 config SURFACE_SAM_SSH
@@ -37,6 +37,7 @@ config SURFACE_SAM_SSH
 config SURFACE_SAM_SSH_DEBUG_DEVICE
 	bool "Surface Serial Hub Debug Device"
 	depends on SURFACE_SAM_SSH
+	depends on SYSFS
 	default n
 	---help---
 	  Debug device for direct communication with the embedded controller
@@ -57,7 +58,7 @@ config SURFACE_SAM_SAN
 	  status requests/events, thermal events, lid status, and possibly more,
 	  which would otherwise not work on these devices.
 
-	  If you are not sure, say Y here.
+	  If you are not sure, say M here.
 
 config SURFACE_SAM_VHF
 	tristate "Surface Virtual HID Framework Driver"
@@ -69,9 +70,9 @@ config SURFACE_SAM_VHF
 	  Microsoft Surface devices.
 
 	  This driver provides support for the Microsoft Virtual HID framework,
-	  which is required for the Surface Laptop (1 and newer) keyboard.
+	  which is required for keyboard support on the Surface Laptop 1 and 2.
 
-	  If you are not sure, say Y here.
+	  If you are not sure, say M here.
 
 config SURFACE_SAM_DTX
 	tristate "Surface Detachment System (DTX) Driver"
@@ -88,7 +89,7 @@ config SURFACE_SAM_DTX
 	  Also provides a standard input device to provide SW_TABLET_MODE events
 	  upon device mode change.
 
-	  If you are not sure, say Y here.
+	  If you are not sure, say M here.
 
 config SURFACE_SAM_SID
 	tristate "Surface Platform Integration Driver"
@@ -96,9 +97,48 @@ config SURFACE_SAM_SID
 	default m
 	---help---
 	  Surface Platform Integration Driver for the Microsoft Surface Devices.
-	  Currently only supports the Surface Book 2. This driver provides suport
-	  for setting performance-modes via the perf_mode sysfs attribute.
-	  Performance-modes directly influence the fan-profile of the device,
-	  allowing to choose between higher performance or quieter operation.
+	  This driver loads various model-specific sub-drivers, including
+	  battery and keyboard support on 7th generation Surface devices, proper
+	  lid setup to enable device wakeup when the lid is opened on multiple
+	  models, as well as performance mode setting support on the Surface
+	  Book 2.
 
-	  If you are not sure, say Y here.
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_SID_GPELID
+	tristate "Surface Lid Wakeup Driver"
+	depends on SURFACE_SAM_SID
+	default m
+	---help---
+	  Driver to set up device wake-up via lid on Intel-based Microsoft
+	  Surface devices. These devices do not wake up from sleep as their GPE
+	  interrupt is not configured automatically. This driver solves that
+	  problem.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_SID_PERFMODE
+	tristate "Surface Performance Mode Driver"
+	depends on SURFACE_SAM_SID
+	depends on SYSFS
+	default m
+	---help---
+	  This driver provides suport for setting performance-modes on Surface
+	  devices via the perf_mode sysfs attribute. Currently only supports the
+	  Surface Book 2. Performance-modes directly influence the fan-profile
+	  of the device, allowing to choose between higher performance or
+	  quieter operation.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_SID_VHF
+	tristate "Surface SAM HID Driver"
+	depends on SURFACE_SAM_SID
+	depends on HID
+	default m
+	---help---
+	  This driver provides support for HID devices connected via the Surface
+	  SAM embedded controller. It provides support for keyboard and touchpad
+	  on the Surface Laptop 3 models.
+
+	  If you are not sure, say M here.
