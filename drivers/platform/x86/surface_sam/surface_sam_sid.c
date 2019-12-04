@@ -1,3 +1,8 @@
+/*
+ * Surface Integration Driver.
+ * MFD driver to provide device/model dependent functionality.
+ */
+
 #include <linux/acpi.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -11,7 +16,9 @@ static const struct mfd_cell sid_devs_sp4[] = {
 };
 
 static const struct mfd_cell sid_devs_sp7[] = {
-	{ .name = "surface_sam_sid_gpelid", .id = -1 },
+	{ .name = "surface_sam_sid_gpelid",  .id = -1 },
+	{ .name = "surface_sam_sid_ac",      .id = -1 },
+	{ .name = "surface_sam_sid_battery", .id = -1 },
 	{ },
 };
 
@@ -37,13 +44,17 @@ static const struct mfd_cell sid_devs_sl2[] = {
 };
 
 static const struct mfd_cell sid_devs_sl3_13[] = {
-	{ .name = "surface_sam_sid_gpelid", .id = -1 },
-	{ .name = "surface_sam_sid_vhf", .id = -1 },
+	{ .name = "surface_sam_sid_gpelid",  .id = -1 },
+	{ .name = "surface_sam_sid_vhf",     .id = -1 },
+	{ .name = "surface_sam_sid_ac",      .id = -1 },
+	{ .name = "surface_sam_sid_battery", .id = -1 },
 	{ },
 };
 
 static const struct mfd_cell sid_devs_sl3_15[] = {
-	{ .name = "surface_sam_sid_vhf", .id = -1 },
+	{ .name = "surface_sam_sid_vhf",     .id = -1 },
+	{ .name = "surface_sam_sid_ac",      .id = -1 },
+	{ .name = "surface_sam_sid_battery", .id = -1 },
 	{ },
 };
 
@@ -90,7 +101,7 @@ static int surface_sam_sid_remove(struct platform_device *pdev)
 	return 0;
 }
 
-struct platform_driver surface_sam_sid = {
+static struct platform_driver surface_sam_sid = {
 	.probe = surface_sam_sid_probe,
 	.remove = surface_sam_sid_remove,
 	.driver = {
