@@ -1,3 +1,8 @@
+/*
+ * Surface Performance Mode Driver.
+ * Allows to change cooling capabilities based on user preference.
+ */
+
 #include <asm/unaligned.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -154,7 +159,7 @@ static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr
 	//       which calls
 	//           ODV3 = ToInteger (Arg3)
 	//           Notify(IETM, 0x88)
- 	//       IETM is an INT3400 Intel Dynamic Power Performance Management
+	//       IETM is an INT3400 Intel Dynamic Power Performance Management
 	//       device, part of the DPTF framework. From the corresponding
 	//       kernel driver, it looks like event 0x88 is being ignored. Also
 	//       it is currently unknown what the consequecnes of setting ODV3
@@ -204,7 +209,7 @@ static int surface_sam_sid_perfmode_remove(struct platform_device *pdev)
 	return 0;
 }
 
-struct platform_driver surface_sam_sid_perfmode = {
+static struct platform_driver surface_sam_sid_perfmode = {
 	.probe = surface_sam_sid_perfmode_probe,
 	.remove = surface_sam_sid_perfmode_remove,
 	.driver = {

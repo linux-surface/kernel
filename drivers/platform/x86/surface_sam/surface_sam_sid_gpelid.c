@@ -1,3 +1,7 @@
+/*
+ * Surface Lid driver to enable wakeup from suspend via the lid.
+ */
+
 #include <linux/acpi.h>
 #include <linux/dmi.h>
 #include <linux/kernel.h>
@@ -198,7 +202,7 @@ static int surface_sam_sid_gpelid_remove(struct platform_device *pdev)
         return 0;
 }
 
-struct platform_driver surface_sam_sid_gpelid = {
+static struct platform_driver surface_sam_sid_gpelid = {
 	.probe = surface_sam_sid_gpelid_probe,
 	.remove = surface_sam_sid_gpelid_remove,
 	.driver = {

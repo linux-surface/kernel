@@ -5,4 +5,5 @@ obj-$(CONFIG_SURFACE_SAM_VHF)		+= surface_sam_vhf.o
 obj-$(CONFIG_SURFACE_SAM_SID)		+= surface_sam_sid.o
 obj-$(CONFIG_SURFACE_SAM_SID_GPELID)	+= surface_sam_sid_gpelid.o
 obj-$(CONFIG_SURFACE_SAM_SID_PERFMODE)	+= surface_sam_sid_perfmode.o
+obj-$(CONFIG_SURFACE_SAM_SID_POWER)	+= surface_sam_sid_power.o
 obj-$(CONFIG_SURFACE_SAM_SID_VHF)	+= surface_sam_sid_vhf.o

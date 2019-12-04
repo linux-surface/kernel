@@ -62,7 +62,7 @@ struct surface_sam_ssh_rqst {
 };
 
 struct surface_sam_ssh_event {
-	u16 rqid;			// event type/source ID 
+	u16 rqid;			// event type/source ID
 	u8  tc;				// target category
 	u8  cid;			// command ID
 	u8  iid;			// instance ID

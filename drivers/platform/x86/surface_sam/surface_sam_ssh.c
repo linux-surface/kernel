@@ -8,6 +8,8 @@
 #include <linux/completion.h>
 #include <linux/crc-ccitt.h>
 #include <linux/dmaengine.h>
+#include <linux/gpio/consumer.h>
+#include <linux/interrupt.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/kfifo.h>
@@ -178,6 +180,8 @@ struct sam_ssh_ec {
 	struct ssh_writer writer;
 	struct ssh_receiver receiver;
 	struct ssh_events events;
+	int irq;
+	bool irq_wakeup_enabled;
 };
 
 struct ssh_fifo_packet {
@@ -216,7 +220,8 @@ static struct sam_ssh_ec ssh_ec = {
 	.events = {
 		.lock = __SPIN_LOCK_UNLOCKED(),
 		.handler = {},
-	}
+	},
+	.irq = -1,
 };
 
 
@@ -1318,6 +1323,55 @@ void surface_sam_ssh_sysfs_unregister(struct device *dev)
 #endif	/* CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE */
 
 
+static const struct acpi_gpio_params gpio_sam_wakeup_int = { 0, 0, false };
+static const struct acpi_gpio_params gpio_sam_wakeup     = { 1, 0, false };
+
+static const struct acpi_gpio_mapping surface_sam_acpi_gpios[] = {
+	{ "sam_wakeup-int-gpio", &gpio_sam_wakeup_int, 1 },
+	{ "sam_wakeup-gpio",     &gpio_sam_wakeup,     1 },
+	{ },
+};
+
+static irqreturn_t surface_sam_irq_handler(int irq, void *dev_id)
+{
+	return IRQ_WAKE_THREAD;
+}
+
+static irqreturn_t surface_sam_irq_handler_th(int irq, void *dev_id)
+{
+	struct serdev_device *serdev = dev_id;
+
+	dev_info(&serdev->dev, "wake irq triggered\n");
+	return IRQ_HANDLED;
+}
+
+static int surface_sam_setup_irq(struct serdev_device *serdev)
+{
+	const int irqf = IRQF_SHARED | IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
+	struct gpio_desc *gpiod;
+	int irq;
+	int status;
+
+	gpiod = gpiod_get(&serdev->dev, "sam_wakeup-int", GPIOD_ASIS);
+	if (IS_ERR(gpiod))
+		return PTR_ERR(gpiod);
+
+	irq = gpiod_to_irq(gpiod);
+	gpiod_put(gpiod);
+
+	if (irq < 0)
+		return irq;
+
+	status = request_threaded_irq(irq, surface_sam_irq_handler,
+				      surface_sam_irq_handler_th,
+				      irqf, "surface_sam_wakeup", serdev);
+	if (status)
+		return status;
+
+	return irq;
+}
+
+
 static acpi_status
 ssh_setup_from_resource(struct acpi_resource *resource, void *context)
 {
@@ -1376,7 +1430,7 @@ ssh_setup_from_resource(struct acpi_resource *resource, void *context)
 static int surface_sam_ssh_suspend(struct device *dev)
 {
 	struct sam_ssh_ec *ec;
-	int status = 0;
+	int status;
 
 	dev_dbg(dev, "suspending\n");
 
@@ -1384,20 +1438,33 @@ static int surface_sam_ssh_suspend(struct device *dev)
 	if (ec) {
 		status = surface_sam_ssh_ec_suspend(ec);
 		if (status) {
-			dev_err(dev, "failed to suspend EC: %d\n", status);
+			surface_sam_ssh_release(ec);
+			return status;
+		}
+
+		if (device_may_wakeup(dev)) {
+			status = enable_irq_wake(ec->irq);
+			if (status) {
+				surface_sam_ssh_release(ec);
+				return status;
+			}
+
+			ec->irq_wakeup_enabled = true;
+		} else {
+			ec->irq_wakeup_enabled = false;
 		}
 
 		ec->state = SSH_EC_SUSPENDED;
 		surface_sam_ssh_release(ec);
 	}
 
-	return status;
+	return 0;
 }
 
 static int surface_sam_ssh_resume(struct device *dev)
 {
 	struct sam_ssh_ec *ec;
-	int status = 0;
+	int status;
 
 	dev_dbg(dev, "resuming\n");
 
@@ -1405,15 +1472,26 @@ static int surface_sam_ssh_resume(struct device *dev)
 	if (ec) {
 		ec->state = SSH_EC_INITIALIZED;
 
+		if (ec->irq_wakeup_enabled) {
+			status = disable_irq_wake(ec->irq);
+			if (status) {
+				surface_sam_ssh_release(ec);
+				return status;
+			}
+
+			ec->irq_wakeup_enabled = false;
+		}
+
 		status = surface_sam_ssh_ec_resume(ec);
 		if (status) {
-			dev_err(dev, "failed to resume EC: %d\n", status);
+			surface_sam_ssh_release(ec);
+			return status;
 		}
 
 		surface_sam_ssh_release(ec);
 	}
 
-	return status;
+	return 0;
 }
 
 static SIMPLE_DEV_PM_OPS(surface_sam_ssh_pm_ops, surface_sam_ssh_suspend, surface_sam_ssh_resume);
@@ -1438,8 +1516,16 @@ static int surface_sam_ssh_probe(struct serdev_device *serdev)
 	u8 *eval_buf;
 	acpi_handle *ssh = ACPI_HANDLE(&serdev->dev);
 	acpi_status status;
+	int irq;
 
 	dev_dbg(&serdev->dev, "probing\n");
+
+	if (gpiod_count(&serdev->dev, NULL) < 0)
+		return -ENODEV;
+
+	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, surface_sam_acpi_gpios);
+	if (status)
+		return status;
 
 	// allocate buffers
 	write_buf = kzalloc(SSH_WRITE_BUF_LEN, GFP_KERNEL);
@@ -1472,6 +1558,12 @@ static int surface_sam_ssh_probe(struct serdev_device *serdev)
 		goto err_evtq;
 	}
 
+	irq = surface_sam_setup_irq(serdev);
+	if (irq < 0) {
+		status = irq;
+		goto err_irq;
+	}
+
 	// set up EC
 	ec = surface_sam_ssh_acquire();
 	if (ec->state != SSH_EC_UNINITIALIZED) {
@@ -1483,6 +1575,7 @@ static int surface_sam_ssh_probe(struct serdev_device *serdev)
 	}
 
 	ec->serdev      = serdev;
+	ec->irq         = irq;
 	ec->writer.data = write_buf;
 	ec->writer.ptr  = write_buf;
 
@@ -1528,6 +1621,7 @@ static int surface_sam_ssh_probe(struct serdev_device *serdev)
 
 	surface_sam_ssh_release(ec);
 
+	device_init_wakeup(&serdev->dev, true);
 	acpi_walk_dep_device_list(ssh);
 
 	return 0;
@@ -1539,6 +1633,8 @@ err_open:
 	serdev_device_set_drvdata(serdev, NULL);
 	surface_sam_ssh_release(ec);
 err_busy:
+	free_irq(irq, serdev);
+err_irq:
 	destroy_workqueue(event_queue_evt);
 err_evtq:
 	destroy_workqueue(event_queue_ack);
@@ -1563,6 +1659,7 @@ static void surface_sam_ssh_remove(struct serdev_device *serdev)
 		return;
 	}
 
+	free_irq(ec->irq, serdev);
 	surface_sam_ssh_sysfs_unregister(&serdev->dev);
 
 	// suspend EC and disable events
@@ -1622,6 +1719,7 @@ static void surface_sam_ssh_remove(struct serdev_device *serdev)
 	ec->receiver.eval_buf.len = 0;
 	spin_unlock_irqrestore(&ec->receiver.lock, flags);
 
+	device_set_wakeup_capable(&serdev->dev, false);
 	serdev_device_set_drvdata(serdev, NULL);
 	surface_sam_ssh_release(ec);
 }
@@ -1633,7 +1731,7 @@ static const struct acpi_device_id surface_sam_ssh_match[] = {
 };
 MODULE_DEVICE_TABLE(acpi, surface_sam_ssh_match);
 
-struct serdev_device_driver surface_sam_ssh = {
+static struct serdev_device_driver surface_sam_ssh = {
 	.probe = surface_sam_ssh_probe,
 	.remove = surface_sam_ssh_remove,
 	.driver = {
