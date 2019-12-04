@@ -142,3 +142,14 @@ config SURFACE_SAM_SID_VHF
 	  on the Surface Laptop 3 models.
 
 	  If you are not sure, say M here.
+
+config SURFACE_SAM_SID_POWER
+	tristate "Surface SAM Battery/AC Driver"
+	depends on SURFACE_SAM_SID
+	select POWER_SUPPLY
+	default m
+	---help---
+	  This driver provides support for the battery and AC on 7th generation
+	  Surface devices.
+
+	  If you are not sure, say M here.

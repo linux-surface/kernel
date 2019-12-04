@@ -1,6 +1,6 @@
 /*
  * Microsofs Surface HID (VHF) driver for HID input events via SAM.
- * Used for keyboard input events on the Surface Laptops.
+ * Used for keyboard input events on the 7th generation Surface Laptops.
  */
 
 #include <linux/acpi.h>
@@ -424,7 +424,7 @@ static int surface_sam_sid_vhf_remove(struct platform_device *pdev)
 	return 0;
 }
 
-struct platform_driver surface_sam_sid_vhf = {
+static struct platform_driver surface_sam_sid_vhf = {
 	.probe = surface_sam_sid_vhf_probe,
 	.remove = surface_sam_sid_vhf_remove,
 	.driver = {
