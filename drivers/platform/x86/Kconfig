@@ -1376,6 +1376,8 @@ config INTEL_SCU_PLATFORM
 	  and SCU (sometimes called PMC as well). The driver currently
 	  supports Intel Elkhart Lake and compatible platforms.
 
+source "drivers/platform/x86/surface_sam/Kconfig"
+
 config INTEL_SCU_IPC_UTIL
 	tristate "Intel SCU IPC utility driver"
 	depends on INTEL_SCU
