@@ -1348,6 +1348,7 @@ config INTEL_UNCORE_FREQ_CONTROL
 	  will be called intel-uncore-frequency.
 
 source "drivers/platform/x86/intel_speed_select_if/Kconfig"
+source "drivers/platform/x86/surface_sam/Kconfig"
 
 config SYSTEM76_ACPI
 	tristate "System76 ACPI Driver"
