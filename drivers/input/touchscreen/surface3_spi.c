@@ -25,6 +25,12 @@
 #define SURFACE3_REPORT_TOUCH	0xd2
 #define SURFACE3_REPORT_PEN	0x16
 
+bool use_dma = false;
+module_param(use_dma, bool, 0644);
+MODULE_PARM_DESC(use_dma,
+				"Disable DMA mode if you encounter touch input crash. "
+				"(default: false, disabled to avoid crash)");
+
 struct surface3_ts_data {
 	struct spi_device *spi;
 	struct gpio_desc *gpiod_rst[2];
@@ -317,6 +323,13 @@ static int surface3_spi_create_pen_input(struct surface3_ts_data *data)
 	return 0;
 }
 
+static bool surface3_spi_can_dma(struct spi_controller *ctlr,
+				struct spi_device *spi,
+				struct spi_transfer *tfr)
+{
+	return use_dma;
+}
+
 static int surface3_spi_probe(struct spi_device *spi)
 {
 	struct surface3_ts_data *data;
@@ -358,6 +371,19 @@ static int surface3_spi_probe(struct spi_device *spi)
 					  "Surface3-irq", data);
 	if (error)
 		return error;
+
+	/*
+	 * Set up DMA
+	 *
+	 * TODO: Currently, touch input with DMA seems to be broken.
+	 * On 4.19 LTS, touch input will crash after suspend.
+	 * On recent stable kernel (at least after 5.1), touch input will crash after
+	 * the first touch. No problem with PIO on those kernels.
+	 * Maybe we need to configure DMA here.
+	 *
+	 * Link to issue: https://github.com/jakeday/linux-surface/issues/596
+	 */
+	spi->controller->can_dma = surface3_spi_can_dma;
 
 	return 0;
 }
