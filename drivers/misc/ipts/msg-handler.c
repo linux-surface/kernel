@@ -171,14 +171,6 @@ int ipts_restart(struct ipts_info *ipts)
 {
 	ipts_dbg(ipts, "ipts restart\n");
 	ipts_stop(ipts);
-	ipts->retry++;
-
-	// Try wth HID mode
-	if (ipts->retry == IPTS_MAX_RETRY &&
-			ipts->sensor_mode == TOUCH_SENSOR_MODE_RAW_DATA)
-		ipts->sensor_mode = TOUCH_SENSOR_MODE_HID;
-	else if (ipts->retry > IPTS_MAX_RETRY)
-		return -EPERM;
 
 	ipts_send_sensor_quiesce_io_cmd(ipts);
 	ipts->restart = true;
@@ -360,9 +352,6 @@ int ipts_handle_resp(struct ipts_info *ipts,
 			cmd_status = ipts_handle_cmd(ipts,
 				TOUCH_SENSOR_HID_READY_FOR_DATA_CMD, NULL, 0);
 
-		// reset retry since we are getting touh data
-		ipts->retry = 0;
-
 		break;
 	}
 	case TOUCH_SENSOR_QUIESCE_IO_RSP: {
@@ -379,15 +368,6 @@ int ipts_handle_resp(struct ipts_info *ipts,
 			ipts_start(ipts);
 			ipts->restart = 0;
 			break;
-		}
-
-		// support sysfs debug node for switch sensor mode
-		if (ipts->switch_sensor_mode) {
-			ipts_set_state(ipts, IPTS_STA_INIT);
-			ipts->sensor_mode = ipts->new_sensor_mode;
-			ipts->switch_sensor_mode = false;
-
-			ipts_send_sensor_clear_mem_window_cmd(ipts);
 		}
 
 		break;
