@@ -88,10 +88,6 @@ struct ipts_info {
 	int gfx_status;
 	bool display_status;
 
-	bool switch_sensor_mode;
-	enum touch_sensor_mode new_sensor_mode;
-
-	int retry;
 	bool restart;
 };
 
