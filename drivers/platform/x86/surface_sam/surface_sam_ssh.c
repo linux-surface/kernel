@@ -80,8 +80,8 @@
 
 /*
  * A note on Request IDs (RQIDs):
- * 	0x0000 is not a valid RQID
- * 	0x0001 is valid, but reserved for Surface Laptop keyboard events
+ *	0x0000 is not a valid RQID
+ *	0x0001 is valid, but reserved for Surface Laptop keyboard events
  */
 #define SAM_NUM_EVENT_TYPES		((1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1)
 
@@ -1334,11 +1334,6 @@ static const struct acpi_gpio_mapping surface_sam_acpi_gpios[] = {
 
 static irqreturn_t surface_sam_irq_handler(int irq, void *dev_id)
 {
-	return IRQ_WAKE_THREAD;
-}
-
-static irqreturn_t surface_sam_irq_handler_th(int irq, void *dev_id)
-{
 	struct serdev_device *serdev = dev_id;
 
 	dev_info(&serdev->dev, "wake irq triggered\n");
@@ -1347,7 +1342,7 @@ static irqreturn_t surface_sam_irq_handler_th(int irq, void *dev_id)
 
 static int surface_sam_setup_irq(struct serdev_device *serdev)
 {
-	const int irqf = IRQF_SHARED | IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
+	const int irqf = IRQF_SHARED | IRQF_ONESHOT | IRQF_TRIGGER_RISING;
 	struct gpio_desc *gpiod;
 	int irq;
 	int status;
@@ -1362,8 +1357,7 @@ static int surface_sam_setup_irq(struct serdev_device *serdev)
 	if (irq < 0)
 		return irq;
 
-	status = request_threaded_irq(irq, surface_sam_irq_handler,
-				      surface_sam_irq_handler_th,
+	status = request_threaded_irq(irq, NULL, surface_sam_irq_handler,
 				      irqf, "surface_sam_wakeup", serdev);
 	if (status)
 		return status;
