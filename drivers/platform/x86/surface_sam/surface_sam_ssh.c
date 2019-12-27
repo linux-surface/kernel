@@ -80,8 +80,8 @@
 
 /*
  * A note on Request IDs (RQIDs):
- * 	0x0000 is not a valid RQID
- * 	0x0001 is valid, but reserved for Surface Laptop keyboard events
+ *	0x0000 is not a valid RQID
+ *	0x0001 is valid, but reserved for Surface Laptop keyboard events
  */
 #define SAM_NUM_EVENT_TYPES		((1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1)
 
