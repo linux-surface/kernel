@@ -481,15 +481,6 @@ config SURFACE3_WMI
 	  To compile this driver as a module, choose M here: the module will
 	  be called surface3-wmi.
 
-config SURFACE_BOOK2_DGPU_HPS
-	tristate "Surface Book 2 dGPU Hot-Plug System Driver"
-	depends on ACPI
-	---help---
-	  This is an experimetnal driver to control the power-state of the
-	  Surface Book 2 dGPU.
-
-	  If you have a Surface Book 2, say Y or M here.
-
 config THINKPAD_ACPI
 	tristate "ThinkPad ACPI Laptop Extras"
 	depends on ACPI
