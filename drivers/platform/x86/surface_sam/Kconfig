@@ -91,6 +91,17 @@ config SURFACE_SAM_DTX
 
 	  If you are not sure, say M here.
 
+config SURFACE_SAM_HPS
+	tristate "Surface dGPU Hot-Plug System (dGPU-HPS) Driver"
+	depends on SURFACE_SAM_SSH
+	depends on SURFACE_SAM_SAN
+	default m
+	---help---
+	  Driver to properly handle hot-plugging and explicit power-on/power-off
+	  of the discrete GPU (dGPU) on the Surface Book 2.
+
+	  If you are not sure, say M here.
+
 config SURFACE_SAM_SID
 	tristate "Surface Platform Integration Driver"
 	depends on SURFACE_SAM_SSH
