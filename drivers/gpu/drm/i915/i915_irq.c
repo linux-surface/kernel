@@ -37,7 +37,6 @@
 #include "i915_trace.h"
 #include "intel_drv.h"
 #include "intel_ipts.h"
-#include "intel_psr.h"
 
 /**
  * DOC: interrupt handling
