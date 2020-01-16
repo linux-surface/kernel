@@ -13,6 +13,13 @@
 
 #pragma pack(1)
 
+// Define static_assert macro (which will be available after 5.1
+// and not available on 4.19 yet) to check structure size and fail
+// compile for unexpected mismatch.
+// Taken from upstream commit 6bab69c65013bed5fce9f101a64a84d0385b3946.
+#define static_assert(expr, ...) __static_assert(expr, ##__VA_ARGS__, #expr)
+#define __static_assert(expr, msg, ...) _Static_assert(expr, msg)
+
 /*
  * Compatibility versions for this header file
  */
