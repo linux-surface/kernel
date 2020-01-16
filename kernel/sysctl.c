@@ -313,16 +313,7 @@ static int min_extfrag_threshold;
 static int max_extfrag_threshold = 1000;
 #endif
 
-extern unsigned int resume_delay;
-
 static struct ctl_table kern_table[] = {
-	{
-		.procname	= "resume_delay",
-		.data		= &resume_delay,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
-	},
 	{
 		.procname	= "sched_child_runs_first",
 		.data		= &sysctl_sched_child_runs_first,
