@@ -48,14 +48,9 @@ mwifiex_process_cmdresp_error(struct mwifiex_private *priv,
 	struct host_cmd_ds_802_11_ps_mode_enh *pm;
 	unsigned long flags;
 
-	if (resp->command == 271 && resp->result == 2){
-		// ignore this command as the firmware does not support it
-	}
-	else {
-		mwifiex_dbg(adapter, ERROR,
-				"CMD_RESP: cmd %#x error, result=%#x\n",
-				resp->command, resp->result);
-	}
+	mwifiex_dbg(adapter, ERROR,
+		    "CMD_RESP: cmd %#x error, result=%#x\n",
+		    resp->command, resp->result);
 
 	if (adapter->curr_cmd->wait_q_enabled)
 		adapter->cmd_wait_q.status = -1;
