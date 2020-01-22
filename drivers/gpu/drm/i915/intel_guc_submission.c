@@ -113,8 +113,7 @@ static int reserve_doorbell(struct intel_guc_client *client)
 	offset = 0;
 	if (IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv)) {
 		end = GUC_NUM_DOORBELLS;
-	}
-	else {
+	} else {
 		end = GUC_NUM_DOORBELLS/2;
 		if (is_high_priority(client)) {
 			offset = end;
