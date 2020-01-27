@@ -1315,4 +1315,6 @@ config TOUCHSCREEN_IQS5XX
 	  To compile this driver as a module, choose M here: the
 	  module will be called iqs5xx.
 
+source "drivers/input/touchscreen/ipts/Kconfig"
+
 endif
