@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+config TOUCHSCREEN_IPTS
+	tristate "Intel Precise Touch & Stylus"
+	select INTEL_MEI
+	depends on X86
+	depends on PCI
+	depends on HID
+	help
+	  Say Y here if your system has a touchscreen using Intels
+	  Precise Touch & Stylus (IPTS).
+
+	  If unsure say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ipts.
