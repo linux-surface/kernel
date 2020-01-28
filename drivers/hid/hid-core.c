@@ -290,8 +290,9 @@ static int hid_add_field(struct hid_parser *parser, unsigned report_type, unsign
 
 	/* Total size check: Allow for possible report index byte */
 	if (report->size > (HID_MAX_BUFFER_SIZE - 1) << 3) {
-		hid_err(parser->device, "report is too long\n");
-		return -1;
+		hid_warn(parser->device, "report is too long (%u), skipping\n",
+			 report->size);
+		return 0;
 	}
 
 	if (!parser->local.usage_index) /* Ignore padding fields */
