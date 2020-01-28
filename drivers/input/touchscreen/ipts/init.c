@@ -75,7 +75,7 @@ static int ipts_init_remove(struct mei_cl_device *cldev)
 }
 
 static struct mei_cl_device_id ipts_device_id[] = {
-	{ "ipts", IPTS_MEI_UUID, MEI_CL_VERSION_ANY },
+	{ "", IPTS_MEI_UUID, MEI_CL_VERSION_ANY },
 	{ },
 };
 MODULE_DEVICE_TABLE(mei, ipts_device_id);
