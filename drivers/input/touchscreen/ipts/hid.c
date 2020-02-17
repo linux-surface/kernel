@@ -18,7 +18,11 @@ static enum ipts_report_type ipts_hid_parse_report_type(
 		struct ipts_context *ipts, struct ipts_touch_data *data)
 {
 	// If the buffer contains HID data, we are in single touch mode
-	if (data->type == IPTS_TOUCH_DATA_TYPE_HID_REPORT)
+	//
+	// On gen7 IPTS will send other data using HID reports,
+	// so we have to additionally filter out the touch reports.
+	if (data->type == IPTS_TOUCH_DATA_TYPE_HID_REPORT &&
+			data->data[0] == 0x40)
 		return IPTS_REPORT_TYPE_SINGLETOUCH;
 
 	// If the buffer doesn't contain touch data
