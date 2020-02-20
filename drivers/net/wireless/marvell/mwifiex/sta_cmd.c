@@ -2254,7 +2254,6 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
  *      - Function init (for first interface only)
  *      - Read MAC address (for first interface only)
  *      - Reconfigure Tx buffer size (for first interface only)
- *      - Enable auto deep sleep (for first interface only)
  *      - Get Tx rate
  *      - Get Tx power
  *      - Set IBSS coalescing status
@@ -2267,7 +2266,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 	struct mwifiex_adapter *adapter = priv->adapter;
 	int ret;
 	struct mwifiex_ds_11n_amsdu_aggr_ctrl amsdu_aggr_ctrl;
-	struct mwifiex_ds_auto_ds auto_ds;
 	enum state_11d_t state_11d;
 	struct mwifiex_ds_11n_tx_cfg tx_cfg;
 	u8 sdio_sp_rx_aggr_enable;
@@ -2339,16 +2337,10 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 		if (ret)
 			return -1;
 
-		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
-			/* Enable IEEE PS by default */
-			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
-			ret = mwifiex_send_cmd(priv,
-					       HostCmd_CMD_802_11_PS_MODE_ENH,
-					       EN_AUTO_PS, BITMAP_STA_PS, NULL,
-					       true);
-			if (ret)
-				return -1;
-		}
+		/* Not enabling ps_mode (IEEE power_save) by default. Enabling
+		 * this causes connection instability, especially on 5GHz APs
+		 * and eventually causes "firmware wakeup failed". Therefore,
+		 * the relevant code was removed from here. */
 
 		if (drcs) {
 			adapter->drcs_enabled = true;
@@ -2395,17 +2387,10 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 	if (ret)
 		return -1;
 
-	if (!disable_auto_ds && first_sta &&
-	    priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
-		/* Enable auto deep sleep */
-		auto_ds.auto_ds = DEEP_SLEEP_ON;
-		auto_ds.idle_time = DEEP_SLEEP_IDLE_TIME;
-		ret = mwifiex_send_cmd(priv, HostCmd_CMD_802_11_PS_MODE_ENH,
-				       EN_AUTO_PS, BITMAP_AUTO_DS,
-				       &auto_ds, true);
-		if (ret)
-			return -1;
-	}
+	/* Not enabling auto deep sleep (auto_ds) by default. Enabling
+	 * this reportedly causes "suspend/resume fails when not connected
+	 * to an Access Point." Therefore, the relevant code was removed
+	 * from here. */
 
 	if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 		/* Send cmd to FW to enable/disable 11D function */

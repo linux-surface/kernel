@@ -25,6 +25,11 @@
 static char *reg_alpha2;
 module_param(reg_alpha2, charp, 0);
 
+static bool allow_ps_mode;
+module_param(allow_ps_mode, bool, 0444);
+MODULE_PARM_DESC(allow_ps_mode,
+		 "allow WiFi power management to be enabled. (default: disallowed)");
+
 static const struct ieee80211_iface_limit mwifiex_ap_sta_limits[] = {
 	{
 		.max = 3, .types = BIT(NL80211_IFTYPE_STATION) |
@@ -438,6 +443,27 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
 			    "info: ignore timeout value for IEEE Power Save\n");
 
 	ps_mode = enabled;
+
+	/* Allow ps_mode to be enabled only when allow_ps_mode is set
+	 * (but always allow ps_mode to be disabled in case it gets enabled
+	 * for unknown reason and you want to disable it) */
+	if (ps_mode && !allow_ps_mode) {
+		dev_info(priv->adapter->dev,
+			    "Request to enable ps_mode received but it's disallowed "
+			    "by module parameter. Rejecting the request.\n");
+
+		/* Return negative value to inform userspace tools that setting
+		 * power_save to be enabled is not permitted. */
+		return -1;
+	}
+
+	if (ps_mode)
+		dev_warn(priv->adapter->dev,
+			    "WARN: Request to enable ps_mode received. Enabling it. "
+			    "Disable it if you encounter connection instability.\n");
+	else
+		dev_info(priv->adapter->dev,
+			    "Request to disable ps_mode received. Disabling it.\n");
 
 	return mwifiex_drv_set_power(priv, &ps_mode);
 }
