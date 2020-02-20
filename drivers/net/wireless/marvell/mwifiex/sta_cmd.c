@@ -2338,17 +2338,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 		if (ret)
 			return -1;
 
-		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
-			/* Enable IEEE PS by default */
-			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
-			ret = mwifiex_send_cmd(priv,
-					       HostCmd_CMD_802_11_PS_MODE_ENH,
-					       EN_AUTO_PS, BITMAP_STA_PS, NULL,
-					       true);
-			if (ret)
-				return -1;
-		}
-
 		if (drcs) {
 			adapter->drcs_enabled = true;
 			if (ISSUPP_DRCS_ENABLED(adapter->fw_cap_info))
