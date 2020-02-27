@@ -457,6 +457,14 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
 		return -1;
 	}
 
+	if (ps_mode)
+		dev_warn(priv->adapter->dev,
+			    "WARN: Request to enable ps_mode received. Enabling it. "
+			    "Disable it if you encounter connection instability.\n");
+	else
+		dev_info(priv->adapter->dev,
+			    "Request to disable ps_mode received. Disabling it.\n");
+
 	return mwifiex_drv_set_power(priv, &ps_mode);
 }
 
