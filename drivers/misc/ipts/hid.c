@@ -304,7 +304,7 @@ int ipts_handle_hid_data(struct ipts_info *ipts,
 	switch (raw_header->data_type) {
 	case TOUCH_RAW_DATA_TYPE_HID_REPORT: {
 		if (raw_header->raw_data_size_bytes > HID_MAX_BUFFER_SIZE) {
-			ipts_err(ipts, "input report too large (%lu bytes), skipping",
+			ipts_err(ipts, "input report too large (%u bytes), skipping",
 				 raw_header->raw_data_size_bytes);
 			break;
 		}
