@@ -92,6 +92,7 @@ config SURFACE_SAM_HPS
 	tristate "Surface dGPU Hot-Plug System (dGPU-HPS) Driver"
 	depends on SURFACE_SAM_SSH
 	depends on SURFACE_SAM_SAN
+	depends on GPIO_SYSFS
 	default m
 	---help---
 	  Driver to properly handle hot-plugging and explicit power-on/power-off
