@@ -538,7 +538,7 @@ static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
 }
 
 static int acpi_serdev_do_lookup(struct acpi_device *adev,
-                                 struct acpi_serdev_lookup *lookup)
+				 struct acpi_serdev_lookup *lookup)
 {
 	struct list_head resource_list;
 	int ret;
@@ -634,7 +634,6 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
 
 	return acpi_serdev_register_device(ctrl, adev);
 }
-
 
 static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
 {
