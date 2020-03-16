@@ -4,10 +4,11 @@
 #define _IPTS_SINGLETOUCH_H_
 
 #include "context.h"
-#include "protocol/touch.h"
+#include "protocol/data.h"
 
-void ipts_singletouch_parse_report(struct ipts_context *ipts,
-		struct ipts_touch_data *data);
+void ipts_singletouch_handle_input(struct ipts_context *ipts,
+		struct ipts_data *data);
 int ipts_singletouch_init(struct ipts_context *ipts);
+void ipts_singletouch_free(struct ipts_context *ipts);
 
 #endif /* _IPTS_SINGLETOUCH_H_ */

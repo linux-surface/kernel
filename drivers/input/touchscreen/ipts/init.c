@@ -7,7 +7,7 @@
 
 #include "context.h"
 #include "control.h"
-#include "hid.h"
+#include "data.h"
 #include "receiver.h"
 
 #define IPTS_MEI_UUID UUID_LE(0x3e8d0870, 0x271a, 0x4208, \
@@ -52,8 +52,8 @@ static int ipts_init_probe(struct mei_cl_device *cldev,
 
 	ipts->receiver_loop = kthread_run(ipts_receiver_loop, (void *)ipts,
 			"ipts_receiver_loop");
-	ipts->hid_loop = kthread_run(ipts_hid_loop, (void *)ipts,
-			"ipts_hid_loop");
+	ipts->data_loop = kthread_run(ipts_data_loop, (void *)ipts,
+			"ipts_data_loop");
 
 	ipts_control_start(ipts);
 
@@ -69,7 +69,7 @@ static int ipts_init_remove(struct mei_cl_device *cldev)
 	ipts_control_stop(ipts);
 	mei_cldev_disable(cldev);
 	kthread_stop(ipts->receiver_loop);
-	kthread_stop(ipts->hid_loop);
+	kthread_stop(ipts->data_loop);
 
 	return 0;
 }

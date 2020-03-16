@@ -8,13 +8,15 @@
 #include <linux/mei_cl_bus.h>
 #include <linux/types.h>
 
-#include "devices.h"
-#include "protocol/enums.h"
+#include "protocol/commands.h"
 #include "protocol/responses.h"
 
-/*
- * IPTS driver states
- */
+/* HACK: Workaround for DKMS build without BUS_MEI patch */
+#ifndef BUS_MEI
+#define BUS_MEI 0x44
+#endif
+
+/* IPTS driver states */
 enum ipts_host_status {
 	IPTS_HOST_STATUS_NONE,
 	IPTS_HOST_STATUS_INIT,
@@ -25,7 +27,6 @@ enum ipts_host_status {
 };
 
 struct ipts_buffer_info {
-	u32 size;
 	u8 *address;
 	dma_addr_t dma_address;
 };
@@ -34,12 +35,11 @@ struct ipts_context {
 	struct mei_cl_device *client_dev;
 	struct device *dev;
 	struct ipts_device_info device_info;
-	struct ipts_device_config device_cfg;
 
 	enum ipts_host_status status;
 	enum ipts_sensor_mode mode;
 
-	struct ipts_buffer_info touch_data[16];
+	struct ipts_buffer_info data[16];
 	struct ipts_buffer_info feedback[16];
 	struct ipts_buffer_info doorbell;
 
@@ -51,7 +51,7 @@ struct ipts_context {
 	struct ipts_buffer_info host2me;
 
 	struct task_struct *receiver_loop;
-	struct task_struct *hid_loop;
+	struct task_struct *data_loop;
 
 	struct input_dev *stylus;
 	struct input_dev *singletouch;
