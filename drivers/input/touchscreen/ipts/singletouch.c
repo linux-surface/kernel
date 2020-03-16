@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <linux/input.h>
-#include <linux/input/mt.h>
 #include <linux/kernel.h>
 
 #include "context.h"
-#include "protocol/enums.h"
-#include "protocol/touch.h"
+#include "protocol/data.h"
+#include "protocol/singletouch.h"
 
-void ipts_singletouch_parse_report(struct ipts_context *ipts,
-		struct ipts_touch_data *data)
+void ipts_singletouch_handle_input(struct ipts_context *ipts,
+		struct ipts_data *data)
 {
 	struct ipts_singletouch_report *report =
 		(struct ipts_singletouch_report *)&data->data[1];
@@ -25,7 +24,7 @@ int ipts_singletouch_init(struct ipts_context *ipts)
 {
 	int ret;
 
-	ipts->singletouch = devm_input_allocate_device(ipts->dev);
+	ipts->singletouch = input_allocate_device();
 	if (!ipts->singletouch)
 		return -ENOMEM;
 
@@ -43,14 +42,23 @@ int ipts_singletouch_init(struct ipts_context *ipts)
 	ipts->singletouch->id.version = ipts->device_info.fw_rev;
 
 	ipts->singletouch->phys = "heci3";
-	ipts->singletouch->name = "Intel Precise Touchscreen (Singletouch)";
+	ipts->singletouch->name = "IPTS Singletouch";
 
 	ret = input_register_device(ipts->singletouch);
 	if (ret) {
-		dev_err(ipts->dev, "Failed to register touch device: %d\n",
-				ret);
+		dev_err(ipts->dev, "Cannot register input device: %s (%d)\n",
+				ipts->singletouch->name, ret);
+		input_free_device(ipts->singletouch);
 		return ret;
 	}
 
 	return 0;
+}
+
+void ipts_singletouch_free(struct ipts_context *ipts)
+{
+	if (!ipts->singletouch)
+		return;
+
+	input_unregister_device(ipts->singletouch);
 }

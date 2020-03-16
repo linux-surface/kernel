@@ -6,14 +6,20 @@
 #include <linux/build_bug.h>
 #include <linux/types.h>
 
+enum ipts_sensor_mode {
+	IPTS_SENSOR_MODE_SINGLETOUCH = 0,
+	IPTS_SENSOR_MODE_MULTITOUCH,
+	IPTS_SENSOR_MODE_MAX
+};
+
 struct ipts_set_mode_cmd {
 	u32 sensor_mode;
 	u8 reserved[12];
 } __packed;
 
 struct ipts_set_mem_window_cmd {
-	u32 touch_data_buffer_addr_lower[16];
-	u32 touch_data_buffer_addr_upper[16];
+	u32 data_buffer_addr_lower[16];
+	u32 data_buffer_addr_upper[16];
 	u32 workqueue_addr_lower;
 	u32 workqueue_addr_upper;
 	u32 doorbell_addr_lower;
