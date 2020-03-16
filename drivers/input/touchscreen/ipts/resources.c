@@ -11,10 +11,10 @@ void ipts_resources_free(struct ipts_context *ipts)
 	u32 feedback_buffer_size;
 	struct ipts_buffer_info *buffers;
 
-	touch_buffer_size = ipts->device_info.frame_size;
+	touch_buffer_size = ipts->device_info.data_size;
 	feedback_buffer_size = ipts->device_info.feedback_size;
 
-	buffers = ipts->touch_data;
+	buffers = ipts->data;
 	for (i = 0; i < 16; i++) {
 		if (!buffers[i].address)
 			continue;
@@ -73,10 +73,10 @@ int ipts_resources_init(struct ipts_context *ipts)
 	u32 feedback_buffer_size;
 	struct ipts_buffer_info *buffers;
 
-	touch_buffer_size = ipts->device_info.frame_size;
+	touch_buffer_size = ipts->device_info.data_size;
 	feedback_buffer_size = ipts->device_info.feedback_size;
 
-	buffers = ipts->touch_data;
+	buffers = ipts->data;
 	for (i = 0; i < 16; i++) {
 		buffers[i].address = dmam_alloc_coherent(ipts->dev,
 				touch_buffer_size,

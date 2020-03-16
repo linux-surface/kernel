@@ -4,14 +4,10 @@
 #define _IPTS_HID_H_
 
 #include "context.h"
+#include "protocol/data.h"
 
-enum ipts_report_type {
-	IPTS_REPORT_TYPE_STYLUS,
-	IPTS_REPORT_TYPE_SINGLETOUCH,
-	IPTS_REPORT_TYPE_MAX
-};
-
+int ipts_hid_handle_input(struct ipts_context *ipts, struct ipts_data *data);
 int ipts_hid_init(struct ipts_context *ipts);
-int ipts_hid_loop(void *data);
+void ipts_hid_free(struct ipts_context *ipts);
 
 #endif /* _IPTS_HID_H_ */
