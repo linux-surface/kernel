@@ -31,11 +31,12 @@ struct ipts_stylus_report_data {
 } __packed;
 
 struct ipts_stylus_report_data_no_tilt {
+	u8 reserved[4];
 	u8 mode;
 	u16 x;
 	u16 y;
 	u16 pressure;
-	u8 reserved[5];
+	u8 reserved2;
 } __packed;
 
 #define IPTS_STYLUS_REPORT_MODE_PROX   BIT(0)
