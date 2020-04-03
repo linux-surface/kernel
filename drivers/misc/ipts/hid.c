@@ -356,10 +356,11 @@ int ipts_handle_hid_data(struct ipts_info *ipts,
 static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 {
 	struct kernel_output_buffer_header *out_buf_hdr;
-	struct ipts_buffer_info *output_buf, *fb_buf = NULL;
+	struct ipts_buffer_info *output_buf;
 	u8 *input_report, *payload;
-	u32 tr_id;
-	int i, payload_size, ret = 0, header_size;
+	u8 tr_id;
+	int i, payload_size, header_size;
+	bool send_feedback = false;
 
 	header_size = sizeof(struct kernel_output_buffer_header);
 	output_buf = ipts_get_output_buffers_by_parallel_id(ipts,
@@ -371,6 +372,9 @@ static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 
 		if (out_buf_hdr->length < header_size)
 			continue;
+
+		tr_id = *(u8 *)&out_buf_hdr->hid_private_data.transaction_id;
+		send_feedback = true;
 
 		payload_size = out_buf_hdr->length - header_size;
 		payload = out_buf_hdr->data;
@@ -394,12 +398,7 @@ static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 			break;
 		}
 		case OUTPUT_BUFFER_PAYLOAD_FEEDBACK_BUFFER: {
-			// send feedback data for raw data mode
-			fb_buf = ipts_get_feedback_buffer(ipts, parallel_idx);
-			tr_id = out_buf_hdr->hid_private_data.transaction_id;
-
-			memcpy(fb_buf->addr, payload, payload_size);
-
+			// Ignored
 			break;
 		}
 		case OUTPUT_BUFFER_PAYLOAD_ERROR: {
@@ -429,42 +428,10 @@ static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 		}
 	}
 
-	/*
-	 * XXX: Calling the "ipts_send_feedback" function repeatedly seems to
-	 * be what is causing touch to crash (found by sebanc, see the link
-	 * below for the comment) on some models, especially on Surface Pro 4
-	 * and Surface Book 1.
-	 * The most desirable fix could be done by raising IPTS GuC priority.
-	 * Until we find a better solution, use this workaround.
-	 *
-	 * The decision which devices have no_feedback enabled by default is
-	 * made by the companion driver. If no companion driver was loaded,
-	 * no_feedback is disabled and the default behaviour is used.
-	 *
-	 * Link to the comment where sebanc found this workaround:
-	 * https://github.com/jakeday/linux-surface/issues/374#issuecomment-508234110
-	 * (Touch and pen issue persists · Issue #374 · jakeday/linux-surface)
-	 *
-	 * Link to the usage from kitakar5525 who made this change:
-	 * https://github.com/jakeday/linux-surface/issues/374#issuecomment-517289171
-	 * (Touch and pen issue persists · Issue #374 · jakeday/linux-surface)
-	 */
-	if (fb_buf) {
-		// A negative value means "decide by dmi table"
-		if (ipts_modparams.no_feedback < 0) {
-			if (ipts_get_quirks() & IPTS_QUIRK_NO_FEEDBACK)
-				ipts_modparams.no_feedback = true;
-			else
-				ipts_modparams.no_feedback = false;
-		}
 
-		if (ipts_modparams.no_feedback)
-			return 0;
 
-		ret = ipts_send_feedback(ipts, parallel_idx, tr_id);
-		if (ret)
-			return ret;
-	}
+	if (send_feedback)
+		return ipts_send_feedback(ipts, parallel_idx, tr_id);
 
 	return 0;
 }
