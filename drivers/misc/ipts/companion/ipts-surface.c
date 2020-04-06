@@ -124,11 +124,11 @@ static int ipts_surface_remove(struct platform_device *pdev)
 
 static const struct acpi_device_id ipts_surface_acpi_match[] = {
 	{ "MSHW0076", 0 }, // Surface Book 1 / Surface Studio
-	{ "MSHW0078", 0 }, // Surface Pro 4
+	{ "MSHW0078", 0 }, // some Surface Pro 4
 	{ "MSHW0079", 0 }, // Surface Laptop 1 / 2
 	{ "MSHW0101", 0 }, // Surface Book 2 15"
 	{ "MSHW0102", 0 }, // Surface Pro 5 / 6
-	{ "MSHW0103", 0 }, // Unknown
+	{ "MSHW0103", 0 }, // some Surface Pro 4
 	{ "MSHW0137", 0 }, // Surface Book 2
 	{ },
 };
