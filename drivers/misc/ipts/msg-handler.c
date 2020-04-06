@@ -42,16 +42,24 @@ int ipts_handle_cmd(struct ipts_info *ipts, u32 cmd, void *data, int data_size)
 int ipts_send_feedback(struct ipts_info *ipts, int buffer_idx,
 		u32 transaction_id)
 {
-	int cmd_len = sizeof(struct touch_sensor_feedback_ready_cmd_data);
-	struct touch_sensor_feedback_ready_cmd_data fb_ready_cmd;
+	struct ipts_buffer_info feedback_buffer;
+	struct touch_feedback_hdr *feedback;
+	struct touch_sensor_feedback_ready_cmd_data cmd;
 
-	memset(&fb_ready_cmd, 0, cmd_len);
+	feedback_buffer = ipts->resource.feedback_buffer[buffer_idx];
+	feedback = (struct touch_feedback_hdr *)feedback_buffer.addr;
 
-	fb_ready_cmd.feedback_index = buffer_idx;
-	fb_ready_cmd.transaction_id = transaction_id;
+	memset(feedback, 0, sizeof(struct touch_feedback_hdr));
+	memset(&cmd, 0, sizeof(struct touch_sensor_feedback_ready_cmd_data));
+
+	feedback->feedback_cmd_type = TOUCH_FEEDBACK_CMD_TYPE_NONE;
+	feedback->buffer_id = transaction_id;
+
+	cmd.feedback_index = buffer_idx;
+	cmd.transaction_id = transaction_id;
 
 	return ipts_handle_cmd(ipts, TOUCH_SENSOR_FEEDBACK_READY_CMD,
-		&fb_ready_cmd, cmd_len);
+		&cmd, sizeof(struct touch_sensor_feedback_ready_cmd_data));
 }
 
 int ipts_send_sensor_quiesce_io_cmd(struct ipts_info *ipts)
@@ -339,6 +347,7 @@ int ipts_handle_resp(struct ipts_info *ipts,
 	}
 	case TOUCH_SENSOR_FEEDBACK_READY_RSP: {
 		if (rsp_status != TOUCH_STATUS_COMPAT_CHECK_FAIL &&
+				rsp_status != TOUCH_STATUS_INVALID_PARAMS &&
 				rsp_status != 0) {
 			rsp_failed(ipts, cmd, rsp_status);
 			break;

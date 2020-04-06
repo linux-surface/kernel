@@ -14,7 +14,6 @@
 #include <linux/ipts-binary.h>
 
 struct ipts_companion {
-	unsigned int (*get_quirks)(struct ipts_companion *companion);
 	int (*firmware_request)(struct ipts_companion *companion,
 		const struct firmware **fw,
 		const char *name, struct device *device);

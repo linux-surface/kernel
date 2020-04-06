@@ -15,6 +15,5 @@
 #define MAX_IOCL_FILE_PATH_LEN 256
 
 #define IPTS_QUIRK_NONE        0
-#define IPTS_QUIRK_NO_FEEDBACK BIT(0)
 
 #endif // IPTS_H
