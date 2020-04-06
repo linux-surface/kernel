@@ -18,7 +18,6 @@ struct ipts_params ipts_modparams = {
 	.ignore_fw_fallback = false,
 	.ignore_config_fallback = false,
 	.ignore_companion = false,
-	.no_feedback = -1,
 
 	.debug = false,
 	.debug_thread = false,
@@ -32,9 +31,6 @@ IPTS_PARAM(ignore_config_fallback, bool, 0400,
 );
 IPTS_PARAM(ignore_companion, bool, 0400,
 	"Don't use a companion driver to load firmware. (default: false)"
-);
-IPTS_PARAM(no_feedback, int, 0644,
-	"Disable sending feedback to ME (can prevent crashes on Skylake). (-1=auto [default], 0=false, 1=true)"
 );
 
 IPTS_PARAM(debug, bool, 0400,

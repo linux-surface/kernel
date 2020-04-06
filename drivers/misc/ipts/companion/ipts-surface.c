@@ -34,13 +34,13 @@ struct ipts_surface_data {
 // Surface Book 1 / Surface Studio
 static const struct ipts_surface_data ipts_surface_mshw0076 = {
 	.hid = "MSHW0076",
-	.quirks = IPTS_QUIRK_NO_FEEDBACK,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 // Surface Pro 4
 static const struct ipts_surface_data ipts_surface_mshw0078 = {
 	.hid = "MSHW0078",
-	.quirks = IPTS_QUIRK_NO_FEEDBACK,
+	.quirks = IPTS_QUIRK_NONE,
 };
 
 // Surface Laptop 1 / 2
