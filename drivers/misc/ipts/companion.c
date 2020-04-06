@@ -209,22 +209,3 @@ config_fallback:
 	return ret;
 
 }
-
-unsigned int ipts_get_quirks(void)
-{
-	unsigned int ret;
-
-	// Make sure that access to the companion is synchronized
-	mutex_lock(&ipts_companion_lock);
-
-	// If the companion is ignored, or doesn't exist, assume that
-	// the device doesn't have any quirks
-	if (ipts_modparams.ignore_companion || ipts_companion == NULL)
-		ret = IPTS_QUIRK_NONE;
-	else
-		ret = ipts_companion->get_quirks(ipts_companion);
-
-	mutex_unlock(&ipts_companion_lock);
-
-	return ret;
-}

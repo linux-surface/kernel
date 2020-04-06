@@ -26,53 +26,6 @@
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_desc.bin");		\
 	MODULE_FIRMWARE("intel/ipts/" X "/vendor_kernel.bin")
 
-struct ipts_surface_data {
-	const char *hid;
-	unsigned int quirks;
-};
-
-// Surface Book 1 / Surface Studio
-static const struct ipts_surface_data ipts_surface_mshw0076 = {
-	.hid = "MSHW0076",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
-// Surface Pro 4
-static const struct ipts_surface_data ipts_surface_mshw0078 = {
-	.hid = "MSHW0078",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
-// Surface Laptop 1 / 2
-static const struct ipts_surface_data ipts_surface_mshw0079 = {
-	.hid = "MSHW0079",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
-// Surface Pro 5 / 6
-static const struct ipts_surface_data ipts_surface_mshw0101 = {
-	.hid = "MSHW0101",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
-// Surface Book 2 15"
-static const struct ipts_surface_data ipts_surface_mshw0102 = {
-	.hid = "MSHW0102",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
-// Unknown, but firmware exists
-static const struct ipts_surface_data ipts_surface_mshw0103 = {
-	.hid = "MSHW0103",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
-// Surface Book 2 13"
-static const struct ipts_surface_data ipts_surface_mshw0137 = {
-	.hid = "MSHW0137",
-	.quirks = IPTS_QUIRK_NONE,
-};
-
 /*
  * Checkpatch complains about the following lines because it sees them as
  * header files mixed with .c files. However, forward declaration is perfectly
@@ -119,7 +72,6 @@ static struct ipts_bin_fw_info *ipts_surface_fw_config[] = {
 static struct ipts_companion ipts_surface_companion = {
 	.firmware_request = &ipts_surface_request_firmware,
 	.firmware_config = ipts_surface_fw_config,
-	.get_quirks = &ipts_surface_get_quirks,
 	.name = "ipts_surface",
 };
 
@@ -128,44 +80,26 @@ int ipts_surface_request_firmware(struct ipts_companion *companion,
 		struct device *device)
 {
 	char fw_path[MAX_IOCL_FILE_PATH_LEN];
-	struct ipts_surface_data *data;
 
 	if (companion == NULL || companion->data == NULL)
 		return -ENOENT;
 
-	data = (struct ipts_surface_data *)companion->data;
-
 	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_SURFACE_FW_PATH_FMT,
-		data->hid, name);
+		(const char *)companion->data, name);
 	return request_firmware(fw, fw_path, device);
-}
-
-unsigned int ipts_surface_get_quirks(struct ipts_companion *companion)
-{
-	struct ipts_surface_data *data;
-
-	// In case something went wrong, assume that the
-	// device doesn't have any quirks
-	if (companion == NULL || companion->data == NULL)
-		return IPTS_QUIRK_NONE;
-
-	data = (struct ipts_surface_data *)companion->data;
-
-	return data->quirks;
 }
 
 static int ipts_surface_probe(struct platform_device *pdev)
 {
 	int r;
-	const struct ipts_surface_data *data =
-		acpi_device_get_match_data(&pdev->dev);
+	struct acpi_device *adev = ACPI_COMPANION(&pdev->dev);
 
-	if (!data) {
+	if (!adev) {
 		dev_err(&pdev->dev, "Unable to find ACPI info for device\n");
 		return -ENODEV;
 	}
 
-	ipts_surface_companion.data = (void *)data;
+	ipts_surface_companion.data = (void *)acpi_device_hid(adev);
 
 	r = ipts_add_companion(&ipts_surface_companion);
 	if (r) {
@@ -189,13 +123,13 @@ static int ipts_surface_remove(struct platform_device *pdev)
 }
 
 static const struct acpi_device_id ipts_surface_acpi_match[] = {
-	{ "MSHW0076", (unsigned long)&ipts_surface_mshw0076 },
-	{ "MSHW0078", (unsigned long)&ipts_surface_mshw0078 },
-	{ "MSHW0079", (unsigned long)&ipts_surface_mshw0079 },
-	{ "MSHW0101", (unsigned long)&ipts_surface_mshw0101 },
-	{ "MSHW0102", (unsigned long)&ipts_surface_mshw0102 },
-	{ "MSHW0103", (unsigned long)&ipts_surface_mshw0103 },
-	{ "MSHW0137", (unsigned long)&ipts_surface_mshw0137 },
+	{ "MSHW0076", 0 }, // Surface Book 1 / Surface Studio
+	{ "MSHW0078", 0 }, // Surface Pro 4
+	{ "MSHW0079", 0 }, // Surface Laptop 1 / 2
+	{ "MSHW0101", 0 }, // Surface Book 2 15"
+	{ "MSHW0102", 0 }, // Surface Pro 5 / 6
+	{ "MSHW0103", 0 }, // Unknown
+	{ "MSHW0137", 0 }, // Surface Book 2
 	{ },
 };
 MODULE_DEVICE_TABLE(acpi, ipts_surface_acpi_match);
@@ -220,5 +154,4 @@ IPTS_SURFACE_FIRMWARE("MSHW0079");
 IPTS_SURFACE_FIRMWARE("MSHW0101");
 IPTS_SURFACE_FIRMWARE("MSHW0102");
 IPTS_SURFACE_FIRMWARE("MSHW0103");
-
 IPTS_SURFACE_FIRMWARE("MSHW0137");
