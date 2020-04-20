@@ -240,7 +240,12 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
 					const struct pci_device_id *ent)
 {
 	struct pcie_service_card *card;
+	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
 	int ret;
+
+	/* disable bridge_d3 to fix driver crashing after suspend on gen4+
+	 * Surface devices */
+	parent_pdev->bridge_d3 = false;
 
 	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
 		 pdev->vendor, pdev->device, pdev->revision);
