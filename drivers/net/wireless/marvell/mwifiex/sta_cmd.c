@@ -2337,6 +2337,11 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 		if (ret)
 			return -1;
 
+		/* Not enabling ps_mode (IEEE power_save) by default. Enabling
+		 * this causes connection instability, especially on 5GHz APs
+		 * and eventually causes "firmware wakeup failed". Therefore,
+		 * the relevant code was removed from here. */
+
 		if (drcs) {
 			adapter->drcs_enabled = true;
 			if (ISSUPP_DRCS_ENABLED(adapter->fw_cap_info))
