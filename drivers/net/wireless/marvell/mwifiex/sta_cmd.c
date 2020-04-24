@@ -2254,7 +2254,6 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
  *      - Function init (for first interface only)
  *      - Read MAC address (for first interface only)
  *      - Reconfigure Tx buffer size (for first interface only)
- *      - Enable auto deep sleep (for first interface only)
  *      - Get Tx rate
  *      - Get Tx power
  *      - Set IBSS coalescing status
@@ -2265,13 +2264,13 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
 int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 {
 	struct mwifiex_adapter *adapter = priv->adapter;
+	int ret;
 	struct mwifiex_ds_11n_amsdu_aggr_ctrl amsdu_aggr_ctrl;
 	enum state_11d_t state_11d;
 	struct mwifiex_ds_11n_tx_cfg tx_cfg;
 	u8 sdio_sp_rx_aggr_enable;
 	u16 packet_aggr_enable;
 	int data;
-	int ret;
 
 	if (first_sta) {
 		if (priv->adapter->iface_type == MWIFIEX_PCIE) {
@@ -2387,6 +2386,11 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 			       &priv->curr_pkt_filter, true);
 	if (ret)
 		return -1;
+
+	/* Not enabling auto deep sleep (auto_ds) by default. Enabling
+	 * this reportedly causes "suspend/resume fails when not connected
+	 * to an Access Point." Therefore, the relevant code was removed
+	 * from here. */
 
 	if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 		/* Send cmd to FW to enable/disable 11D function */

@@ -146,6 +146,10 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
  *
  * If already not suspended, this function allocates and sends a host
  * sleep activate request to the firmware and turns off the traffic.
+ *
+ * XXX: ignoring all the above comment and just removes the card to
+ * fix S0ix and "AP scanning (sometimes) not working after suspend".
+ * Required code is extracted from mwifiex_pcie_remove().
  */
 static int mwifiex_pcie_suspend(struct device *dev)
 {
@@ -192,6 +196,9 @@ static int mwifiex_pcie_suspend(struct device *dev)
  *
  * If already not resumed, this function turns on the traffic and
  * sends a host sleep cancel request to the firmware.
+ *
+ * XXX: ignoring all the above comment and probes the card that was
+ * removed on suspend. Required code is extracted from mwifiex_pcie_probe().
  */
 static int mwifiex_pcie_resume(struct device *dev)
 {
@@ -233,7 +240,12 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
 					const struct pci_device_id *ent)
 {
 	struct pcie_service_card *card;
+	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
 	int ret;
+
+	/* disable bridge_d3 to fix driver crashing after suspend on gen4+
+	 * Surface devices */
+	parent_pdev->bridge_d3 = false;
 
 	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
 		 pdev->vendor, pdev->device, pdev->revision);
@@ -270,8 +282,6 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
 		pr_err("%s failed\n", __func__);
 		return -1;
 	}
-
-	pdev->bus->self->bridge_d3 = false;
 
 	return 0;
 }
