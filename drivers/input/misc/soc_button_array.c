@@ -378,7 +378,7 @@ static int soc_button_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	if (!device_data || !device_data->button_info)
-		devm_kfree(dev, button_info);
+		devm_kfree(dev, (void *)button_info);
 
 	return 0;
 }
