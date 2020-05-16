@@ -55,7 +55,6 @@ struct ipts_context {
 
 	struct input_dev *stylus;
 	struct input_dev *singletouch;
-	u16 stylus_tool;
 };
 
 #endif /* _IPTS_CONTEXT_H_ */
