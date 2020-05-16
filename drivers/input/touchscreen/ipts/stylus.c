@@ -11,7 +11,6 @@
 static void ipts_stylus_handle_stylus_data(struct ipts_context *ipts,
 		struct ipts_stylus_report_data *data)
 {
-	u16 tool;
 	u8 prox = data->mode & IPTS_STYLUS_REPORT_MODE_PROX;
 	u8 touch = data->mode & IPTS_STYLUS_REPORT_MODE_TOUCH;
 	u8 button = data->mode & IPTS_STYLUS_REPORT_MODE_BUTTON;
@@ -27,20 +26,9 @@ static void ipts_stylus_handle_stylus_data(struct ipts_context *ipts,
 				data->azimuth, &tx, &ty);
 	}
 
-	if (prox && rubber)
-		tool = BTN_TOOL_RUBBER;
-	else
-		tool = BTN_TOOL_PEN;
-
-	// Fake proximity out to switch tools
-	if (ipts->stylus_tool != tool) {
-		input_report_key(ipts->stylus, ipts->stylus_tool, 0);
-		input_sync(ipts->stylus);
-		ipts->stylus_tool = tool;
-	}
-
 	input_report_key(ipts->stylus, BTN_TOUCH, touch);
-	input_report_key(ipts->stylus, ipts->stylus_tool, prox);
+	input_report_key(ipts->stylus, BTN_TOOL_PEN, prox && !rubber);
+	input_report_key(ipts->stylus, BTN_TOOL_RUBBER, prox && rubber);
 	input_report_key(ipts->stylus, BTN_STYLUS, button);
 
 	input_report_abs(ipts->stylus, ABS_X, data->x);
