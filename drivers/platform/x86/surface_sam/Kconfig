@@ -43,6 +43,18 @@ config SURFACE_SAM_SSH_DEBUG_DEVICE
 
 	  If you are not sure, say N here.
 
+config SURFACE_SAM_SSH_ERROR_INJECTION
+	bool "Surface Serial Hub Error Injection Capabilities"
+	depends on SURFACE_SAM_SSH
+	depends on FUNCTION_ERROR_INJECTION
+	default n
+	help
+	  Enable error injection capabilities for the Surface Serial Hub.
+	  This is used to debug the driver, specifically the communication
+	  interface. It is not required for normal use.
+
+	  If you are not sure, say N here.
+
 config SURFACE_SAM_SAN
 	tristate "Surface ACPI Notify Driver"
 	depends on SURFACE_SAM_SSH

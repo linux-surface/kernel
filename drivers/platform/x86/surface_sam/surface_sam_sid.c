@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Surface Integration Driver.
  * MFD driver to provide device/model dependent functionality.
@@ -12,6 +12,12 @@
 
 
 static const struct mfd_cell sid_devs_sp4[] = {
+	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
+	{ .name = "surface_sam_sid_perfmode", .id = -1 },
+	{ },
+};
+
+static const struct mfd_cell sid_devs_sp6[] = {
 	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
 	{ .name = "surface_sam_sid_perfmode", .id = -1 },
 	{ },
@@ -56,15 +62,19 @@ static const struct mfd_cell sid_devs_sl3_13[] = {
 };
 
 static const struct mfd_cell sid_devs_sl3_15[] = {
-	{ .name = "surface_sam_sid_vhf",     .id = -1 },
-	{ .name = "surface_sam_sid_ac",      .id = -1 },
-	{ .name = "surface_sam_sid_battery", .id = -1 },
+	{ .name = "surface_sam_sid_vhf",      .id = -1 },
+	{ .name = "surface_sam_sid_ac",       .id = -1 },
+	{ .name = "surface_sam_sid_battery",  .id = -1 },
+	{ .name = "surface_sam_sid_perfmode", .id = -1 },
 	{ },
 };
 
 static const struct acpi_device_id surface_sam_sid_match[] = {
 	/* Surface Pro 4, 5, and 6 */
 	{ "MSHW0081", (unsigned long)sid_devs_sp4 },
+
+	/* Surface Pro 6 (OMBR >= 0x10) */
+	{ "MSHW0111", (unsigned long)sid_devs_sp6 },
 
 	/* Surface Pro 7 */
 	{ "MSHW0116", (unsigned long)sid_devs_sp7 },
@@ -126,7 +136,7 @@ static struct platform_driver surface_sam_sid = {
 	.remove = surface_sam_sid_remove,
 	.driver = {
 		.name = "surface_sam_sid",
-		.acpi_match_table = ACPI_PTR(surface_sam_sid_match),
+		.acpi_match_table = surface_sam_sid_match,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
@@ -134,4 +144,4 @@ module_platform_driver(surface_sam_sid);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Integration Driver for 5th Generation Surface Devices");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");

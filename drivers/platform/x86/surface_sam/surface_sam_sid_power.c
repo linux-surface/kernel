@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Surface SID Battery/AC Driver.
  * Provides support for the battery and AC on 7th generation Surface devices.
@@ -35,7 +35,6 @@ MODULE_PARM_DESC(cache_time, "battery state chaching time in milliseconds [defau
  */
 
 #define SAM_PWR_TC			0x02
-#define SAM_PWR_RQID			0x0002
 
 #define SAM_RQST_PWR_CID_STA		0x01
 #define SAM_RQST_PWR_CID_BIX		0x02
@@ -51,7 +50,6 @@ MODULE_PARM_DESC(cache_time, "battery state chaching time in milliseconds [defau
 #define SAM_EVENT_PWR_CID_BIX		0x15
 #define SAM_EVENT_PWR_CID_BST		0x16
 #define SAM_EVENT_PWR_CID_ADAPTER	0x17
-#define SAM_EVENT_PWR_CID_DPTF		0x4f
 
 #define SAM_BATTERY_STA_OK		0x0f
 #define SAM_BATTERY_STA_PRESENT		0x10
@@ -112,7 +110,7 @@ static int sam_psy_get_sta(u8 iid, u32 *sta)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_STA;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -133,7 +131,7 @@ static int sam_psy_get_bix(u8 iid, struct spwr_bix *bix)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_BIX;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -154,7 +152,7 @@ static int sam_psy_get_bst(u8 iid, struct spwr_bst *bst)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_BST;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -174,7 +172,7 @@ static int sam_psy_set_btp(u8 iid, u32 btp)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_BTP;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x00;
 	rqst.cdl = sizeof(u32);
 	rqst.pld = (u8 *)&btp;
@@ -191,7 +189,7 @@ static int sam_psy_get_psrc(u8 iid, u32 *psrc)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_PSRC;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -213,7 +211,7 @@ static int sam_psy_get_pmax(u8 iid, u32 *pmax)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_PMAX;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -235,7 +233,7 @@ static int sam_psy_get_artg(u8 iid, u32 *artg)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_ARTG;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -257,7 +255,7 @@ static int sam_psy_get_psoc(u8 iid, u32 *psoc)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_PSOC;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x01;
 	rqst.cdl = 0x00;
 	rqst.pld = NULL;
@@ -278,7 +276,7 @@ static int sam_psy_set_chgi(u8 iid, u32 chgi)
 	rqst.tc  = SAM_PWR_TC;
 	rqst.cid = SAM_RQST_PWR_CID_CHGI;
 	rqst.iid = iid;
-	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
+	rqst.chn = 0x01;
 	rqst.snc = 0x00;
 	rqst.cdl = sizeof(u32);
 	rqst.pld = (u8 *)&chgi;
@@ -291,22 +289,19 @@ static int sam_psy_set_chgi(u8 iid, u32 chgi)
  * Common Power-Subsystem Interface.
  */
 
-enum spwr_battery_id {
-	SPWR_BAT1,
-	SPWR_BAT2,
-	__SPWR_NUM_BAT,
-};
 #define SPWR_BAT_SINGLE		PLATFORM_DEVID_NONE
 
 struct spwr_battery_device {
 	struct platform_device *pdev;
-	enum spwr_battery_id id;
+	u8 iid;
 
 	char name[32];
 	struct power_supply *psy;
 	struct power_supply_desc psy_desc;
 
 	struct delayed_work update_work;
+
+	struct ssam_event_notifier notif;
 
 	struct mutex lock;
 	unsigned long timestamp;
@@ -324,21 +319,11 @@ struct spwr_ac_device {
 	struct power_supply *psy;
 	struct power_supply_desc psy_desc;
 
+	struct ssam_event_notifier notif;
+
 	struct mutex lock;
 
 	u32 state;
-};
-
-struct spwr_subsystem {
-	struct mutex lock;
-
-	unsigned int refcount;
-	struct spwr_ac_device *ac;
-	struct spwr_battery_device *battery[__SPWR_NUM_BAT];
-};
-
-static struct spwr_subsystem spwr_subsystem = {
-	.lock = __MUTEX_INITIALIZER(spwr_subsystem.lock),
 };
 
 static enum power_supply_property spwr_ac_props[] = {
@@ -382,10 +367,9 @@ static enum power_supply_property spwr_battery_props_eng[] = {
 };
 
 
-static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev,
-				 enum spwr_battery_id id);
+static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev, int iid);
 
-static int spwr_battery_unregister(struct spwr_battery_device *bat);
+static void spwr_battery_unregister(struct spwr_battery_device *bat);
 
 
 static inline bool spwr_battery_present(struct spwr_battery_device *bat)
@@ -396,7 +380,7 @@ static inline bool spwr_battery_present(struct spwr_battery_device *bat)
 
 static inline int spwr_battery_load_sta(struct spwr_battery_device *bat)
 {
-	return sam_psy_get_sta(bat->id + 1, &bat->sta);
+	return sam_psy_get_sta(bat->iid, &bat->sta);
 }
 
 static inline int spwr_battery_load_bix(struct spwr_battery_device *bat)
@@ -404,7 +388,7 @@ static inline int spwr_battery_load_bix(struct spwr_battery_device *bat)
 	if (!spwr_battery_present(bat))
 		return 0;
 
-	return sam_psy_get_bix(bat->id + 1, &bat->bix);
+	return sam_psy_get_bix(bat->iid, &bat->bix);
 }
 
 static inline int spwr_battery_load_bst(struct spwr_battery_device *bat)
@@ -412,14 +396,14 @@ static inline int spwr_battery_load_bst(struct spwr_battery_device *bat)
 	if (!spwr_battery_present(bat))
 		return 0;
 
-	return sam_psy_get_bst(bat->id + 1, &bat->bst);
+	return sam_psy_get_bst(bat->iid, &bat->bst);
 }
 
 
 static inline int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
 {
 	bat->alarm = value;
-	return sam_psy_set_btp(bat->id + 1, bat->alarm);
+	return sam_psy_set_btp(bat->iid, bat->alarm);
 }
 
 static inline int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
@@ -531,84 +515,38 @@ static int spwr_battery_recheck(struct spwr_battery_device *bat)
 
 	// if the unit has changed, re-add the battery
 	if (unit != bat->bix.power_unit) {
-		mutex_unlock(&spwr_subsystem.lock);
-
-		status = spwr_battery_unregister(bat);
-		if (status)
-			return status;
-
-		status = spwr_battery_register(bat, bat->pdev, bat->id);
+		spwr_battery_unregister(bat);
+		status = spwr_battery_register(bat, bat->pdev, bat->iid);
 	}
 
 	return status;
 }
 
 
-static int spwr_handle_event_bix(struct surface_sam_ssh_event *event)
+static inline int spwr_notify_bix(struct spwr_battery_device *bat)
 {
-	struct spwr_battery_device *bat;
-	enum spwr_battery_id bat_id = event->iid - 1;
-	int status = 0;
+	int status;
 
-	if (bat_id < 0 || bat_id >= __SPWR_NUM_BAT) {
-		printk(SPWR_WARN "invalid BIX event iid 0x%02x\n", event->iid);
-		bat_id = SPWR_BAT1;
-	}
+	status = spwr_battery_recheck(bat);
+	if (!status)
+		power_supply_changed(bat->psy);
 
-	mutex_lock(&spwr_subsystem.lock);
-	bat = spwr_subsystem.battery[bat_id];
-	if (bat) {
-		status = spwr_battery_recheck(bat);
-		if (!status)
-			power_supply_changed(bat->psy);
-	}
-
-	mutex_unlock(&spwr_subsystem.lock);
 	return status;
 }
 
-static int spwr_handle_event_bst(struct surface_sam_ssh_event *event)
+static inline int spwr_notify_bst(struct spwr_battery_device *bat)
 {
-	struct spwr_battery_device *bat;
-	enum spwr_battery_id bat_id = event->iid - 1;
-	int status = 0;
+	int status;
 
-	if (bat_id < 0 || bat_id >= __SPWR_NUM_BAT) {
-		printk(SPWR_WARN "invalid BST event iid 0x%02x\n", event->iid);
-		bat_id = SPWR_BAT1;
-	}
+	status = spwr_battery_update_bst(bat, false);
+	if (!status)
+		power_supply_changed(bat->psy);
 
-	mutex_lock(&spwr_subsystem.lock);
-
-	bat = spwr_subsystem.battery[bat_id];
-	if (bat) {
-		status = spwr_battery_update_bst(bat, false);
-		if (!status)
-			power_supply_changed(bat->psy);
-	}
-
-	mutex_unlock(&spwr_subsystem.lock);
 	return status;
 }
 
-static int spwr_handle_event_adapter(struct surface_sam_ssh_event *event)
+static inline int spwr_notify_adapter_bat(struct spwr_battery_device *bat)
 {
-	struct spwr_battery_device *bat1 = NULL;
-	struct spwr_battery_device *bat2 = NULL;
-	struct spwr_ac_device *ac;
-	int status = 0;
-
-	mutex_lock(&spwr_subsystem.lock);
-
-	ac = spwr_subsystem.ac;
-	if (ac) {
-		status = spwr_ac_update(ac);
-		if (status)
-			goto out;
-
-		power_supply_changed(ac->psy);
-	}
-
 	/*
 	 * Handle battery update quirk:
 	 * When the battery is fully charged and the adapter is plugged in or
@@ -617,43 +555,73 @@ static int spwr_handle_event_adapter(struct surface_sam_ssh_event *event)
 	 * the state is updated on the battery. Schedule an update to solve this.
 	 */
 
-	bat1 = spwr_subsystem.battery[SPWR_BAT1];
-	if (bat1 && bat1->bst.remaining_cap >= bat1->bix.last_full_charge_cap)
-		schedule_delayed_work(&bat1->update_work, SPWR_AC_BAT_UPDATE_DELAY);
+	if (bat->bst.remaining_cap >= bat->bix.last_full_charge_cap)
+		schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
 
-	bat2 = spwr_subsystem.battery[SPWR_BAT2];
-	if (bat2 && bat2->bst.remaining_cap >= bat2->bix.last_full_charge_cap)
-		schedule_delayed_work(&bat2->update_work, SPWR_AC_BAT_UPDATE_DELAY);
+	return 0;
+}
 
-out:
-	mutex_unlock(&spwr_subsystem.lock);
+static inline int spwr_notify_adapter_ac(struct spwr_ac_device *ac)
+{
+	int status;
+
+	status = spwr_ac_update(ac);
+	if (!status)
+		power_supply_changed(ac->psy);
+
 	return status;
 }
 
-static int spwr_handle_event_dptf(struct surface_sam_ssh_event *event)
+static u32 spwr_notify_bat(struct ssam_notifier_block *nb, const struct ssam_event *event)
 {
-	return 0;	// TODO: spwr_handle_event_dptf
-}
+	struct spwr_battery_device *bat = container_of(nb, struct spwr_battery_device, notif.base);
+	int status;
 
-static int spwr_handle_event(struct surface_sam_ssh_event *event, void *data)
-{
-	printk(SPWR_DEBUG "power event (cid = 0x%02x)\n", event->cid);
+	dev_dbg(&bat->pdev->dev, "power event (cid = 0x%02x)\n", event->command_id);
 
-	switch (event->cid) {
+	// handled here because adapter has IID = 0
+	if (event->command_id == SAM_EVENT_PWR_CID_ADAPTER) {
+		status = spwr_notify_adapter_bat(bat);
+		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
+	}
+
+	// check for the correct battery IID
+	if (event->instance_id != bat->iid)
+		return 0;
+
+	switch (event->command_id) {
 	case SAM_EVENT_PWR_CID_BIX:
-		return spwr_handle_event_bix(event);
+		status = spwr_notify_bix(bat);
+		break;
 
 	case SAM_EVENT_PWR_CID_BST:
-		return spwr_handle_event_bst(event);
-
-	case SAM_EVENT_PWR_CID_ADAPTER:
-		return spwr_handle_event_adapter(event);
-
-	case SAM_EVENT_PWR_CID_DPTF:
-		return spwr_handle_event_dptf(event);
+		status = spwr_notify_bst(bat);
+		break;
 
 	default:
-		printk(SPWR_WARN "unhandled power event (cid = 0x%02x)\n", event->cid);
+		return 0;
+	}
+
+	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
+}
+
+static u32 spwr_notify_ac(struct ssam_notifier_block *nb, const struct ssam_event *event)
+{
+	struct spwr_ac_device *ac = container_of(nb, struct spwr_ac_device, notif.base);
+	int status;
+
+	dev_dbg(&ac->pdev->dev, "power event (cid = 0x%02x)\n", event->command_id);
+
+	// AC has IID = 0
+	if (event->instance_id != 0)
+		return 0;
+
+	switch (event->command_id) {
+	case SAM_EVENT_PWR_CID_ADAPTER:
+		status = spwr_notify_adapter_ac(ac);
+		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
+
+	default:
 		return 0;
 	}
 }
@@ -895,58 +863,6 @@ static const struct device_attribute alarm_attr = {
 };
 
 
-static int spwr_subsys_init_unlocked(void)
-{
-	int status;
-
-	status = surface_sam_ssh_set_event_handler(SAM_PWR_RQID, spwr_handle_event, NULL);
-	if (status)
-		goto err_handler;
-
-	status = surface_sam_ssh_enable_event_source(SAM_PWR_TC, 0x01, SAM_PWR_RQID);
-	if (status)
-		goto err_source;
-
-	return 0;
-
-err_source:
-	surface_sam_ssh_remove_event_handler(SAM_PWR_RQID);
-err_handler:
-	return status;
-}
-
-static int spwr_subsys_deinit_unlocked(void)
-{
-	surface_sam_ssh_disable_event_source(SAM_PWR_TC, 0x01, SAM_PWR_RQID);
-	surface_sam_ssh_remove_event_handler(SAM_PWR_RQID);
-	return 0;
-}
-
-static inline int spwr_subsys_ref_unlocked(void)
-{
-	int status = 0;
-
-	if (!spwr_subsystem.refcount)
-		status = spwr_subsys_init_unlocked();
-
-	spwr_subsystem.refcount += 1;
-	return status;
-}
-
-static inline int spwr_subsys_unref_unlocked(void)
-{
-	int status = 0;
-
-	if (spwr_subsystem.refcount)
-		spwr_subsystem.refcount -= 1;
-
-	if (!spwr_subsystem.refcount)
-		status = spwr_subsys_deinit_unlocked();
-
-	return status;
-}
-
-
 static int spwr_ac_register(struct spwr_ac_device *ac, struct platform_device *pdev)
 {
 	struct power_supply_config psy_cfg = {};
@@ -974,69 +890,51 @@ static int spwr_ac_register(struct spwr_ac_device *ac, struct platform_device *p
 	ac->psy_desc.num_properties = ARRAY_SIZE(spwr_ac_props);
 	ac->psy_desc.get_property = spwr_ac_get_property;
 
-	mutex_lock(&spwr_subsystem.lock);
-	if (spwr_subsystem.ac) {
-		status = -EEXIST;
-		goto err;
-	}
-
-	status = spwr_subsys_ref_unlocked();
-	if (status)
-		goto err;
-
 	ac->psy = power_supply_register(&ac->pdev->dev, &ac->psy_desc, &psy_cfg);
 	if (IS_ERR(ac->psy)) {
 		status = PTR_ERR(ac->psy);
-		goto err_unref;
+		goto err_psy;
 	}
 
-	spwr_subsystem.ac = ac;
-	mutex_unlock(&spwr_subsystem.lock);
+	ac->notif.base.priority = 1;
+	ac->notif.base.fn = spwr_notify_ac;
+	ac->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	ac->notif.event.id.target_category = SSAM_SSH_TC_BAT;
+	ac->notif.event.id.instance = 0;
+	ac->notif.event.flags = SSAM_EVENT_SEQUENCED;
+
+	status = surface_sam_ssh_notifier_register(&ac->notif);
+	if (status)
+		goto err_notif;
+
 	return 0;
 
-err_unref:
-	spwr_subsys_unref_unlocked();
-err:
-	mutex_unlock(&spwr_subsystem.lock);
+err_notif:
+	power_supply_unregister(ac->psy);
+err_psy:
 	mutex_destroy(&ac->lock);
 	return status;
 }
 
 static int spwr_ac_unregister(struct spwr_ac_device *ac)
 {
-	int status;
-
-	mutex_lock(&spwr_subsystem.lock);
-	if (spwr_subsystem.ac != ac) {
-		mutex_unlock(&spwr_subsystem.lock);
-		return -EINVAL;
-	}
-
-	spwr_subsystem.ac = NULL;
+	surface_sam_ssh_notifier_unregister(&ac->notif);
 	power_supply_unregister(ac->psy);
-
-	status = spwr_subsys_unref_unlocked();
-	mutex_unlock(&spwr_subsystem.lock);
-
 	mutex_destroy(&ac->lock);
-	return status;
+	return 0;
 }
 
-static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev,
-				 enum spwr_battery_id id)
+static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev, int iid)
 {
 	struct power_supply_config psy_cfg = {};
 	u32 sta;
 	int status;
 
-	if ((id < 0 || id >= __SPWR_NUM_BAT) && id != SPWR_BAT_SINGLE)
-		return -EINVAL;
-
 	bat->pdev = pdev;
-	bat->id = id != SPWR_BAT_SINGLE ? id : SPWR_BAT1;
+	bat->iid = iid != SPWR_BAT_SINGLE ? iid : 1;
 
 	// make sure the device is there and functioning properly
-	status = sam_psy_get_sta(bat->id + 1, &sta);
+	status = sam_psy_get_sta(bat->iid, &sta);
 	if (status)
 		return status;
 
@@ -1053,7 +951,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat, struct platfor
 			return status;
 	}
 
-	snprintf(bat->name, ARRAY_SIZE(bat->name), "BAT%d", bat->id);
+	snprintf(bat->name, ARRAY_SIZE(bat->name), "BAT%d", bat->iid - 1);
 	bat->psy_desc.name = bat->name;
 	bat->psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
 
@@ -1072,63 +970,45 @@ static int spwr_battery_register(struct spwr_battery_device *bat, struct platfor
 
 	INIT_DELAYED_WORK(&bat->update_work, spwr_battery_update_bst_workfn);
 
-	mutex_lock(&spwr_subsystem.lock);
-	if (spwr_subsystem.battery[bat->id]) {
-		status = -EEXIST;
-		goto err;
-	}
-
-	status = spwr_subsys_ref_unlocked();
-	if (status)
-		goto err;
-
 	bat->psy = power_supply_register(&bat->pdev->dev, &bat->psy_desc, &psy_cfg);
 	if (IS_ERR(bat->psy)) {
 		status = PTR_ERR(bat->psy);
-		goto err_unref;
+		goto err_psy;
 	}
+
+	bat->notif.base.priority = 1;
+	bat->notif.base.fn = spwr_notify_bat;
+	bat->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	bat->notif.event.id.target_category = SSAM_SSH_TC_BAT;
+	bat->notif.event.id.instance = 0;
+	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
+
+	status = surface_sam_ssh_notifier_register(&bat->notif);
+	if (status)
+		goto err_notif;
 
 	status = device_create_file(&bat->psy->dev, &alarm_attr);
 	if (status)
-		goto err_dereg;
+		goto err_file;
 
-	spwr_subsystem.battery[bat->id] = bat;
-	mutex_unlock(&spwr_subsystem.lock);
 	return 0;
 
-err_dereg:
+err_file:
+	surface_sam_ssh_notifier_unregister(&bat->notif);
+err_notif:
 	power_supply_unregister(bat->psy);
-err_unref:
-	spwr_subsys_unref_unlocked();
-err:
-	mutex_unlock(&spwr_subsystem.lock);
+err_psy:
+	mutex_destroy(&bat->lock);
 	return status;
 }
 
-static int spwr_battery_unregister(struct spwr_battery_device *bat)
+static void spwr_battery_unregister(struct spwr_battery_device *bat)
 {
-	int status;
-
-	if (bat->id < 0 || bat->id >= __SPWR_NUM_BAT)
-		return -EINVAL;
-
-	mutex_lock(&spwr_subsystem.lock);
-	if (spwr_subsystem.battery[bat->id] != bat) {
-		mutex_unlock(&spwr_subsystem.lock);
-		return -EINVAL;
-	}
-
-	spwr_subsystem.battery[bat->id] = NULL;
-
-	status = spwr_subsys_unref_unlocked();
-	mutex_unlock(&spwr_subsystem.lock);
-
+	surface_sam_ssh_notifier_unregister(&bat->notif);
 	cancel_delayed_work_sync(&bat->update_work);
 	device_remove_file(&bat->psy->dev, &alarm_attr);
 	power_supply_unregister(bat->psy);
-
 	mutex_destroy(&bat->lock);
-	return status;
 }
 
 
@@ -1173,7 +1053,9 @@ static int surface_sam_sid_battery_remove(struct platform_device *pdev)
 	struct spwr_battery_device *bat;
 
 	bat = platform_get_drvdata(pdev);
-	return spwr_battery_unregister(bat);
+	spwr_battery_unregister(bat);
+
+	return 0;
 }
 
 static struct platform_driver surface_sam_sid_battery = {
@@ -1259,6 +1141,6 @@ module_exit(surface_sam_sid_power_exit);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Battery/AC Driver for 7th Generation Surface Devices");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:surface_sam_sid_ac");
 MODULE_ALIAS("platform:surface_sam_sid_battery");

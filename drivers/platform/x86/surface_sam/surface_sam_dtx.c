@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Detachment system (DTX) driver for Microsoft Surface Book 2.
  */
@@ -40,8 +40,6 @@
 #define SAM_RQST_DTX_CID_LATCH_OPEN			0x09
 #define SAM_RQST_DTX_CID_GET_OPMODE			0x0D
 
-#define SAM_EVENT_DTX_TC				0x11
-#define SAM_EVENT_DTX_RQID				0x0011
 #define SAM_EVENT_DTX_CID_CONNECTION			0x0c
 #define SAM_EVENT_DTX_CID_BUTTON			0x0e
 #define SAM_EVENT_DTX_CID_ERROR				0x0f
@@ -72,6 +70,8 @@ struct surface_dtx_event {
 } __packed;
 
 struct surface_dtx_dev {
+	struct ssam_event_notifier notif;
+	struct delayed_work opmode_work;
 	wait_queue_head_t waitq;
 	struct miscdevice mdev;
 	spinlock_t client_lock;
@@ -104,10 +104,10 @@ static int surface_sam_query_opmpde(void)
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = SAM_RQST_DTX_TC,
 		.cid = SAM_RQST_DTX_CID_GET_OPMODE,
-		.iid = 0,
-		.pri = SURFACE_SAM_PRIORITY_NORMAL,
-		.snc = 1,
-		.cdl = 0,
+		.iid = 0x00,
+		.chn = 0x01,
+		.snc = 0x01,
+		.cdl = 0x00,
 		.pld = NULL,
 	};
 
@@ -133,10 +133,10 @@ static int dtx_cmd_simple(u8 cid)
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = SAM_RQST_DTX_TC,
 		.cid = cid,
-		.iid = 0,
-		.pri = SURFACE_SAM_PRIORITY_NORMAL,
-		.snc = 0,
-		.cdl = 0,
+		.iid = 0x00,
+		.chn = 0x01,
+		.snc = 0x00,
+		.cdl = 0x00,
 		.pld = NULL,
 	};
 
@@ -398,70 +398,48 @@ static void surface_dtx_update_opmpde(struct surface_dtx_dev *ddev)
 	spin_unlock(&ddev->input_lock);
 }
 
-static int surface_dtx_evt_dtx(struct surface_sam_ssh_event *in_event, void *data)
+static void surface_dtx_opmode_workfn(struct work_struct *work)
 {
-	struct surface_dtx_dev *ddev = data;
-	struct surface_dtx_event event;
+	struct surface_dtx_dev *ddev = container_of(work, struct surface_dtx_dev, opmode_work.work);
 
-	switch (in_event->cid) {
+	surface_dtx_update_opmpde(ddev);
+}
+
+static u32 surface_dtx_notification(struct ssam_notifier_block *nb, const struct ssam_event *in_event)
+{
+	struct surface_dtx_dev *ddev = container_of(nb, struct surface_dtx_dev, notif.base);
+	struct surface_dtx_event event;
+	unsigned long delay;
+
+	switch (in_event->command_id) {
 	case SAM_EVENT_DTX_CID_CONNECTION:
 	case SAM_EVENT_DTX_CID_BUTTON:
 	case SAM_EVENT_DTX_CID_ERROR:
 	case SAM_EVENT_DTX_CID_LATCH_STATUS:
-		if (in_event->len > 2) {
+		if (in_event->length > 2) {
 			printk(DTX_ERR "unexpected payload size (cid: %x, len: %u)\n",
-			       in_event->cid, in_event->len);
-			return 0;
+			       in_event->command_id, in_event->length);
+			return SSAM_NOTIF_HANDLED;
 		}
 
-		event.type = in_event->tc;
-		event.code = in_event->cid;
-		event.arg0 = in_event->len >= 1 ? in_event->pld[0] : 0x00;
-		event.arg1 = in_event->len >= 2 ? in_event->pld[1] : 0x00;
+		event.type = in_event->target_category;
+		event.code = in_event->command_id;
+		event.arg0 = in_event->length >= 1 ? in_event->data[0] : 0x00;
+		event.arg1 = in_event->length >= 2 ? in_event->data[1] : 0x00;
 		surface_dtx_push_event(ddev, &event);
 		break;
 
 	default:
-		printk(DTX_WARN "unhandled dtx event (cid: %x)\n", in_event->cid);
+		return 0;
 	}
 
 	// update device mode
-	if (in_event->cid == SAM_EVENT_DTX_CID_CONNECTION) {
-		if (in_event->pld[0]) {
-			// Note: we're already in a workqueue task
-			msleep(DTX_CONNECT_OPMODE_DELAY);
-		}
-
-		surface_dtx_update_opmpde(ddev);
+	if (in_event->command_id == SAM_EVENT_DTX_CID_CONNECTION) {
+		delay = event.arg0 ? DTX_CONNECT_OPMODE_DELAY : 0;
+		schedule_delayed_work(&ddev->opmode_work, delay);
 	}
 
-	return 0;
-}
-
-static int surface_dtx_events_setup(struct surface_dtx_dev *ddev)
-{
-	int status;
-
-	status = surface_sam_ssh_set_event_handler(SAM_EVENT_DTX_RQID, surface_dtx_evt_dtx, ddev);
-	if (status)
-		goto err_handler;
-
-	status = surface_sam_ssh_enable_event_source(SAM_EVENT_DTX_TC, 0x01, SAM_EVENT_DTX_RQID);
-	if (status)
-		goto err_source;
-
-	return 0;
-
-err_source:
-	surface_sam_ssh_remove_event_handler(SAM_EVENT_DTX_RQID);
-err_handler:
-	return status;
-}
-
-static void surface_dtx_events_disable(void)
-{
-	surface_sam_ssh_disable_event_source(SAM_EVENT_DTX_TC, 0x01, SAM_EVENT_DTX_RQID);
-	surface_sam_ssh_remove_event_handler(SAM_EVENT_DTX_RQID);
+	return SSAM_NOTIF_HANDLED;
 }
 
 
@@ -523,6 +501,7 @@ static int surface_sam_dtx_probe(struct platform_device *pdev)
 		goto err_register;
 	}
 
+	INIT_DELAYED_WORK(&ddev->opmode_work, surface_dtx_opmode_workfn);
 	INIT_LIST_HEAD(&ddev->client_list);
 	init_waitqueue_head(&ddev->waitq);
 	ddev->active = true;
@@ -533,8 +512,15 @@ static int surface_sam_dtx_probe(struct platform_device *pdev)
 	if (status)
 		goto err_register;
 
-	// enable events
-	status = surface_dtx_events_setup(ddev);
+	// set up events
+	ddev->notif.base.priority = 1;
+	ddev->notif.base.fn = surface_dtx_notification;
+	ddev->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	ddev->notif.event.id.target_category = SSAM_SSH_TC_BAS;
+	ddev->notif.event.id.instance = 0;
+	ddev->notif.event.flags = SSAM_EVENT_SEQUENCED;
+
+	status = surface_sam_ssh_notifier_register(&ddev->notif);
 	if (status)
 		goto err_events_setup;
 
@@ -563,7 +549,7 @@ static int surface_sam_dtx_remove(struct platform_device *pdev)
 	mutex_unlock(&ddev->mutex);
 
 	// After this call we're guaranteed that no more input events will arive
-	surface_dtx_events_disable();
+	surface_sam_ssh_notifier_unregister(&ddev->notif);
 
 	// wake up clients
 	spin_lock(&ddev->client_lock);
@@ -593,7 +579,7 @@ static struct platform_driver surface_sam_dtx = {
 	.remove = surface_sam_dtx_remove,
 	.driver = {
 		.name = "surface_sam_dtx",
-		.acpi_match_table = ACPI_PTR(surface_sam_dtx_match),
+		.acpi_match_table = surface_sam_dtx_match,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
@@ -601,4 +587,4 @@ module_platform_driver(surface_sam_dtx);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Detachment System (DTX) Driver for 5th Generation Surface Devices");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");

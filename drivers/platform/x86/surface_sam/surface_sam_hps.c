@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Surface dGPU hot-plug system driver.
  * Supports explicit setting of the dGPU power-state on the Surface Book 2 and
@@ -150,10 +150,10 @@ static int dtx_cmd_simple(u8 cid)
 	struct surface_sam_ssh_rqst rqst = {
 		.tc  = SAM_DTX_TC,
 		.cid = cid,
-		.iid = 0,
-		.pri = SURFACE_SAM_PRIORITY_NORMAL,
-		.snc = 0,
-		.cdl = 0,
+		.iid = 0x00,
+		.chn = 0x01,
+		.snc = 0x00,
+		.cdl = 0x00,
 		.pld = NULL,
 	};
 
@@ -1099,7 +1099,7 @@ static struct platform_driver surface_sam_hps = {
 	.shutdown = shps_shutdown,
 	.driver = {
 		.name = "surface_dgpu_hps",
-		.acpi_match_table = ACPI_PTR(shps_acpi_match),
+		.acpi_match_table = shps_acpi_match,
 		.pm = &shps_pm_ops,
 	},
 };
@@ -1107,4 +1107,4 @@ module_platform_driver(surface_sam_hps);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Hot-Plug System (HPS) and dGPU power-state Driver for Surface Book 2");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");

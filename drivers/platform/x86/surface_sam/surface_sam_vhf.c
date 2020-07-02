@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Virtual HID Framework (VHF) driver for input events via SAM.
  * Used for keyboard input events on the Surface Laptops.
@@ -18,21 +18,11 @@
 
 #define VHF_INPUT_NAME			"Microsoft Virtual HID Framework Device"
 
-/*
- * Request ID for VHF events. This value is based on the output of the Surface
- * EC and should not be changed.
- */
-#define SAM_EVENT_VHF_RQID		0x0001
-#define SAM_EVENT_VHF_TC		0x08
-
-
-struct vhf_evtctx {
-	struct device     *dev;
-	struct hid_device *hid;
-};
 
 struct vhf_drvdata {
-	struct vhf_evtctx event_ctx;
+	struct platform_device *dev;
+	struct hid_device *hid;
+	struct ssam_event_notifier notif;
 };
 
 
@@ -169,14 +159,19 @@ static struct hid_device *vhf_create_hid_device(struct platform_device *pdev)
 	return hid;
 }
 
-static int vhf_event_handler(struct surface_sam_ssh_event *event, void *data)
+static u32 vhf_event_handler(struct ssam_notifier_block *nb, const struct ssam_event *event)
 {
-	struct vhf_evtctx *ctx = (struct vhf_evtctx *)data;
+	struct vhf_drvdata *drvdata = container_of(nb, struct vhf_drvdata, notif.base);
+	int status;
 
-	if (event->tc == 0x08 && (event->cid == 0x03 || event->cid == 0x04))
-		return hid_input_report(ctx->hid, HID_INPUT_REPORT, event->pld, event->len, 1);
+	if (event->target_category != 0x08)
+		return 0;
 
-	dev_warn(ctx->dev, "unsupported event (tc = %d, cid = %d)\n", event->tc, event->cid);
+	if (event->command_id == 0x03 || event->command_id == 0x04) {
+		status = hid_input_report(drvdata->hid, HID_INPUT_REPORT, (u8 *)&event->data[0], event->length, 1);
+		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
+	}
+
 	return 0;
 }
 
@@ -205,26 +200,24 @@ static int surface_sam_vhf_probe(struct platform_device *pdev)
 	if (status)
 		goto err_add_hid;
 
-	drvdata->event_ctx.dev = &pdev->dev;
-	drvdata->event_ctx.hid = hid;
+	drvdata->dev = pdev;
+	drvdata->hid = hid;
+
+	drvdata->notif.base.priority = 1;
+	drvdata->notif.base.fn = vhf_event_handler;
+	drvdata->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	drvdata->notif.event.id.target_category = SSAM_SSH_TC_KBD;
+	drvdata->notif.event.id.instance = 0;
+	drvdata->notif.event.flags = 0;
 
 	platform_set_drvdata(pdev, drvdata);
 
-	status = surface_sam_ssh_set_event_handler(
-			SAM_EVENT_VHF_RQID,
-			vhf_event_handler,
-			&drvdata->event_ctx);
+	status = surface_sam_ssh_notifier_register(&drvdata->notif);
 	if (status)
 		goto err_add_hid;
 
-	status = surface_sam_ssh_enable_event_source(SAM_EVENT_VHF_TC, 0x01, SAM_EVENT_VHF_RQID);
-	if (status)
-		goto err_event_source;
-
 	return 0;
 
-err_event_source:
-	surface_sam_ssh_remove_event_handler(SAM_EVENT_VHF_RQID);
 err_add_hid:
 	hid_destroy_device(hid);
 	platform_set_drvdata(pdev, NULL);
@@ -237,10 +230,8 @@ static int surface_sam_vhf_remove(struct platform_device *pdev)
 {
 	struct vhf_drvdata *drvdata = platform_get_drvdata(pdev);
 
-	surface_sam_ssh_disable_event_source(SAM_EVENT_VHF_TC, 0x01, SAM_EVENT_VHF_RQID);
-	surface_sam_ssh_remove_event_handler(SAM_EVENT_VHF_RQID);
-
-	hid_destroy_device(drvdata->event_ctx.hid);
+	surface_sam_ssh_notifier_unregister(&drvdata->notif);
+	hid_destroy_device(drvdata->hid);
 	kfree(drvdata);
 
 	platform_set_drvdata(pdev, NULL);
@@ -259,7 +250,7 @@ static struct platform_driver surface_sam_vhf = {
 	.remove = surface_sam_vhf_remove,
 	.driver = {
 		.name = "surface_sam_vhf",
-		.acpi_match_table = ACPI_PTR(surface_sam_vhf_match),
+		.acpi_match_table = surface_sam_vhf_match,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
@@ -267,4 +258,4 @@ module_platform_driver(surface_sam_vhf);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Virtual HID Framework Driver for 5th Generation Surface Devices");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");

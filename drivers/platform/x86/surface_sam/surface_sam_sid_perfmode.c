@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Surface Performance Mode Driver.
  * Allows to change cooling capabilities based on user preference.
@@ -45,7 +45,7 @@ static int surface_sam_perf_mode_get(void)
 		.tc  = 0x03,
 		.cid = 0x02,
 		.iid = 0x00,
-		.pri = SURFACE_SAM_PRIORITY_NORMAL,
+		.chn = 0x01,
 		.snc = 0x01,
 		.cdl = 0x00,
 		.pld = NULL,
@@ -75,7 +75,7 @@ static int surface_sam_perf_mode_set(int perf_mode)
 		.tc  = 0x03,
 		.cid = 0x03,
 		.iid = 0x00,
-		.pri = SURFACE_SAM_PRIORITY_NORMAL,
+		.chn = 0x01,
 		.snc = 0x00,
 		.cdl = ARRAY_SIZE(payload),
 		.pld = payload,
@@ -162,7 +162,7 @@ static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr
 	return count;
 }
 
-const static DEVICE_ATTR_RW(perf_mode);
+static const DEVICE_ATTR_RW(perf_mode);
 
 
 static int surface_sam_sid_perfmode_probe(struct platform_device *pdev)
@@ -212,5 +212,5 @@ module_platform_driver(surface_sam_sid_perfmode);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Performance Mode Driver for 5th Generation Surface Devices");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:surface_sam_sid_perfmode");

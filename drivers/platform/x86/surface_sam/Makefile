@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# For include/trace/define_trace.h to include surface_sam_ssh_trace.h
+CFLAGS_surface_sam_ssh.o = -I$(src)
+
 obj-$(CONFIG_SURFACE_SAM_SSH)		+= surface_sam_ssh.o
 obj-$(CONFIG_SURFACE_SAM_SAN)		+= surface_sam_san.o
 obj-$(CONFIG_SURFACE_SAM_DTX)		+= surface_sam_dtx.o
