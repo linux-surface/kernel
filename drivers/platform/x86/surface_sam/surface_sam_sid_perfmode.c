@@ -125,7 +125,7 @@ static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr,
 
 	perf_mode = surface_sam_perf_mode_get();
 	if (perf_mode < 0) {
-		dev_err(dev, "failed to get current performance mode: %d", perf_mode);
+		dev_err(dev, "failed to get current performance mode: %d\n", perf_mode);
 		return -EIO;
 	}
 

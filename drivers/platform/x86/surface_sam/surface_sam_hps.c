@@ -39,10 +39,11 @@ static const guid_t SHPS_DSM_UUID =
 #define SAM_DTX_TC			0x11
 #define SAM_DTX_CID_LATCH_LOCK		0x06
 #define SAM_DTX_CID_LATCH_UNLOCK	0x07
+#define ACPI_SGCP_NOTIFY_POWER_ON   0x81
 
 #define SHPS_DSM_GPU_ADDRS_RP		"RP5_PCIE"
 #define SHPS_DSM_GPU_ADDRS_DGPU		"DGPU_PCIE"
-
+#define SHPS_PCI_GPU_ADDR_RP			"\\_SB.PCI0.RP13._ADR"
 
 static const struct acpi_gpio_params gpio_base_presence_int = { 0, 0, false };
 static const struct acpi_gpio_params gpio_base_presence     = { 1, 0, false };
@@ -80,6 +81,15 @@ static const char *shps_dgpu_power_str(enum shps_dgpu_power power)
 		return "<invalid>";
 }
 
+enum shps_notification_method {
+	SHPS_NOTIFICATION_METHOD_SAN = 1,
+	SHPS_NOTIFICATION_METHOD_SGCP = 2
+};
+
+struct shps_hardware_traits {
+	enum shps_notification_method notification_method;
+	const char *dgpu_rp_pci_address;
+};
 
 struct shps_driver_data {
 	struct mutex lock;
@@ -91,6 +101,31 @@ struct shps_driver_data {
 	unsigned int irq_dgpu_presence;
 	unsigned int irq_base_presence;
 	unsigned long state;
+	acpi_handle sgpc_handle;
+	struct shps_hardware_traits hardware_traits;
+};
+
+struct shps_hardware_probe {
+	const char *hardware_id;
+	int generation;
+	struct shps_hardware_traits *hardware_traits;
+};
+
+static struct shps_hardware_traits shps_gen1_hwtraits = {
+	.notification_method = SHPS_NOTIFICATION_METHOD_SAN
+};
+
+static struct shps_hardware_traits shps_gen2_hwtraits = {
+	.notification_method = SHPS_NOTIFICATION_METHOD_SGCP,
+	.dgpu_rp_pci_address = SHPS_PCI_GPU_ADDR_RP
+};
+
+static const struct shps_hardware_probe shps_hardware_probe_match[] = {
+	/* Surface Book 3 */
+	{ "MSHW0117", 2, &shps_gen2_hwtraits },
+
+	/* Surface Book 2 (default, must be last entry) */
+	{ NULL, 1, &shps_gen1_hwtraits }
 };
 
 #define SHPS_STATE_BIT_PWRTGT		0	/* desired power state: 1 for on, 0 for off */
@@ -144,7 +179,6 @@ MODULE_PARM_DESC(dgpu_power_exit, "dGPU power state to be set on exit (0: off / 
 MODULE_PARM_DESC(dgpu_power_susp, "dGPU power state to be set on exit (0: off / 1: on / 2: as-is, default: as-is)");
 MODULE_PARM_DESC(dtx_latch, "lock/unlock DTX base latch in accordance to power-state (Y/n)");
 
-
 static int dtx_cmd_simple(u8 cid)
 {
 	struct surface_sam_ssh_rqst rqst = {
@@ -170,8 +204,34 @@ static inline int shps_dtx_latch_unlock(void)
 	return dtx_cmd_simple(SAM_DTX_CID_LATCH_UNLOCK);
 }
 
+static int shps_dgpu_dsm_get_pci_addr_from_adr(struct platform_device *pdev, const char *entry) {
+	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
+	int status;
+	struct acpi_object_list input;
+	union acpi_object input_args[0];
+	u64 device_addr;
+	u8 bus, dev, fun;
 
-static int shps_dgpu_dsm_get_pci_addr(struct platform_device *pdev, const char *entry)
+	input.count = 0;
+	input.pointer = input_args;
+
+
+	status = acpi_evaluate_integer(handle, (acpi_string)entry, &input, &device_addr);
+	if (status) {
+		return -ENODEV;
+	}
+
+	bus = 0;
+	dev = (device_addr & 0xFF0000) >> 16;
+	fun = device_addr & 0xFF;
+
+	dev_info(&pdev->dev, "found pci device at bus = %d, dev = %x, fun = %x\n",
+		 (u32)bus, (u32)dev, (u32)fun);
+
+	return bus << 8 | PCI_DEVFN(dev, fun);
+}
+
+static int shps_dgpu_dsm_get_pci_addr_from_dsm(struct platform_device *pdev, const char *entry)
 {
 	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
 	union acpi_object *result;
@@ -181,6 +241,7 @@ static int shps_dgpu_dsm_get_pci_addr(struct platform_device *pdev, const char *
 	u64 device_addr = 0;
 	u8 bus, dev, fun;
 	int i;
+
 
 	result = acpi_evaluate_dsm_typed(handle, &SHPS_DSM_UUID, SHPS_DSM_REVISION,
 					 SHPS_DSM_GPU_ADDRS, NULL, ACPI_TYPE_PACKAGE);
@@ -217,6 +278,7 @@ static int shps_dgpu_dsm_get_pci_addr(struct platform_device *pdev, const char *
 	if (device_addr == 0)
 		return -ENODEV;
 
+
 	// convert address
 	bus = (device_addr & 0x0FF00000) >> 20;
 	dev = (device_addr & 0x000F8000) >> 15;
@@ -225,12 +287,19 @@ static int shps_dgpu_dsm_get_pci_addr(struct platform_device *pdev, const char *
 	return bus << 8 | PCI_DEVFN(dev, fun);
 }
 
-static struct pci_dev *shps_dgpu_dsm_get_pci_dev(struct platform_device *pdev, const char *entry)
+static struct pci_dev *shps_dgpu_dsm_get_pci_dev(struct platform_device *pdev)
 {
+	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
 	struct pci_dev *dev;
 	int addr;
 
-	addr = shps_dgpu_dsm_get_pci_addr(pdev, entry);
+
+	if (drvdata->hardware_traits.dgpu_rp_pci_address) {
+		addr = shps_dgpu_dsm_get_pci_addr_from_adr(pdev, drvdata->hardware_traits.dgpu_rp_pci_address);
+	} else {
+		addr = shps_dgpu_dsm_get_pci_addr_from_dsm(pdev, SHPS_DSM_GPU_ADDRS_RP);
+	}
+
 	if (addr < 0)
 		return ERR_PTR(addr);
 
@@ -590,10 +659,10 @@ static void dbg_dump_pciesta(struct platform_device *pdev, const char *prefix)
 	pcie_capability_read_word(rp, PCI_EXP_SLTSTA, &sltsta);
 	pcie_capability_read_word(rp, PCI_EXP_SLTSTA2, &sltsta2);
 
-	dev_dbg(&pdev->dev, "%s: LNKSTA: 0x%04x", prefix, lnksta);
-	dev_dbg(&pdev->dev, "%s: LNKSTA2: 0x%04x", prefix, lnksta2);
-	dev_dbg(&pdev->dev, "%s: SLTSTA: 0x%04x", prefix, sltsta);
-	dev_dbg(&pdev->dev, "%s: SLTSTA2: 0x%04x", prefix, sltsta2);
+	dev_dbg(&pdev->dev, "%s: LNKSTA: 0x%04x\n", prefix, lnksta);
+	dev_dbg(&pdev->dev, "%s: LNKSTA2: 0x%04x\n", prefix, lnksta2);
+	dev_dbg(&pdev->dev, "%s: SLTSTA: 0x%04x\n", prefix, sltsta);
+	dev_dbg(&pdev->dev, "%s: SLTSTA2: 0x%04x\n", prefix, sltsta2);
 }
 
 static void dbg_dump_drvsta(struct platform_device *pdev, const char *prefix)
@@ -601,13 +670,12 @@ static void dbg_dump_drvsta(struct platform_device *pdev, const char *prefix)
 	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
 	struct pci_dev *rp = drvdata->dgpu_root_port;
 
-	dev_dbg(&pdev->dev, "%s: RP power: %d", prefix, rp->current_state);
-	dev_dbg(&pdev->dev, "%s: RP state saved: %d", prefix, rp->state_saved);
-	dev_dbg(&pdev->dev, "%s: RP state stored: %d", prefix, !!drvdata->dgpu_root_port_state);
-	dev_dbg(&pdev->dev, "%s: RP enabled: %d", prefix, atomic_read(&rp->enable_cnt));
-	dev_dbg(&pdev->dev, "%s: RP mastered: %d", prefix, rp->is_busmaster);
+	dev_dbg(&pdev->dev, "%s: RP power: %d\n", prefix, rp->current_state);
+	dev_dbg(&pdev->dev, "%s: RP state saved: %d\n", prefix, rp->state_saved);
+	dev_dbg(&pdev->dev, "%s: RP state stored: %d\n", prefix, !!drvdata->dgpu_root_port_state);
+	dev_dbg(&pdev->dev, "%s: RP enabled: %d\n", prefix, atomic_read(&rp->enable_cnt));
+	dev_dbg(&pdev->dev, "%s: RP mastered: %d\n", prefix, rp->is_busmaster);
 }
-
 
 static int shps_pm_prepare(struct device *dev)
 {
@@ -788,13 +856,12 @@ static int shps_dgpu_powered_on(struct platform_device *pdev)
 	mutex_unlock(&drvdata->lock);
 
 	if (!test_bit(SHPS_STATE_BIT_PWRTGT, &drvdata->state)) {
-		dev_warn(&pdev->dev, "unexpected dGPU power-on detected");
+		dev_warn(&pdev->dev, "unexpected dGPU power-on detected\n");
 		// TODO: schedule state re-check and update
 	}
 
 	return 0;
 }
-
 
 static int shps_dgpu_handle_rqsg(struct surface_sam_san_rqsg *rqsg, void *data)
 {
@@ -803,7 +870,7 @@ static int shps_dgpu_handle_rqsg(struct surface_sam_san_rqsg *rqsg, void *data)
 	if (rqsg->tc == SAM_DGPU_TC && rqsg->cid == SAM_DGPU_CID_POWERON)
 		return shps_dgpu_powered_on(pdev);
 
-	dev_warn(&pdev->dev, "unimplemented dGPU request: RQSG(0x%02x, 0x%02x, 0x%02x)",
+	dev_warn(&pdev->dev, "unimplemented dGPU request: RQSG(0x%02x, 0x%02x, 0x%02x)\n",
 		 rqsg->tc, rqsg->cid, rqsg->iid);
 	return 0;
 }
@@ -927,7 +994,7 @@ static void shps_gpios_remove(struct platform_device *pdev)
 static int shps_gpios_setup_irq(struct platform_device *pdev)
 {
 	const int irqf_dgpu = IRQF_SHARED | IRQF_ONESHOT | IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
-	const int irqf_base = IRQF_SHARED | IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
+	const int irqf_base = IRQF_SHARED;
 	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
 	int status;
 
@@ -944,8 +1011,10 @@ static int shps_gpios_setup_irq(struct platform_device *pdev)
 	status = request_irq(drvdata->irq_base_presence,
 			     shps_base_presence_irq, irqf_base,
 			     "shps_base_presence_irq", pdev);
-	if (status)
+	if (status) {
+		dev_err(&pdev->dev, "base irq failed: %d\n", status);
 		return status;
+	}
 
 	status = request_threaded_irq(drvdata->irq_dgpu_presence,
 				      NULL, shps_dgpu_presence_irq, irqf_dgpu,
@@ -966,29 +1035,100 @@ static void shps_gpios_remove_irq(struct platform_device *pdev)
 	free_irq(drvdata->irq_dgpu_presence, pdev);
 }
 
+static void shps_sgcp_notify(acpi_handle device, u32 value, void *context) {
+	struct platform_device *pdev = context;
+	switch (value) {
+		case ACPI_SGCP_NOTIFY_POWER_ON:
+			shps_dgpu_powered_on(pdev);
+	}
+}
+
+static int shps_start_sgcp_notification(struct platform_device *pdev, acpi_handle *sgpc_handle) {
+	acpi_handle handle;
+	int status;
+
+	status = acpi_get_handle(NULL, "\\_SB.SGPC", &handle);
+	if (status) {
+		dev_err(&pdev->dev, "error in get_handle %d\n", status);
+		return status;
+	}
+
+	status = acpi_install_notify_handler(handle, ACPI_DEVICE_NOTIFY, shps_sgcp_notify, pdev);
+	if (status) {
+		dev_err(&pdev->dev, "error in install notify %d\n", status);
+		*sgpc_handle = NULL;
+		return status;
+	}
+
+	*sgpc_handle = handle;
+	return 0;
+}
+
+static void shps_remove_sgcp_notification(struct platform_device *pdev) {
+	int status;
+	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
+
+	if (drvdata->sgpc_handle) {
+		status = acpi_remove_notify_handler(drvdata->sgpc_handle, ACPI_DEVICE_NOTIFY, shps_sgcp_notify);
+		if (status) {
+			dev_err(&pdev->dev, "failed to remove notify handler: %d\n", status);
+		}
+	}
+}
+
+static struct shps_hardware_traits shps_detect_hardware_traits(struct platform_device *pdev) {
+	const struct shps_hardware_probe *p;
+
+	for (p = shps_hardware_probe_match; p->hardware_id; ++p) {
+		if (acpi_dev_present(p->hardware_id, NULL, -1)) {
+			break;
+		}
+	}
+
+	dev_info(&pdev->dev,
+		"shps_detect_hardware_traits found device %s, generation %d\n",
+		p->hardware_id ? p->hardware_id : "SAN (default)",
+		p->generation);
+
+	return *p->hardware_traits;
+}
+
 static int shps_probe(struct platform_device *pdev)
 {
 	struct acpi_device *shps_dev = ACPI_COMPANION(&pdev->dev);
 	struct shps_driver_data *drvdata;
 	struct device_link *link;
 	int power, status;
+	struct shps_hardware_traits detected_traits;
 
-	if (gpiod_count(&pdev->dev, NULL) < 0)
+	if (gpiod_count(&pdev->dev, NULL) < 0) {
+		dev_err(&pdev->dev, "gpiod_count returned < 0\n");
 		return -ENODEV;
+	}
 
 	// link to SSH
 	status = surface_sam_ssh_consumer_register(&pdev->dev);
-	if (status)
+	if (status) {
 		return status == -ENXIO ? -EPROBE_DEFER : status;
+	}
 
-	// link to SAN
-	status = surface_sam_san_consumer_register(&pdev->dev, 0);
-	if (status)
-		return status == -ENXIO ? -EPROBE_DEFER : status;
+	// detect what kind of hardware we're running
+	detected_traits = shps_detect_hardware_traits(pdev);
+
+	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
+		// link to SAN
+		status = surface_sam_san_consumer_register(&pdev->dev, 0);
+		if (status) {
+			dev_err(&pdev->dev, "failed to register with san consumer: %d\n", status);
+			return status == -ENXIO ? -EPROBE_DEFER : status;
+		}
+	}
 
 	status = acpi_dev_add_driver_gpios(shps_dev, shps_acpi_gpios);
-	if (status)
+	if (status) {
+		dev_err(&pdev->dev, "failed to add gpios: %d\n", status);
 		return status;
+	}
 
 	drvdata = kzalloc(sizeof(struct shps_driver_data), GFP_KERNEL);
 	if (!drvdata) {
@@ -998,19 +1138,26 @@ static int shps_probe(struct platform_device *pdev)
 	mutex_init(&drvdata->lock);
 	platform_set_drvdata(pdev, drvdata);
 
-	drvdata->dgpu_root_port = shps_dgpu_dsm_get_pci_dev(pdev, SHPS_DSM_GPU_ADDRS_RP);
+	drvdata->hardware_traits = detected_traits;
+
+	drvdata->dgpu_root_port = shps_dgpu_dsm_get_pci_dev(pdev);
 	if (IS_ERR(drvdata->dgpu_root_port)) {
 		status = PTR_ERR(drvdata->dgpu_root_port);
+		dev_err(&pdev->dev, "failed to get pci dev: %d\n", status);
 		goto err_rp_lookup;
 	}
 
 	status = shps_gpios_setup(pdev);
-	if (status)
+	if (status) {
+		dev_err(&pdev->dev, "unable to set up gpios, %d\n", status);
 		goto err_gpio;
+	}
 
 	status = shps_gpios_setup_irq(pdev);
-	if (status)
+	if (status) {
+		dev_err(&pdev->dev, "unable to set up irqs %d\n", status);
 		goto err_gpio_irqs;
+	}
 
 	status = device_add_groups(&pdev->dev, shps_power_groups);
 	if (status)
@@ -1021,23 +1168,41 @@ static int shps_probe(struct platform_device *pdev)
 	if (!link)
 		goto err_devlink;
 
-	surface_sam_san_set_rqsg_handler(shps_dgpu_handle_rqsg, pdev);
+	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
+		status = surface_sam_san_set_rqsg_handler(shps_dgpu_handle_rqsg, pdev);
+		if (status) {
+			dev_err(&pdev->dev, "unable to set SAN notification handler (%d)\n", status);
+			goto err_devlink;
+		}
+	} else if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
+		status = shps_start_sgcp_notification(pdev, &drvdata->sgpc_handle);
+		if (status) {
+			dev_err(&pdev->dev, "unable to install SGCP notification handler (%d)\n", status);
+			goto err_devlink;
+		}
+	}
 
 	// if dGPU is not present turn-off root-port, else obey module param
 	status = shps_dgpu_is_present(pdev);
 	if (status < 0)
-		goto err_devlink;
+		goto err_post_notification;
 
 	power = status == 0 ? SHPS_DGPU_POWER_OFF : param_dgpu_power_init;
 	if (power != SHPS_DGPU_MP_POWER_ASIS) {
 		status = shps_dgpu_set_power(pdev, power);
 		if (status)
-			goto err_devlink;
+			goto err_post_notification;
 	}
 
 	device_init_wakeup(&pdev->dev, true);
 	return 0;
 
+err_post_notification:
+	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
+		shps_remove_sgcp_notification(pdev);
+	} else if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
+		surface_sam_san_set_rqsg_handler(NULL, NULL);
+	}
 err_devlink:
 	device_remove_groups(&pdev->dev, shps_power_groups);
 err_devattr:
@@ -1067,7 +1232,12 @@ static int shps_remove(struct platform_device *pdev)
 	}
 
 	device_set_wakeup_capable(&pdev->dev, false);
-	surface_sam_san_set_rqsg_handler(NULL, NULL);
+
+	if (drvdata->hardware_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
+		shps_remove_sgcp_notification(pdev);
+	} else if (drvdata->hardware_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
+		surface_sam_san_set_rqsg_handler(NULL, NULL);
+	}
 	device_remove_groups(&pdev->dev, shps_power_groups);
 	shps_gpios_remove_irq(pdev);
 	shps_gpios_remove(pdev);
@@ -1103,6 +1273,7 @@ static struct platform_driver surface_sam_hps = {
 		.pm = &shps_pm_ops,
 	},
 };
+
 module_platform_driver(surface_sam_hps);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");

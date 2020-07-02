@@ -108,7 +108,7 @@ config SURFACE_SAM_HPS
 	default m
 	help
 	  Driver to properly handle hot-plugging and explicit power-on/power-off
-	  of the discrete GPU (dGPU) on the Surface Book 2.
+	  of the discrete GPU (dGPU) on the Surface Book 2 and 3.
 
 	  If you are not sure, say M here.
 
