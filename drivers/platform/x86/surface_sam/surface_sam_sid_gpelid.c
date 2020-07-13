@@ -97,6 +97,14 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 		.driver_data = (void *)&lid_device_l17,
 	},
 	{
+		.ident = "Surface Book 3",
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 3"),
+		},
+		.driver_data = (void *)&lid_device_l4D,
+	},
+	{
 		.ident = "Surface Laptop 1",
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),

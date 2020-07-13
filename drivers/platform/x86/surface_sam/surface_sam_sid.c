@@ -10,6 +10,50 @@
 #include <linux/platform_device.h>
 #include <linux/mfd/core.h>
 
+#include "surface_sam_sid_power.h"
+#include "surface_sam_sid_vhf.h"
+
+
+struct ssam_battery_properties ssam_battery_props_bat1 = {
+	.registry = SSAM_EVENT_REGISTRY_SAM,
+	.num      = 0,
+	.channel  = 1,
+	.instance = 1,
+};
+
+struct ssam_battery_properties ssam_battery_props_bat2_sb3 = {
+	.registry = SSAM_EVENT_REGISTRY_KIP,
+	.num      = 1,
+	.channel  = 2,
+	.instance = 1,
+};
+
+
+static const struct ssam_hid_properties ssam_hid_props_sl3 = {
+	.registry = SSAM_EVENT_REGISTRY_REG,	// TODO: needs confirmation
+	.instance = 0,
+};
+
+static const struct ssam_hid_properties ssam_hid_props_sb3_keyboard = {
+	.registry = SSAM_EVENT_REGISTRY_REG,
+	.instance = 1,
+};
+
+static const struct ssam_hid_properties ssam_hid_props_sb3_touchpad = {
+	.registry = SSAM_EVENT_REGISTRY_REG,
+	.instance = 3,
+};
+
+static const struct ssam_hid_properties ssam_hid_props_sb3_iid5 = {
+	.registry = SSAM_EVENT_REGISTRY_REG,
+	.instance = 5,
+};
+
+static const struct ssam_hid_properties ssam_hid_props_sb3_iid6 = {
+	.registry = SSAM_EVENT_REGISTRY_REG,
+	.instance = 6,
+};
+
 
 static const struct mfd_cell sid_devs_sp4[] = {
 	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
@@ -25,9 +69,14 @@ static const struct mfd_cell sid_devs_sp6[] = {
 
 static const struct mfd_cell sid_devs_sp7[] = {
 	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
-	{ .name = "surface_sam_sid_ac",       .id = -1 },
-	{ .name = "surface_sam_sid_battery",  .id = -1 },
 	{ .name = "surface_sam_sid_perfmode", .id = -1 },
+	{ .name = "surface_sam_sid_ac",       .id = -1 },
+	{
+		.name = "surface_sam_sid_battery",
+		.id = -1,
+		.platform_data = &ssam_battery_props_bat1,
+		.pdata_size = sizeof(struct ssam_battery_properties),
+	},
 	{ },
 };
 
@@ -39,6 +88,49 @@ static const struct mfd_cell sid_devs_sb1[] = {
 static const struct mfd_cell sid_devs_sb2[] = {
 	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
 	{ .name = "surface_sam_sid_perfmode", .id = -1 },
+	{ },
+};
+
+static const struct mfd_cell sid_devs_sb3[] = {
+	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
+	{ .name = "surface_sam_sid_perfmode", .id = -1 },
+	{ .name = "surface_sam_sid_ac",       .id = -1 },
+	{
+		.name = "surface_sam_sid_battery",
+		.id = 1,
+		.platform_data = &ssam_battery_props_bat1,
+		.pdata_size = sizeof(struct ssam_battery_properties),
+	},
+	{
+		.name = "surface_sam_sid_battery",
+		.id = 2,
+		.platform_data = &ssam_battery_props_bat2_sb3,
+		.pdata_size = sizeof(struct ssam_battery_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 1,
+		.platform_data = (void *)&ssam_hid_props_sb3_keyboard,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 3,
+		.platform_data = (void *)&ssam_hid_props_sb3_touchpad,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 5,
+		.platform_data = (void *)&ssam_hid_props_sb3_iid5,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 6,
+		.platform_data = (void *)&ssam_hid_props_sb3_iid6,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
 	{ },
 };
 
@@ -54,18 +146,38 @@ static const struct mfd_cell sid_devs_sl2[] = {
 
 static const struct mfd_cell sid_devs_sl3_13[] = {
 	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
-	{ .name = "surface_sam_sid_vhf",      .id = -1 },
-	{ .name = "surface_sam_sid_ac",       .id = -1 },
-	{ .name = "surface_sam_sid_battery",  .id = -1 },
 	{ .name = "surface_sam_sid_perfmode", .id = -1 },
+	{ .name = "surface_sam_sid_ac",       .id = -1 },
+	{
+		.name = "surface_sam_sid_battery",
+		.id = -1,
+		.platform_data = &ssam_battery_props_bat1,
+		.pdata_size = sizeof(struct ssam_battery_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = -1,
+		.platform_data = (void *)&ssam_hid_props_sl3,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
 	{ },
 };
 
 static const struct mfd_cell sid_devs_sl3_15[] = {
-	{ .name = "surface_sam_sid_vhf",      .id = -1 },
-	{ .name = "surface_sam_sid_ac",       .id = -1 },
-	{ .name = "surface_sam_sid_battery",  .id = -1 },
 	{ .name = "surface_sam_sid_perfmode", .id = -1 },
+	{ .name = "surface_sam_sid_ac",       .id = -1 },
+	{
+		.name = "surface_sam_sid_battery",
+		.id = -1,
+		.platform_data = &ssam_battery_props_bat1,
+		.pdata_size = sizeof(struct ssam_battery_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = -1,
+		.platform_data = (void *)&ssam_hid_props_sl3,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
 	{ },
 };
 
@@ -84,6 +196,9 @@ static const struct acpi_device_id surface_sam_sid_match[] = {
 
 	/* Surface Book 2 */
 	{ "MSHW0107", (unsigned long)sid_devs_sb2 },
+
+	/* Surface Book 3 */
+	{ "MSHW0117", (unsigned long)sid_devs_sb3 },
 
 	/* Surface Laptop 1 */
 	{ "MSHW0086", (unsigned long)sid_devs_sl1 },

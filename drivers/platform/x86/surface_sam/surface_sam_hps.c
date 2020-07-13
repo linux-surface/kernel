@@ -1194,9 +1194,25 @@ static int shps_probe(struct platform_device *pdev)
 			goto err_post_notification;
 	}
 
+	// initialize power target
+	status = shps_dgpu_rp_get_power(pdev);
+	if (status < 0)
+		goto err_pwrtgt;
+
+	if (status)
+		set_bit(SHPS_STATE_BIT_PWRTGT, &drvdata->state);
+	else
+		clear_bit(SHPS_STATE_BIT_PWRTGT, &drvdata->state);
+
 	device_init_wakeup(&pdev->dev, true);
 	return 0;
 
+err_pwrtgt:
+	if (param_dgpu_power_exit != SHPS_DGPU_MP_POWER_ASIS) {
+		status = shps_dgpu_set_power(pdev, param_dgpu_power_exit);
+		if (status)
+			dev_err(&pdev->dev, "failed to set dGPU power state: %d\n", status);
+	}
 err_post_notification:
 	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
 		shps_remove_sgcp_notification(pdev);

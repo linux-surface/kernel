@@ -4072,7 +4072,7 @@ static void ssam_request_sync_complete(struct ssh_request *rqst,
 		rtl_err(rtl, "rsp: response buffer too small,"
 			" capacity: %u bytes, got: %zu bytes\n",
 			r->resp.capacity, data->len);
-		status = -ENOSPC;
+		r->resp.status = -ENOSPC;
 		return;
 	}
 
