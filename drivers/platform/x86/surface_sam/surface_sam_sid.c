@@ -29,27 +29,22 @@ struct ssam_battery_properties ssam_battery_props_bat2_sb3 = {
 };
 
 
-static const struct ssam_hid_properties ssam_hid_props_sl3 = {
-	.registry = SSAM_EVENT_REGISTRY_REG,	// TODO: needs confirmation
-	.instance = 0,
-};
-
-static const struct ssam_hid_properties ssam_hid_props_sb3_keyboard = {
+static const struct ssam_hid_properties ssam_hid_props_keyboard = {
 	.registry = SSAM_EVENT_REGISTRY_REG,
 	.instance = 1,
 };
 
-static const struct ssam_hid_properties ssam_hid_props_sb3_touchpad = {
+static const struct ssam_hid_properties ssam_hid_props_touchpad = {
 	.registry = SSAM_EVENT_REGISTRY_REG,
 	.instance = 3,
 };
 
-static const struct ssam_hid_properties ssam_hid_props_sb3_iid5 = {
+static const struct ssam_hid_properties ssam_hid_props_iid5 = {
 	.registry = SSAM_EVENT_REGISTRY_REG,
 	.instance = 5,
 };
 
-static const struct ssam_hid_properties ssam_hid_props_sb3_iid6 = {
+static const struct ssam_hid_properties ssam_hid_props_iid6 = {
 	.registry = SSAM_EVENT_REGISTRY_REG,
 	.instance = 6,
 };
@@ -110,25 +105,25 @@ static const struct mfd_cell sid_devs_sb3[] = {
 	{
 		.name = "surface_sam_sid_vhf",
 		.id = 1,
-		.platform_data = (void *)&ssam_hid_props_sb3_keyboard,
+		.platform_data = (void *)&ssam_hid_props_keyboard,
 		.pdata_size = sizeof(struct ssam_hid_properties),
 	},
 	{
 		.name = "surface_sam_sid_vhf",
 		.id = 3,
-		.platform_data = (void *)&ssam_hid_props_sb3_touchpad,
+		.platform_data = (void *)&ssam_hid_props_touchpad,
 		.pdata_size = sizeof(struct ssam_hid_properties),
 	},
 	{
 		.name = "surface_sam_sid_vhf",
 		.id = 5,
-		.platform_data = (void *)&ssam_hid_props_sb3_iid5,
+		.platform_data = (void *)&ssam_hid_props_iid5,
 		.pdata_size = sizeof(struct ssam_hid_properties),
 	},
 	{
 		.name = "surface_sam_sid_vhf",
 		.id = 6,
-		.platform_data = (void *)&ssam_hid_props_sb3_iid6,
+		.platform_data = (void *)&ssam_hid_props_iid6,
 		.pdata_size = sizeof(struct ssam_hid_properties),
 	},
 	{ },
@@ -156,8 +151,20 @@ static const struct mfd_cell sid_devs_sl3_13[] = {
 	},
 	{
 		.name = "surface_sam_sid_vhf",
-		.id = -1,
-		.platform_data = (void *)&ssam_hid_props_sl3,
+		.id = 1,
+		.platform_data = (void *)&ssam_hid_props_keyboard,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 3,
+		.platform_data = (void *)&ssam_hid_props_touchpad,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 5,
+		.platform_data = (void *)&ssam_hid_props_iid5,
 		.pdata_size = sizeof(struct ssam_hid_properties),
 	},
 	{ },
@@ -174,8 +181,20 @@ static const struct mfd_cell sid_devs_sl3_15[] = {
 	},
 	{
 		.name = "surface_sam_sid_vhf",
-		.id = -1,
-		.platform_data = (void *)&ssam_hid_props_sl3,
+		.id = 1,
+		.platform_data = (void *)&ssam_hid_props_keyboard,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 3,
+		.platform_data = (void *)&ssam_hid_props_touchpad,
+		.pdata_size = sizeof(struct ssam_hid_properties),
+	},
+	{
+		.name = "surface_sam_sid_vhf",
+		.id = 5,
+		.platform_data = (void *)&ssam_hid_props_iid5,
 		.pdata_size = sizeof(struct ssam_hid_properties),
 	},
 	{ },
