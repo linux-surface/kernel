@@ -662,6 +662,27 @@ static int acpi_gsb_i2c_write_bytes(struct i2c_client *client,
 	return (ret == 1) ? 0 : -EIO;
 }
 
+static int acpi_gsb_i2c_write_raw_bytes(struct i2c_client *client,
+		u8 *data, u8 data_len)
+{
+	struct i2c_msg msgs[1];
+	int ret;
+
+	msgs[0].addr = client->addr;
+	msgs[0].flags = client->flags;
+	msgs[0].len = data_len + 1;
+	msgs[0].buf = data;
+
+	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+	if (ret < 0) {
+		dev_err(&client->adapter->dev, "i2c write failed: %d\n", ret);
+		return ret;
+	}
+
+	/* 1 transfer must have completed successfully */
+	return (ret == 1) ? 0 : -EIO;
+}
+
 static acpi_status
 i2c_acpi_space_handler(u32 function, acpi_physical_address command,
 			u32 bits, u64 *value64,
@@ -759,6 +780,19 @@ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
 					gsb->data, info->access_length);
 		} else {
 			status = acpi_gsb_i2c_write_bytes(client, command,
+					gsb->data, info->access_length);
+		}
+		break;
+
+	case ACPI_GSB_ACCESS_ATTRIB_RAW_BYTES:
+		if (action == ACPI_READ) {
+			dev_warn(&adapter->dev,
+				 "protocol 0x%02x not supported for client 0x%02x\n",
+				 accessor_type, client->addr);
+			ret = AE_BAD_PARAMETER;
+			goto err;
+		} else {
+			status = acpi_gsb_i2c_write_raw_bytes(client,
 					gsb->data, info->access_length);
 		}
 		break;
