@@ -31,18 +31,6 @@ config SURFACE_SAM_SSH
 	  If you have a 5th generation (or later) Microsoft Surface device, say
 	  Y or M here.
 
-config SURFACE_SAM_SSH_DEBUG_DEVICE
-	bool "Surface Serial Hub Debug Device"
-	depends on SURFACE_SAM_SSH
-	depends on SYSFS
-	default n
-	help
-	  Debug device for direct communication with the embedded controller
-	  found on 5th generation (and later) Microsoft Surface devices (e.g.
-	  Book 2, Laptop, Laptop 2, Pro 2017, Pro 6, ...) via sysfs.
-
-	  If you are not sure, say N here.
-
 config SURFACE_SAM_SSH_ERROR_INJECTION
 	bool "Surface Serial Hub Error Injection Capabilities"
 	depends on SURFACE_SAM_SSH
@@ -52,6 +40,18 @@ config SURFACE_SAM_SSH_ERROR_INJECTION
 	  Enable error injection capabilities for the Surface Serial Hub.
 	  This is used to debug the driver, specifically the communication
 	  interface. It is not required for normal use.
+
+	  If you are not sure, say N here.
+
+config SURFACE_SAM_DEBUGFS
+	tristate "Surface Serial Hub Debug Device"
+	depends on SURFACE_SAM_SSH
+	depends on DEBUG_FS
+	default n
+	help
+	  Debug device for direct communication with the embedded controller
+	  found on 5th generation (and later) Microsoft Surface devices (e.g.
+	  Book 2, Laptop, Laptop 2, Pro 2017, Pro 6, ...) via debugfs.
 
 	  If you are not sure, say N here.
 

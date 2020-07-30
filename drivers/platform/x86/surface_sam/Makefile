@@ -13,3 +13,4 @@ obj-$(CONFIG_SURFACE_SAM_SID_GPELID)	+= surface_sam_sid_gpelid.o
 obj-$(CONFIG_SURFACE_SAM_SID_PERFMODE)	+= surface_sam_sid_perfmode.o
 obj-$(CONFIG_SURFACE_SAM_SID_POWER)	+= surface_sam_sid_power.o
 obj-$(CONFIG_SURFACE_SAM_SID_VHF)	+= surface_sam_sid_vhf.o
+obj-$(CONFIG_SURFACE_SAM_DEBUGFS)	+= surface_sam_debugfs.o

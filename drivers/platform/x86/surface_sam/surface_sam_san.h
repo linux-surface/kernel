@@ -18,7 +18,7 @@ struct surface_sam_san_rqsg {
 	u8 tc;				// target category
 	u8 cid;				// command ID
 	u8 iid;				// instance ID
-	u8 cdl;				// command data length (length of payload)
+	u16 cdl;			// command data length (length of payload)
 	u8 *pld;			// pointer to payload of length cdl
 };
 

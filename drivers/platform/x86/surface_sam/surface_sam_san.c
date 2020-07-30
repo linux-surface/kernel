@@ -4,6 +4,7 @@
  * Translates communication from ACPI to SSH and back.
  */
 
+#include <asm/unaligned.h>
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/jiffies.h>
@@ -33,11 +34,6 @@ static const guid_t SAN_DSM_UUID =
 
 #define SAM_EVENT_TEMP_CID_NOTIFY_SENSOR_TRIP_POINT	0x0b
 
-#define SAN_RQST_TAG			"surface_sam_san: rqst: "
-#define SAN_RQSG_TAG			"surface_sam_san: rqsg: "
-
-#define SAN_QUIRK_BASE_STATE_DELAY	1000
-
 
 struct san_acpi_consumer {
 	char *path;
@@ -45,9 +41,8 @@ struct san_acpi_consumer {
 	u32   flags;
 };
 
-struct san_opreg_context {
-	struct acpi_connection_info connection;
-	struct device *dev;
+struct san_handler_data {
+	struct acpi_connection_info info;		// must be first
 };
 
 struct san_consumer_link {
@@ -60,18 +55,23 @@ struct san_consumers {
 	struct san_consumer_link *links;
 };
 
-struct san_drvdata {
-	struct san_opreg_context opreg_ctx;
+struct san_data {
+	struct device *dev;
+	struct ssam_controller *ctrl;
+
+	struct san_handler_data context;
 	struct san_consumers consumers;
 
-	struct platform_device *dev;
 	struct ssam_event_notifier nf_bat;
 	struct ssam_event_notifier nf_tmp;
 };
 
+#define to_san_data(ptr, member) \
+	container_of(ptr, struct san_data, member)
+
 struct san_event_work {
 	struct delayed_work work;
-	struct platform_device *dev;
+	struct device *dev;
 	struct ssam_event event;		// must be last
 };
 
@@ -82,12 +82,11 @@ struct gsb_data_in {
 struct gsb_data_rqsx {
 	u8 cv;				// command value (should be 0x01 or 0x03)
 	u8 tc;				// target controller
-	u8 tid;				// transport channnel ID?
+	u8 tid;				// transport channnel ID
 	u8 iid;				// target sub-controller (e.g. primary vs. secondary battery)
 	u8 snc;				// expect-response-flag
 	u8 cid;				// command ID
-	u8 cdl;				// payload length
-	u8 _pad;			// padding
+	u16 cdl;			// payload length
 	u8 pld[0];			// payload
 } __packed;
 
@@ -116,6 +115,12 @@ struct gsb_buffer {
 	u8 len;				// GSB AttribRawProcess length
 	union gsb_buffer_data data;
 } __packed;
+
+#define SAN_GSB_MAX_RQSX_PAYLOAD  (U8_MAX - 2 - sizeof(struct gsb_data_rqsx))
+#define SAN_GSB_MAX_RESPONSE	  (U8_MAX - 2 - sizeof(struct gsb_data_out))
+
+#define san_request_sync_onstack(ctrl, rqst, rsp) \
+	ssam_request_sync_onstack(ctrl, rqst, rsp, SAN_GSB_MAX_RQSX_PAYLOAD)
 
 
 enum san_pwr_event {
@@ -173,7 +178,7 @@ int surface_sam_san_set_rqsg_handler(surface_sam_san_rqsg_handler_fn fn, void *d
 
 	if (rqsg_if.handler == sam_san_default_rqsg_handler || !fn) {
 		rqsg_if.handler = fn ? fn : sam_san_default_rqsg_handler;
-		rqsg_if.handler_data = data;
+		rqsg_if.handler_data = fn ? data : NULL;
 		status = 0;
 	}
 
@@ -195,8 +200,10 @@ int san_call_rqsg_handler(struct surface_sam_san_rqsg *rqsg)
 
 static int sam_san_default_rqsg_handler(struct surface_sam_san_rqsg *rqsg, void *data)
 {
-	pr_warn(SAN_RQSG_TAG "unhandled request: RQSG(0x%02x, 0x%02x, 0x%02x)\n",
-		rqsg->tc, rqsg->cid, rqsg->iid);
+	struct device *dev = rqsg_if.san_dev;
+
+	dev_warn(dev, "unhandled request: RQSG(0x%02x, 0x%02x, 0x%02x)\n",
+		 rqsg->tc, rqsg->cid, rqsg->iid);
 
 	return 0;
 }
@@ -400,19 +407,19 @@ static void san_evt_power_workfn(struct work_struct *work)
 {
 	struct san_event_work *ev = container_of(work, struct san_event_work, work.work);
 
-	san_evt_power(&ev->event, &ev->dev->dev);
+	san_evt_power(&ev->event, ev->dev);
 	kfree(ev);
 }
 
 
 static u32 san_evt_power_nb(struct ssam_notifier_block *nb, const struct ssam_event *event)
 {
-	struct san_drvdata *drvdata = container_of(nb, struct san_drvdata, nf_bat.base);
+	struct san_data *d = to_san_data(nb, nf_bat.base);
 	struct san_event_work *work;
 	unsigned long delay = san_evt_power_delay(event->command_id);
 
 	if (delay == 0) {
-		if (san_evt_power(event, &drvdata->dev->dev))
+		if (san_evt_power(event, d->dev))
 			return SSAM_NOTIF_HANDLED;
 		else
 			return 0;
@@ -423,7 +430,7 @@ static u32 san_evt_power_nb(struct ssam_notifier_block *nb, const struct ssam_ev
 		return ssam_notifier_from_errno(-ENOMEM);
 
 	INIT_DELAYED_WORK(&work->work, san_evt_power_workfn);
-	work->dev = drvdata->dev;
+	work->dev = d->dev;
 
 	memcpy(&work->event, event, sizeof(struct ssam_event) + event->length);
 
@@ -460,10 +467,7 @@ static bool san_evt_thermal(const struct ssam_event *event, struct device *dev)
 
 static u32 san_evt_thermal_nb(struct ssam_notifier_block *nb, const struct ssam_event *event)
 {
-	struct san_drvdata *drvdata = container_of(nb, struct san_drvdata, nf_tmp.base);
-	struct platform_device *pdev = drvdata->dev;
-
-	if (san_evt_thermal(event, &pdev->dev))
+	if (san_evt_thermal(event, to_san_data(nb, nf_tmp.base)->dev))
 		return SSAM_NOTIF_HANDLED;
 	else
 		return 0;
@@ -481,9 +485,15 @@ static struct gsb_data_rqsx
 		return NULL;
 	}
 
-	if (rqsx->cdl != buffer->len - 8) {
+	if (get_unaligned(&rqsx->cdl) != buffer->len - sizeof(struct gsb_data_rqsx)) {
 		dev_err(dev, "bogus %s package (len = %d, cdl = %d)\n",
-			type, buffer->len, rqsx->cdl);
+			type, buffer->len, get_unaligned(&rqsx->cdl));
+		return NULL;
+	}
+
+	if (get_unaligned(&rqsx->cdl) > SAN_GSB_MAX_RQSX_PAYLOAD) {
+		dev_err(dev, "payload for %s package too large (cdl = %d)\n",
+			type, get_unaligned(&rqsx->cdl));
 		return NULL;
 	}
 
@@ -496,17 +506,16 @@ static struct gsb_data_rqsx
 	return rqsx;
 }
 
-static acpi_status
-san_etwl(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
+static acpi_status san_etwl(struct san_data *d, struct gsb_buffer *buffer)
 {
 	struct gsb_data_etwl *etwl = &buffer->data.etwl;
 
 	if (buffer->len < 3) {
-		dev_err(ctx->dev, "invalid ETWL package (len = %d)\n", buffer->len);
+		dev_err(d->dev, "invalid ETWL package (len = %d)\n", buffer->len);
 		return AE_OK;
 	}
 
-	dev_err(ctx->dev, "ETWL(0x%02x, 0x%02x): %.*s\n",
+	dev_err(d->dev, "ETWL(0x%02x, 0x%02x): %.*s\n",
 		etwl->etw3, etwl->etw4,
 		buffer->len - 3, (char *)etwl->msg);
 
@@ -517,43 +526,29 @@ san_etwl(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
 	return AE_OK;
 }
 
-static acpi_status
-san_rqst(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
+static void gsb_response_error(struct gsb_buffer *gsb, int status)
 {
-	struct gsb_data_rqsx *gsb_rqst = san_validate_rqsx(ctx->dev, "RQST", buffer);
-	struct surface_sam_ssh_rqst rqst = {};
-	struct surface_sam_ssh_buf result = {};
-	int status = 0;
-	int try;
+	gsb->status          = 0x00;
+	gsb->len             = 0x02;
+	gsb->data.out.status = (u8)(-status);
+	gsb->data.out.len    = 0x00;
+}
 
-	if (!gsb_rqst)
-		return AE_OK;
+static void gsb_response_success(struct gsb_buffer *gsb, u8 *ptr, size_t len)
+{
+	gsb->status          = 0x00;
+	gsb->len             = len + 2;
+	gsb->data.out.status = 0x00;
+	gsb->data.out.len    = len;
 
-	rqst.tc  = gsb_rqst->tc;
-	rqst.cid = gsb_rqst->cid;
-	rqst.iid = gsb_rqst->iid;
-	rqst.chn = gsb_rqst->tid;
-	rqst.snc = gsb_rqst->snc;
-	rqst.cdl = gsb_rqst->cdl;
-	rqst.pld = &gsb_rqst->pld[0];
+	if (len)
+		memcpy(&gsb->data.out.pld[0], ptr, len);
+}
 
-	result.cap  = SURFACE_SAM_SSH_MAX_RQST_RESPONSE;
-	result.len  = 0;
-	result.data = kzalloc(result.cap, GFP_KERNEL);
-
-	if (!result.data)
-		return AE_NO_MEMORY;
-
-	for (try = 0; try < SAN_RQST_RETRY; try++) {
-		if (try)
-			dev_warn(ctx->dev, SAN_RQST_TAG "IO error occurred, trying again\n");
-
-		status = surface_sam_ssh_rqst(&rqst, &result);
-		if (status != -EIO)
-			break;
-	}
-
-	if (rqst.tc == 0x11 && rqst.cid == 0x0D && status == -EPERM) {
+static acpi_status san_rqst_fixup_suspended(struct ssam_request *rqst,
+					    struct gsb_buffer *gsb)
+{
+	if (rqst->target_category == 0x11 && rqst->command_id == 0x0D) {
 		/* Base state quirk:
 		 * The base state may be queried from ACPI when the EC is still
 		 * suspended. In this case it will return '-EPERM'. This query
@@ -569,60 +564,87 @@ san_rqst(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
 		 * delay.
 		 */
 
-		buffer->status          = 0x00;
-		buffer->len             = 0x03;
-		buffer->data.out.status = 0x00;
-		buffer->data.out.len    = 0x01;
-		buffer->data.out.pld[0] = 0x01;
-
-	} else if (!status) {		// success
-		buffer->status          = 0x00;
-		buffer->len             = result.len + 2;
-		buffer->data.out.status = 0x00;
-		buffer->data.out.len    = result.len;
-		memcpy(&buffer->data.out.pld[0], result.data, result.len);
-
-	} else {			// failure
-		dev_err(ctx->dev, SAN_RQST_TAG "failed with error %d\n", status);
-		buffer->status          = 0x00;
-		buffer->len             = 0x02;
-		buffer->data.out.status = 0x01;		// indicate _SSH error
-		buffer->data.out.len    = 0x00;
+		u8 base_state = 1;
+		gsb_response_success(gsb, &base_state, 1);
+		return AE_OK;
 	}
 
-	kfree(result.data);
+	gsb_response_error(gsb, -ENXIO);
+	return AE_OK;
+}
+
+static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
+{
+	u8 rspbuf[SAN_GSB_MAX_RESPONSE];
+	struct gsb_data_rqsx *gsb_rqst;
+	struct ssam_request rqst;
+	struct ssam_response rsp;
+	int status = 0;
+	int try;
+
+ 	gsb_rqst = san_validate_rqsx(d->dev, "RQST", buffer);
+	if (!gsb_rqst)
+		return AE_OK;
+
+	rqst.target_category  = gsb_rqst->tc;
+	rqst.command_id = gsb_rqst->cid;
+	rqst.instance_id = gsb_rqst->iid;
+	rqst.channel = gsb_rqst->tid;
+	rqst.flags = gsb_rqst->snc ? SSAM_REQUEST_HAS_RESPONSE : 0;
+	rqst.length = get_unaligned(&gsb_rqst->cdl);
+	rqst.payload = &gsb_rqst->pld[0];
+
+	rsp.capacity = ARRAY_SIZE(rspbuf);
+	rsp.length  = 0;
+	rsp.pointer = &rspbuf[0];
+
+	// handle suspended device
+	if (d->dev->power.is_suspended) {
+		dev_warn(d->dev, "rqst: device is suspended, not executing\n");
+		return san_rqst_fixup_suspended(&rqst, buffer);
+	}
+
+	for (try = 0; try < SAN_RQST_RETRY; try++) {
+		if (try)
+			dev_warn(d->dev, "rqst: IO error, trying again\n");
+
+		status = san_request_sync_onstack(d->ctrl, &rqst, &rsp);
+		if (status != -ETIMEDOUT && status != -EREMOTEIO)
+			break;
+	}
+
+	if (!status) {
+		gsb_response_success(buffer, rsp.pointer, rsp.length);
+	} else {
+		dev_err(d->dev, "rqst: failed with error %d\n", status);
+		gsb_response_error(buffer, status);
+	}
 
 	return AE_OK;
 }
 
-static acpi_status
-san_rqsg(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
+static acpi_status san_rqsg(struct san_data *d, struct gsb_buffer *buffer)
 {
-	struct gsb_data_rqsx *gsb_rqsg = san_validate_rqsx(ctx->dev, "RQSG", buffer);
-	struct surface_sam_san_rqsg rqsg = {};
+	struct gsb_data_rqsx *gsb_rqsg;
+	struct surface_sam_san_rqsg rqsg;
 	int status;
 
+	gsb_rqsg = san_validate_rqsx(d->dev, "RQSG", buffer);
 	if (!gsb_rqsg)
 		return AE_OK;
 
 	rqsg.tc  = gsb_rqsg->tc;
 	rqsg.cid = gsb_rqsg->cid;
 	rqsg.iid = gsb_rqsg->iid;
-	rqsg.cdl = gsb_rqsg->cdl;
+	rqsg.cdl = get_unaligned(&gsb_rqsg->cdl);
 	rqsg.pld = &gsb_rqsg->pld[0];
 
 	status = san_call_rqsg_handler(&rqsg);
 	if (!status) {
-		buffer->status          = 0x00;
-		buffer->len             = 0x02;
-		buffer->data.out.status = 0x00;
-		buffer->data.out.len    = 0x00;
+		gsb_response_success(buffer, NULL, 0);
 	} else {
-		dev_err(ctx->dev, SAN_RQSG_TAG "failed with error %d\n", status);
-		buffer->status          = 0x00;
-		buffer->len             = 0x02;
-		buffer->data.out.status = 0x01;		// indicate _SSH error
-		buffer->data.out.len    = 0x00;
+		dev_err(d->dev, "rqsg: failed with error %d\n", status);
+		gsb_response_error(buffer, status);
 	}
 
 	return AE_OK;
@@ -634,72 +656,72 @@ san_opreg_handler(u32 function, acpi_physical_address command,
 		  u32 bits, u64 *value64,
 		  void *opreg_context, void *region_context)
 {
-	struct san_opreg_context *context = opreg_context;
+	struct san_data *d = to_san_data(opreg_context, context);
 	struct gsb_buffer *buffer = (struct gsb_buffer *)value64;
 	int accessor_type = (0xFFFF0000 & function) >> 16;
 
 	if (command != 0) {
-		dev_warn(context->dev, "unsupported command: 0x%02llx\n", command);
+		dev_warn(d->dev, "unsupported command: 0x%02llx\n", command);
 		return AE_OK;
 	}
 
 	if (accessor_type != ACPI_GSB_ACCESS_ATTRIB_RAW_PROCESS) {
-		dev_err(context->dev, "invalid access type: 0x%02x\n", accessor_type);
+		dev_err(d->dev, "invalid access type: 0x%02x\n", accessor_type);
 		return AE_OK;
 	}
 
 	// buffer must have at least contain the command-value
 	if (buffer->len == 0) {
-		dev_err(context->dev, "request-package too small\n");
+		dev_err(d->dev, "request-package too small\n");
 		return AE_OK;
 	}
 
 	switch (buffer->data.in.cv) {
-	case 0x01:  return san_rqst(context, buffer);
-	case 0x02:  return san_etwl(context, buffer);
-	case 0x03:  return san_rqsg(context, buffer);
+	case 0x01:  return san_rqst(d, buffer);
+	case 0x02:  return san_etwl(d, buffer);
+	case 0x03:  return san_rqsg(d, buffer);
 	}
 
-	dev_warn(context->dev, "unsupported SAN0 request (cv: 0x%02x)\n", buffer->data.in.cv);
+	dev_warn(d->dev, "unsupported SAN0 request (cv: 0x%02x)\n", buffer->data.in.cv);
 	return AE_OK;
 }
 
 static int san_events_register(struct platform_device *pdev)
 {
-	struct san_drvdata *drvdata = platform_get_drvdata(pdev);
+	struct san_data *d = platform_get_drvdata(pdev);
 	int status;
 
-	drvdata->nf_bat.base.priority = 1;
-	drvdata->nf_bat.base.fn = san_evt_power_nb;
-	drvdata->nf_bat.event.reg = SSAM_EVENT_REGISTRY_SAM;
-	drvdata->nf_bat.event.id.target_category = SSAM_SSH_TC_BAT;
-	drvdata->nf_bat.event.id.instance = 0;
-	drvdata->nf_bat.event.flags = SSAM_EVENT_SEQUENCED;
+	d->nf_bat.base.priority = 1;
+	d->nf_bat.base.fn = san_evt_power_nb;
+	d->nf_bat.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	d->nf_bat.event.id.target_category = SSAM_SSH_TC_BAT;
+	d->nf_bat.event.id.instance = 0;
+	d->nf_bat.event.flags = SSAM_EVENT_SEQUENCED;
 
-	drvdata->nf_tmp.base.priority = 1;
-	drvdata->nf_tmp.base.fn = san_evt_thermal_nb;
-	drvdata->nf_tmp.event.reg = SSAM_EVENT_REGISTRY_SAM;
-	drvdata->nf_tmp.event.id.target_category = SSAM_SSH_TC_TMP;
-	drvdata->nf_tmp.event.id.instance = 0;
-	drvdata->nf_tmp.event.flags = SSAM_EVENT_SEQUENCED;
+	d->nf_tmp.base.priority = 1;
+	d->nf_tmp.base.fn = san_evt_thermal_nb;
+	d->nf_tmp.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	d->nf_tmp.event.id.target_category = SSAM_SSH_TC_TMP;
+	d->nf_tmp.event.id.instance = 0;
+	d->nf_tmp.event.flags = SSAM_EVENT_SEQUENCED;
 
-	status = surface_sam_ssh_notifier_register(&drvdata->nf_bat);
+	status = ssam_notifier_register(d->ctrl, &d->nf_bat);
 	if (status)
 		return status;
 
-	status = surface_sam_ssh_notifier_register(&drvdata->nf_tmp);
+	status = ssam_notifier_register(d->ctrl, &d->nf_tmp);
 	if (status)
-		surface_sam_ssh_notifier_unregister(&drvdata->nf_bat);
+		ssam_notifier_unregister(d->ctrl, &d->nf_bat);
 
 	return status;
 }
 
 static void san_events_unregister(struct platform_device *pdev)
 {
-	struct san_drvdata *drvdata = platform_get_drvdata(pdev);
+	struct san_data *d = platform_get_drvdata(pdev);
 
-	surface_sam_ssh_notifier_unregister(&drvdata->nf_bat);
-	surface_sam_ssh_notifier_unregister(&drvdata->nf_tmp);
+	ssam_notifier_unregister(d->ctrl, &d->nf_bat);
+	ssam_notifier_unregister(d->ctrl, &d->nf_tmp);
 }
 
 
@@ -789,38 +811,33 @@ static void san_consumers_unlink(struct san_consumers *consumers)
 static int surface_sam_san_probe(struct platform_device *pdev)
 {
 	const struct san_acpi_consumer *cons;
-	struct san_drvdata *drvdata;
 	acpi_handle san = ACPI_HANDLE(&pdev->dev);	// _SAN device node
+	struct ssam_controller *ctrl;
+	struct san_data *data;
 	int status;
 
-	/*
-	 * Defer probe if the _SSH driver has not set up the controller yet. This
-	 * makes sure we do not fail any initial requests (e.g. _STA request without
-	 * which the battery does not get set up correctly). Otherwise register as
-	 * consumer to set up a device_link.
-	 */
-	status = surface_sam_ssh_consumer_register(&pdev->dev);
+	status = ssam_client_bind(&pdev->dev, &ctrl);
 	if (status)
 		return status == -ENXIO ? -EPROBE_DEFER : status;
 
-	drvdata = kzalloc(sizeof(struct san_drvdata), GFP_KERNEL);
-	if (!drvdata)
+	data = kzalloc(sizeof(struct san_data), GFP_KERNEL);
+	if (!data)
 		return -ENOMEM;
 
-	drvdata->dev = pdev;
-	drvdata->opreg_ctx.dev = &pdev->dev;
+	data->dev = &pdev->dev;
+	data->ctrl = ctrl;
 
 	cons = acpi_device_get_match_data(&pdev->dev);
-	status = san_consumers_link(pdev, cons, &drvdata->consumers);
+	status = san_consumers_link(pdev, cons, &data->consumers);
 	if (status)
 		goto err_consumers;
 
-	platform_set_drvdata(pdev, drvdata);
+	platform_set_drvdata(pdev, data);
 
 	status = acpi_install_address_space_handler(san,
 			ACPI_ADR_SPACE_GSBUS,
 			&san_opreg_handler,
-			NULL, &drvdata->opreg_ctx);
+			NULL, &data->context);
 
 	if (ACPI_FAILURE(status)) {
 		status = -ENODEV;
@@ -850,15 +867,15 @@ err_enable_events:
 	acpi_remove_address_space_handler(san, ACPI_ADR_SPACE_GSBUS, &san_opreg_handler);
 err_install_handler:
 	platform_set_drvdata(san, NULL);
-	san_consumers_unlink(&drvdata->consumers);
+	san_consumers_unlink(&data->consumers);
 err_consumers:
-	kfree(drvdata);
+	kfree(data);
 	return status;
 }
 
 static int surface_sam_san_remove(struct platform_device *pdev)
 {
-	struct san_drvdata *drvdata = platform_get_drvdata(pdev);
+	struct san_data *data = platform_get_drvdata(pdev);
 	acpi_handle san = ACPI_HANDLE(&pdev->dev);	// _SAN device node
 	acpi_status status = AE_OK;
 
@@ -875,8 +892,8 @@ static int surface_sam_san_remove(struct platform_device *pdev)
 	 */
 	flush_scheduled_work();
 
-	san_consumers_unlink(&drvdata->consumers);
-	kfree(drvdata);
+	san_consumers_unlink(&data->consumers);
+	kfree(data);
 
 	platform_set_drvdata(pdev, NULL);
 	return status;

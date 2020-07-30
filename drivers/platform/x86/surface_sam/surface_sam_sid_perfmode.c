@@ -35,57 +35,39 @@ enum sid_param_perf_mode {
 	__SID_PARAM_PERF_MODE__END   = 4,
 };
 
+struct spm_data {
+	struct ssam_controller *ctrl;
+};
 
-static int surface_sam_perf_mode_get(void)
+
+struct ssam_perf_info {
+	__le32 mode;
+	__le16 unknown1;
+	__le16 unknown2;
+} __packed;
+
+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
+	.target_category = SSAM_SSH_TC_TMP,
+	.command_id      = 0x02,
+	.instance_id     = 0x00,
+	.channel         = 0x01,
+});
+
+static SSAM_DEFINE_SYNC_REQUEST_W(__ssam_tmp_perf_mode_set, __le32, {
+	.target_category = SSAM_SSH_TC_TMP,
+	.command_id      = 0x03,
+	.instance_id     = 0x00,
+	.channel         = 0x01,
+});
+
+static int ssam_tmp_perf_mode_set(struct ssam_controller *ctrl, u32 mode)
 {
-	u8 result_buf[8] = { 0 };
-	int status;
+	__le32 mode_le = cpu_to_le32(mode);
 
-	struct surface_sam_ssh_rqst rqst = {
-		.tc  = 0x03,
-		.cid = 0x02,
-		.iid = 0x00,
-		.chn = 0x01,
-		.snc = 0x01,
-		.cdl = 0x00,
-		.pld = NULL,
-	};
-
-	struct surface_sam_ssh_buf result = {
-		.cap = ARRAY_SIZE(result_buf),
-		.len = 0,
-		.data = result_buf,
-	};
-
-	status = surface_sam_ssh_rqst(&rqst, &result);
-	if (status)
-		return status;
-
-	if (result.len != 8)
-		return -EFAULT;
-
-	return get_unaligned_le32(&result.data[0]);
-}
-
-static int surface_sam_perf_mode_set(int perf_mode)
-{
-	u8 payload[4] = { 0 };
-
-	struct surface_sam_ssh_rqst rqst = {
-		.tc  = 0x03,
-		.cid = 0x03,
-		.iid = 0x00,
-		.chn = 0x01,
-		.snc = 0x00,
-		.cdl = ARRAY_SIZE(payload),
-		.pld = payload,
-	};
-
-	if (perf_mode < __SAM_PERF_MODE__START || perf_mode > __SAM_PERF_MODE__END)
+	if (mode < __SAM_PERF_MODE__START || mode > __SAM_PERF_MODE__END)
 		return -EINVAL;
 
-	put_unaligned_le32(perf_mode, &rqst.pld[0]);
-	return surface_sam_ssh_rqst(&rqst, NULL);
+	return __ssam_tmp_perf_mode_set(ctrl, &mode_le);
 }
 
 
@@ -121,20 +103,23 @@ MODULE_PARM_DESC(perf_mode_exit, "Performance-mode to be set on module exit");
 
 static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr, char *data)
 {
-	int perf_mode;
+	struct spm_data *d = dev_get_drvdata(dev);
+	struct ssam_perf_info info;
+	int status;
 
-	perf_mode = surface_sam_perf_mode_get();
-	if (perf_mode < 0) {
-		dev_err(dev, "failed to get current performance mode: %d\n", perf_mode);
+	status = ssam_tmp_perf_mode_get(d->ctrl, &info);
+	if (status) {
+		dev_err(dev, "failed to get current performance mode: %d\n", status);
 		return -EIO;
 	}
 
-	return sprintf(data, "%d\n", perf_mode);
+	return sprintf(data, "%d\n", le32_to_cpu(info.mode));
 }
 
 static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr,
 			       const char *data, size_t count)
 {
+	struct spm_data *d = dev_get_drvdata(dev);
 	int perf_mode;
 	int status;
 
@@ -142,7 +127,7 @@ static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr
 	if (status)
 		return status;
 
-	status = surface_sam_perf_mode_set(perf_mode);
+	status = ssam_tmp_perf_mode_set(d->ctrl, perf_mode);
 	if (status)
 		return status;
 
@@ -167,16 +152,25 @@ static const DEVICE_ATTR_RW(perf_mode);
 
 static int surface_sam_sid_perfmode_probe(struct platform_device *pdev)
 {
+	struct ssam_controller *ctrl;
+	struct spm_data *data;
 	int status;
 
 	// link to ec
-	status = surface_sam_ssh_consumer_register(&pdev->dev);
+	status = ssam_client_bind(&pdev->dev, &ctrl);
 	if (status)
 		return status == -ENXIO ? -EPROBE_DEFER : status;
 
+	data = devm_kzalloc(&pdev->dev, sizeof(struct spm_data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	data->ctrl = ctrl;
+	platform_set_drvdata(pdev, data);
+
 	// set initial perf_mode
 	if (param_perf_mode_init != SID_PARAM_PERF_MODE_AS_IS) {
-		status = surface_sam_perf_mode_set(param_perf_mode_init);
+		status = ssam_tmp_perf_mode_set(ctrl, param_perf_mode_init);
 		if (status)
 			return status;
 	}
@@ -189,14 +183,18 @@ static int surface_sam_sid_perfmode_probe(struct platform_device *pdev)
 	return 0;
 
 err_sysfs:
-	surface_sam_perf_mode_set(param_perf_mode_exit);
+	ssam_tmp_perf_mode_set(ctrl, param_perf_mode_exit);
 	return status;
 }
 
 static int surface_sam_sid_perfmode_remove(struct platform_device *pdev)
 {
+	struct spm_data *data = platform_get_drvdata(pdev);
+
 	sysfs_remove_file(&pdev->dev.kobj, &dev_attr_perf_mode.attr);
-	surface_sam_perf_mode_set(param_perf_mode_exit);
+	ssam_tmp_perf_mode_set(data->ctrl, param_perf_mode_exit);
+
+	platform_set_drvdata(pdev, NULL);
 	return 0;
 }
 

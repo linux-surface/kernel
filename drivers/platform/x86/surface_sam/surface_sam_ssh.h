@@ -161,7 +161,16 @@ static_assert(sizeof(struct ssh_notification_params) == 5);
 	(2ull * sizeof(u16) + sizeof(struct ssh_frame) \
 		+ offsetof(struct ssh_command, field))
 
-struct sshp_span {
+/**
+ * struct ssam_span - reference to a buffer region
+ * @ptr: pointer to the buffer region
+ * @len: length of the buffer region
+ *
+ * A reference to a (non-owned) buffer segment, consisting of pointer and
+ * length. Use of this struct indicates non-owned data, i.e. data of which the
+ * life-time is managed (i.e. it is allocated/freed) via another pointer.
+ */
+struct ssam_span {
 	u8    *ptr;
 	size_t len;
 };
@@ -182,17 +191,7 @@ enum ssh_packet_priority {
 #define ssh_packet_priority_get_try(p) ((p) & 0x0f)
 
 
-enum ssh_packet_type_flags {
-	SSH_PACKET_TY_FLUSH_BIT,
-	SSH_PACKET_TY_SEQUENCED_BIT,
-	SSH_PACKET_TY_BLOCKING_BIT,
-
-	SSH_PACKET_TY_FLUSH	= BIT(SSH_PACKET_TY_FLUSH_BIT),
-	SSH_PACKET_TY_SEQUENCED	= BIT(SSH_PACKET_TY_SEQUENCED_BIT),
-	SSH_PACKET_TY_BLOCKING	= BIT(SSH_PACKET_TY_BLOCKING_BIT),
-};
-
-enum ssh_packet_state_flags {
+enum ssh_packet_flags {
 	SSH_PACKET_SF_LOCKED_BIT,
 	SSH_PACKET_SF_QUEUED_BIT,
 	SSH_PACKET_SF_PENDING_BIT,
@@ -201,6 +200,25 @@ enum ssh_packet_state_flags {
 	SSH_PACKET_SF_ACKED_BIT,
 	SSH_PACKET_SF_CANCELED_BIT,
 	SSH_PACKET_SF_COMPLETED_BIT,
+
+	SSH_PACKET_TY_FLUSH_BIT,
+	SSH_PACKET_TY_SEQUENCED_BIT,
+	SSH_PACKET_TY_BLOCKING_BIT,
+
+	SSH_PACKET_FLAGS_SF_MASK =
+		  BIT(SSH_PACKET_SF_LOCKED_BIT)
+		| BIT(SSH_PACKET_SF_QUEUED_BIT)
+		| BIT(SSH_PACKET_SF_PENDING_BIT)
+		| BIT(SSH_PACKET_SF_TRANSMITTING_BIT)
+		| BIT(SSH_PACKET_SF_TRANSMITTED_BIT)
+		| BIT(SSH_PACKET_SF_ACKED_BIT)
+		| BIT(SSH_PACKET_SF_CANCELED_BIT)
+		| BIT(SSH_PACKET_SF_COMPLETED_BIT),
+
+	SSH_PACKET_FLAGS_TY_MASK =
+		  BIT(SSH_PACKET_TY_FLUSH_BIT)
+		| BIT(SSH_PACKET_TY_SEQUENCED_BIT)
+		| BIT(SSH_PACKET_TY_BLOCKING_BIT),
 };
 
 
@@ -208,18 +226,20 @@ struct ssh_ptl;
 struct ssh_packet;
 
 struct ssh_packet_ops {
-	void (*release)(struct ssh_packet *packet);
-	void (*complete)(struct ssh_packet *packet, int status);
+	void (*release)(struct ssh_packet *p);
+	void (*complete)(struct ssh_packet *p, int status);
 };
 
 struct ssh_packet {
 	struct ssh_ptl *ptl;
 	struct kref refcnt;
 
-	u8 type;
 	u8 priority;
-	u16 data_length;
-	u8 *data;
+
+	struct {
+		size_t len;
+		u8 *ptr;
+	} data;
 
 	unsigned long state;
 	ktime_t timestamp;
@@ -229,6 +249,16 @@ struct ssh_packet {
 
 	const struct ssh_packet_ops *ops;
 };
+
+
+void ssh_packet_get(struct ssh_packet *p);
+void ssh_packet_put(struct ssh_packet *p);
+
+static inline void ssh_packet_set_data(struct ssh_packet *p, u8 *ptr, size_t len)
+{
+	p->data.ptr = ptr;
+	p->data.len = len;
+}
 
 
 /* -- Request transport layer (rtl). ---------------------------------------- */
@@ -269,11 +299,10 @@ struct ssh_request_ops {
 	void (*release)(struct ssh_request *rqst);
 	void (*complete)(struct ssh_request *rqst,
 			 const struct ssh_command *cmd,
-			 const struct sshp_span *data, int status);
+			 const struct ssam_span *data, int status);
 };
 
 struct ssh_request {
-	struct ssh_rtl *rtl;
 	struct ssh_packet packet;
 	struct list_head node;
 
@@ -282,6 +311,22 @@ struct ssh_request {
 
 	const struct ssh_request_ops *ops;
 };
+
+
+static inline void ssh_request_get(struct ssh_request *r)
+{
+	ssh_packet_get(&r->packet);
+}
+
+static inline void ssh_request_put(struct ssh_request *r)
+{
+	ssh_packet_put(&r->packet);
+}
+
+static inline void ssh_request_set_data(struct ssh_request *r, u8 *ptr, size_t len)
+{
+	ssh_packet_set_data(&r->packet, ptr, len);
+}
 
 
 /* -- Main data types and definitions --------------------------------------- */
@@ -322,6 +367,8 @@ enum ssam_ssh_tc {
 	SSAM_SSH_TC_REG = 0x21,
 };
 
+struct ssam_controller;
+
 /**
  * struct ssam_event_flags - Flags for enabling/disabling SAM-over-SSH events
  * @SSAM_EVENT_SEQUENCED: The event will be sent via a sequenced data frame.
@@ -338,6 +385,242 @@ struct ssam_event {
 	u16 length;
 	u8 data[0];
 };
+
+enum ssam_request_flags {
+	SSAM_REQUEST_HAS_RESPONSE = BIT(0),
+	SSAM_REQUEST_UNSEQUENCED  = BIT(1),
+};
+
+struct ssam_request {
+	u8 target_category;
+	u8 command_id;
+	u8 instance_id;
+	u8 channel;
+	u16 flags;
+	u16 length;
+	const u8 *payload;
+};
+
+struct ssam_response {
+	size_t capacity;
+	size_t length;
+	u8 *pointer;
+};
+
+
+int ssam_client_bind(struct device *client, struct ssam_controller **ctrl);
+
+struct device *ssam_controller_device(struct ssam_controller *c);
+
+ssize_t ssam_request_write_data(struct ssam_span *buf,
+				struct ssam_controller *ctrl,
+				struct ssam_request *spec);
+
+
+/* -- Synchronous request interface. ---------------------------------------- */
+
+struct ssam_request_sync {
+	struct ssh_request base;
+	struct completion comp;
+	struct ssam_response *resp;
+	int status;
+};
+
+int ssam_request_sync_alloc(size_t payload_len, gfp_t flags,
+			    struct ssam_request_sync **rqst,
+			    struct ssam_span *buffer);
+
+void ssam_request_sync_init(struct ssam_request_sync *rqst,
+			    enum ssam_request_flags flags);
+
+static inline void ssam_request_sync_set_data(struct ssam_request_sync *rqst,
+					      u8 *ptr, size_t len)
+{
+	ssh_request_set_data(&rqst->base, ptr, len);
+}
+
+static inline void ssam_request_sync_set_resp(struct ssam_request_sync *rqst,
+					      struct ssam_response *resp)
+{
+	rqst->resp = resp;
+}
+
+int ssam_request_sync_submit(struct ssam_controller *ctrl,
+			     struct ssam_request_sync *rqst);
+
+static inline int ssam_request_sync_wait(struct ssam_request_sync *rqst)
+{
+	wait_for_completion(&rqst->comp);
+	return rqst->status;
+}
+
+int ssam_request_sync(struct ssam_controller *ctrl, struct ssam_request *spec,
+		      struct ssam_response *rsp);
+
+int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
+				  struct ssam_request *spec,
+				  struct ssam_response *rsp,
+				  struct ssam_span *buf);
+
+
+#define ssam_request_sync_onstack(ctrl, rqst, rsp, payload_len)			\
+	({									\
+		u8 __data[SSH_COMMAND_MESSAGE_LENGTH(payload_len)];		\
+		struct ssam_span __buf = { &__data[0], ARRAY_SIZE(__data) };	\
+		int __status;							\
+										\
+		/* ensure input does not overflow buffer */			\
+		if ((rqst)->length <= payload_len) {				\
+			__status = ssam_request_sync_with_buffer(		\
+					ctrl, rqst, rsp, &__buf);		\
+		} else {							\
+			__status = -EINVAL;					\
+		}								\
+										\
+		__status;							\
+	})
+
+
+struct ssam_request_spec {
+	u8 target_category;
+	u8 command_id;
+	u8 instance_id;
+	u8 channel;
+	u8 flags;
+};
+
+struct ssam_request_spec_md {
+	u8 target_category;
+	u8 command_id;
+	u8 flags;
+};
+
+#define SSAM_DEFINE_SYNC_REQUEST_N(name, spec...)				\
+	int name(struct ssam_controller *ctrl)					\
+	{									\
+		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
+		struct ssam_request rqst;					\
+										\
+		rqst.target_category = s.target_category;			\
+		rqst.command_id = s.command_id;					\
+		rqst.instance_id = s.instance_id;				\
+		rqst.channel = s.channel;					\
+		rqst.flags = s.flags;						\
+		rqst.length = 0;						\
+		rqst.payload = NULL;						\
+										\
+		return ssam_request_sync_onstack(ctrl, &rqst, NULL, 0);		\
+	}
+
+#define SSAM_DEFINE_SYNC_REQUEST_W(name, wtype, spec...)			\
+	int name(struct ssam_controller *ctrl, const wtype *in)			\
+	{									\
+		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
+		struct ssam_request rqst;					\
+										\
+		rqst.target_category = s.target_category;			\
+		rqst.command_id = s.command_id;					\
+		rqst.instance_id = s.instance_id;				\
+		rqst.channel = s.channel;					\
+		rqst.flags = s.flags;						\
+		rqst.length = sizeof(wtype);					\
+		rqst.payload = (u8 *)in;					\
+										\
+		return ssam_request_sync_onstack(ctrl, &rqst, NULL,		\
+						 sizeof(wtype));		\
+	}
+
+#define SSAM_DEFINE_SYNC_REQUEST_R(name, rtype, spec...)			\
+	int name(struct ssam_controller *ctrl, rtype *out)			\
+	{									\
+		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
+		struct ssam_request rqst;					\
+		struct ssam_response rsp;					\
+		int status;							\
+										\
+		rqst.target_category = s.target_category;			\
+		rqst.command_id = s.command_id;					\
+		rqst.instance_id = s.instance_id;				\
+		rqst.channel = s.channel;					\
+		rqst.flags = s.flags | SSAM_REQUEST_HAS_RESPONSE;		\
+		rqst.length = 0;						\
+		rqst.payload = NULL;						\
+										\
+		rsp.capacity = sizeof(rtype);					\
+		rsp.length = 0;							\
+		rsp.pointer = (u8 *)out;					\
+										\
+		status = ssam_request_sync_onstack(ctrl, &rqst, &rsp, 0);	\
+		if (status)							\
+			return status;						\
+										\
+		if (rsp.length != sizeof(rtype)) {				\
+			struct device *dev = ssam_controller_device(ctrl);	\
+			dev_err(dev, "rqst: invalid response length, expected %zu, got %zu" \
+				" (tc: 0x%02x, cid: 0x%02x)", sizeof(rtype),	\
+				rsp.length, rqst.target_category,		\
+				rqst.command_id);				\
+			return -EIO;						\
+		}								\
+										\
+		return 0;							\
+	}
+
+#define SSAM_DEFINE_SYNC_REQUEST_MD_W(name, wtype, spec...)			\
+	int name(struct ssam_controller *ctrl, u8 chn, u8 iid, const wtype *in)	\
+	{									\
+		struct ssam_request_spec_md s					\
+			= (struct ssam_request_spec_md)spec;			\
+		struct ssam_request rqst;					\
+										\
+		rqst.target_category = s.target_category;			\
+		rqst.command_id = s.command_id;					\
+		rqst.instance_id = iid;						\
+		rqst.channel = chn;						\
+		rqst.flags = s.flags;						\
+		rqst.length = sizeof(wtype);					\
+		rqst.payload = (u8 *)in;					\
+										\
+		return ssam_request_sync_onstack(ctrl, &rqst, NULL,		\
+						 sizeof(wtype));		\
+	}
+
+#define SSAM_DEFINE_SYNC_REQUEST_MD_R(name, rtype, spec...)			\
+	int name(struct ssam_controller *ctrl, u8 chn, u8 iid, rtype *out)	\
+	{									\
+		struct ssam_request_spec_md s					\
+			= (struct ssam_request_spec_md)spec;			\
+		struct ssam_request rqst;					\
+		struct ssam_response rsp;					\
+		int status;							\
+										\
+		rqst.target_category = s.target_category;			\
+		rqst.command_id = s.command_id;					\
+		rqst.instance_id = iid;						\
+		rqst.channel = chn;						\
+		rqst.flags = s.flags | SSAM_REQUEST_HAS_RESPONSE;		\
+		rqst.length = 0;						\
+		rqst.payload = NULL;						\
+										\
+		rsp.capacity = sizeof(rtype);					\
+		rsp.length = 0;							\
+		rsp.pointer = (u8 *)out;					\
+										\
+		status = ssam_request_sync_onstack(ctrl, &rqst, &rsp, 0);	\
+		if (status)							\
+			return status;						\
+										\
+		if (rsp.length != sizeof(rtype)) {				\
+			struct device *dev = ssam_controller_device(ctrl);	\
+			dev_err(dev, "rqst: invalid response length, expected %zu, got %zu" \
+				" (tc: 0x%02x, cid: 0x%02x)", sizeof(rtype),	\
+				rsp.length, rqst.target_category,		\
+				rqst.command_id);				\
+			return -EIO;						\
+		}								\
+										\
+		return 0;							\
+	}
 
 
 /* -- Event notifier/callbacks. --------------------------------------------- */
@@ -363,9 +646,7 @@ struct ssam_notifier_block {
 
 static inline u32 ssam_notifier_from_errno(int err)
 {
-	WARN_ON(err > 0);
-
-	if (err >= 0)
+	if (WARN_ON(err > 0) || err == 0)
 		return 0;
 	else
 		return ((-err) << SSAM_NOTIF_STATE_SHIFT) | SSAM_NOTIF_STOP;
@@ -427,62 +708,10 @@ struct ssam_event_notifier {
 	} event;
 };
 
+int ssam_notifier_register(struct ssam_controller *ctrl,
+			   struct ssam_event_notifier *n);
 
-/* -- TODO -------------------------------------------------------------------*/
-
-/*
- * Maximum response payload size in bytes.
- * Value based on ACPI (255 bytes minus header/status bytes).
- */
-#define SURFACE_SAM_SSH_MAX_RQST_RESPONSE	(255 - 4)
-
-/*
- * The number of reserved event IDs, used for registering an SSH event
- * handler. Valid event IDs are numbers below or equal to this value, with
- * exception of zero, which is not an event ID. Thus, this is also the
- * absolute maximum number of event handlers that can be registered.
- */
-#define SURFACE_SAM_SSH_NUM_EVENTS		0x22
-
-/*
- * The number of communication channels used in the protocol.
- */
-#define SURFACE_SAM_SSH_NUM_CHANNELS		2
-
-
-struct surface_sam_ssh_buf {
-	u8 cap;
-	u8 len;
-	u8 *data;
-};
-
-struct surface_sam_ssh_rqst {
-	u8 tc;				// target category
-	u8 cid;				// command ID
-	u8 iid;				// instance ID
-	u8 chn;				// channel
-	u8 snc;				// expect response flag (bool: 0/1)
-	u16 cdl;			// command data length (length of payload)
-	u8 *pld;			// pointer to payload of length cdl
-};
-
-// TODO: remove rqid on external api
-struct surface_sam_ssh_event {
-	u16 rqid;			// event type/source ID
-	u8  tc;				// target category
-	u8  cid;			// command ID
-	u8  iid;			// instance ID
-	u8  chn;			// channel
-	u8  len;			// length of payload
-	u8 *pld;			// payload of length len
-};
-
-
-int surface_sam_ssh_consumer_register(struct device *consumer);
-
-int surface_sam_ssh_notifier_register(struct ssam_event_notifier *n);
-int surface_sam_ssh_notifier_unregister(struct ssam_event_notifier *n);
-
-int surface_sam_ssh_rqst(const struct surface_sam_ssh_rqst *rqst, struct surface_sam_ssh_buf *result);
+int ssam_notifier_unregister(struct ssam_controller *ctrl,
+			     struct ssam_event_notifier *n);
 
 #endif /* _SURFACE_SAM_SSH_H */

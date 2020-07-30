@@ -1,3 +1,4 @@
+
 #ifndef _SURFACE_SAM_SID_POWER_H
 #define _SURFACE_SAM_SID_POWER_H
 

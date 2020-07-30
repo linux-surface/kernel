@@ -21,8 +21,11 @@
 
 struct vhf_drvdata {
 	struct platform_device *dev;
-	struct hid_device *hid;
+	struct ssam_controller *ctrl;
+
 	struct ssam_event_notifier notif;
+
+	struct hid_device *hid;
 };
 
 
@@ -177,12 +180,13 @@ static u32 vhf_event_handler(struct ssam_notifier_block *nb, const struct ssam_e
 
 static int surface_sam_vhf_probe(struct platform_device *pdev)
 {
+	struct ssam_controller *ctrl;
 	struct vhf_drvdata *drvdata;
 	struct hid_device *hid;
 	int status;
 
 	// add device link to EC
-	status = surface_sam_ssh_consumer_register(&pdev->dev);
+	status = ssam_client_bind(&pdev->dev, &ctrl);
 	if (status)
 		return status == -ENXIO ? -EPROBE_DEFER : status;
 
@@ -201,6 +205,7 @@ static int surface_sam_vhf_probe(struct platform_device *pdev)
 		goto err_add_hid;
 
 	drvdata->dev = pdev;
+	drvdata->ctrl = ctrl;
 	drvdata->hid = hid;
 
 	drvdata->notif.base.priority = 1;
@@ -212,7 +217,7 @@ static int surface_sam_vhf_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, drvdata);
 
-	status = surface_sam_ssh_notifier_register(&drvdata->notif);
+	status = ssam_notifier_register(ctrl, &drvdata->notif);
 	if (status)
 		goto err_add_hid;
 
@@ -230,7 +235,7 @@ static int surface_sam_vhf_remove(struct platform_device *pdev)
 {
 	struct vhf_drvdata *drvdata = platform_get_drvdata(pdev);
 
-	surface_sam_ssh_notifier_unregister(&drvdata->notif);
+	ssam_notifier_unregister(drvdata->ctrl, &drvdata->notif);
 	hid_destroy_device(drvdata->hid);
 	kfree(drvdata);
 

@@ -35,11 +35,7 @@ static const guid_t SHPS_DSM_UUID =
 
 #define SAM_DGPU_TC			0x13
 #define SAM_DGPU_CID_POWERON		0x02
-
-#define SAM_DTX_TC			0x11
-#define SAM_DTX_CID_LATCH_LOCK		0x06
-#define SAM_DTX_CID_LATCH_UNLOCK	0x07
-#define ACPI_SGCP_NOTIFY_POWER_ON   0x81
+#define ACPI_SGCP_NOTIFY_POWER_ON	0x81
 
 #define SHPS_DSM_GPU_ADDRS_RP		"RP5_PCIE"
 #define SHPS_DSM_GPU_ADDRS_DGPU		"DGPU_PCIE"
@@ -92,6 +88,8 @@ struct shps_hardware_traits {
 };
 
 struct shps_driver_data {
+	struct ssam_controller *ctrl;
+
 	struct mutex lock;
 	struct pci_dev *dgpu_root_port;
 	struct pci_saved_state *dgpu_root_port_state;
@@ -179,30 +177,19 @@ MODULE_PARM_DESC(dgpu_power_exit, "dGPU power state to be set on exit (0: off / 
 MODULE_PARM_DESC(dgpu_power_susp, "dGPU power state to be set on exit (0: off / 1: on / 2: as-is, default: as-is)");
 MODULE_PARM_DESC(dtx_latch, "lock/unlock DTX base latch in accordance to power-state (Y/n)");
 
-static int dtx_cmd_simple(u8 cid)
-{
-	struct surface_sam_ssh_rqst rqst = {
-		.tc  = SAM_DTX_TC,
-		.cid = cid,
-		.iid = 0x00,
-		.chn = 0x01,
-		.snc = 0x00,
-		.cdl = 0x00,
-		.pld = NULL,
-	};
+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_lock, {
+	.target_category = SSAM_SSH_TC_BAS,
+	.command_id      = 0x06,
+	.instance_id     = 0x00,
+	.channel         = 0x01,
+});
 
-	return surface_sam_ssh_rqst(&rqst, NULL);
-}
-
-static inline int shps_dtx_latch_lock(void)
-{
-	return dtx_cmd_simple(SAM_DTX_CID_LATCH_LOCK);
-}
-
-static inline int shps_dtx_latch_unlock(void)
-{
-	return dtx_cmd_simple(SAM_DTX_CID_LATCH_UNLOCK);
-}
+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_unlock, {
+	.target_category = SSAM_SSH_TC_BAS,
+	.command_id      = 0x07,
+	.instance_id     = 0x00,
+	.channel         = 0x01,
+});
 
 static int shps_dgpu_dsm_get_pci_addr_from_adr(struct platform_device *pdev, const char *entry) {
 	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
@@ -516,26 +503,27 @@ static int shps_dgpu_rp_set_power(struct platform_device *pdev, enum shps_dgpu_p
 
 static int shps_dgpu_set_power(struct platform_device *pdev, enum shps_dgpu_power power)
 {
+	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
 	int status;
 
 	if (!param_dtx_latch)
 		return shps_dgpu_rp_set_power(pdev, power);
 
 	if (power == SHPS_DGPU_POWER_ON) {
-		status = shps_dtx_latch_lock();
+		status = ssam_bas_latch_lock(drvdata->ctrl);
 		if (status)
 			return status;
 
 		status = shps_dgpu_rp_set_power(pdev, power);
 		if (status)
-			shps_dtx_latch_unlock();
+			ssam_bas_latch_unlock(drvdata->ctrl);
 
 	} else {
 		status = shps_dgpu_rp_set_power(pdev, power);
 		if (status)
 			return status;
 
-		status = shps_dtx_latch_unlock();
+		status = ssam_bas_latch_unlock(drvdata->ctrl);
 	}
 
 	return status;
@@ -1097,6 +1085,7 @@ static int shps_probe(struct platform_device *pdev)
 {
 	struct acpi_device *shps_dev = ACPI_COMPANION(&pdev->dev);
 	struct shps_driver_data *drvdata;
+	struct ssam_controller *ctrl;
 	struct device_link *link;
 	int power, status;
 	struct shps_hardware_traits detected_traits;
@@ -1107,7 +1096,7 @@ static int shps_probe(struct platform_device *pdev)
 	}
 
 	// link to SSH
-	status = surface_sam_ssh_consumer_register(&pdev->dev);
+	status = ssam_client_bind(&pdev->dev, &ctrl);
 	if (status) {
 		return status == -ENXIO ? -EPROBE_DEFER : status;
 	}
@@ -1138,6 +1127,7 @@ static int shps_probe(struct platform_device *pdev)
 	mutex_init(&drvdata->lock);
 	platform_set_drvdata(pdev, drvdata);
 
+	drvdata->ctrl = ctrl;
 	drvdata->hardware_traits = detected_traits;
 
 	drvdata->dgpu_root_port = shps_dgpu_dsm_get_pci_dev(pdev);

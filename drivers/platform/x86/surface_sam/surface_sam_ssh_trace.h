@@ -14,14 +14,6 @@ TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_DATA_NSQ);
 TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_ACK);
 TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_NAK);
 
-TRACE_DEFINE_ENUM(SSH_PACKET_TY_FLUSH_BIT);
-TRACE_DEFINE_ENUM(SSH_PACKET_TY_SEQUENCED_BIT);
-TRACE_DEFINE_ENUM(SSH_PACKET_TY_BLOCKING_BIT);
-
-TRACE_DEFINE_ENUM(SSH_PACKET_TY_FLUSH);
-TRACE_DEFINE_ENUM(SSH_PACKET_TY_SEQUENCED);
-TRACE_DEFINE_ENUM(SSH_PACKET_TY_BLOCKING);
-
 TRACE_DEFINE_ENUM(SSH_PACKET_SF_LOCKED_BIT);
 TRACE_DEFINE_ENUM(SSH_PACKET_SF_QUEUED_BIT);
 TRACE_DEFINE_ENUM(SSH_PACKET_SF_PENDING_BIT);
@@ -31,6 +23,13 @@ TRACE_DEFINE_ENUM(SSH_PACKET_SF_ACKED_BIT);
 TRACE_DEFINE_ENUM(SSH_PACKET_SF_CANCELED_BIT);
 TRACE_DEFINE_ENUM(SSH_PACKET_SF_COMPLETED_BIT);
 
+TRACE_DEFINE_ENUM(SSH_PACKET_TY_FLUSH_BIT);
+TRACE_DEFINE_ENUM(SSH_PACKET_TY_SEQUENCED_BIT);
+TRACE_DEFINE_ENUM(SSH_PACKET_TY_BLOCKING_BIT);
+
+TRACE_DEFINE_ENUM(SSH_PACKET_FLAGS_SF_MASK);
+TRACE_DEFINE_ENUM(SSH_PACKET_FLAGS_TY_MASK);
+
 TRACE_DEFINE_ENUM(SSH_REQUEST_SF_LOCKED_BIT);
 TRACE_DEFINE_ENUM(SSH_REQUEST_SF_QUEUED_BIT);
 TRACE_DEFINE_ENUM(SSH_REQUEST_SF_PENDING_BIT);
@@ -39,6 +38,7 @@ TRACE_DEFINE_ENUM(SSH_REQUEST_SF_TRANSMITTED_BIT);
 TRACE_DEFINE_ENUM(SSH_REQUEST_SF_RSPRCVD_BIT);
 TRACE_DEFINE_ENUM(SSH_REQUEST_SF_CANCELED_BIT);
 TRACE_DEFINE_ENUM(SSH_REQUEST_SF_COMPLETED_BIT);
+
 TRACE_DEFINE_ENUM(SSH_REQUEST_TY_FLUSH_BIT);
 TRACE_DEFINE_ENUM(SSH_REQUEST_TY_HAS_RESPONSE_BIT);
 
@@ -101,33 +101,33 @@ static inline void ssam_trace_ptr_uid(const void *ptr, char* uid_str)
 
 static inline u16 ssam_trace_get_packet_seq(const struct ssh_packet *p)
 {
-	if (!p->data || p->data_length < SSH_MESSAGE_LENGTH(0))
+	if (!p->data.ptr || p->data.len < SSH_MESSAGE_LENGTH(0))
 		return SSAM_SEQ_NOT_APPLICABLE;
 
-	return p->data[SSH_MSGOFFSET_FRAME(seq)];
+	return p->data.ptr[SSH_MSGOFFSET_FRAME(seq)];
 }
 
 static inline u32 ssam_trace_get_request_id(const struct ssh_packet *p)
 {
-	if (!p->data || p->data_length < SSH_COMMAND_MESSAGE_LENGTH(0))
+	if (!p->data.ptr || p->data.len < SSH_COMMAND_MESSAGE_LENGTH(0))
 		return SSAM_RQID_NOT_APPLICABLE;
 
-	return get_unaligned_le16(&p->data[SSH_MSGOFFSET_COMMAND(rqid)]);
+	return get_unaligned_le16(&p->data.ptr[SSH_MSGOFFSET_COMMAND(rqid)]);
 }
 
 static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 {
-	if (!p->data || p->data_length < SSH_COMMAND_MESSAGE_LENGTH(0))
+	if (!p->data.ptr || p->data.len < SSH_COMMAND_MESSAGE_LENGTH(0))
 		return SSAM_SSH_TC_NOT_APPLICABLE;
 
-	return get_unaligned_le16(&p->data[SSH_MSGOFFSET_COMMAND(tc)]);
+	return get_unaligned_le16(&p->data.ptr[SSH_MSGOFFSET_COMMAND(tc)]);
 }
 
 #endif /* _SURFACE_SAM_SSH_TRACE_HELPERS */
 
 #define ssam_trace_get_command_field_u8(packet, field) \
-	((!packet || packet->data_length < SSH_COMMAND_MESSAGE_LENGTH(0)) \
-	 ? 0 : p->data[SSH_MSGOFFSET_COMMAND(field)])
+	((!packet || packet->data.len < SSH_COMMAND_MESSAGE_LENGTH(0)) \
+	 ? 0 : p->data.ptr[SSH_MSGOFFSET_COMMAND(field)])
 
 #define ssam_show_generic_u8_field(value)				\
 	__print_symbolic(value,						\
@@ -144,14 +144,14 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 	)
 
 #define ssam_show_packet_type(type)					\
-	__print_flags(type, "",						\
-		{ SSH_PACKET_TY_FLUSH,			"F" },		\
-		{ SSH_PACKET_TY_SEQUENCED,		"S" },		\
-		{ SSH_PACKET_TY_BLOCKING,		"B" }		\
+	__print_flags(flags & SSH_PACKET_FLAGS_TY_MASK, "",		\
+		{ BIT(SSH_PACKET_TY_FLUSH_BIT),		"F" },		\
+		{ BIT(SSH_PACKET_TY_SEQUENCED_BIT),	"S" },		\
+		{ BIT(SSH_PACKET_TY_BLOCKING_BIT),	"B" }		\
 	)
 
 #define ssam_show_packet_state(state)					\
-	__print_flags(state, "",					\
+	__print_flags(flags & SSH_PACKET_FLAGS_SF_MASK, "",		\
 		{ BIT(SSH_PACKET_SF_LOCKED_BIT), 	"L" },		\
 		{ BIT(SSH_PACKET_SF_QUEUED_BIT), 	"Q" },		\
 		{ BIT(SSH_PACKET_SF_PENDING_BIT), 	"P" },		\
@@ -305,7 +305,6 @@ DECLARE_EVENT_CLASS(ssam_packet_class,
 
 	TP_STRUCT__entry(
 		__array(char, uid, SSAM_PTR_UID_LEN)
-		__field(u8, type)
 		__field(u8, priority)
 		__field(u16, length)
 		__field(unsigned long, state)
@@ -314,9 +313,8 @@ DECLARE_EVENT_CLASS(ssam_packet_class,
 
 	TP_fast_assign(
 		ssam_trace_ptr_uid(packet, __entry->uid);
-		__entry->type = packet->type;
 		__entry->priority = READ_ONCE(packet->priority);
-		__entry->length = packet->data_length;
+		__entry->length = packet->data.len;
 		__entry->state = READ_ONCE(packet->state);
 		__entry->seq = ssam_trace_get_packet_seq(packet);
 	),
@@ -324,7 +322,7 @@ DECLARE_EVENT_CLASS(ssam_packet_class,
 	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s",
 		__entry->uid,
 		ssam_show_packet_seq(__entry->seq),
-		ssam_show_packet_type(__entry->type),
+		ssam_show_packet_type(__entry->state),
 		__entry->priority,
 		__entry->length,
 		ssam_show_packet_state(__entry->state)
@@ -345,7 +343,6 @@ DECLARE_EVENT_CLASS(ssam_packet_status_class,
 
 	TP_STRUCT__entry(
 		__array(char, uid, SSAM_PTR_UID_LEN)
-		__field(u8, type)
 		__field(u8, priority)
 		__field(u16, length)
 		__field(unsigned long, state)
@@ -355,9 +352,8 @@ DECLARE_EVENT_CLASS(ssam_packet_status_class,
 
 	TP_fast_assign(
 		ssam_trace_ptr_uid(packet, __entry->uid);
-		__entry->type = packet->type;
 		__entry->priority = READ_ONCE(packet->priority);
-		__entry->length = packet->data_length;
+		__entry->length = packet->data.len;
 		__entry->state = READ_ONCE(packet->state);
 		__entry->seq = ssam_trace_get_packet_seq(packet);
 		__entry->status = status;
@@ -366,7 +362,7 @@ DECLARE_EVENT_CLASS(ssam_packet_status_class,
 	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s, status=%d",
 		__entry->uid,
 		ssam_show_packet_seq(__entry->seq),
-		ssam_show_packet_type(__entry->type),
+		ssam_show_packet_type(__entry->state),
 		__entry->priority,
 		__entry->length,
 		ssam_show_packet_state(__entry->state),
