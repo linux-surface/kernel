@@ -59,6 +59,7 @@
 
 #define MEI_DEV_ID_SPT        0x9D3A  /* Sunrise Point */
 #define MEI_DEV_ID_SPT_2      0x9D3B  /* Sunrise Point 2 */
+#define MEI_DEV_ID_SPT_3      0x9D3E  /* Sunrise Point 3 (iTouch) */
 #define MEI_DEV_ID_SPT_H      0xA13A  /* Sunrise Point H */
 #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
 
@@ -73,6 +74,7 @@
 
 #define MEI_DEV_ID_KBP        0xA2BA  /* Kaby Point */
 #define MEI_DEV_ID_KBP_2      0xA2BB  /* Kaby Point 2 */
+#define MEI_DEV_ID_KBP_3      0xA2BE  /* Kaby Point 3 (iTouch) */
 
 #define MEI_DEV_ID_CNP_LP     0x9DE0  /* Cannon Point LP */
 #define MEI_DEV_ID_CNP_LP_3   0x9DE4  /* Cannon Point LP 3 (iTouch) */
@@ -90,6 +92,7 @@
 #define MEI_DEV_ID_CDF        0x18D3  /* Cedar Fork */
 
 #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
+#define MEI_DEV_ID_ICP_LP_3   0x34E4  /* Ice Lake Point LP 3 (iTouch) */
 
 #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
 
