@@ -68,11 +68,6 @@ static inline u16 ssh_rqid_next_valid(u16 rqid)
 	return rqid > 0 ? rqid + 1u : rqid + SSH_NUM_EVENTS + 1u;
 }
 
-static inline u16 ssh_event_to_rqid(u16 event)
-{
-	return event + 1u;
-}
-
 static inline u16 ssh_rqid_to_event(u16 rqid)
 {
 	return rqid - 1u;
@@ -86,11 +81,6 @@ static inline bool ssh_rqid_is_event(u16 rqid)
 static inline int ssh_tc_to_rqid(u8 tc)
 {
 	return tc;
-}
-
-static inline int ssh_tc_to_event(u8 tc)
-{
-	return ssh_rqid_to_event(ssh_tc_to_rqid(tc));
 }
 
 static inline u8 ssh_channel_to_index(u8 channel)
@@ -166,31 +156,6 @@ static inline void msgb_init(struct msgbuf *msgb, u8 *ptr, size_t cap)
 	msgb->begin = ptr;
 	msgb->end = ptr + cap;
 	msgb->ptr = ptr;
-}
-
-static inline int msgb_alloc(struct msgbuf *msgb, size_t cap, gfp_t flags)
-{
-	u8 *buf;
-
-	buf = kzalloc(cap, flags);
-	if (!buf)
-		return -ENOMEM;
-
-	msgb_init(msgb, buf, cap);
-	return 0;
-}
-
-static inline void msgb_free(struct msgbuf *msgb)
-{
-	kfree(msgb->begin);
-	msgb->begin = NULL;
-	msgb->end = NULL;
-	msgb->ptr = NULL;
-}
-
-static inline void msgb_reset(struct msgbuf *msgb)
-{
-	msgb->ptr = msgb->begin;
 }
 
 static inline size_t msgb_bytes_used(const struct msgbuf *msgb)
@@ -464,11 +429,6 @@ static inline void sshp_buf_free(struct sshp_buf *buf)
 	buf->ptr = NULL;
 	buf->len = 0;
 	buf->cap = 0;
-}
-
-static inline void sshp_buf_reset(struct sshp_buf *buf)
-{
-	buf->len = 0;
 }
 
 static inline void sshp_buf_drop(struct sshp_buf *buf, size_t n)
@@ -885,10 +845,8 @@ static bool ssh_ptl_should_drop_packet(struct ssh_packet *packet)
 	}
 }
 
-static inline int ssh_ptl_write_buf(struct ssh_ptl *ptl,
-				    struct ssh_packet *packet,
-				    const unsigned char *buf,
-				    size_t count)
+static int ssh_ptl_write_buf(struct ssh_ptl *ptl, struct ssh_packet *packet,
+			     const unsigned char *buf, size_t count)
 {
 	int status;
 
@@ -905,7 +863,7 @@ static inline int ssh_ptl_write_buf(struct ssh_ptl *ptl,
 	return serdev_device_write_buf(ptl->serdev, buf, count);
 }
 
-static inline void ssh_ptl_tx_inject_invalid_data(struct ssh_packet *packet)
+static void ssh_ptl_tx_inject_invalid_data(struct ssh_packet *packet)
 {
 	// ignore packets that don't carry any data (i.e. flush)
 	if (!packet->data.ptr || !packet->data.len)
@@ -931,8 +889,8 @@ static inline void ssh_ptl_tx_inject_invalid_data(struct ssh_packet *packet)
 	memset(packet->data.ptr, 0xb3, packet->data.len);
 }
 
-static inline void ssh_ptl_rx_inject_invalid_syn(struct ssh_ptl *ptl,
-						 struct ssam_span *data)
+static void ssh_ptl_rx_inject_invalid_syn(struct ssh_ptl *ptl,
+					  struct ssam_span *data)
 {
 	struct ssam_span frame;
 
@@ -948,8 +906,8 @@ static inline void ssh_ptl_rx_inject_invalid_syn(struct ssh_ptl *ptl,
 	data->ptr[1] = 0xb3;	// set second byte of SYN to "random" value
 }
 
-static inline void ssh_ptl_rx_inject_invalid_data(struct ssh_ptl *ptl,
-						  struct ssam_span *frame)
+static void ssh_ptl_rx_inject_invalid_data(struct ssh_ptl *ptl,
+					   struct ssam_span *frame)
 {
 	size_t payload_len, message_len;
 	struct ssh_frame *sshf;
@@ -1065,41 +1023,51 @@ static void ssh_packet_init(struct ssh_packet *packet,
 }
 
 
-static int ptl_alloc_ctrl_packet(struct ssh_ptl *ptl,
-				 struct ssh_packet **packet,
+static struct kmem_cache *ssh_ctrl_packet_cache;
+
+static int __init ssh_ctrl_packet_cache_init(void)
+{
+	const unsigned int size = sizeof(struct ssh_packet) + SSH_MSG_LEN_CTRL;
+	const unsigned int align = __alignof__(struct ssh_packet);
+	struct kmem_cache *cache;
+
+	cache = kmem_cache_create("ssam_ctrl_packet", size, align, 0, NULL);
+	if (!cache)
+		return -ENOMEM;
+
+	ssh_ctrl_packet_cache = cache;
+	return 0;
+}
+
+static void __exit ssh_ctrl_packet_cache_destroy(void)
+{
+	kmem_cache_destroy(ssh_ctrl_packet_cache);
+	ssh_ctrl_packet_cache = NULL;
+}
+
+static int ssh_ctrl_packet_alloc(struct ssh_packet **packet,
 				 struct ssam_span *buffer, gfp_t flags)
 {
-	// TODO: cache packets
-	// - Potential problem with kmem_cache: Minimum alloc size of that is
-	//   PAGE_SIZE (???), which is somewhat overkill here.
-	// - Note: Mempool always tries to allocate with alloc callback first.
-	//   Buffered objects are only chosen on allocation failure.
-	//
-	// => either kmem_cache or custom, try kmem_cache first and check via
-	//    /proc/slabinfo
-	//
-	// Note: kmem_cache_create needs unique name
-
-	*packet = kzalloc(sizeof(struct ssh_packet) + SSH_MSG_LEN_CTRL, flags);
+	*packet = kmem_cache_alloc(ssh_ctrl_packet_cache, flags);
 	if (!*packet)
 		return -ENOMEM;
 
 	buffer->ptr = (u8 *)(*packet + 1);
 	buffer->len = SSH_MSG_LEN_CTRL;
 
+	trace_ssam_ctrl_packet_alloc(*packet, buffer->len);
 	return 0;
 }
 
-static void ptl_free_ctrl_packet(struct ssh_packet *p)
+static void ssh_ctrl_packet_free(struct ssh_packet *p)
 {
-	// TODO: cache packets
-
-	kfree(p);
+	trace_ssam_ctrl_packet_free(p);
+	kmem_cache_free(ssh_ctrl_packet_cache, p);
 }
 
 static const struct ssh_packet_ops ssh_ptl_ctrl_packet_ops = {
 	.complete = NULL,
-	.release = ptl_free_ctrl_packet,
+	.release = ssh_ctrl_packet_free,
 };
 
 
@@ -1949,7 +1917,7 @@ static void ssh_ptl_send_ack(struct ssh_ptl *ptl, u8 seq)
 	struct msgbuf msgb;
 	int status;
 
-	status = ptl_alloc_ctrl_packet(ptl, &packet, &buf, GFP_KERNEL);
+	status = ssh_ctrl_packet_alloc(&packet, &buf, GFP_KERNEL);
 	if (status) {
 		ptl_err(ptl, "ptl: failed to allocate ACK packet\n");
 		return;
@@ -1976,7 +1944,7 @@ static void ssh_ptl_send_nak(struct ssh_ptl *ptl)
 	struct msgbuf msgb;
 	int status;
 
-	status = ptl_alloc_ctrl_packet(ptl, &packet, &buf, GFP_KERNEL);
+	status = ssh_ctrl_packet_alloc(&packet, &buf, GFP_KERNEL);
 	if (status) {
 		ptl_err(ptl, "ptl: failed to allocate NAK packet\n");
 		return;
@@ -2283,7 +2251,7 @@ static void ssh_ptl_shutdown(struct ssh_ptl *ptl)
 
 static inline struct device *ssh_ptl_get_device(struct ssh_ptl *ptl)
 {
-	return &ptl->serdev->dev;
+	return ptl->serdev ? &ptl->serdev->dev : NULL;
 }
 
 static int ssh_ptl_init(struct ssh_ptl *ptl, struct serdev_device *serdev,
@@ -3655,6 +3623,11 @@ static int ssam_nf_refcount_dec(struct ssam_nf *nf,
 	return -ENOENT;
 }
 
+static bool ssam_nf_refcount_empty(struct ssam_nf *nf)
+{
+	return RB_EMPTY_ROOT(&nf->refcount);
+}
+
 static void ssam_nf_call(struct ssam_nf *nf, struct device *dev, u16 rqid,
 			 struct ssam_event *event)
 {
@@ -3723,10 +3696,17 @@ static void ssam_nf_destroy(struct ssam_nf *nf)
 
 
 struct ssam_cplt;
+struct ssam_event_item;
+
+struct ssam_event_item_ops {
+	void (*free)(struct ssam_event_item *);
+};
 
 struct ssam_event_item {
 	struct list_head node;
 	u16 rqid;
+
+	struct ssam_event_item_ops ops;
 	struct ssam_event event;	// must be last
 };
 
@@ -3751,6 +3731,79 @@ struct ssam_cplt {
 		struct ssam_nf notif;
 	} event;
 };
+
+
+/**
+ * Maximum payload length for cached `ssam_event_item`s.
+ *
+ * This length has been chosen to be accomodate standard touchpad and keyboard
+ * input events. Events with larger payloads will be allocated separately.
+ */
+#define SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN	32
+
+static struct kmem_cache *ssam_event_item_cache;
+
+static int ssam_event_item_cache_init(void)
+{
+	const unsigned int size = sizeof(struct ssam_event_item)
+				  + SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN;
+	const unsigned int align = __alignof__(struct ssam_event_item);
+	struct kmem_cache *cache;
+
+	cache = kmem_cache_create("ssam_event_item", size, align, 0, NULL);
+	if (!cache)
+		return -ENOMEM;
+
+	ssam_event_item_cache = cache;
+	return 0;
+}
+
+static void ssam_event_item_cache_destroy(void)
+{
+	kmem_cache_destroy(ssam_event_item_cache);
+	ssam_event_item_cache = NULL;
+}
+
+static void __ssam_event_item_free_cached(struct ssam_event_item *item)
+{
+	kmem_cache_free(ssam_event_item_cache, item);
+}
+
+static void __ssam_event_item_free_generic(struct ssam_event_item *item)
+{
+	kfree(item);
+}
+
+static inline void ssam_event_item_free(struct ssam_event_item *item)
+{
+	trace_ssam_event_item_free(item);
+	item->ops.free(item);
+}
+
+static struct ssam_event_item *ssam_event_item_alloc(size_t len, gfp_t flags)
+{
+	struct ssam_event_item *item;
+
+	if (len <= SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN) {
+		item = kmem_cache_alloc(ssam_event_item_cache, GFP_KERNEL);
+		if (!item)
+			return NULL;
+
+		item->ops.free = __ssam_event_item_free_cached;
+	} else {
+		const size_t n = sizeof(struct ssam_event_item) + len;
+		item = kzalloc(n, GFP_KERNEL);
+		if (!item)
+			return NULL;
+
+		item->ops.free = __ssam_event_item_free_generic;
+	}
+
+	item->event.length = len;
+
+	trace_ssam_event_item_alloc(item, len);
+	return item;
+}
 
 
 static void ssam_event_queue_push(struct ssam_event_queue *q,
@@ -3848,7 +3901,7 @@ static void ssam_event_queue_work_fn(struct work_struct *work)
 			return;
 
 		ssam_nf_call(nf, dev, item->rqid, &item->event);
-		kfree(item);
+		ssam_event_item_free(item);
 	}
 
 	if (!ssam_event_queue_is_empty(queue))
@@ -3891,6 +3944,12 @@ static int ssam_cplt_init(struct ssam_cplt *cplt, struct device *dev)
 
 static void ssam_cplt_destroy(struct ssam_cplt *cplt)
 {
+	/*
+	 * Note: destroy_workqueue ensures that all currently queued work will
+	 * be fully completed and the workqueue drained. This means that this
+	 * call will inherently also free any queued ssam_event_items, thus we
+	 * don't have to take care of that here explicitly.
+	 */
 	destroy_workqueue(cplt->wq);
 	ssam_nf_destroy(&cplt->event.notif);
 }
@@ -3941,7 +4000,7 @@ struct ssam_controller {
 
 struct device *ssam_controller_device(struct ssam_controller *c)
 {
-	return (c && c->rtl.ptl.serdev) ? &c->rtl.ptl.serdev->dev : NULL;
+	return ssh_rtl_get_device(&c->rtl);
 }
 EXPORT_SYMBOL_GPL(ssam_controller_device);
 
@@ -3953,7 +4012,7 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
 	struct ssam_controller *ctrl = to_ssam_controller(rtl, rtl);
 	struct ssam_event_item *item;
 
-	item = kzalloc(sizeof(struct ssam_event_item) + data->len, GFP_KERNEL);
+	item = ssam_event_item_alloc(data->len, GFP_KERNEL);
 	if (!item)
 		return;
 
@@ -3962,7 +4021,6 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
 	item->event.command_id = cmd->cid;
 	item->event.instance_id = cmd->iid;
 	item->event.channel = cmd->chn_in;
-	item->event.length  = data->len;
 	memcpy(&item->event.data[0], data->ptr, data->len);
 
 	ssam_cplt_submit_event(&ctrl->cplt, item);
@@ -3971,6 +4029,10 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
 static const struct ssh_rtl_ops ssam_rtl_ops = {
 	.handle_event = ssam_handle_event,
 };
+
+
+static bool ssam_notifier_empty(struct ssam_controller *ctrl);
+static void ssam_notifier_unregister_all(struct ssam_controller *ctrl);
 
 
 #define SSAM_SSH_DSM_REVISION	0
@@ -4048,7 +4110,6 @@ static int ssam_controller_init(struct ssam_controller *ctrl,
 	// initialize request and packet transmission layers
 	status = ssh_rtl_init(&ctrl->rtl, serdev, &ssam_rtl_ops);
 	if (status) {
-		ssam_cplt_flush(&ctrl->cplt);
 		ssam_cplt_destroy(&ctrl->cplt);
 		return status;
 	}
@@ -4094,8 +4155,21 @@ static void ssam_controller_shutdown(struct ssam_controller *ctrl)
 			 status);
 	}
 
-	// flush out all currently completing requests and events
+	// try to flush out all currently completing requests and events
 	ssam_cplt_flush(&ctrl->cplt);
+
+	/*
+	 * We expect all notifiers to have been removed by the respective client
+	 * driver that set them up at this point. If this warning occurs, some
+	 * client driver has not done that...
+	 */
+	WARN_ON(!ssam_notifier_empty(ctrl));
+
+	/*
+	 * Nevertheless, we should still take care of drivers that don't behave
+	 * well. Thus disable all enabled events, unregister all notifiers.
+	 */
+	ssam_notifier_unregister_all(ctrl);
 
 	// cancel rem. requests, ensure no new ones can be queued, stop threads
 	ssh_rtl_tx_flush(&ctrl->rtl);
@@ -4110,13 +4184,12 @@ static void ssam_controller_destroy(struct ssam_controller *ctrl)
 		return;
 
 	/*
-	 * Ensure _all_ events are completed. New ones could still have been
-	 * received after the previous flush in ssam_controller_shutdown, before
-	 * the request transport layer has been shut down. At this point we can
-	 * be sure that no new requests will be queued for completion after this
-	 * call.
+	 * Note: New events could still have been received after the previous
+	 * flush in ssam_controller_shutdown, before the request transport layer
+	 * has been shut down. At this point, after the shutdown, we can be sure
+	 * that no new events will be queued. The call to ssam_cplt_destroy will
+	 * ensure that those remaining are being completed and freed.
 	 */
-	ssam_cplt_flush(&ctrl->cplt);
 
 	// actually free resources
 	ssam_cplt_destroy(&ctrl->cplt);
@@ -4125,7 +4198,7 @@ static void ssam_controller_destroy(struct ssam_controller *ctrl)
 	smp_store_release(&ctrl->state, SSAM_CONTROLLER_UNINITIALIZED);
 }
 
-static inline int ssam_controller_suspend(struct ssam_controller *ctrl)
+static int ssam_controller_suspend(struct ssam_controller *ctrl)
 {
 	if (smp_load_acquire(&ctrl->state) != SSAM_CONTROLLER_STARTED)
 		return -EINVAL;
@@ -4135,7 +4208,7 @@ static inline int ssam_controller_suspend(struct ssam_controller *ctrl)
 	return 0;
 }
 
-static inline int ssam_controller_resume(struct ssam_controller *ctrl)
+static int ssam_controller_resume(struct ssam_controller *ctrl)
 {
 	if (smp_load_acquire(&ctrl->state) != SSAM_CONTROLLER_SUSPENDED)
 		return -EINVAL;
@@ -4615,13 +4688,15 @@ int ssam_notifier_register(struct ssam_controller *ctrl,
 	if (!ssh_rqid_is_event(rqid))
 		return -EINVAL;
 
-	if (smp_load_acquire(&ctrl->state) != SSAM_CONTROLLER_STARTED)
-		return -ENXIO;
-
 	nf = &ctrl->cplt.event.notif;
 	nf_head = &nf->head[ssh_rqid_to_event(rqid)];
 
 	mutex_lock(&nf->lock);
+
+	if (smp_load_acquire(&ctrl->state) != SSAM_CONTROLLER_STARTED) {
+		mutex_unlock(&nf->lock);
+		return -ENXIO;
+	}
 
 	rc = ssam_nf_refcount_inc(nf, n->event.reg, n->event.id);
 	if (rc < 0) {
@@ -4669,13 +4744,15 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 	if (!ssh_rqid_is_event(rqid))
 		return -EINVAL;
 
-	if (smp_load_acquire(&ctrl->state) != SSAM_CONTROLLER_STARTED)
-		return -ENXIO;
-
 	nf = &ctrl->cplt.event.notif;
 	nf_head = &nf->head[ssh_rqid_to_event(rqid)];
 
 	mutex_lock(&nf->lock);
+
+	if (smp_load_acquire(&ctrl->state) != SSAM_CONTROLLER_STARTED) {
+		mutex_unlock(&nf->lock);
+		return -ENXIO;
+	}
 
 	rc = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
 	if (rc < 0) {
@@ -4699,6 +4776,33 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 	return status;
 }
 EXPORT_SYMBOL_GPL(ssam_notifier_unregister);
+
+static bool ssam_notifier_empty(struct ssam_controller *ctrl)
+{
+	struct ssam_nf *nf = &ctrl->cplt.event.notif;
+	bool result;
+
+	mutex_lock(&nf->lock);
+	result = ssam_nf_refcount_empty(nf);
+	mutex_unlock(&nf->lock);
+
+	return result;
+}
+
+static void ssam_notifier_unregister_all(struct ssam_controller *ctrl)
+{
+	struct ssam_nf *nf = &ctrl->cplt.event.notif;
+	struct ssam_nf_refcount_entry *pos, *n;
+
+	mutex_lock(&nf->lock);
+	rbtree_postorder_for_each_entry_safe(pos, n, &nf->refcount, node) {
+		// ignore errors, will get logged in call
+		ssam_ssh_event_disable(ctrl, pos->key.reg, pos->key.id, 0);
+		kfree(pos);
+	}
+	nf->refcount = RB_ROOT;
+	mutex_unlock(&nf->lock);
+}
 
 
 /* -- Wakeup IRQ. ----------------------------------------------------------- */
@@ -4742,11 +4846,23 @@ static irqreturn_t ssam_irq_handle(int irq, void *dev_id)
 
 static int ssam_irq_setup(struct ssam_controller *ctrl)
 {
-	const int irqf = IRQF_SHARED | IRQF_ONESHOT;
 	struct device *dev = ssam_controller_device(ctrl);
 	struct gpio_desc *gpiod;
 	int irq;
 	int status;
+
+	/*
+	 * The actual GPIO interrupt is declared in ACPI as TRIGGER_HIGH.
+	 * However, the GPIO line only gets reset by sending the GPIO callback
+	 * command to SAM (or alternatively the display-on notification). As
+	 * proper handling for this interrupt is not implemented yet, leaving
+	 * the IRQ at TRIGGER_HIGH would cause an IRQ storm (as the callback
+	 * never gets sent and thus the line line never gets reset). To avoid
+	 * this, mark the IRQ as TRIGGER_RISING for now, only creating a single
+	 * interrupt, and let the SAM resume callback during the controller
+	 * resume process clear it.
+	 */
+	const int irqf = IRQF_SHARED | IRQF_ONESHOT | IRQF_TRIGGER_RISING;
 
 	gpiod = gpiod_get(dev, "ssam_wakeup-int", GPIOD_ASIS);
 	if (IS_ERR(gpiod))
@@ -5164,12 +5280,35 @@ static struct serdev_device_driver surface_sam_ssh = {
 
 static int __init surface_sam_ssh_init(void)
 {
-	return serdev_device_driver_register(&surface_sam_ssh);
+	int status;
+
+	status = ssh_ctrl_packet_cache_init();
+	if (status)
+		goto err_cpkg;
+
+	status = ssam_event_item_cache_init();
+	if (status)
+		goto err_evitem;
+
+	status = serdev_device_driver_register(&surface_sam_ssh);
+	if (status)
+		goto err_register;
+
+	return 0;
+
+err_register:
+	ssam_event_item_cache_destroy();
+err_evitem:
+	ssh_ctrl_packet_cache_destroy();
+err_cpkg:
+	return status;
 }
 
 static void __exit surface_sam_ssh_exit(void)
 {
 	serdev_device_driver_unregister(&surface_sam_ssh);
+	ssam_event_item_cache_destroy();
+	ssh_ctrl_packet_cache_destroy();
 }
 
 /*

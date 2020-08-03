@@ -468,6 +468,55 @@ DECLARE_EVENT_CLASS(ssam_request_status_class,
 	)
 
 
+DECLARE_EVENT_CLASS(ssam_alloc_class,
+	TP_PROTO(void *ptr, size_t len),
+
+	TP_ARGS(ptr, len),
+
+	TP_STRUCT__entry(
+		__array(char, uid, SSAM_PTR_UID_LEN)
+		__field(size_t, len)
+	),
+
+	TP_fast_assign(
+		ssam_trace_ptr_uid(ptr, __entry->uid);
+		__entry->len = len;
+	),
+
+	TP_printk("uid=%s, len=%zu", __entry->uid, __entry->len)
+);
+
+#define DEFINE_SSAM_ALLOC_EVENT(name)					\
+	DEFINE_EVENT(ssam_alloc_class, ssam_##name,			\
+		TP_PROTO(void *ptr, size_t len),			\
+		TP_ARGS(ptr, len)					\
+	)
+
+
+DECLARE_EVENT_CLASS(ssam_free_class,
+	TP_PROTO(void *ptr),
+
+	TP_ARGS(ptr),
+
+	TP_STRUCT__entry(
+		__array(char, uid, SSAM_PTR_UID_LEN)
+		__field(size_t, len)
+	),
+
+	TP_fast_assign(
+		ssam_trace_ptr_uid(ptr, __entry->uid);
+	),
+
+	TP_printk("uid=%s", __entry->uid)
+);
+
+#define DEFINE_SSAM_FREE_EVENT(name)					\
+	DEFINE_EVENT(ssam_free_class, ssam_##name,			\
+		TP_PROTO(void *ptr),					\
+		TP_ARGS(ptr)						\
+	)
+
+
 DECLARE_EVENT_CLASS(ssam_generic_uint_class,
 	TP_PROTO(const char* property, unsigned int value),
 
@@ -519,6 +568,12 @@ DEFINE_SSAM_PACKET_EVENT(ei_tx_corrupt_data);
 DEFINE_SSAM_GENERIC_UINT_EVENT(ei_rx_corrupt_syn);
 DEFINE_SSAM_FRAME_EVENT(ei_rx_corrupt_data);
 DEFINE_SSAM_REQUEST_EVENT(ei_rx_drop_response);
+
+DEFINE_SSAM_ALLOC_EVENT(ctrl_packet_alloc);
+DEFINE_SSAM_FREE_EVENT(ctrl_packet_free);
+
+DEFINE_SSAM_ALLOC_EVENT(event_item_alloc);
+DEFINE_SSAM_FREE_EVENT(event_item_free);
 
 #endif /* _SURFACE_SAM_SSH_TRACE_H */
 
