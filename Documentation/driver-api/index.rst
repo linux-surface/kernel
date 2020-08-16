@@ -99,6 +99,7 @@ available subsections can be seen below.
    serial/index
    sm501
    smsc_ece1099
+   surface_aggregator/index
    switchtec
    sync_file
    vfio-mediated-device
