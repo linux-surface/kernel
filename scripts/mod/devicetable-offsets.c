@@ -225,5 +225,12 @@ int main(void)
 	DEVID_FIELD(typec_device_id, svid);
 	DEVID_FIELD(typec_device_id, mode);
 
+	DEVID(ssam_device_id);
+	DEVID_FIELD(ssam_device_id, match_flags);
+	DEVID_FIELD(ssam_device_id, category);
+	DEVID_FIELD(ssam_device_id, channel);
+	DEVID_FIELD(ssam_device_id, instance);
+	DEVID_FIELD(ssam_device_id, function);
+
 	return 0;
 }
