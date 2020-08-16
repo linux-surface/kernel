@@ -86,6 +86,7 @@ obj-$(CONFIG_SURFACE3_WMI)		+= surface3-wmi.o
 obj-$(CONFIG_SURFACE_3_BUTTON)		+= surface3_button.o
 obj-$(CONFIG_SURFACE_3_POWER_OPREGION)	+= surface3_power.o
 obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
+obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
 
 # MSI
 obj-$(CONFIG_MSI_LAPTOP)	+= msi-laptop.o
