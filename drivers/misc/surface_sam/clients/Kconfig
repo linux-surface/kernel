@@ -1,0 +1,121 @@
+config SURFACE_SAM_DEBUGFS
+	tristate "Surface Serial Hub Debug Device"
+	depends on SURFACE_SAM_SSH
+	depends on DEBUG_FS
+	default n
+	help
+	  Debug device for direct communication with the embedded controller
+	  found on 5th generation (and later) Microsoft Surface devices (e.g.
+	  Book 2, Laptop, Laptop 2, Pro 2017, Pro 6, ...) via debugfs.
+
+	  If you are not sure, say N here.
+
+config SURFACE_SAM_DEVICE_HUB
+	tristate "Surface SAM Device Hub"
+	depends on SURFACE_SAM_SSH
+	default m
+	help
+	  This driver acts as a device hub, providing virtual SAM client devices
+	  used on the Surface devices to provide interfaces for the performance
+	  mode, HID input devices on Surface Laptop 3 and Surface Book 3, and
+	  battery and AC devices on 7th generation Surface devices.
+
+	  Note that this module only provides the devices and acts as a sort of
+	  registry for them. Both the device hub and the respective drivers for
+	  the devices attached to the hub are required for full support.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_SAN
+	tristate "Surface ACPI Notify Driver"
+	depends on SURFACE_SAM_SSH
+	default m
+	help
+	  Surface ACPI Notify driver for 5th generation (or later) Microsoft
+	  Surface devices.
+
+	  This driver enables basic ACPI events and requests, such as battery
+	  status requests/events, thermal events, lid status, and possibly more,
+	  which would otherwise not work on these devices.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_KBD
+	tristate "Surface Virtual HID Framework Driver"
+	depends on SURFACE_SAM_SSH
+	depends on HID
+	default m
+	help
+	  Surface Virtual HID Framework driver for 5th generation (or later)
+	  Microsoft Surface devices.
+
+	  This driver provides support for the Microsoft Virtual HID framework,
+	  which is required for keyboard support on the Surface Laptop 1 and 2.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_DTX
+	tristate "Surface Detachment System (DTX) Driver"
+	depends on SURFACE_SAM_SSH
+	depends on INPUT
+	default m
+	help
+	  Surface Detachment System (DTX) driver for the Microsoft Surface Book
+	  2. This driver provides support for proper detachment handling in
+	  user-space, status-events relating to the base and support for
+	  the safe-guard keeping the base attached when the discrete GPU
+	  contained in it is running via the special /dev/surface-dtx device.
+
+	  Also provides a standard input device to provide SW_TABLET_MODE events
+	  upon device mode change.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_HPS
+	tristate "Surface dGPU Hot-Plug System (dGPU-HPS) Driver"
+	depends on SURFACE_SAM_SSH
+	depends on SURFACE_SAM_SAN
+	depends on GPIO_SYSFS
+	default m
+	help
+	  Driver to properly handle hot-plugging and explicit power-on/power-off
+	  of the discrete GPU (dGPU) on the Surface Book 2 and 3.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_PERFMODE
+	tristate "Surface Performance Mode Driver"
+	depends on SURFACE_SAM_SSH
+	depends on SYSFS
+	default m
+	help
+	  This driver provides support for setting performance-modes on Surface
+	  devices via the perf_mode sysfs attribute. Currently only supports the
+	  Surface Book 2. Performance-modes directly influence the fan-profile
+	  of the device, allowing to choose between higher performance or
+	  quieter operation.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_HID
+	tristate "Surface SAM HID Driver"
+	depends on SURFACE_SAM_SSH
+	depends on HID
+	default m
+	help
+	  This driver provides support for HID devices connected via the Surface
+	  SAM embedded controller. It provides support for keyboard and touchpad
+	  on the Surface Laptop 3 models.
+
+	  If you are not sure, say M here.
+
+config SURFACE_SAM_PSY
+	tristate "Surface SAM Battery/AC Driver"
+	depends on SURFACE_SAM_SSH
+	select POWER_SUPPLY
+	default m
+	help
+	  This driver provides support for the battery and AC on 7th generation
+	  Surface devices.
+
+	  If you are not sure, say M here.
