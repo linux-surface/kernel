@@ -1,0 +1,46 @@
+menuconfig SURFACE_SAM
+	depends on ACPI
+	tristate "Microsoft Surface/System Aggregator Module and Platform Drivers"
+	help
+	  Drivers for the Surface/System Aggregator Module (SAM) of Microsoft
+	  Surface devices.
+
+	  SAM is an embedded controller that provides access to various
+	  functionalities on these devices, including battery status, keyboard
+	  events (on the Laptops) and many more.
+
+	  Say M/Y here if you have a Microsoft Surface device with a SAM device
+	  (i.e. 5th generation or later).
+
+config SURFACE_SAM_SSH
+	tristate "Surface Serial Hub Driver"
+	depends on SURFACE_SAM
+	depends on SERIAL_DEV_BUS
+	select CRC_CCITT
+	default m
+	help
+	  Surface Serial Hub driver for 5th generation (or later) Microsoft
+	  Surface devices.
+
+	  This is the base driver for the embedded serial controller found on
+	  5th generation (and later) Microsoft Surface devices (e.g. Book 2,
+	  Laptop, Laptop 2, Pro 2017, Pro 6, ...). This driver itself only
+	  provides access to the embedded controller (SAM) and subsequent
+	  drivers are required for the respective functionalities.
+
+	  If you have a 5th generation (or later) Microsoft Surface device, say
+	  Y or M here.
+
+config SURFACE_SAM_SSH_ERROR_INJECTION
+	bool "Surface Serial Hub Error Injection Capabilities"
+	depends on SURFACE_SAM_SSH
+	depends on FUNCTION_ERROR_INJECTION
+	default n
+	help
+	  Enable error injection capabilities for the Surface Serial Hub.
+	  This is used to debug the driver, specifically the communication
+	  interface. It is not required for normal use.
+
+	  If you are not sure, say N here.
+
+source "drivers/misc/surface_sam/clients/Kconfig"
