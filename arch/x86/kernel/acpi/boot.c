@@ -21,6 +21,7 @@
 #include <linux/efi-bgrt.h>
 #include <linux/serial_core.h>
 #include <linux/pgtable.h>
+#include <linux/dmi.h>
 
 #include <asm/e820/api.h>
 #include <asm/irqdomain.h>
@@ -1155,6 +1156,24 @@ static void __init mp_config_acpi_legacy_irqs(void)
 	}
 }
 
+static const struct dmi_system_id surface_quirk[] __initconst = {
+	{
+		.ident = "Microsoft Surface Laptop 4 (AMD 15\")",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
+		},
+	},
+	{
+		.ident = "Microsoft Surface Laptop 4 (AMD 13\")",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1958:1959")
+		},
+	},
+	{}
+};
+
 /*
  * Parse IOAPIC related entries in MADT
  * returns 0 on success, < 0 on error
@@ -1211,6 +1230,11 @@ static int __init acpi_parse_madt_ioapic_entries(void)
 	if (acpi_sci_override_gsi == INVALID_ACPI_IRQ && !acpi_gbl_reduced_hardware)
 		acpi_sci_ioapic_setup(acpi_gbl_FADT.sci_interrupt, 0, 0,
 				      acpi_gbl_FADT.sci_interrupt);
+
+	if (dmi_check_system(surface_quirk)) {
+		pr_warn("Surface hack: Override irq 7\n");
+		mp_override_legacy_irq(7, 3, 3, 7);
+	}
 
 	/* Fill in identity legacy mappings where no override */
 	mp_config_acpi_legacy_irqs();
