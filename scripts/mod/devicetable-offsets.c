@@ -227,8 +227,9 @@ int main(void)
 
 	DEVID(ssam_device_id);
 	DEVID_FIELD(ssam_device_id, match_flags);
+	DEVID_FIELD(ssam_device_id, domain);
 	DEVID_FIELD(ssam_device_id, category);
-	DEVID_FIELD(ssam_device_id, channel);
+	DEVID_FIELD(ssam_device_id, target);
 	DEVID_FIELD(ssam_device_id, instance);
 	DEVID_FIELD(ssam_device_id, function);
 
