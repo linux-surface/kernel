@@ -58,3 +58,4 @@ obj-$(CONFIG_HABANA_AI)		+= habanalabs/
 obj-$(CONFIG_UACCE)		+= uacce/
 obj-$(CONFIG_XILINX_SDFEC)	+= xilinx_sdfec.o
 obj-$(CONFIG_MISC_IPTS)		+= ipts/
+obj-$(CONFIG_SURFACE_AGGREGATOR)	+= surface_aggregator/
