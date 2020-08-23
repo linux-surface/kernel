@@ -91,9 +91,9 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_REG);
 #ifndef _SURFACE_SAM_SSH_TRACE_HELPERS
 #define _SURFACE_SAM_SSH_TRACE_HELPERS
 
-static inline void ssam_trace_ptr_uid(const void *ptr, char* uid_str)
+static inline void ssam_trace_ptr_uid(const void *ptr, char *uid_str)
 {
-	char buf[2 * sizeof(void*) + 1];
+	char buf[2 * sizeof(void *) + 1];
 
 	snprintf(buf, ARRAY_SIZE(buf), "%p", ptr);
 	memcpy(uid_str, &buf[ARRAY_SIZE(buf) - SSAM_PTR_UID_LEN],
@@ -132,16 +132,16 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 
 #define ssam_show_generic_u8_field(value)				\
 	__print_symbolic(value,						\
-		{ SSAM_U8_FIELD_NOT_APPLICABLE, 	"N/A" }		\
+		{ SSAM_U8_FIELD_NOT_APPLICABLE,		"N/A" }		\
 	)
 
 
 #define ssam_show_frame_type(ty)					\
 	__print_symbolic(ty,						\
-		{ SSH_FRAME_TYPE_DATA_SEQ, 		"DSEQ" },	\
-		{ SSH_FRAME_TYPE_DATA_NSQ, 		"DNSQ" },	\
-		{ SSH_FRAME_TYPE_ACK, 			"ACK"  },	\
-		{ SSH_FRAME_TYPE_NAK, 			"NAK"  }	\
+		{ SSH_FRAME_TYPE_DATA_SEQ,		"DSEQ" },	\
+		{ SSH_FRAME_TYPE_DATA_NSQ,		"DNSQ" },	\
+		{ SSH_FRAME_TYPE_ACK,			"ACK"  },	\
+		{ SSH_FRAME_TYPE_NAK,			"NAK"  }	\
 	)
 
 #define ssam_show_packet_type(type)					\
@@ -153,19 +153,19 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 
 #define ssam_show_packet_state(state)					\
 	__print_flags(flags & SSH_PACKET_FLAGS_SF_MASK, "",		\
-		{ BIT(SSH_PACKET_SF_LOCKED_BIT), 	"L" },		\
-		{ BIT(SSH_PACKET_SF_QUEUED_BIT), 	"Q" },		\
-		{ BIT(SSH_PACKET_SF_PENDING_BIT), 	"P" },		\
-		{ BIT(SSH_PACKET_SF_TRANSMITTING_BIT), 	"S" },		\
-		{ BIT(SSH_PACKET_SF_TRANSMITTED_BIT), 	"T" },		\
-		{ BIT(SSH_PACKET_SF_ACKED_BIT), 	"A" },		\
-		{ BIT(SSH_PACKET_SF_CANCELED_BIT), 	"C" },		\
-		{ BIT(SSH_PACKET_SF_COMPLETED_BIT), 	"F" }		\
+		{ BIT(SSH_PACKET_SF_LOCKED_BIT),	"L" },		\
+		{ BIT(SSH_PACKET_SF_QUEUED_BIT),	"Q" },		\
+		{ BIT(SSH_PACKET_SF_PENDING_BIT),	"P" },		\
+		{ BIT(SSH_PACKET_SF_TRANSMITTING_BIT),	"S" },		\
+		{ BIT(SSH_PACKET_SF_TRANSMITTED_BIT),	"T" },		\
+		{ BIT(SSH_PACKET_SF_ACKED_BIT),		"A" },		\
+		{ BIT(SSH_PACKET_SF_CANCELED_BIT),	"C" },		\
+		{ BIT(SSH_PACKET_SF_COMPLETED_BIT),	"F" }		\
 	)
 
 #define ssam_show_packet_seq(seq)					\
 	__print_symbolic(seq,						\
-		{ SSAM_SEQ_NOT_APPLICABLE, 		"N/A" }		\
+		{ SSAM_SEQ_NOT_APPLICABLE,		"N/A" }		\
 	)
 
 
@@ -177,57 +177,57 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 
 #define ssam_show_request_state(flags)					\
 	__print_flags(flags & SSH_REQUEST_FLAGS_SF_MASK, "",		\
-		{ BIT(SSH_REQUEST_SF_LOCKED_BIT), 	"L" },		\
-		{ BIT(SSH_REQUEST_SF_QUEUED_BIT), 	"Q" },		\
-		{ BIT(SSH_REQUEST_SF_PENDING_BIT), 	"P" },		\
+		{ BIT(SSH_REQUEST_SF_LOCKED_BIT),	"L" },		\
+		{ BIT(SSH_REQUEST_SF_QUEUED_BIT),	"Q" },		\
+		{ BIT(SSH_REQUEST_SF_PENDING_BIT),	"P" },		\
 		{ BIT(SSH_REQUEST_SF_TRANSMITTING_BIT),	"S" },		\
-		{ BIT(SSH_REQUEST_SF_TRANSMITTED_BIT), 	"T" },		\
-		{ BIT(SSH_REQUEST_SF_RSPRCVD_BIT), 	"A" },		\
-		{ BIT(SSH_REQUEST_SF_CANCELED_BIT), 	"C" },		\
-		{ BIT(SSH_REQUEST_SF_COMPLETED_BIT), 	"F" }		\
+		{ BIT(SSH_REQUEST_SF_TRANSMITTED_BIT),	"T" },		\
+		{ BIT(SSH_REQUEST_SF_RSPRCVD_BIT),	"A" },		\
+		{ BIT(SSH_REQUEST_SF_CANCELED_BIT),	"C" },		\
+		{ BIT(SSH_REQUEST_SF_COMPLETED_BIT),	"F" }		\
 	)
 
 #define ssam_show_request_id(rqid)					\
 	__print_symbolic(rqid,						\
-		{ SSAM_RQID_NOT_APPLICABLE, 		"N/A" }		\
+		{ SSAM_RQID_NOT_APPLICABLE,		"N/A" }		\
 	)
 
 #define ssam_show_ssh_tc(rqid)						\
 	__print_symbolic(rqid,						\
-		{ SSAM_SSH_TC_NOT_APPLICABLE, 		"N/A" },	\
-		{ SSAM_SSH_TC_SAM, 			"SAM" },	\
-		{ SSAM_SSH_TC_BAT, 			"BAT" },	\
-		{ SSAM_SSH_TC_TMP, 			"TMP" },	\
-		{ SSAM_SSH_TC_PMC, 			"PMC" },	\
-		{ SSAM_SSH_TC_FAN, 			"FAN" },	\
-		{ SSAM_SSH_TC_PoM, 			"PoM" },	\
-		{ SSAM_SSH_TC_DBG, 			"DBG" },	\
-		{ SSAM_SSH_TC_KBD, 			"KBD" },	\
-		{ SSAM_SSH_TC_FWU, 			"FWU" },	\
-		{ SSAM_SSH_TC_UNI, 			"UNI" },	\
-		{ SSAM_SSH_TC_LPC, 			"LPC" },	\
-		{ SSAM_SSH_TC_TCL, 			"TCL" },	\
-		{ SSAM_SSH_TC_SFL, 			"SFL" },	\
-		{ SSAM_SSH_TC_KIP, 			"KIP" },	\
-		{ SSAM_SSH_TC_EXT, 			"EXT" },	\
-		{ SSAM_SSH_TC_BLD, 			"BLD" },	\
-		{ SSAM_SSH_TC_BAS, 			"BAS" },	\
-		{ SSAM_SSH_TC_SEN, 			"SEN" },	\
-		{ SSAM_SSH_TC_SRQ, 			"SRQ" },	\
-		{ SSAM_SSH_TC_MCU, 			"MCU" },	\
-		{ SSAM_SSH_TC_HID, 			"HID" },	\
-		{ SSAM_SSH_TC_TCH, 			"TCH" },	\
-		{ SSAM_SSH_TC_BKL, 			"BKL" },	\
-		{ SSAM_SSH_TC_TAM, 			"TAM" },	\
-		{ SSAM_SSH_TC_ACC, 			"ACC" },	\
-		{ SSAM_SSH_TC_UFI, 			"UFI" },	\
-		{ SSAM_SSH_TC_USC, 			"USC" },	\
-		{ SSAM_SSH_TC_PEN, 			"PEN" },	\
-		{ SSAM_SSH_TC_VID, 			"VID" },	\
-		{ SSAM_SSH_TC_AUD, 			"AUD" },	\
-		{ SSAM_SSH_TC_SMC, 			"SMC" },	\
-		{ SSAM_SSH_TC_KPD, 			"KPD" },	\
-		{ SSAM_SSH_TC_REG, 			"REG" }		\
+		{ SSAM_SSH_TC_NOT_APPLICABLE,		"N/A" },	\
+		{ SSAM_SSH_TC_SAM,			"SAM" },	\
+		{ SSAM_SSH_TC_BAT,			"BAT" },	\
+		{ SSAM_SSH_TC_TMP,			"TMP" },	\
+		{ SSAM_SSH_TC_PMC,			"PMC" },	\
+		{ SSAM_SSH_TC_FAN,			"FAN" },	\
+		{ SSAM_SSH_TC_PoM,			"PoM" },	\
+		{ SSAM_SSH_TC_DBG,			"DBG" },	\
+		{ SSAM_SSH_TC_KBD,			"KBD" },	\
+		{ SSAM_SSH_TC_FWU,			"FWU" },	\
+		{ SSAM_SSH_TC_UNI,			"UNI" },	\
+		{ SSAM_SSH_TC_LPC,			"LPC" },	\
+		{ SSAM_SSH_TC_TCL,			"TCL" },	\
+		{ SSAM_SSH_TC_SFL,			"SFL" },	\
+		{ SSAM_SSH_TC_KIP,			"KIP" },	\
+		{ SSAM_SSH_TC_EXT,			"EXT" },	\
+		{ SSAM_SSH_TC_BLD,			"BLD" },	\
+		{ SSAM_SSH_TC_BAS,			"BAS" },	\
+		{ SSAM_SSH_TC_SEN,			"SEN" },	\
+		{ SSAM_SSH_TC_SRQ,			"SRQ" },	\
+		{ SSAM_SSH_TC_MCU,			"MCU" },	\
+		{ SSAM_SSH_TC_HID,			"HID" },	\
+		{ SSAM_SSH_TC_TCH,			"TCH" },	\
+		{ SSAM_SSH_TC_BKL,			"BKL" },	\
+		{ SSAM_SSH_TC_TAM,			"TAM" },	\
+		{ SSAM_SSH_TC_ACC,			"ACC" },	\
+		{ SSAM_SSH_TC_UFI,			"UFI" },	\
+		{ SSAM_SSH_TC_USC,			"USC" },	\
+		{ SSAM_SSH_TC_PEN,			"PEN" },	\
+		{ SSAM_SSH_TC_VID,			"VID" },	\
+		{ SSAM_SSH_TC_AUD,			"AUD" },	\
+		{ SSAM_SSH_TC_SMC,			"SMC" },	\
+		{ SSAM_SSH_TC_KPD,			"KPD" },	\
+		{ SSAM_SSH_TC_REG,			"REG" }		\
 	)
 
 
@@ -519,7 +519,7 @@ DECLARE_EVENT_CLASS(ssam_free_class,
 
 
 DECLARE_EVENT_CLASS(ssam_generic_uint_class,
-	TP_PROTO(const char* property, unsigned int value),
+	TP_PROTO(const char *property, unsigned int value),
 
 	TP_ARGS(property, value),
 
@@ -538,7 +538,7 @@ DECLARE_EVENT_CLASS(ssam_generic_uint_class,
 
 #define DEFINE_SSAM_GENERIC_UINT_EVENT(name)				\
 	DEFINE_EVENT(ssam_generic_uint_class, ssam_##name,		\
-		TP_PROTO(const char* property, unsigned int value),	\
+		TP_PROTO(const char *property, unsigned int value),	\
 		TP_ARGS(property, value)				\
 	)
 

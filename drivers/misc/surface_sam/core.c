@@ -27,14 +27,15 @@
 static int ssam_receive_buf(struct serdev_device *dev, const unsigned char *buf,
 			    size_t n)
 {
-	struct ssam_controller *ctrl = serdev_device_get_drvdata(dev);
+	struct ssam_controller *ctrl;
+
+	ctrl = serdev_device_get_drvdata(dev);
 	return ssam_controller_receive_buf(ctrl, buf, n);
 }
 
 static void ssam_write_wakeup(struct serdev_device *dev)
 {
-	struct ssam_controller *ctrl = serdev_device_get_drvdata(dev);
-	ssam_controller_write_wakeup(ctrl);
+	ssam_controller_write_wakeup(serdev_device_get_drvdata(dev));
 }
 
 static const struct serdev_device_ops ssam_serdev_ops = {
@@ -68,8 +69,8 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
 
 	// serdev currently only supports RTSCTS flow control
 	if (uart->flow_control & (~((u8) ACPI_UART_FLOW_CONTROL_HW))) {
-		dev_warn(&serdev->dev, "setup: unsupported flow control"
-			 " (value: 0x%02x)\n", uart->flow_control);
+		dev_warn(&serdev->dev, "setup: unsupported flow control (value: 0x%02x)\n",
+			 uart->flow_control);
 	}
 
 	// set RTSCTS flow control
@@ -88,14 +89,14 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
 		status = serdev_device_set_parity(serdev, SERDEV_PARITY_ODD);
 		break;
 	default:
-		dev_warn(&serdev->dev, "setup: unsupported parity"
-			 " (value: 0x%02x)\n", uart->parity);
+		dev_warn(&serdev->dev, "setup: unsupported parity (value: 0x%02x)\n",
+			 uart->parity);
 		break;
 	}
 
 	if (status) {
-		dev_err(&serdev->dev, "setup: failed to set parity"
-			" (value: 0x%02x)\n", uart->parity);
+		dev_err(&serdev->dev, "setup: failed to set parity (value: 0x%02x)\n",
+			uart->parity);
 		return status;
 	}
 
@@ -223,7 +224,7 @@ static SIMPLE_DEV_PM_OPS(surface_sam_ssh_pm_ops, surface_sam_ssh_suspend,
 
 /* -- Static controller reference. ------------------------------------------ */
 
-static struct ssam_controller *__ssam_controller = NULL;
+static struct ssam_controller *__ssam_controller;
 static DEFINE_SPINLOCK(__ssam_controller_lock);
 
 struct ssam_controller *ssam_get_controller(void)
@@ -273,13 +274,15 @@ static int __ssam_client_link(struct ssam_controller *c, struct device *client)
 	struct device_link *link;
 	struct device *ctrldev;
 
-	if (smp_load_acquire(&c->state) != SSAM_CONTROLLER_STARTED)
+	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED)
 		return -ENXIO;
 
-	if ((ctrldev = ssam_controller_device(c)) == NULL)
+	ctrldev = ssam_controller_device(c);
+	if (!ctrldev)
 		return -ENXIO;
 
-	if ((link = device_link_add(client, ctrldev, flags)) == NULL)
+	link = device_link_add(client, ctrldev, flags);
+	if (!link)
 		return -ENOMEM;
 
 	/*

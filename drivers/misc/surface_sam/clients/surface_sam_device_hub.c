@@ -241,9 +241,9 @@ struct ssam_base_hub {
 
 static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
 	.target_category = SSAM_SSH_TC_BAS,
+	.target_id       = 0x01,
 	.command_id      = 0x0d,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 #define SSAM_BAS_OPMODE_TABLET		0x00
