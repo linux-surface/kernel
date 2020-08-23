@@ -16,9 +16,9 @@
 
 struct ssam_dbgdev_request {
 	__u8 target_category;
+	__u8 target_id;
 	__u8 command_id;
 	__u8 instance_id;
-	__u8 channel;
 	__u16 flags;
 	__s16 status;
 
@@ -70,9 +70,9 @@ static long ssam_dbgdev_request(struct file *file, unsigned long arg)
 
 	// setup basic request fields
 	spec.target_category = rqst.target_category;
+	spec.target_id = rqst.target_id;
 	spec.command_id = rqst.command_id;
 	spec.instance_id = rqst.instance_id;
-	spec.channel = rqst.channel;
 	spec.flags = rqst.flags;
 	spec.length = rqst.payload.length;
 

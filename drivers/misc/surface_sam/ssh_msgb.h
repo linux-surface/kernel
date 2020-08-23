@@ -114,8 +114,8 @@ static inline void msgb_push_cmd(struct msgbuf *msgb, u8 seq, u16 rqid,
 
 	cmd->type    = SSH_PLD_TYPE_CMD;
 	cmd->tc      = rqst->target_category;
-	cmd->chn_out = rqst->channel;
-	cmd->chn_in  = 0x00;
+	cmd->tid_out = rqst->target_id;
+	cmd->tid_in  = 0x00;
 	cmd->iid     = rqst->instance_id;
 	put_unaligned_le16(rqid, &cmd->rqid);
 	cmd->cid     = rqst->command_id;

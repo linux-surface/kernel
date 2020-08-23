@@ -17,12 +17,12 @@
 #define SSH_NUM_EVENTS		34
 
 /*
- * The number of communication channels used in the protocol.
+ * The number of communication targets used in the protocol.
  */
-#define SSH_NUM_CHANNELS	2
+#define SSH_NUM_TARGETS		2
 
 /**
- * SSH message syncrhonization (SYN) bytes.
+ * SSH message synchronization (SYN) bytes.
  */
 #define SSH_MSG_SYN		((u16)0x55aa)
 
@@ -52,14 +52,14 @@ static inline int ssh_tc_to_rqid(u8 tc)
 	return tc;
 }
 
-static inline u8 ssh_channel_to_index(u8 channel)
+static inline u8 ssh_tid_to_index(u8 tid)
 {
-	return channel - 1u;
+	return tid - 1u;
 }
 
-static inline bool ssh_channel_is_valid(u8 channel)
+static inline bool ssh_tid_is_valid(u8 tid)
 {
-	return ssh_channel_to_index(channel) < SSH_NUM_CHANNELS;
+	return ssh_tid_to_index(tid) < SSH_NUM_TARGETS;
 }
 
 #endif /* _SSAM_SSH_PROTOCOL_H */

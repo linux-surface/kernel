@@ -84,7 +84,7 @@ struct ssh_packet_args {
 	do {						\
 		if ((p))				\
 			func((p), fmt, ##__VA_ARGS__);	\
-	} while (0);
+	} while (0)
 
 #define ptl_dbg(p, fmt, ...)  dev_dbg(&(p)->serdev->dev, fmt, ##__VA_ARGS__)
 #define ptl_info(p, fmt, ...) dev_info(&(p)->serdev->dev, fmt, ##__VA_ARGS__)

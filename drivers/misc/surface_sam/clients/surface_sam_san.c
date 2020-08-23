@@ -587,9 +587,9 @@ static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
 		return AE_OK;
 
 	rqst.target_category  = gsb_rqst->tc;
+	rqst.target_id = gsb_rqst->tid;
 	rqst.command_id = gsb_rqst->cid;
 	rqst.instance_id = gsb_rqst->iid;
-	rqst.channel = gsb_rqst->tid;
 	rqst.flags = gsb_rqst->snc ? SSAM_REQUEST_HAS_RESPONSE : 0;
 	rqst.length = get_unaligned(&gsb_rqst->cdl);
 	rqst.payload = &gsb_rqst->pld[0];

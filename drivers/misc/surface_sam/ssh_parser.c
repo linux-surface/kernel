@@ -35,11 +35,11 @@ bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
 		rem->ptr = src->ptr + src->len - 1;
 		rem->len = 1;
 		return false;
-	} else {
-		rem->ptr = src->ptr + src->len;
-		rem->len = 0;
-		return false;
 	}
+
+	rem->ptr = src->ptr + src->len;
+	rem->len = 0;
+	return false;
 }
 
 int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
@@ -125,8 +125,8 @@ int sshp_parse_command(const struct device *dev, const struct ssam_span *source,
 	command_data->ptr = source->ptr + sizeof(struct ssh_command);
 	command_data->len = source->len - sizeof(struct ssh_command);
 
-	dev_dbg(dev, "rx: parser: valid command found (tc: 0x%02x,"
-		" cid: 0x%02x)\n", (*command)->tc, (*command)->cid);
+	dev_dbg(dev, "rx: parser: valid command found (tc: 0x%02x, cid: 0x%02x)\n",
+		(*command)->tc, (*command)->cid);
 
 	return 0;
 }

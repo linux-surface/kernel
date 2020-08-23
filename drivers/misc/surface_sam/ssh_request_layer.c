@@ -2,7 +2,7 @@
 
 #include <linux/atomic.h>
 #include <linux/completion.h>
-#include <linux/fault-inject.h>
+#include <linux/error-injection.h>
 #include <linux/ktime.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
@@ -141,8 +141,8 @@ static void ssh_rtl_complete_with_status(struct ssh_request *rqst, int status)
 	trace_ssam_request_complete(rqst, status);
 
 	// rtl/ptl may not be set if we're cancelling before submitting
-	rtl_dbg_cond(rtl, "rtl: completing request (rqid: 0x%04x,"
-		     " status: %d)\n", ssh_request_get_rqid_safe(rqst), status);
+	rtl_dbg_cond(rtl, "rtl: completing request (rqid: 0x%04x, status: %d)\n",
+		     ssh_request_get_rqid_safe(rqst), status);
 
 	if (status && status != -ECANCELED)
 		rtl_dbg_cond(rtl, "rtl: request error: %d\n", status);
@@ -158,8 +158,8 @@ static void ssh_rtl_complete_with_rsp(struct ssh_request *rqst,
 
 	trace_ssam_request_complete(rqst, 0);
 
-	rtl_dbg(rtl, "rtl: completing request with response"
-		" (rqid: 0x%04x)\n", ssh_request_get_rqid(rqst));
+	rtl_dbg(rtl, "rtl: completing request with response (rqid: 0x%04x)\n",
+		ssh_request_get_rqid(rqst));
 
 	rqst->ops->complete(rqst, cmd, data, 0);
 }
@@ -192,11 +192,9 @@ static struct ssh_request *ssh_rtl_tx_next(struct ssh_rtl *rtl)
 			break;
 		}
 
-		/*
-		 * Remove from queue and mark as transmitting. Ensure that the
-		 * state does not get zero via memory barrier.
-		 */
+		// remove from queue and mark as transmitting
 		set_bit(SSH_REQUEST_SF_TRANSMITTING_BIT, &p->state);
+		// ensure state never gets zero
 		smp_mb__before_atomic();
 		clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &p->state);
 
@@ -235,7 +233,16 @@ static int ssh_rtl_tx_try_process_one(struct ssh_rtl *rtl)
 		 * down. Complete it here.
 		 */
 		set_bit(SSH_REQUEST_SF_LOCKED_BIT, &rqst->state);
-		smp_mb__after_atomic();
+		/*
+		 * Note: A barrier is not required here, as there are only two
+		 * references in the system at this point: The one that we have,
+		 * and the other one that belongs to the pending set. Due to the
+		 * request being marked as "transmitting", our process is the
+		 * only one allowed to remove the pending node and change the
+		 * state. Normally, the task would fall to the packet callback,
+		 * but as this is a path where submission failed, this callback
+		 * will never be executed.
+		 */
 
 		ssh_rtl_pending_remove(rqst);
 		ssh_rtl_complete_with_status(rqst, -ESHUTDOWN);
@@ -373,6 +380,11 @@ static void ssh_rtl_timeout_start(struct ssh_request *rqst)
 		return;
 
 	WRITE_ONCE(rqst->timestamp, timestamp);
+	/*
+	 * Ensure timestamp is set before starting the reaper. Paired with
+	 * implicit barrier following check on ssh_request_get_expiration in
+	 * ssh_rtl_timeout_reap.
+	 */
 	smp_mb__after_atomic();
 
 	ssh_rtl_timeout_reaper_mod(rtl, timestamp, timestamp + timeout);
@@ -404,19 +416,18 @@ static void ssh_rtl_complete(struct ssh_rtl *rtl,
 			spin_unlock(&rtl->pending.lock);
 
 			trace_ssam_ei_rx_drop_response(p);
-			rtl_info(rtl, "request error injection: "
-				 "dropping response for request %p\n",
+			rtl_info(rtl, "request error injection: dropping response for request %p\n",
 				 &p->packet);
 			return;
 		}
 
 		/*
 		 * Mark as "response received" and "locked" as we're going to
-		 * complete it. Ensure that the state doesn't get zero by
-		 * employing a memory barrier.
+		 * complete it.
 		 */
 		set_bit(SSH_REQUEST_SF_LOCKED_BIT, &p->state);
 		set_bit(SSH_REQUEST_SF_RSPRCVD_BIT, &p->state);
+		// ensure state never gets zero
 		smp_mb__before_atomic();
 		clear_bit(SSH_REQUEST_SF_PENDING_BIT, &p->state);
 
@@ -429,8 +440,8 @@ static void ssh_rtl_complete(struct ssh_rtl *rtl,
 	spin_unlock(&rtl->pending.lock);
 
 	if (!r) {
-		rtl_warn(rtl, "rtl: dropping unexpected command message"
-			 " (rqid = 0x%04x)\n", rqid);
+		rtl_warn(rtl, "rtl: dropping unexpected command message (rqid = 0x%04x)\n",
+			 rqid);
 		return;
 	}
 
@@ -454,7 +465,7 @@ static void ssh_rtl_complete(struct ssh_rtl *rtl,
 	 * should never expect a response as ensured in ssh_rtl_submit. If this
 	 * ever changes, one would have to test for
 	 *
-	 * 	(r->state & (transmitting | transmitted))
+	 *	(r->state & (transmitting | transmitted))
 	 *
 	 * on unsequenced packets to determine if they could have been
 	 * transmitted. There are no synchronization guarantees as in the
@@ -462,8 +473,8 @@ static void ssh_rtl_complete(struct ssh_rtl *rtl,
 	 * run on the same thread. Thus an exact determination is impossible.
 	 */
 	if (!test_bit(SSH_REQUEST_SF_TRANSMITTED_BIT, &r->state)) {
-		rtl_err(rtl, "rtl: received response before ACK for request"
-			" (rqid = 0x%04x)\n", rqid);
+		rtl_err(rtl, "rtl: received response before ACK for request (rqid = 0x%04x)\n",
+			rqid);
 
 		/*
 		 * NB: Timeout has already been canceled, request already been
@@ -649,11 +660,9 @@ static void ssh_rtl_packet_callback(struct ssh_packet *p, int status)
 		return;
 	}
 
-	/*
-	 * Mark as transmitted, ensure that state doesn't get zero by inserting
-	 * a memory barrier.
-	 */
+	// update state: mark as transmitted and clear transmitting
 	set_bit(SSH_REQUEST_SF_TRANSMITTED_BIT, &r->state);
+	// ensure state never gets zero
 	smp_mb__before_atomic();
 	clear_bit(SSH_REQUEST_SF_TRANSMITTING_BIT, &r->state);
 
@@ -708,6 +717,12 @@ static void ssh_rtl_timeout_reap(struct work_struct *work)
 	 * requests to avoid lost-update type problems.
 	 */
 	WRITE_ONCE(rtl->rtx_timeout.expires, KTIME_MAX);
+	/*
+	 * Ensure that the reaper is marked as deactivated before we continue
+	 * checking requests to prevent lost-update problems when a request is
+	 * added to the pending set and ssh_rtl_timeout_reaper_mod is called
+	 * during execution of the part below.
+	 */
 	smp_mb__after_atomic();
 
 	spin_lock(&rtl->pending.lock);
@@ -804,8 +819,8 @@ static void ssh_rtl_rx_data(struct ssh_ptl *p, const struct ssam_span *data)
 		break;
 
 	default:
-		ptl_err(p, "rtl: rx: unknown frame payload type"
-			" (type: 0x%02x)\n", data->ptr[0]);
+		ptl_err(p, "rtl: rx: unknown frame payload type (type: 0x%02x)\n",
+			data->ptr[0]);
 		break;
 	}
 }
@@ -883,7 +898,9 @@ void ssh_rtl_destroy(struct ssh_rtl *rtl)
 
 static void ssh_rtl_packet_release(struct ssh_packet *p)
 {
-	struct ssh_request *rqst = to_ssh_request(p, packet);
+	struct ssh_request *rqst;
+
+	rqst = to_ssh_request(p, packet);
 	rqst->ops->release(rqst);
 }
 
@@ -976,7 +993,7 @@ static const struct ssh_request_ops ssh_rtl_flush_request_ops = {
  */
 int ssh_rtl_flush(struct ssh_rtl *rtl, unsigned long timeout)
 {
-	const unsigned init_flags = SSAM_REQUEST_UNSEQUENCED;
+	const unsigned int init_flags = SSAM_REQUEST_UNSEQUENCED;
 	struct ssh_flush_request rqst;
 	int status;
 
@@ -1013,12 +1030,19 @@ void ssh_rtl_shutdown(struct ssh_rtl *rtl)
 	int pending;
 
 	set_bit(SSH_RTL_SF_SHUTDOWN_BIT, &rtl->state);
+	/*
+	 * Ensure that the layer gets marked as shut-down before actually
+	 * stopping it. In combination with the check in ssh_rtl_sunmit, this
+	 * guarantees that no new requests can be added and all already queued
+	 * requests are properly cancelled.
+	 */
 	smp_mb__after_atomic();
 
 	// remove requests from queue
 	spin_lock(&rtl->queue.lock);
 	list_for_each_entry_safe(r, n, &rtl->queue.head, node) {
 		set_bit(SSH_REQUEST_SF_LOCKED_BIT, &r->state);
+		// ensure state never gets zero
 		smp_mb__before_atomic();
 		clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &r->state);
 
@@ -1052,6 +1076,7 @@ void ssh_rtl_shutdown(struct ssh_rtl *rtl)
 		spin_lock(&rtl->pending.lock);
 		list_for_each_entry_safe(r, n, &rtl->pending.head, node) {
 			set_bit(SSH_REQUEST_SF_LOCKED_BIT, &r->state);
+			// ensure state never gets zero
 			smp_mb__before_atomic();
 			clear_bit(SSH_REQUEST_SF_PENDING_BIT, &r->state);
 

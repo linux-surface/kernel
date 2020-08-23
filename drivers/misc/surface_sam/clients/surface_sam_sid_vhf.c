@@ -113,9 +113,9 @@ static int vhf_get_metadata(struct ssam_device *sdev, struct vhf_device_metadata
 	data.rqst.end = 0;
 
 	rqst.target_category = sdev->uid.category;
+	rqst.target_id = sdev->uid.target;
 	rqst.command_id = 0x04;
 	rqst.instance_id = sdev->uid.instance;
-	rqst.channel = sdev->uid.channel;
 	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
 	rqst.length = sizeof(struct surface_sam_sid_vhf_meta_rqst);
 	rqst.payload = (u8 *)&data.rqst;
@@ -147,9 +147,9 @@ static int vhf_get_hid_descriptor(struct ssam_device *sdev, u8 **desc, int *size
 	data.rqst.end = 0;
 
 	rqst.target_category = sdev->uid.category;
+	rqst.target_id = sdev->uid.target;;
 	rqst.command_id = 0x04;
 	rqst.instance_id = sdev->uid.instance;
-	rqst.channel = sdev->uid.channel;;
 	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
 	rqst.length = sizeof(struct surface_sam_sid_vhf_meta_rqst);
 	rqst.payload = (u8 *)&data.rqst;
@@ -257,7 +257,7 @@ static int sid_vhf_hid_raw_request(struct hid_device *hid, unsigned char
 	}
 
 	rqst.target_category = vhf->sdev->uid.category;
-	rqst.channel = vhf->sdev->uid.channel;
+	rqst.target_id = vhf->sdev->uid.target;
 	rqst.instance_id = vhf->sdev->uid.instance;
 	rqst.command_id = cid;
 	rqst.flags = reqtype == HID_REQ_GET_REPORT ? SSAM_REQUEST_HAS_RESPONSE : 0;
@@ -407,7 +407,7 @@ static const struct sid_vhf_properties sid_vhf_default_props = {
 
 static const struct ssam_device_id surface_sam_sid_vhf_match[] = {
 	{
-		SSAM_DEVICE(HID, SSAM_ANY_CHN, SSAM_ANY_IID, 0x00),
+		SSAM_DEVICE(HID, SSAM_ANY_TID, SSAM_ANY_IID, 0x00),
 		.driver_data = (unsigned long)&sid_vhf_default_props
 	},
 	{ },

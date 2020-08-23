@@ -67,7 +67,9 @@ static inline struct device *ssh_rtl_get_device(struct ssh_rtl *rtl)
 
 static inline struct ssh_rtl *ssh_request_rtl(struct ssh_request *rqst)
 {
-	struct ssh_ptl *ptl = READ_ONCE(rqst->packet.ptl);
+	struct ssh_ptl *ptl;
+
+	ptl = READ_ONCE(rqst->packet.ptl);
 	return likely(ptl) ? to_ssh_rtl(ptl, ptl) : NULL;
 }
 

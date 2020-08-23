@@ -13,7 +13,7 @@ static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 	struct ssam_device *sdev = to_ssam_device(dev);
 
 	return snprintf(buf, PAGE_SIZE - 1, "ssam:c%02Xt%02Xi%02xf%02X\n",
-			sdev->uid.category, sdev->uid.channel,
+			sdev->uid.category, sdev->uid.target,
 			sdev->uid.instance, sdev->uid.function);
 }
 static DEVICE_ATTR_RO(modalias);
@@ -29,7 +29,7 @@ static int ssam_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 	struct ssam_device *sdev = to_ssam_device(dev);
 
 	return add_uevent_var(env, "MODALIAS=ssam:c%02Xt%02Xi%02xf%02X",
-			      sdev->uid.category, sdev->uid.channel,
+			      sdev->uid.category, sdev->uid.target,
 			      sdev->uid.instance, sdev->uid.function);
 }
 
@@ -50,6 +50,14 @@ const struct device_type ssam_device_type = {
 EXPORT_SYMBOL_GPL(ssam_device_type);
 
 
+/**
+ * ssam_device_alloc - Allocate and initialize a SSAM client device.
+ * @ctrl: The controller under which the device should be added.
+ * @uid:  The UID of the device to be added.
+ *
+ * This function only creates a new client device. It still has to be added
+ * via ssam_device_add(). Refer to that function for more details.
+ */
 struct ssam_device *ssam_device_alloc(struct ssam_controller *ctrl,
 				      struct ssam_device_uid uid)
 {
@@ -67,16 +75,38 @@ struct ssam_device *ssam_device_alloc(struct ssam_controller *ctrl,
 	sdev->uid = uid;
 
 	dev_set_name(&sdev->dev, "%02x:%02x:%02x:%02x",
-		     sdev->uid.category, sdev->uid.channel, sdev->uid.instance,
+		     sdev->uid.category, sdev->uid.target, sdev->uid.instance,
 		     sdev->uid.function);
 
 	return sdev;
 }
 EXPORT_SYMBOL_GPL(ssam_device_alloc);
 
+/**
+ * ssam_device_add - Add a SSAM client device.
+ * @sdev: The SSAM client device to be added.
+ *
+ * Added client devices must be guaranteed to always have a valid and active
+ * controller. Thus, this function will fail with ``-ENXIO`` if the controller
+ * of the device has not been initialized yet, has been suspended, or has been
+ * shut down.
+ *
+ * The caller of this function should ensure that the corresponding call to
+ * ssam_device_remove is issued before the controller is shut down. If the
+ * added device is a direct child of the controller device (default), it will
+ * be automatically removed when the controller is shut down.
+ *
+ * By default, the controller device will become the parent of the newly
+ * created client device. The parent may be changed before ssam_device_add is
+ * called, but care must be taken that a) the correct suspend/resume ordering
+ * is guaranteed and b) the client device does not oultive the controller,
+ * i.e. that the device is removed before the controller is being shut down.
+ * In case these guarantees have to be manually enforced, please refer to the
+ * ssam_client_link() and ssam_client_bind() functions, which are intended to
+ * set up device-links for this purpose.
+ */
 int ssam_device_add(struct ssam_device *sdev)
 {
-	enum ssam_controller_state state;
 	int status;
 
 	/*
@@ -98,8 +128,7 @@ int ssam_device_add(struct ssam_device *sdev)
 	 */
 	ssam_controller_statelock(sdev->ctrl);
 
-	state = smp_load_acquire(&sdev->ctrl->state);
-	if (state != SSAM_CONTROLLER_STARTED) {
+	if (READ_ONCE(sdev->ctrl->state) != SSAM_CONTROLLER_STARTED) {
 		ssam_controller_stateunlock(sdev->ctrl);
 		return -ENXIO;
 	}
@@ -111,6 +140,12 @@ int ssam_device_add(struct ssam_device *sdev)
 }
 EXPORT_SYMBOL_GPL(ssam_device_add);
 
+/**
+ * ssam_device_remove - Remove a SSAM client device.
+ * @sdev: The device to remove.
+ *
+ * Removes and unregisters the provided SSAM client device.
+ */
 void ssam_device_remove(struct ssam_device *sdev)
 {
 	device_unregister(&sdev->dev);
@@ -118,13 +153,22 @@ void ssam_device_remove(struct ssam_device *sdev)
 EXPORT_SYMBOL_GPL(ssam_device_remove);
 
 
+/**
+ * ssam_device_id_compatible - Check if a device ID matches a UID.
+ * @id:  The device ID as potential match.
+ * @uid: The device UID matching against.
+ *
+ * Check if the given ID is a match for the given UID, i.e. if a device with
+ * the provided UID is compatible to the given ID following the match rules
+ * described in its &ssam_device_id.match_flags member.
+ */
 static inline bool ssam_device_id_compatible(const struct ssam_device_id *id,
 					     struct ssam_device_uid uid)
 {
 	if (id->category != uid.category)
 		return false;
 
-	if ((id->match_flags & SSAM_MATCH_CHANNEL) && id->channel != uid.channel)
+	if ((id->match_flags & SSAM_MATCH_TARGET) && id->target != uid.target)
 		return false;
 
 	if ((id->match_flags & SSAM_MATCH_INSTANCE) && id->instance != uid.instance)
@@ -136,14 +180,31 @@ static inline bool ssam_device_id_compatible(const struct ssam_device_id *id,
 	return true;
 }
 
+/**
+ * ssam_device_id_is_null - Check if a device ID is null.
+ * @id: The device ID to check.
+ *
+ * Check if a given device ID is null, i.e. all zeros. Used to check for the
+ * end of ``MODULE_DEVICE_TABLE(ssam, ...)`` or similar lists.
+ */
 static inline bool ssam_device_id_is_null(const struct ssam_device_id *id)
 {
-	return id->category == 0
-		&& id->channel == 0
+	return id->match_flags == 0
+		&& id->category == 0
+		&& id->target == 0
 		&& id->instance == 0
-		&& id->function == 0;
+		&& id->function == 0
+		&& id->driver_data == 0;
 }
 
+/**
+ * ssam_device_id_match - Find the matching ID table entry for the given UID.
+ * @table: The table to search in.
+ * @uid:   The UID to matched against the individual table entries.
+ *
+ * Find the first match for the provided device UID in the provided ID table
+ * and return it. Returns NULL if no match could be found.
+ */
 const struct ssam_device_id *ssam_device_id_match(
 		const struct ssam_device_id *table,
 		const struct ssam_device_uid uid)
@@ -158,6 +219,19 @@ const struct ssam_device_id *ssam_device_id_match(
 }
 EXPORT_SYMBOL_GPL(ssam_device_id_match);
 
+/**
+ * ssam_device_get_match - Find and return the ID matching the device in the
+ * ID table of the bound driver.
+ * @dev: The device for which to get the matching ID table entry.
+ *
+ * Find the fist match for the UID of the device in the ID table of the
+ * currently bound driver and return it. Returns NULL if the device does not
+ * have a driver bound to it, the driver does not have match_table (i.e. it is
+ * NULL), or there is no match in the driver's match_table.
+ *
+ * This function essentially calls ssam_device_id_match() with the ID table of
+ * the bound device driver and the UID of the device.
+ */
 const struct ssam_device_id *ssam_device_get_match(
 		const struct ssam_device *dev)
 {
@@ -174,6 +248,20 @@ const struct ssam_device_id *ssam_device_get_match(
 }
 EXPORT_SYMBOL_GPL(ssam_device_get_match);
 
+/**
+ * ssam_device_get_match_data - Find the ID matching the device in hte
+ * ID table of the bound driver and return its ``driver_data`` member.
+ * @dev: The device for which to get the match data.
+ *
+ * Find the fist match for the UID of the device in the ID table of the
+ * corresponding driver and return its driver_data. Returns NULL if the device
+ * does not have a driver bound to it, the driver does not have match_table
+ * (i.e. it is NULL), there is no match in the driver's match_table, or the
+ * match does not have any driver_data.
+ *
+ * This function essentially calls ssam_device_get_match() and, if any match
+ * could be found, returns its &ssam_device_id.driver_data member.
+ */
 const void *ssam_device_get_match_data(const struct ssam_device *dev)
 {
 	const struct ssam_device_id *id;
@@ -224,6 +312,14 @@ struct bus_type ssam_bus_type = {
 EXPORT_SYMBOL_GPL(ssam_bus_type);
 
 
+/**
+ * __ssam_device_driver_register - Register a SSAM device driver.
+ * @sdrv:  The driver to register.
+ * @owner: The module owning the provided driver.
+ *
+ * Please refer to the ssam_device_driver_register() macro for the normal way
+ * to register a driver from inside its owning module.
+ */
 int __ssam_device_driver_register(struct ssam_device_driver *sdrv,
 				  struct module *owner)
 {
@@ -231,12 +327,16 @@ int __ssam_device_driver_register(struct ssam_device_driver *sdrv,
 	sdrv->driver.bus = &ssam_bus_type;
 
 	/* force drivers to async probe so I/O is possible in probe */
-        sdrv->driver.probe_type = PROBE_PREFER_ASYNCHRONOUS;
+	sdrv->driver.probe_type = PROBE_PREFER_ASYNCHRONOUS;
 
 	return driver_register(&sdrv->driver);
 }
 EXPORT_SYMBOL_GPL(__ssam_device_driver_register);
 
+/**
+ * ssam_device_driver_unregister - Unregister a SSAM device driver.
+ * @sdrv: The driver to unregister.
+ */
 void ssam_device_driver_unregister(struct ssam_device_driver *sdrv)
 {
 	driver_unregister(&sdrv->driver);
@@ -254,9 +354,20 @@ static int ssam_remove_device(struct device *dev, void *_data)
 	return 0;
 }
 
-/*
- * Controller lock should be held during this call and subsequent
- * de-initialization.
+/**
+ * ssam_controller_remove_clients - Remove SSAM client devices registered as
+ * direct children under the given controller.
+ * @ctrl: The controller to remove all direct clients for.
+ *
+ * Remove all SSAM client devices registered as direct children under the
+ * given controller. Note that this only accounts for direct children ot the
+ * controller device. This does not take care of any client devices where the
+ * parent device has been manually set before calling ssam_device_add. Refer
+ * to ssam_device_add()/ssam_device_remove() for more details on those cases.
+ *
+ * To avoid new devices being added in parallel to this call, the main
+ * controller lock (not statelock) must be held during this (and if
+ * necessary, any subsequent de-initialization) call.
  */
 void ssam_controller_remove_clients(struct ssam_controller *ctrl)
 {
@@ -266,11 +377,18 @@ void ssam_controller_remove_clients(struct ssam_controller *ctrl)
 }
 
 
+/**
+ * ssam_bus_register - Register and set-up the SSAM client device bus.
+ */
 int ssam_bus_register(void)
 {
 	return bus_register(&ssam_bus_type);
 }
 
-void ssam_bus_unregister(void) {
+/**
+ * ssam_bus_unregister - Unregister the SSAM client device bus.
+ */
+void ssam_bus_unregister(void)
+{
 	return bus_unregister(&ssam_bus_type);
 }

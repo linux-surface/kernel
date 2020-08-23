@@ -44,16 +44,16 @@ struct ssam_perf_info {
 
 static SSAM_DEFINE_SYNC_REQUEST_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
 	.target_category = SSAM_SSH_TC_TMP,
+	.target_id       = 0x01,
 	.command_id      = 0x02,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 static SSAM_DEFINE_SYNC_REQUEST_W(__ssam_tmp_perf_mode_set, __le32, {
 	.target_category = SSAM_SSH_TC_TMP,
+	.target_id       = 0x01,
 	.command_id      = 0x03,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 static int ssam_tmp_perf_mode_set(struct ssam_controller *ctrl, u32 mode)
