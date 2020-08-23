@@ -452,7 +452,7 @@ static inline int spwr_notify_adapter_ac(struct spwr_ac_device *ac)
 	if (status > 0)
 		power_supply_changed(ac->psy);
 
-	return status;
+	return status >= 0 ? 0 : status;
 }
 
 static u32 spwr_notify_bat(struct ssam_notifier_block *nb,
@@ -463,10 +463,10 @@ static u32 spwr_notify_bat(struct ssam_notifier_block *nb,
 
 	bat = container_of(nb, struct spwr_battery_device, notif.base);
 
-	dev_dbg(&bat->sdev->dev, "power event (cid = 0x%02x, iid = %d, chn = %d)\n",
-		event->command_id, event->instance_id, event->channel);
+	dev_dbg(&bat->sdev->dev, "power event (cid = 0x%02x, iid = %d, tid = %d)\n",
+		event->command_id, event->instance_id, event->target_id);
 
-	// handled here, needs to be handled for all channels/instances
+	// handled here, needs to be handled for all targets/instances
 	if (event->command_id == SAM_EVENT_PWR_CID_ADAPTER) {
 		status = spwr_notify_adapter_bat(bat);
 		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
@@ -499,16 +499,16 @@ static u32 spwr_notify_ac(struct ssam_notifier_block *nb,
 
 	ac = container_of(nb, struct spwr_ac_device, notif.base);
 
-	dev_dbg(&ac->sdev->dev, "power event (cid = 0x%02x, iid = %d, chn = %d)\n",
-		event->command_id, event->instance_id, event->channel);
+	dev_dbg(&ac->sdev->dev, "power event (cid = 0x%02x, iid = %d, tid = %d)\n",
+		event->command_id, event->instance_id, event->target_id);
 
 	if (event->target_category != ac->sdev->uid.category)
 		return 0;
 
 	/*
-	 * Allow events of all channels/instances here. Global adapter status
-	 * seems to be handled via channel=1 and instance=1, but events are
-	 * reported on all channels/instances in use.
+	 * Allow events of all targets/instances here. Global adapter status
+	 * seems to be handled via target=1 and instance=1, but events are
+	 * reported on all targets/instances in use.
 	 *
 	 * While it should be enough to just listen on 1/1, listen everywhere to
 	 * make sure we don't miss anything.

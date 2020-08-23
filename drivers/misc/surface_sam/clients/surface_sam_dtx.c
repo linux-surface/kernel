@@ -93,37 +93,37 @@ static struct surface_dtx_dev surface_dtx_dev;
 
 static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_lock, {
 	.target_category = SSAM_SSH_TC_BAS,
+	.target_id       = 0x01,
 	.command_id      = 0x06,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_unlock, {
 	.target_category = SSAM_SSH_TC_BAS,
+	.target_id       = 0x01,
 	.command_id      = 0x07,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_request, {
 	.target_category = SSAM_SSH_TC_BAS,
+	.target_id       = 0x01,
 	.command_id      = 0x08,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_open, {
 	.target_category = SSAM_SSH_TC_BAS,
+	.target_id       = 0x01,
 	.command_id      = 0x09,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
 	.target_category = SSAM_SSH_TC_BAS,
+	.target_id       = 0x01,
 	.command_id      = 0x0d,
 	.instance_id     = 0x00,
-	.channel         = 0x01,
 });
 
 

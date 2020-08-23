@@ -62,8 +62,10 @@ struct ssh_frame {
 static_assert(sizeof(struct ssh_frame) == 4);
 
 /*
- * Maximum SSH frame payload length in bytes. This is the physical maximum
- * length of the protocol. Implementations may set a more constrained limit.
+ * SSH_FRAME_MAX_PAYLOAD_SIZE - Maximum SSH frame payload length in bytes.
+ *
+ * This is the physical maximum length of the protocol. Implementations may
+ * set a more constrained limit.
  */
 #define SSH_FRAME_MAX_PAYLOAD_SIZE	U16_MAX
 
@@ -81,9 +83,9 @@ enum ssh_payload_type {
  * @type:    The type of the payload. See &enum ssh_payload_type. Should be
  *           SSH_PLD_TYPE_CMD for this struct.
  * @tc:      Command target category.
- * @chn_out: Output channel. Should be zero if this an incoming (EC to host)
+ * @tid_out: Output target ID. Should be zero if this an incoming (EC to host)
  *           message.
- * @chn_in:  Input channel. Should be zero if this is an outgoing (hos to EC)
+ * @tid_in:  Input target ID. Should be zero if this is an outgoing (hos to EC)
  *           message.
  * @iid:     Instance ID.
  * @rqid:    Request ID. Used to match requests with responses and differentiate
@@ -93,8 +95,8 @@ enum ssh_payload_type {
 struct ssh_command {
 	u8 type;
 	u8 tc;
-	u8 chn_out;
-	u8 chn_in;
+	u8 tid_out;
+	u8 tid_in;
 	u8 iid;
 	__le16 rqid;
 	u8 cid;
@@ -102,9 +104,11 @@ struct ssh_command {
 
 static_assert(sizeof(struct ssh_command) == 8);
 
-/*
- * Maximum SSH command payload length in bytes. This is the physical maximum
- * length of the protocol. Implementations may set a more constrained limit.
+/**
+ * SSH_COMMAND_MAX_PAYLOAD_SIZE - Maximum SSH command payload length in bytes.
+ *
+ * This is the physical maximum length of the protocol. Implementations may
+ * set a more constrained limit.
  */
 #define SSH_COMMAND_MAX_PAYLOAD_SIZE \
 	(SSH_FRAME_MAX_PAYLOAD_SIZE - sizeof(struct ssh_command))
@@ -129,36 +133,51 @@ struct ssh_notification_params {
 static_assert(sizeof(struct ssh_notification_params) == 5);
 
 /**
- * Base-length of a SSH message. This is the minimum number of bytes required
- * to form a message. The actual message length is SSH_MSG_LEN_BASE plus the
- * length of the frame payload.
+ * SSH_MSG_LEN_BASE - Base-length of a SSH message.
+ *
+ * This is the minimum number of bytes required to form a message. The actual
+ * message length is SSH_MSG_LEN_BASE plus the length of the frame payload.
  */
 #define SSH_MSG_LEN_BASE	(sizeof(struct ssh_frame) + 3ull * sizeof(u16))
 
 /**
- * Length of a SSH control message.
+ * SSH_MSG_LEN_CTRL - Length of a SSH control message.
+ *
+ * This is the length of a SSH control message, which is equal to a SSH
+ * message without any payload.
  */
 #define SSH_MSG_LEN_CTRL	SSH_MSG_LEN_BASE
 
 /**
+ * SSH_MESSAGE_LENGTH() - Comute lenght of SSH message.
+ *
  * Length of a SSH message with payload of specified size.
  */
 #define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + payload_size)
 
 /**
+ * SSH_COMMAND_MESSAGE_LENGTH() - Compute length of SSH command message.
+ *
  * Length of a SSH command message with command payload of specified size.
  */
 #define SSH_COMMAND_MESSAGE_LENGTH(payload_size) \
 	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + payload_size)
 
 /**
- * Offset of the specified struct ssh_frame field in the raw SSH message data.
+ * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
+ * frame.
+ *
+ * Offset of the specified &struct ssh_frame field in the raw SSH message data.
  */
 #define SSH_MSGOFFSET_FRAME(field) \
 	(sizeof(u16) + offsetof(struct ssh_frame, field))
 
 /**
- * Offset of the specified struct ssh_command field in the raw SSH message data.
+ * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
+ * command.
+ *
+ * Offset of the specified &struct ssh_command field in the raw SSH message
+ * data.
  */
 #define SSH_MSGOFFSET_COMMAND(field) \
 	(2ull * sizeof(u16) + sizeof(struct ssh_frame) \
@@ -396,9 +415,9 @@ enum ssam_event_flags {
 
 struct ssam_event {
 	u8 target_category;
+	u8 target_id;
 	u8 command_id;
 	u8 instance_id;
-	u8 channel;
 	u16 length;
 	u8 data[0];
 };
@@ -410,9 +429,9 @@ enum ssam_request_flags {
 
 struct ssam_request {
 	u8 target_category;
+	u8 target_id;
 	u8 command_id;
 	u8 instance_id;
-	u8 channel;
 	u16 flags;
 	u16 length;
 	const u8 *payload;
@@ -455,15 +474,35 @@ int ssam_request_sync_alloc(size_t payload_len, gfp_t flags,
 			    struct ssam_request_sync **rqst,
 			    struct ssam_span *buffer);
 
+void ssam_request_sync_free(struct ssam_request_sync *rqst);
+
 void ssam_request_sync_init(struct ssam_request_sync *rqst,
 			    enum ssam_request_flags flags);
 
+/**
+ * ssam_request_sync_set_data - Set message data of a synchronous request.
+ * @rqst: The request.
+ * @ptr:  Pointer to the request message data.
+ * @len:  Length of the request message data.
+ *
+ * Set the request message data of a synchronous request. The provided buffer
+ * needs to live until the request has been completed.
+ */
 static inline void ssam_request_sync_set_data(struct ssam_request_sync *rqst,
 					      u8 *ptr, size_t len)
 {
 	ssh_request_set_data(&rqst->base, ptr, len);
 }
 
+/**
+ * ssam_request_sync_set_resp - Set response buffer of a synchronous request.
+ * @rqst: The request.
+ * @rsp:  The response buffer.
+ *
+ * Sets the response buffer ot a synchronous request. This buffer will store
+ * the response of the request after it has been completed. May be NULL if
+ * no response is expected.
+ */
 static inline void ssam_request_sync_set_resp(struct ssam_request_sync *rqst,
 					      struct ssam_response *resp)
 {
@@ -473,6 +512,19 @@ static inline void ssam_request_sync_set_resp(struct ssam_request_sync *rqst,
 int ssam_request_sync_submit(struct ssam_controller *ctrl,
 			     struct ssam_request_sync *rqst);
 
+/**
+ * ssam_request_sync_wait - Wait for completion of a synchronous request.
+ * @rqst: The request to wait for.
+ *
+ * Wait for completion and release of a synchronous request. After this
+ * function terminates, the request is guaranteed to have left the
+ * transmission system. After successful submission of a request, this
+ * function must be called before accessing the response of the request,
+ * freeing the request, or freeing any of the buffers associated with the
+ * request.
+ *
+ * Returns the status of the request.
+ */
 static inline int ssam_request_sync_wait(struct ssam_request_sync *rqst)
 {
 	wait_for_completion(&rqst->comp);
@@ -488,29 +540,38 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 				  struct ssam_span *buf);
 
 
+/**
+ * ssam_request_sync_onstack - Execute a synchronous request on the stack.
+ * @ctrl: The controller via which the request is submitted.
+ * @rqst: The request specification.
+ * @rsp:  The response buffer.
+ * @payload_len: The (maximum) request payload length.
+ *
+ * Allocates a synchronous request with specified payload length on the stack,
+ * fully intializes it via the provided request specification, submits it, and
+ * finally waits for its completion before returning its status. This helper
+ * macro essentially allocates the request message buffer on the stack and
+ * then calls ssam_request_sync_with_buffer().
+ *
+ * Note: The ``payload_len`` parameter specifies the maximum payload length,
+ * used for buffer allocation. The actual payload length may be smaller.
+ *
+ * Returns the status of the request or any failure during setup.
+ */
 #define ssam_request_sync_onstack(ctrl, rqst, rsp, payload_len)			\
 	({									\
 		u8 __data[SSH_COMMAND_MESSAGE_LENGTH(payload_len)];		\
 		struct ssam_span __buf = { &__data[0], ARRAY_SIZE(__data) };	\
-		int __status;							\
 										\
-		/* ensure input does not overflow buffer */			\
-		if ((rqst)->length <= payload_len) {				\
-			__status = ssam_request_sync_with_buffer(		\
-					ctrl, rqst, rsp, &__buf);		\
-		} else {							\
-			__status = -EINVAL;					\
-		}								\
-										\
-		__status;							\
+		ssam_request_sync_with_buffer(ctrl, rqst, rsp, &__buf);		\
 	})
 
 
 struct ssam_request_spec {
 	u8 target_category;
+	u8 target_id;
 	u8 command_id;
 	u8 instance_id;
-	u8 channel;
 	u8 flags;
 };
 
@@ -527,9 +588,9 @@ struct ssam_request_spec_md {
 		struct ssam_request rqst;					\
 										\
 		rqst.target_category = s.target_category;			\
+		rqst.target_id = s.target_id;					\
 		rqst.command_id = s.command_id;					\
 		rqst.instance_id = s.instance_id;				\
-		rqst.channel = s.channel;					\
 		rqst.flags = s.flags;						\
 		rqst.length = 0;						\
 		rqst.payload = NULL;						\
@@ -544,9 +605,9 @@ struct ssam_request_spec_md {
 		struct ssam_request rqst;					\
 										\
 		rqst.target_category = s.target_category;			\
+		rqst.target_id = s.target_id;					\
 		rqst.command_id = s.command_id;					\
 		rqst.instance_id = s.instance_id;				\
-		rqst.channel = s.channel;					\
 		rqst.flags = s.flags;						\
 		rqst.length = sizeof(wtype);					\
 		rqst.payload = (u8 *)in;					\
@@ -564,9 +625,9 @@ struct ssam_request_spec_md {
 		int status;							\
 										\
 		rqst.target_category = s.target_category;			\
+		rqst.target_id = s.target_id;					\
 		rqst.command_id = s.command_id;					\
 		rqst.instance_id = s.instance_id;				\
-		rqst.channel = s.channel;					\
 		rqst.flags = s.flags | SSAM_REQUEST_HAS_RESPONSE;		\
 		rqst.length = 0;						\
 		rqst.payload = NULL;						\
@@ -581,9 +642,9 @@ struct ssam_request_spec_md {
 										\
 		if (rsp.length != sizeof(rtype)) {				\
 			struct device *dev = ssam_controller_device(ctrl);	\
-			dev_err(dev, "rqst: invalid response length, expected %zu, got %zu" \
-				" (tc: 0x%02x, cid: 0x%02x)", sizeof(rtype),	\
-				rsp.length, rqst.target_category,		\
+			dev_err(dev, "rqst: invalid response length, expected "	\
+				"%zu, got %zu (tc: 0x%02x, cid: 0x%02x)",	\
+				sizeof(rtype), rsp.length, rqst.target_category,\
 				rqst.command_id);				\
 			return -EIO;						\
 		}								\
@@ -592,16 +653,16 @@ struct ssam_request_spec_md {
 	}
 
 #define SSAM_DEFINE_SYNC_REQUEST_MD_W(name, wtype, spec...)			\
-	int name(struct ssam_controller *ctrl, u8 chn, u8 iid, const wtype *in)	\
+	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const wtype *in)	\
 	{									\
 		struct ssam_request_spec_md s					\
 			= (struct ssam_request_spec_md)spec;			\
 		struct ssam_request rqst;					\
 										\
 		rqst.target_category = s.target_category;			\
+		rqst.target_id = tid;						\
 		rqst.command_id = s.command_id;					\
 		rqst.instance_id = iid;						\
-		rqst.channel = chn;						\
 		rqst.flags = s.flags;						\
 		rqst.length = sizeof(wtype);					\
 		rqst.payload = (u8 *)in;					\
@@ -611,7 +672,7 @@ struct ssam_request_spec_md {
 	}
 
 #define SSAM_DEFINE_SYNC_REQUEST_MD_R(name, rtype, spec...)			\
-	int name(struct ssam_controller *ctrl, u8 chn, u8 iid, rtype *out)	\
+	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *out)	\
 	{									\
 		struct ssam_request_spec_md s					\
 			= (struct ssam_request_spec_md)spec;			\
@@ -620,9 +681,9 @@ struct ssam_request_spec_md {
 		int status;							\
 										\
 		rqst.target_category = s.target_category;			\
+		rqst.target_id = tid;						\
 		rqst.command_id = s.command_id;					\
 		rqst.instance_id = iid;						\
-		rqst.channel = chn;						\
 		rqst.flags = s.flags | SSAM_REQUEST_HAS_RESPONSE;		\
 		rqst.length = 0;						\
 		rqst.payload = NULL;						\
@@ -637,9 +698,9 @@ struct ssam_request_spec_md {
 										\
 		if (rsp.length != sizeof(rtype)) {				\
 			struct device *dev = ssam_controller_device(ctrl);	\
-			dev_err(dev, "rqst: invalid response length, expected %zu, got %zu" \
-				" (tc: 0x%02x, cid: 0x%02x)", sizeof(rtype),	\
-				rsp.length, rqst.target_category,		\
+			dev_err(dev, "rqst: invalid response length, expected "	\
+				"%zu, got %zu (tc: 0x%02x, cid: 0x%02x)",	\
+				sizeof(rtype), rsp.length, rqst.target_category,\
 				rqst.command_id);				\
 			return -EIO;						\
 		}								\
@@ -687,7 +748,7 @@ static inline int ssam_notifier_to_errno(u32 ret)
 
 struct ssam_event_registry {
 	u8 target_category;
-	u8 channel;
+	u8 target_id;
 	u8 cid_enable;
 	u8 cid_disable;
 };
@@ -698,10 +759,10 @@ struct ssam_event_id {
 };
 
 
-#define SSAM_EVENT_REGISTRY(tc, chn, cid_en, cid_dis)	\
+#define SSAM_EVENT_REGISTRY(tc, tid, cid_en, cid_dis)	\
 	((struct ssam_event_registry) {			\
 		.target_category = (tc),		\
-		.channel = (chn),			\
+		.target_id = (tid),			\
 		.cid_enable = (cid_en),			\
 		.cid_disable = (cid_dis),		\
 	})
@@ -744,33 +805,34 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 
 struct ssam_device_uid {
 	u8 category;
-	u8 channel;
+	u8 target;
 	u8 instance;
 	u8 function;
 };
 
-#define SSAM_DUID(__cat, __chn, __iid, __fun) 		\
+#define SSAM_DUID(__cat, __tid, __iid, __fun)		\
 	((struct ssam_device_uid) {			\
 		.category = SSAM_SSH_TC_##__cat,	\
-		.channel = (__chn),			\
+		.target = (__tid),			\
 		.instance = (__iid),			\
 		.function = (__fun)			\
 	})
 
 #define SSAM_DUID_NULL		((struct ssam_device_uid) { 0 })
 
-#define SSAM_ANY_CHN		0xffff
+#define SSAM_ANY_TID		0xffff
 #define SSAM_ANY_IID		0xffff
 #define SSAM_ANY_FUN		0xffff
 
-#define SSAM_DEVICE(__cat, __chn, __iid, __fun)					\
-	.match_flags = (((__chn) != SSAM_ANY_CHN) ? SSAM_MATCH_CHANNEL : 0)	\
+#define SSAM_DEVICE(__cat, __tid, __iid, __fun)					\
+	.match_flags = (((__tid) != SSAM_ANY_TID) ? SSAM_MATCH_TARGET : 0)	\
 		     | (((__iid) != SSAM_ANY_IID) ? SSAM_MATCH_INSTANCE : 0)	\
 		     | (((__fun) != SSAM_ANY_FUN) ? SSAM_MATCH_FUNCTION : 0),	\
 	.category = SSAM_SSH_TC_##__cat,					\
-	.channel = ((__chn) != SSAM_ANY_CHN) ? (__chn) : 0,			\
+	.target   = ((__tid) != SSAM_ANY_TID) ? (__tid) : 0,			\
 	.instance = ((__iid) != SSAM_ANY_IID) ? (__iid) : 0,			\
 	.function = ((__fun) != SSAM_ANY_FUN) ? (__fun) : 0			\
+
 
 static inline bool ssam_device_uid_equal(const struct ssam_device_uid u1,
 					 const struct ssam_device_uid u2)
@@ -796,8 +858,8 @@ struct ssam_device_driver {
 
 	const struct ssam_device_id *match_table;
 
-	int  (*probe)(struct ssam_device *);
-	void (*remove)(struct ssam_device *);
+	int  (*probe)(struct ssam_device *sdev);
+	void (*remove)(struct ssam_device *sdev);
 };
 
 extern struct bus_type ssam_bus_type;
@@ -874,7 +936,7 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
 	SSAM_DEFINE_SYNC_REQUEST_MD_W(__raw_##name, wtype, spec)	\
 	int name(struct ssam_device *sdev, const wtype *in)		\
 	{								\
-		return __raw_##name(sdev->ctrl, sdev->uid.channel,	\
+		return __raw_##name(sdev->ctrl, sdev->uid.target,	\
 				    sdev->uid.instance, in);		\
 	}
 
@@ -882,7 +944,7 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
 	SSAM_DEFINE_SYNC_REQUEST_MD_R(__raw_##name, rtype, spec)	\
 	int name(struct ssam_device *sdev, rtype *out)			\
 	{								\
-		return __raw_##name(sdev->ctrl, sdev->uid.channel,	\
+		return __raw_##name(sdev->ctrl, sdev->uid.target,	\
 				    sdev->uid.instance, out);		\
 	}
 
@@ -891,7 +953,7 @@ static inline bool ssam_event_matches_device(struct ssam_device_uid uid,
 					     const struct ssam_event *event)
 {
 	return uid.category == event->target_category
-		&& uid.channel == event->channel
+		&& uid.target == event->target_id
 		&& uid.instance == event->instance_id;
 }
 
