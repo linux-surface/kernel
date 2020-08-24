@@ -34,6 +34,11 @@
 
 static struct mwifiex_if_ops pcie_ops;
 
+static bool enable_device_dump;
+module_param(enable_device_dump, bool, 0644);
+MODULE_PARM_DESC(enable_device_dump,
+		 "enable device_dump (default: disabled)");
+
 static const struct of_device_id mwifiex_pcie_of_match_table[] = {
 	{ .compatible = "pci11ab,2b42" },
 	{ .compatible = "pci1b4b,2b42" },
@@ -2791,6 +2796,12 @@ static void mwifiex_pcie_fw_dump(struct mwifiex_adapter *adapter)
 
 static void mwifiex_pcie_device_dump_work(struct mwifiex_adapter *adapter)
 {
+	if (!enable_device_dump) {
+		mwifiex_dbg(adapter, MSG,
+			    "device_dump is disabled by module parameter\n");
+		return;
+	}
+
 	adapter->devdump_data = vzalloc(MWIFIEX_FW_DUMP_SIZE);
 	if (!adapter->devdump_data) {
 		mwifiex_dbg(adapter, ERROR,
