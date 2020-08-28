@@ -76,6 +76,7 @@ struct ssam_cplt;
  * struct ssam_event_item - Struct for event queuing and completion.
  * @node:     The node in the queue.
  * @rqid:     The request ID of the event.
+ * @ops:      Instance specific functions.
  * @ops.free: Callback for freeing this event item.
  * @event:    Actual event data.
  */
@@ -119,6 +120,7 @@ struct ssam_event_target {
  *                for logging.
  * @wq:           The &struct workqueue_struct on which all completion work
  *                items are queued.
+ * @event:        Event completion management.
  * @event.target: Array of &struct ssam_event_target, one for each target.
  * @event.notif:  Notifier callbacks and event activation reference counting.
  */
@@ -173,8 +175,10 @@ struct ssam_device_caps {
  * @state: Controller state.
  * @rtl:   Request transport layer for SSH I/O.
  * @cplt:  Completion system for SSH/SSAM events and asynchronous requests.
+ * @counter:      Safe SSH message ID counters.
  * @counter.seq:  Sequence ID counter.
  * @counter.rqid: Request ID counter.
+ * @irq:          Wakeup IRQ resources.
  * @irq.num:      The wakeup IRQ number.
  * @irq.wakeup_enabled: Whether wakeup by IRQ is enabled during suspend.
  * @caps: The controller device capabilities.
@@ -211,7 +215,7 @@ struct ssam_controller {
 
 
 /**
- * ssam_controller_receive_buf - Provide input-data to the controller.
+ * ssam_controller_receive_buf() - Provide input-data to the controller.
  * @ctrl: The controller.
  * @buf:  The input buffer.
  * @n:    The number of bytes in the input buffer.
@@ -230,7 +234,7 @@ int ssam_controller_receive_buf(struct ssam_controller *ctrl,
 }
 
 /**
- * ssam_controller_write_wakeup - Notify the controller that the underlying
+ * ssam_controller_write_wakeup() - Notify the controller that the underlying
  * device has space avaliable for data to be written.
  * @ctrl: The controller.
  */
@@ -245,8 +249,13 @@ int ssam_controller_start(struct ssam_controller *ctrl);
 void ssam_controller_shutdown(struct ssam_controller *ctrl);
 void ssam_controller_destroy(struct ssam_controller *ctrl);
 
+int ssam_notifier_disable_registered(struct ssam_controller *ctrl);
+void ssam_notifier_restore_registered(struct ssam_controller *ctrl);
+
 int ssam_irq_setup(struct ssam_controller *ctrl);
 void ssam_irq_free(struct ssam_controller *ctrl);
+int ssam_irq_arm_for_wakeup(struct ssam_controller *ctrl);
+void ssam_irq_disarm_wakeup(struct ssam_controller *ctrl);
 
 void ssam_controller_lock(struct ssam_controller *c);
 void ssam_controller_unlock(struct ssam_controller *c);

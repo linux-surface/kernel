@@ -27,17 +27,24 @@
 
 /**
  * enum ssh_frame_type - Frame types for SSH frames.
- * @SSH_FRAME_TYPE_DATA_SEQ: Indicates a data frame, followed by a payload with
- *                      the length specified in the ssh_frame.len field. This
- *                      frame is sequenced, meaning that an ACK is required.
- * @SSH_FRAME_TYPE_DATA_NSQ: Same as SSH_FRAME_TYPE_DATA_SEQ, but unsequenced,
- *                      meaning that the message does not have to be ACKed.
- * @SSH_FRAME_TYPE_ACK: Indicates an ACK message.
- * @SSH_FRAME_TYPE_NAK: Indicates an error response for previously sent
- *                      frame. In general, this means that the frame and/or
- *                      payload is malformed, e.g. a CRC is wrong. For command-
- *                      type payloads, this can also mean that the command is
- *                      invalid.
+ *
+ * @SSH_FRAME_TYPE_DATA_SEQ:
+ *	Indicates a data frame, followed by a payload with the length specified
+ *	in the ssh_frame.len field. This frame is sequenced, meaning that an ACK
+ *	is required.
+ *
+ * @SSH_FRAME_TYPE_DATA_NSQ:
+ *	Same as %SSH_FRAME_TYPE_DATA_SEQ, but unsequenced, meaning that the
+ *	message does not have to be ACKed.
+ *
+ * @SSH_FRAME_TYPE_ACK:
+ *	Indicates an ACK message.
+ *
+ * @SSH_FRAME_TYPE_NAK:
+ *	Indicates an error response for previously sent frame. In general, this
+ *	means that the frame and/or payload is malformed, e.g. a CRC is wrong.
+ *	For command-type payloads, this can also mean that the command is
+ *	invalid.
  */
 enum ssh_frame_type {
 	SSH_FRAME_TYPE_DATA_SEQ = 0x80,
@@ -85,8 +92,8 @@ enum ssh_payload_type {
  * @tc:      Command target category.
  * @tid_out: Output target ID. Should be zero if this an incoming (EC to host)
  *           message.
- * @tid_in:  Input target ID. Should be zero if this is an outgoing (hos to EC)
- *           message.
+ * @tid_in:  Input target ID. Should be zero if this is an outgoing (host to
+ *           EC) message.
  * @iid:     Instance ID.
  * @rqid:    Request ID. Used to match requests with responses and differentiate
  *           between responses and events.
@@ -104,7 +111,7 @@ struct ssh_command {
 
 static_assert(sizeof(struct ssh_command) == 8);
 
-/**
+/*
  * SSH_COMMAND_MAX_PAYLOAD_SIZE - Maximum SSH command payload length in bytes.
  *
  * This is the physical maximum length of the protocol. Implementations may
@@ -132,7 +139,7 @@ struct ssh_notification_params {
 
 static_assert(sizeof(struct ssh_notification_params) == 5);
 
-/**
+/*
  * SSH_MSG_LEN_BASE - Base-length of a SSH message.
  *
  * This is the minimum number of bytes required to form a message. The actual
@@ -140,7 +147,7 @@ static_assert(sizeof(struct ssh_notification_params) == 5);
  */
 #define SSH_MSG_LEN_BASE	(sizeof(struct ssh_frame) + 3ull * sizeof(u16))
 
-/**
+/*
  * SSH_MSG_LEN_CTRL - Length of a SSH control message.
  *
  * This is the length of a SSH control message, which is equal to a SSH
@@ -150,15 +157,18 @@ static_assert(sizeof(struct ssh_notification_params) == 5);
 
 /**
  * SSH_MESSAGE_LENGTH() - Comute lenght of SSH message.
+ * @payload_size: Length of the payload inside the SSH frame.
  *
- * Length of a SSH message with payload of specified size.
+ * Return: Returns the length of a SSH message with payload of specified size.
  */
 #define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + payload_size)
 
 /**
  * SSH_COMMAND_MESSAGE_LENGTH() - Compute length of SSH command message.
+ * @payload_size: Length of the command payload.
  *
- * Length of a SSH command message with command payload of specified size.
+ * Return: Returns the length of a SSH command message with command payload of
+ * specified size.
  */
 #define SSH_COMMAND_MESSAGE_LENGTH(payload_size) \
 	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + payload_size)
@@ -166,8 +176,10 @@ static_assert(sizeof(struct ssh_notification_params) == 5);
 /**
  * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
  * frame.
+ * @field: The field for which the offset should be computed.
  *
- * Offset of the specified &struct ssh_frame field in the raw SSH message data.
+ * Return: Returns the offset of the specified &struct ssh_frame field in the
+ * raw SSH message data as.
  */
 #define SSH_MSGOFFSET_FRAME(field) \
 	(sizeof(u16) + offsetof(struct ssh_frame, field))
@@ -175,18 +187,19 @@ static_assert(sizeof(struct ssh_notification_params) == 5);
 /**
  * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
  * command.
+ * @field: The field for which the offset should be computed.
  *
- * Offset of the specified &struct ssh_command field in the raw SSH message
- * data.
+ * Return: Returns the offset of the specified &struct ssh_command field in
+ * the raw SSH message data.
  */
 #define SSH_MSGOFFSET_COMMAND(field) \
 	(2ull * sizeof(u16) + sizeof(struct ssh_frame) \
 		+ offsetof(struct ssh_command, field))
 
 /**
- * struct ssam_span - reference to a buffer region
- * @ptr: pointer to the buffer region
- * @len: length of the buffer region
+ * struct ssam_span - Reference to a buffer region.
+ * @ptr: Pointer to the buffer region.
+ * @len: Length of the buffer region.
  *
  * A reference to a (non-owned) buffer segment, consisting of pointer and
  * length. Use of this struct indicates non-owned data, i.e. data of which the
@@ -200,6 +213,13 @@ struct ssam_span {
 
 /* -- Packet transport layer (ptl). ----------------------------------------- */
 
+/**
+ * enum ssh_packet_priority - Base priorities for &struct ssh_packet.
+ * @SSH_PACKET_PRIORITY_FLUSH: Base priority for flush packets.
+ * @SSH_PACKET_PRIORITY_DATA:  Base priority for normal data paackets.
+ * @SSH_PACKET_PRIORITY_NAK:   Base priority for NAK packets.
+ * @SSH_PACKET_PRIORITY_ACK:   Base priority for ACK packets.
+ */
 enum ssh_packet_priority {
 	SSH_PACKET_PRIORITY_FLUSH = 0,
 	SSH_PACKET_PRIORITY_DATA  = 0,
@@ -207,13 +227,36 @@ enum ssh_packet_priority {
 	SSH_PACKET_PRIORITY_ACK   = 2 << 4,
 };
 
+/**
+ * SSH_PACKET_PRIORITY() - Compute packet priority from base priority and
+ * number of tries.
+ * @base: The base priority as suffix of &enum ssh_packet_priority, e.g.
+ *        ``FLUSH``, ``DATA``, ``ACK``, or ``NAK``.
+ * @try:  The number of tries (must be less than 16).
+ *
+ * Compute the combined packet priority. The combined priority is dominated by
+ * the base priority, whereas the number of (re-)tries decides the precedence
+ * of packets with the same base priority, giving higher priority to packets
+ * that already have more tries.
+ *
+ * Return: Returns the computed priority as value fitting inside a &u8. A
+ * higher number means a higher priority.
+ */
 #define SSH_PACKET_PRIORITY(base, try) \
 	((SSH_PACKET_PRIORITY_##base) | ((try) & 0x0f))
 
+/**
+ * ssh_packet_priority_get_try() - Get number of tries from packet priority.
+ * @p: The packet priority.
+ *
+ * Return: Returns the number of tries encoded in the specified packet
+ * priority.
+ */
 #define ssh_packet_priority_get_try(p) ((p) & 0x0f)
 
 
 enum ssh_packet_flags {
+	/* state flags */
 	SSH_PACKET_SF_LOCKED_BIT,
 	SSH_PACKET_SF_QUEUED_BIT,
 	SSH_PACKET_SF_PENDING_BIT,
@@ -223,10 +266,12 @@ enum ssh_packet_flags {
 	SSH_PACKET_SF_CANCELED_BIT,
 	SSH_PACKET_SF_COMPLETED_BIT,
 
+	/* type flags */
 	SSH_PACKET_TY_FLUSH_BIT,
 	SSH_PACKET_TY_SEQUENCED_BIT,
 	SSH_PACKET_TY_BLOCKING_BIT,
 
+	/* mask for state flags */
 	SSH_PACKET_FLAGS_SF_MASK =
 		  BIT(SSH_PACKET_SF_LOCKED_BIT)
 		| BIT(SSH_PACKET_SF_QUEUED_BIT)
@@ -237,6 +282,7 @@ enum ssh_packet_flags {
 		| BIT(SSH_PACKET_SF_CANCELED_BIT)
 		| BIT(SSH_PACKET_SF_COMPLETED_BIT),
 
+	/* mask for type flags */
 	SSH_PACKET_FLAGS_TY_MASK =
 		  BIT(SSH_PACKET_TY_FLUSH_BIT)
 		| BIT(SSH_PACKET_TY_SEQUENCED_BIT)
@@ -406,7 +452,7 @@ enum ssam_ssh_tc {
 struct ssam_controller;
 
 /**
- * struct ssam_event_flags - Flags for enabling/disabling SAM-over-SSH events
+ * enum ssam_event_flags - Flags for enabling/disabling SAM-over-SSH events
  * @SSAM_EVENT_SEQUENCED: The event will be sent via a sequenced data frame.
  */
 enum ssam_event_flags {
@@ -497,10 +543,10 @@ static inline void ssam_request_sync_set_data(struct ssam_request_sync *rqst,
 /**
  * ssam_request_sync_set_resp - Set response buffer of a synchronous request.
  * @rqst: The request.
- * @rsp:  The response buffer.
+ * @resp: The response buffer.
  *
  * Sets the response buffer ot a synchronous request. This buffer will store
- * the response of the request after it has been completed. May be NULL if
+ * the response of the request after it has been completed. May be %NULL if
  * no response is expected.
  */
 static inline void ssam_request_sync_set_resp(struct ssam_request_sync *rqst,
@@ -553,8 +599,8 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
  * macro essentially allocates the request message buffer on the stack and
  * then calls ssam_request_sync_with_buffer().
  *
- * Note: The ``payload_len`` parameter specifies the maximum payload length,
- * used for buffer allocation. The actual payload length may be smaller.
+ * Note: The @payload_len parameter specifies the maximum payload length, used
+ * for buffer allocation. The actual payload length may be smaller.
  *
  * Returns the status of the request or any failure during setup.
  */
