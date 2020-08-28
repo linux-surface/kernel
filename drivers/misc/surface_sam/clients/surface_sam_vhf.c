@@ -178,6 +178,75 @@ static u32 vhf_event_handler(struct ssam_notifier_block *nb, const struct ssam_e
 	return 0;
 }
 
+
+#ifdef CONFIG_PM
+
+static int surface_sam_vhf_suspend(struct device *dev)
+{
+	struct vhf_drvdata *d = dev_get_drvdata(dev);
+
+	if (d->hid->driver && d->hid->driver->suspend)
+		return d->hid->driver->suspend(d->hid, PMSG_SUSPEND);
+
+	return 0;
+}
+
+static int surface_sam_vhf_resume(struct device *dev)
+{
+	struct vhf_drvdata *d = dev_get_drvdata(dev);
+
+	if (d->hid->driver && d->hid->driver->resume)
+		return d->hid->driver->resume(d->hid);
+
+	return 0;
+}
+
+static int surface_sam_vhf_freeze(struct device *dev)
+{
+	struct vhf_drvdata *d = dev_get_drvdata(dev);
+
+	if (d->hid->driver && d->hid->driver->suspend)
+		return d->hid->driver->suspend(d->hid, PMSG_FREEZE);
+
+	return 0;
+}
+
+static int surface_sam_vhf_poweroff(struct device *dev)
+{
+	struct vhf_drvdata *d = dev_get_drvdata(dev);
+
+	if (d->hid->driver && d->hid->driver->suspend)
+		return d->hid->driver->suspend(d->hid, PMSG_HIBERNATE);
+
+	return 0;
+}
+
+static int surface_sam_vhf_restore(struct device *dev)
+{
+	struct vhf_drvdata *d = dev_get_drvdata(dev);
+
+	if (d->hid->driver && d->hid->driver->reset_resume)
+		return d->hid->driver->reset_resume(d->hid);
+
+	return 0;
+}
+
+struct dev_pm_ops surface_sam_vhf_pm_ops = {
+	.freeze   = surface_sam_vhf_freeze,
+	.thaw     = surface_sam_vhf_resume,
+	.suspend  = surface_sam_vhf_suspend,
+	.resume   = surface_sam_vhf_resume,
+	.poweroff = surface_sam_vhf_poweroff,
+	.restore  = surface_sam_vhf_restore,
+};
+
+#else /* CONFIG_PM */
+
+struct dev_pm_ops surface_sam_vhf_pm_ops = { };
+
+#endif /* CONFIG_PM */
+
+
 static int surface_sam_vhf_probe(struct platform_device *pdev)
 {
 	struct ssam_controller *ctrl;
@@ -256,6 +325,7 @@ static struct platform_driver surface_sam_vhf = {
 	.driver = {
 		.name = "surface_sam_vhf",
 		.acpi_match_table = surface_sam_vhf_match,
+		.pm = &surface_sam_vhf_pm_ops,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };

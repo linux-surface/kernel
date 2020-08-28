@@ -332,6 +332,75 @@ static u32 sid_vhf_event_handler(struct ssam_notifier_block *nb, const struct ss
 	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 }
 
+
+#ifdef CONFIG_PM
+
+static int surface_sam_sid_vhf_suspend(struct device *dev)
+{
+	struct sid_vhf *vhf = dev_get_drvdata(dev);
+
+	if (vhf->hid->driver && vhf->hid->driver->suspend)
+		return vhf->hid->driver->suspend(vhf->hid, PMSG_SUSPEND);
+
+	return 0;
+}
+
+static int surface_sam_sid_vhf_resume(struct device *dev)
+{
+	struct sid_vhf *vhf = dev_get_drvdata(dev);
+
+	if (vhf->hid->driver && vhf->hid->driver->resume)
+		return vhf->hid->driver->resume(vhf->hid);
+
+	return 0;
+}
+
+static int surface_sam_sid_vhf_freeze(struct device *dev)
+{
+	struct sid_vhf *vhf = dev_get_drvdata(dev);
+
+	if (vhf->hid->driver && vhf->hid->driver->suspend)
+		return vhf->hid->driver->suspend(vhf->hid, PMSG_FREEZE);
+
+	return 0;
+}
+
+static int surface_sam_sid_vhf_poweroff(struct device *dev)
+{
+	struct sid_vhf *vhf = dev_get_drvdata(dev);
+
+	if (vhf->hid->driver && vhf->hid->driver->suspend)
+		return vhf->hid->driver->suspend(vhf->hid, PMSG_HIBERNATE);
+
+	return 0;
+}
+
+static int surface_sam_sid_vhf_restore(struct device *dev)
+{
+	struct sid_vhf *vhf = dev_get_drvdata(dev);
+
+	if (vhf->hid->driver && vhf->hid->driver->reset_resume)
+		return vhf->hid->driver->reset_resume(vhf->hid);
+
+	return 0;
+}
+
+struct dev_pm_ops surface_sam_sid_vhf_pm_ops = {
+	.freeze   = surface_sam_sid_vhf_freeze,
+	.thaw     = surface_sam_sid_vhf_resume,
+	.suspend  = surface_sam_sid_vhf_suspend,
+	.resume   = surface_sam_sid_vhf_resume,
+	.poweroff = surface_sam_sid_vhf_poweroff,
+	.restore  = surface_sam_sid_vhf_restore,
+};
+
+#else /* CONFIG_PM */
+
+struct dev_pm_ops surface_sam_sid_vhf_pm_ops = { };
+
+#endif /* CONFIG_PM */
+
+
 static int surface_sam_sid_vhf_probe(struct ssam_device *sdev)
 {
 	const struct sid_vhf_properties *p;
@@ -420,6 +489,7 @@ static struct ssam_device_driver surface_sam_sid_vhf = {
 	.match_table = surface_sam_sid_vhf_match,
 	.driver = {
 		.name = "surface_sam_sid_vhf",
+		.pm = &surface_sam_sid_vhf_pm_ops,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };

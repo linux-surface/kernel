@@ -26,7 +26,8 @@
 #ifdef CONFIG_SURFACE_SAM_SSH_ERROR_INJECTION
 
 /**
- * ssh_rtl_should_drop_response - error injection hook to drop request responses
+ * ssh_rtl_should_drop_response() - Error injection hook to drop request
+ * responses.
  *
  * Useful to cause request transmission timeouts in the driver by dropping the
  * response to a request.
@@ -964,7 +965,7 @@ static const struct ssh_request_ops ssh_rtl_flush_request_ops = {
 };
 
 /**
- * ssh_rtl_flush - flush the request transmission layer
+ * ssh_rtl_flush() - Flush the request transmission layer.
  * @rtl:     request transmission layer
  * @timeout: timeout for the flush operation in jiffies
  *
@@ -983,13 +984,13 @@ static const struct ssh_request_ops ssh_rtl_flush_request_ops = {
  * this function, the request transmission layer is guaranteed to have no
  * remaining requests when this call returns. The same guarantee does not hold
  * for the packet layer, on which control packets may still be queued after
- * this call. See the documentation of ssh_ptl_flush for more details on
- * packet layer flushing.
+ * this call.
  *
- * Return: Zero on success, -ETIMEDOUT if the flush timed out and has been
- * canceled as a result of the timeout, or -ESHUTDOWN if the packet and/or
- * request transmission layer has been shut down before this call. May also
- * return -EINTR if the underlying packet transmission has been interrupted.
+ * Return: Returns zero on success, %-ETIMEDOUT if the flush timed out and has
+ * been canceled as a result of the timeout, or %-ESHUTDOWN if the packet
+ * and/or request transmission layer has been shut down before this call. May
+ * also return %-EINTR if the underlying packet transmission has been
+ * interrupted.
  */
 int ssh_rtl_flush(struct ssh_rtl *rtl, unsigned long timeout)
 {

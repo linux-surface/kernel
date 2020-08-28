@@ -6,6 +6,16 @@
 #include "ssh_protocol.h"
 
 
+/**
+ * sshp_validate_crc() - Validate a CRC in raw message data.
+ * @src: The span of data over which the CRC should be computed.
+ * @crc: The pointer to the expected u16 CRC value.
+ *
+ * Computes the CRC of the provided data span (@src), compares it to the CRC
+ * stored at the given address (@crc), and returns the result of this
+ * comparison, i.e. true iff equal. This function is intended to run on raw
+ * input/message data.
+ */
 static inline bool sshp_validate_crc(const struct ssam_span *src, const u8 *crc)
 {
 	u16 actual = ssh_crc(src->ptr, src->len);
@@ -14,11 +24,35 @@ static inline bool sshp_validate_crc(const struct ssam_span *src, const u8 *crc)
 	return actual == expected;
 }
 
+/**
+ * sshp_starts_with_syn() - Check if the given data starts with SSH SYN bytes.
+ * @src: The data span to check the start of.
+ */
 static inline bool sshp_starts_with_syn(const struct ssam_span *src)
 {
 	return src->len >= 2 && get_unaligned_le16(src->ptr) == SSH_MSG_SYN;
 }
 
+/**
+ * sshp_find_syn() - Find SSH SYN bytes in the given data span.
+ * @src: The data span to search in.
+ * @rem: The span (output) indicating the remaining data, starting with SSH
+ *       SYN bytes, if found.
+ *
+ * Search for SSH SYN bytes in the given source span. If found, set the @rem
+ * span to the remaining data, starting with the first SYN bytes and capped by
+ * the source span length, and return ``true``. This function does not copy
+ * any data, but rather only sets pointers to the respecitve start addresses
+ * and length values.
+ *
+ * If no SSH SYN bytes could be found, set the @rem span to the zero-length
+ * span at the end of the source span and return false.
+ *
+ * If partial SSH SYN bytes could be found at the end of the source span, set
+ * the @rem span to cover these partial SYN bytes, capped by the end of the
+ * source span, and return false. This function should then be re-run once
+ * more data is available.
+ */
 bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
 {
 	size_t i;
@@ -42,6 +76,31 @@ bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
 	return false;
 }
 
+/**
+ * sshp_parse_frame() - Parse SSH frame.
+ * @dev: The device used for logging.
+ * @source: The source to parse from.
+ * @frame: The parsed frame (output).
+ * @payload: The parsed payload (output).
+ * @maxlen: The maximum supported message length.
+ *
+ * Parses and validates a SSH frame, including its payload, from the given
+ * source. Sets the provided @frame pointer to the start of the frame and
+ * writes the limits of the frame payload to the provided @payload span
+ * pointer.
+ *
+ * This function does not copy any data, but rather only validates the message
+ * data and sets pointers (and length values) to indicate the respective parts.
+ *
+ * If no complete SSH frame could be found, the frame pointer will be set to
+ * the %NULL pointer and the payload span will be set to the null span (start
+ * pointer %NULL, size zero).
+ *
+ * Return: Returns zero on success or if the frame is incomplete, %-ENOMSG if
+ * the start of the message is invalid, %-EBADMSG if any (frame-header or
+ * payload) CRC is ivnalid, or %-EMSGSIZE if the SSH message is bigger than
+ * the maximum message length specified in the @maxlen parameter.
+ */
 int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 		     struct ssh_frame **frame, struct ssam_span *payload,
 		     size_t maxlen)
@@ -76,7 +135,8 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 	}
 
 	// ensure packet does not exceed maximum length
-	if (unlikely(((struct ssh_frame *)sf.ptr)->len > maxlen)) {
+	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
+	if (unlikely(sp.len + SSH_MESSAGE_LENGTH(0) > maxlen)) {
 		dev_warn(dev, "rx: parser: frame too large: %u bytes\n",
 			 ((struct ssh_frame *)sf.ptr)->len);
 		return -EMSGSIZE;
@@ -84,7 +144,6 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 
 	// pin down payload
 	sp.ptr = sf.ptr + sf.len + sizeof(u16);
-	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
 
 	// check for frame + payload length
 	if (source->len < SSH_MESSAGE_LENGTH(sp.len)) {
@@ -107,6 +166,30 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 	return 0;
 }
 
+/**
+ * sshp_parse_command() - Parse SSH command frame payload.
+ * @dev: The device used for logging.
+ * @source: The source to parse from.
+ * @command: The parsed command (output).
+ * @command_data: The parsed command data/payload (output).
+ *
+ * Parses and validates a SSH command frame payload. Sets the @command pointer
+ * to the command header and the @command_data span to the command data (i.e.
+ * payload of the command). This will result in a zero-length span if the
+ * command does not have any associated data/payload. This function does not
+ * check the frame-payload-type field, which should be checked by the caller
+ * before calling this function.
+ *
+ * The @source parameter should be the complete frame payload, e.g. returned
+ * by the sshp_parse_frame() command.
+ *
+ * This function does not copy any data, but rather only validates the frame
+ * payload data and sets pointers (and length values) to indicate the
+ * respective parts.
+ *
+ * Return: Returns zero on success or %-ENOMSG if @source does not represent a
+ * valid command-type frame payload, i.e. is too short.
+ */
 int sshp_parse_command(const struct device *dev, const struct ssam_span *source,
 		       struct ssh_command **command,
 		       struct ssam_span *command_data)
