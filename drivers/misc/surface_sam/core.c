@@ -22,6 +22,203 @@
 #include "ssam_trace.h"
 
 
+/* -- Static controller reference. ------------------------------------------ */
+
+/*
+ * Main controller reference. The corresponding lock must be held while
+ * accessing (reading/writing) the reference.
+ */
+static struct ssam_controller *__ssam_controller;
+static DEFINE_SPINLOCK(__ssam_controller_lock);
+
+/**
+ * ssam_get_controller() - Get reference to SSAM controller.
+ *
+ * Returns a reference to the SSAM controller of the system or %NULL if there
+ * is none, it hasn't been set up yet, or it has already been unregistered.
+ * This function automatically increments the reference count of the
+ * controller, thus the calling party must ensure that ssam_controller_put()
+ * is called when it doesn't need the controller any more.
+ */
+struct ssam_controller *ssam_get_controller(void)
+{
+	struct ssam_controller *ctrl;
+
+	spin_lock(&__ssam_controller_lock);
+
+	ctrl = __ssam_controller;
+	if (!ctrl)
+		goto out;
+
+	if (WARN_ON(!kref_get_unless_zero(&ctrl->kref)))
+		ctrl = NULL;
+
+out:
+	spin_unlock(&__ssam_controller_lock);
+	return ctrl;
+}
+EXPORT_SYMBOL_GPL(ssam_get_controller);
+
+/**
+ * ssam_try_set_controller() - Try to set the main controller reference.
+ * @ctrl: The controller to which the reference should point.
+ *
+ * Set the main controller reference to the given pointer if the reference
+ * hasn't been set already.
+ *
+ * Return: Returns zero on success or %-EBUSY if the reference has already
+ * been set.
+ */
+static int ssam_try_set_controller(struct ssam_controller *ctrl)
+{
+	int status = 0;
+
+	spin_lock(&__ssam_controller_lock);
+	if (!__ssam_controller)
+		__ssam_controller = ctrl;
+	else
+		status = -EBUSY;
+	spin_unlock(&__ssam_controller_lock);
+
+	return status;
+}
+
+/**
+ * ssam_clear_controller() - Remove/clear the main controller reference.
+ *
+ * Clears the main controller reference, i.e. sets it to %NULL. This function
+ * should be called before the controller is shut down.
+ */
+static void ssam_clear_controller(void)
+{
+	spin_lock(&__ssam_controller_lock);
+	__ssam_controller = NULL;
+	spin_unlock(&__ssam_controller_lock);
+}
+
+
+/**
+ * ssam_client_link() - Link an arbitrary client device to the controller.
+ * @c: The controller to link to.
+ * @client: The client device.
+ *
+ * Link an arbitrary client device to the controller by creating a device link
+ * between it as consumer and the controller device as provider. This function
+ * can be used for non-SSAM devices (or SSAM devices not registered as child
+ * under the controller) to guarantee that the controller is valid for as long
+ * as the driver of the client device is bound, and that proper suspend and
+ * resume ordering is guaranteed.
+ *
+ * The device link does not have to be destructed manually. It is removed
+ * automatically once the driver of the client device unbinds.
+ *
+ * Return: Returns zero on success, %-ENXIO if the controller is not ready or
+ * going to be removed soon, or %-ENOMEM if the device link could not be
+ * created for other reasons.
+ */
+int ssam_client_link(struct ssam_controller *c, struct device *client)
+{
+	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
+	struct device_link *link;
+	struct device *ctrldev;
+
+	ssam_controller_statelock(c);
+
+	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED) {
+		ssam_controller_stateunlock(c);
+		return -ENXIO;
+	}
+
+	ctrldev = ssam_controller_device(c);
+	if (!ctrldev) {
+		ssam_controller_stateunlock(c);
+		return -ENXIO;
+	}
+
+	link = device_link_add(client, ctrldev, flags);
+	if (!link) {
+		ssam_controller_stateunlock(c);
+		return -ENOMEM;
+	}
+
+	/*
+	 * Return -ENXIO if supplier driver is on its way to be removed. In this
+	 * case, the controller won't be around for much longer and the device
+	 * link is not going to save us any more, as unbinding is already in
+	 * progress.
+	 */
+	if (link->status == DL_STATE_SUPPLIER_UNBIND) {
+		ssam_controller_stateunlock(c);
+		return -ENXIO;
+	}
+
+	ssam_controller_stateunlock(c);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(ssam_client_link);
+
+/**
+ * ssam_client_bind() - Bind an arbitrary client device to the controller.
+ * @client: The client device.
+ * @ctrl: A pointer to where the controller reference should be returned.
+ *
+ * Link an arbitrary client device to the controller by creating a device link
+ * between it as consumer and the main controller device as provider. This
+ * function can be used for non-SSAM devices to guarantee that the controller
+ * returned by this function is valid for as long as the driver of the client
+ * device is bound, and that proper suspend and resume ordering is guaranteed.
+ *
+ * This function does essentially the same as ssam_client_link(), except that
+ * it first fetches the main controller reference, then creates the link, and
+ * finally returns this reference in the @ctrl parameter. Note that this
+ * function does not increment the reference counter of the controller, as,
+ * due to the link, the controller lifetime is assured as long as the driver
+ * of the client device is bound.
+ *
+ * It is not valid to use the controller reference obtained by this method
+ * outside of the driver bound to the client device at the time of calling
+ * this function, without first incrementing the reference count of the
+ * controller via ssam_controller_get(). Even after doing this, care must be
+ * taken that requests are only submitted and notifiers are only
+ * (un-)registered when the controller is active and not suspended. In other
+ * words: The device link only lives as long as the client driver is bound and
+ * any guarantees enforced by this link (e.g. active controller state) can
+ * only be relied upon as long as this link exists and may need to be enforced
+ * in other ways afterwards.
+ *
+ * The created device link does not have to be destructed manually. It is
+ * removed automatically once the driver of the client device unbinds.
+ *
+ * Return: Returns zero on success, %-ENXIO if the controller is not present,
+ * not ready or going to be removed soon, or %-ENOMEM if the device link could
+ * not be created for other reasons.
+ */
+int ssam_client_bind(struct device *client, struct ssam_controller **ctrl)
+{
+	struct ssam_controller *c;
+	int status;
+
+	c = ssam_get_controller();
+	if (!c)
+		return -ENXIO;
+
+	status = ssam_client_link(c, client);
+
+	/*
+	 * Note that we can drop our controller reference in both success and
+	 * failure cases: On success, we have bound the controller lifetime
+	 * inherently to the client driver lifetime, i.e. it the controller is
+	 * now guaranteed to outlive the client driver. On failure, we're not
+	 * going to use the controller any more.
+	 */
+	ssam_controller_put(c);
+
+	*ctrl = status == 0 ? c : NULL;
+	return status;
+}
+EXPORT_SYMBOL_GPL(ssam_client_bind);
+
+
 /* -- Glue layer (serdev_device -> ssam_controller). ------------------------ */
 
 static int ssam_receive_buf(struct serdev_device *dev, const unsigned char *buf,
@@ -113,7 +310,7 @@ static acpi_status ssam_serdev_setup_via_acpi(acpi_handle handle,
 
 /* -- Power management. ----------------------------------------------------- */
 
-static void surface_sam_ssh_shutdown(struct device *dev)
+static void ssam_serial_hub_shutdown(struct device *dev)
 {
 	struct ssam_controller *c = dev_get_drvdata(dev);
 	int status;
@@ -134,7 +331,7 @@ static void surface_sam_ssh_shutdown(struct device *dev)
 		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
 }
 
-static int surface_sam_ssh_suspend(struct device *dev)
+static int ssam_serial_hub_suspend(struct device *dev)
 {
 	struct ssam_controller *c = dev_get_drvdata(dev);
 	int status;
@@ -160,17 +357,9 @@ static int surface_sam_ssh_suspend(struct device *dev)
 		goto err_notif;
 	}
 
-	if (device_may_wakeup(dev)) {
-		status = enable_irq_wake(c->irq.num);
-		if (status) {
-			ssam_err(c, "failed to disable wake IRQ: %d\n", status);
-			goto err_irq;
-		}
-
-		c->irq.wakeup_enabled = true;
-	} else {
-		c->irq.wakeup_enabled = false;
-	}
+	status = ssam_irq_arm_for_wakeup(c);
+	if (status)
+		goto err_irq;
 
 	WARN_ON(ssam_controller_suspend(c));
 	return 0;
@@ -182,7 +371,7 @@ err_notif:
 	return status;
 }
 
-static int surface_sam_ssh_resume(struct device *dev)
+static int ssam_serial_hub_resume(struct device *dev)
 {
 	struct ssam_controller *c = dev_get_drvdata(dev);
 	int status;
@@ -199,140 +388,158 @@ static int surface_sam_ssh_resume(struct device *dev)
 	 * it here.
 	 */
 
-	if (c->irq.wakeup_enabled) {
-		status = disable_irq_wake(c->irq.num);
-		if (status)
-			ssam_err(c, "failed to disable wake IRQ: %d\n", status);
-
-		c->irq.wakeup_enabled = false;
-	}
+	ssam_irq_disarm_wakeup(c);
 
 	status = ssam_ctrl_notif_d0_entry(c);
 	if (status)
-		ssam_err(c, "pm: display-on notification failed: %d\n", status);
+		ssam_err(c, "pm: D0-entry notification failed: %d\n", status);
 
 	status = ssam_ctrl_notif_display_on(c);
 	if (status)
+		ssam_err(c, "pm: display-on notification failed: %d\n", status);
+
+	return 0;
+}
+
+static int ssam_serial_hub_freeze(struct device *dev)
+{
+	struct ssam_controller *c = dev_get_drvdata(dev);
+	int status;
+
+	/*
+	 * During hibernation image creation, we only have to ensure that the
+	 * EC doesn't send us any events. This is done via the display-off
+	 * and D0-exit notifications. Note that this sets up the wakeup IRQ
+	 * on the EC side, however, we have disabled it by default on our side
+	 * and won't enable it here.
+	 *
+	 * See ssam_serial_hub_poweroff() for more details on the hibernation
+	 * process.
+	 */
+
+	status = ssam_ctrl_notif_display_off(c);
+	if (status) {
+		ssam_err(c, "pm: display-off notification failed: %d\n", status);
+		return status;
+	}
+
+	status = ssam_ctrl_notif_d0_exit(c);
+	if (status) {
+		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
+		ssam_ctrl_notif_display_on(c);
+		return status;
+	}
+
+	WARN_ON(ssam_controller_suspend(c));
+	return 0;
+}
+
+static int ssam_serial_hub_thaw(struct device *dev)
+{
+	struct ssam_controller *c = dev_get_drvdata(dev);
+	int status;
+
+	WARN_ON(ssam_controller_resume(c));
+
+	status = ssam_ctrl_notif_d0_entry(c);
+	if (status) {
+		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
+
+		// try to restore as much as possible in case of failure
+		ssam_ctrl_notif_display_on(c);
+		return status;
+	}
+
+	status = ssam_ctrl_notif_display_on(c);
+	if (status)
+		ssam_err(c, "pm: display-on notification failed: %d\n", status);
+
+	return status;
+}
+
+static int ssam_serial_hub_poweroff(struct device *dev)
+{
+	struct ssam_controller *c = dev_get_drvdata(dev);
+	int status;
+
+	/*
+	 * When entering hibernation and powering off the system, the EC, at
+	 * least on some models, may disable events. Without us taking care of
+	 * that, this leads to events not being enabled/restored when the
+	 * system resumes from hibernation, resulting SAM-HID subsystem devices
+	 * (i.e. keyboard, touchpad) not working, AC-plug/AC-unplug events being
+	 * gone, etc.
+	 *
+	 * To avoid these issues, we disable all registered events here (this is
+	 * likely not actually required) and restore them during the drivers PM
+	 * restore callback.
+	 *
+	 * Wakeup from the EC interrupt is not supported during hibernation,
+	 * so don't arm the IRQ here.
+	 */
+
+	status = ssam_notifier_disable_registered(c);
+	if (status) {
+		ssam_err(c, "pm: failed to disable notifiers for hibernation: %d\n",
+			 status);
+		return status;
+	}
+
+	status = ssam_ctrl_notif_display_off(c);
+	if (status) {
+		ssam_err(c, "pm: display-off notification failed: %d\n", status);
+		goto err_dpnf;
+	}
+
+	status = ssam_ctrl_notif_d0_exit(c);
+	if (status) {
+		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
+		goto err_d0nf;
+	}
+
+	WARN_ON(ssam_controller_suspend(c));
+	return 0;
+
+err_d0nf:
+	ssam_ctrl_notif_display_on(c);
+err_dpnf:
+	ssam_notifier_restore_registered(c);
+	return status;
+}
+
+static int ssam_serial_hub_restore(struct device *dev)
+{
+	struct ssam_controller *c = dev_get_drvdata(dev);
+	int status;
+
+	/*
+	 * Ignore but log errors, try to restore state as much as possible in
+	 * case of failures. See ssam_serial_hub_poweroff() for more details on
+	 * the hibernation process.
+	 */
+
+	WARN_ON(ssam_controller_resume(c));
+
+	status = ssam_ctrl_notif_d0_entry(c);
+	if (status)
 		ssam_err(c, "pm: D0-entry notification failed: %d\n", status);
 
+	status = ssam_ctrl_notif_display_on(c);
+	if (status)
+		ssam_err(c, "pm: display-on notification failed: %d\n", status);
+
+	ssam_notifier_restore_registered(c);
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(surface_sam_ssh_pm_ops, surface_sam_ssh_suspend,
-			 surface_sam_ssh_resume);
-
-
-/* -- Static controller reference. ------------------------------------------ */
-
-static struct ssam_controller *__ssam_controller;
-static DEFINE_SPINLOCK(__ssam_controller_lock);
-
-struct ssam_controller *ssam_get_controller(void)
-{
-	struct ssam_controller *ctrl;
-
-	spin_lock(&__ssam_controller_lock);
-
-	ctrl = __ssam_controller;
-	if (!ctrl)
-		goto out;
-
-	if (WARN_ON(!kref_get_unless_zero(&ctrl->kref)))
-		ctrl = NULL;
-
-out:
-	spin_unlock(&__ssam_controller_lock);
-	return ctrl;
-}
-EXPORT_SYMBOL_GPL(ssam_get_controller);
-
-static int ssam_try_set_controller(struct ssam_controller *ctrl)
-{
-	int status = 0;
-
-	spin_lock(&__ssam_controller_lock);
-	if (!__ssam_controller)
-		__ssam_controller = ctrl;
-	else
-		status = -EBUSY;
-	spin_unlock(&__ssam_controller_lock);
-
-	return status;
-}
-
-static void ssam_clear_controller(void)
-{
-	spin_lock(&__ssam_controller_lock);
-	__ssam_controller = NULL;
-	spin_unlock(&__ssam_controller_lock);
-}
-
-
-static int __ssam_client_link(struct ssam_controller *c, struct device *client)
-{
-	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
-	struct device_link *link;
-	struct device *ctrldev;
-
-	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED)
-		return -ENXIO;
-
-	ctrldev = ssam_controller_device(c);
-	if (!ctrldev)
-		return -ENXIO;
-
-	link = device_link_add(client, ctrldev, flags);
-	if (!link)
-		return -ENOMEM;
-
-	/*
-	 * Return -ENXIO if supplier driver is on its way to be removed. In this
-	 * case, the controller won't be around for much longer and the device
-	 * link is not going to save us any more, as unbinding is already in
-	 * progress.
-	 */
-	if (link->status == DL_STATE_SUPPLIER_UNBIND)
-		return -ENXIO;
-
-	return 0;
-}
-
-int ssam_client_link(struct ssam_controller *ctrl, struct device *client)
-{
-	int status;
-
-	ssam_controller_statelock(ctrl);
-	status = __ssam_client_link(ctrl, client);
-	ssam_controller_stateunlock(ctrl);
-
-	return status;
-}
-EXPORT_SYMBOL_GPL(ssam_client_link);
-
-int ssam_client_bind(struct device *client, struct ssam_controller **ctrl)
-{
-	struct ssam_controller *c;
-	int status;
-
-	c = ssam_get_controller();
-	if (!c)
-		return -ENXIO;
-
-	status = ssam_client_link(c, client);
-
-	/*
-	 * Note that we can drop our controller reference in both success and
-	 * failure cases: On success, we have bound the controller lifetime
-	 * inherently to the client driver lifetime, i.e. it the controller is
-	 * now guaranteed to outlive the client driver. On failure, we're not
-	 * going to use the controller any more.
-	 */
-	ssam_controller_put(c);
-
-	*ctrl = status == 0 ? c : NULL;
-	return status;
-}
-EXPORT_SYMBOL_GPL(ssam_client_bind);
+static const struct dev_pm_ops ssam_serial_hub_pm_ops = {
+	.suspend  = ssam_serial_hub_suspend,
+	.resume   = ssam_serial_hub_resume,
+	.freeze   = ssam_serial_hub_freeze,
+	.thaw     = ssam_serial_hub_thaw,
+	.poweroff = ssam_serial_hub_poweroff,
+	.restore  = ssam_serial_hub_restore,
+};
 
 
 /* -- Device/driver setup. -------------------------------------------------- */
@@ -346,7 +553,7 @@ static const struct acpi_gpio_mapping ssam_acpi_gpios[] = {
 	{ },
 };
 
-static int surface_sam_ssh_probe(struct serdev_device *serdev)
+static int ssam_serial_hub_probe(struct serdev_device *serdev)
 {
 	struct ssam_controller *ctrl;
 	acpi_handle *ssh = ACPI_HANDLE(&serdev->dev);
@@ -405,7 +612,7 @@ static int surface_sam_ssh_probe(struct serdev_device *serdev)
 
 	// finally, set main controller reference
 	status = ssam_try_set_controller(ctrl);
-	if (status)
+	if (WARN_ON(status))	// currently, we're the only provider
 		goto err_initrq;
 
 	/*
@@ -435,7 +642,7 @@ err_ctrl_init:
 	return status;
 }
 
-static void surface_sam_ssh_remove(struct serdev_device *serdev)
+static void ssam_serial_hub_remove(struct serdev_device *serdev)
 {
 	struct ssam_controller *ctrl = serdev_device_get_drvdata(serdev);
 	int status;
@@ -478,20 +685,20 @@ static void surface_sam_ssh_remove(struct serdev_device *serdev)
 }
 
 
-static const struct acpi_device_id surface_sam_ssh_match[] = {
+static const struct acpi_device_id ssam_serial_hub_match[] = {
 	{ "MSHW0084", 0 },
 	{ },
 };
-MODULE_DEVICE_TABLE(acpi, surface_sam_ssh_match);
+MODULE_DEVICE_TABLE(acpi, ssam_serial_hub_match);
 
-static struct serdev_device_driver surface_sam_ssh = {
-	.probe = surface_sam_ssh_probe,
-	.remove = surface_sam_ssh_remove,
+static struct serdev_device_driver ssam_serial_hub = {
+	.probe = ssam_serial_hub_probe,
+	.remove = ssam_serial_hub_remove,
 	.driver = {
 		.name = "surface_sam_ssh",
-		.acpi_match_table = surface_sam_ssh_match,
-		.pm = &surface_sam_ssh_pm_ops,
-		.shutdown = surface_sam_ssh_shutdown,
+		.acpi_match_table = ssam_serial_hub_match,
+		.pm = &ssam_serial_hub_pm_ops,
+		.shutdown = ssam_serial_hub_shutdown,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
@@ -499,7 +706,7 @@ static struct serdev_device_driver surface_sam_ssh = {
 
 /* -- Module setup. --------------------------------------------------------- */
 
-static int __init surface_sam_ssh_init(void)
+static int __init ssam_core_init(void)
 {
 	int status;
 
@@ -515,7 +722,7 @@ static int __init surface_sam_ssh_init(void)
 	if (status)
 		goto err_evitem;
 
-	status = serdev_device_driver_register(&surface_sam_ssh);
+	status = serdev_device_driver_register(&ssam_serial_hub);
 	if (status)
 		goto err_register;
 
@@ -531,9 +738,9 @@ err_bus:
 	return status;
 }
 
-static void __exit surface_sam_ssh_exit(void)
+static void __exit ssam_core_exit(void)
 {
-	serdev_device_driver_unregister(&surface_sam_ssh);
+	serdev_device_driver_unregister(&ssam_serial_hub);
 	ssam_event_item_cache_destroy();
 	ssh_ctrl_packet_cache_destroy();
 	ssam_bus_unregister();
@@ -549,8 +756,8 @@ static void __exit surface_sam_ssh_exit(void)
  * initialize and via that results in a more stable communication, avoiding
  * such failures.
  */
-late_initcall(surface_sam_ssh_init);
-module_exit(surface_sam_ssh_exit);
+late_initcall(ssam_core_init);
+module_exit(ssam_core_exit);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 MODULE_DESCRIPTION("Surface Serial Hub Driver for 5th Generation Surface Devices");
