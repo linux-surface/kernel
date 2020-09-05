@@ -64,7 +64,7 @@ static inline void msgb_push_u16(struct msgbuf *msgb, u16 value)
 
 /**
  * msgb_push_syn() - Push SSH SYN bytes to the buffer.
- * @msgb:  The message buffer.
+ * @msgb: The message buffer.
  */
 static inline void msgb_push_syn(struct msgbuf *msgb)
 {

@@ -55,8 +55,13 @@ EXPORT_SYMBOL_GPL(ssam_device_type);
  * @ctrl: The controller under which the device should be added.
  * @uid:  The UID of the device to be added.
  *
- * This function only creates a new client device. It still has to be added
- * via ssam_device_add(). Refer to that function for more details.
+ * Allocates and initializes a new client device. The parent of the device
+ * will be set to the controller device and the name will be set based on the
+ * UID. Note that the device still has to be added via ssam_device_add().
+ * Refer to that function for more details.
+ *
+ * Return: Returns the newly allocated and initialized SSAM client device, or
+ * %NULL if it could not be allocated.
  */
 struct ssam_device *ssam_device_alloc(struct ssam_controller *ctrl,
 				      struct ssam_device_uid uid)
@@ -104,6 +109,8 @@ EXPORT_SYMBOL_GPL(ssam_device_alloc);
  * In case these guarantees have to be manually enforced, please refer to the
  * ssam_client_link() and ssam_client_bind() functions, which are intended to
  * set up device-links for this purpose.
+ *
+ * Return: Returns zero on success, a negative error code on failure.
  */
 int ssam_device_add(struct ssam_device *sdev)
 {
@@ -161,6 +168,9 @@ EXPORT_SYMBOL_GPL(ssam_device_remove);
  * Check if the given ID is a match for the given UID, i.e. if a device with
  * the provided UID is compatible to the given ID following the match rules
  * described in its &ssam_device_id.match_flags member.
+ *
+ * Return: Returns %true iff the given UID is compatible to the match rule
+ * described by the given ID, %false otherwise.
  */
 static inline bool ssam_device_id_compatible(const struct ssam_device_id *id,
 					     struct ssam_device_uid uid)
@@ -186,6 +196,9 @@ static inline bool ssam_device_id_compatible(const struct ssam_device_id *id,
  *
  * Check if a given device ID is null, i.e. all zeros. Used to check for the
  * end of ``MODULE_DEVICE_TABLE(ssam, ...)`` or similar lists.
+ *
+ * Return: Returns %true if the given ID represents a null ID, %false
+ * otherwise.
  */
 static inline bool ssam_device_id_is_null(const struct ssam_device_id *id)
 {
@@ -231,6 +244,9 @@ EXPORT_SYMBOL_GPL(ssam_device_id_match);
  *
  * This function essentially calls ssam_device_id_match() with the ID table of
  * the bound device driver and the UID of the device.
+ *
+ * Return: Returns the first match for the UID of the device in the device
+ * driver's match table, or %NULL if no such match could be found.
  */
 const struct ssam_device_id *ssam_device_get_match(
 		const struct ssam_device *dev)
@@ -260,7 +276,11 @@ EXPORT_SYMBOL_GPL(ssam_device_get_match);
  * match_table, or the match does not have any driver_data.
  *
  * This function essentially calls ssam_device_get_match() and, if any match
- * could be found, returns its &ssam_device_id.driver_data member.
+ * could be found, returns its ``struct ssam_device_id.driver_data`` member.
+ *
+ * Return: Returns the driver data associated with the first match for the UID
+ * of the device in the device driver's match table, or %NULL if no such match
+ * could be found.
  */
 const void *ssam_device_get_match_data(const struct ssam_device *dev)
 {
@@ -288,9 +308,8 @@ static int ssam_bus_match(struct device *dev, struct device_driver *drv)
 
 static int ssam_bus_probe(struct device *dev)
 {
-	struct ssam_device_driver *sdrv = to_ssam_device_driver(dev->driver);
-
-	return sdrv->probe(to_ssam_device(dev));
+	return to_ssam_device_driver(dev->driver)
+		->probe(to_ssam_device(dev));
 }
 
 static int ssam_bus_remove(struct device *dev)
@@ -313,7 +332,7 @@ EXPORT_SYMBOL_GPL(ssam_bus_type);
 
 
 /**
- * __ssam_device_driver_register() - Register a SSAM device driver.
+ * __ssam_device_driver_register() - Register a SSAM client device driver.
  * @sdrv:  The driver to register.
  * @owner: The module owning the provided driver.
  *
@@ -367,12 +386,13 @@ static int ssam_remove_device(struct device *dev, void *_data)
  *
  * To avoid new devices being added in parallel to this call, the main
  * controller lock (not statelock) must be held during this (and if
- * necessary, any subsequent de-initialization) call.
+ * necessary, any subsequent deinitialization) call.
  */
 void ssam_controller_remove_clients(struct ssam_controller *ctrl)
 {
-	struct device *dev = ssam_controller_device(ctrl);
+	struct device *dev;
 
+	dev = ssam_controller_device(ctrl);
 	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
 }
 

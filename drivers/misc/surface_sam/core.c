@@ -147,7 +147,7 @@ int ssam_client_link(struct ssam_controller *c, struct device *client)
 	 * link is not going to save us any more, as unbinding is already in
 	 * progress.
 	 */
-	if (link->status == DL_STATE_SUPPLIER_UNBIND) {
+	if (READ_ONCE(link->status) == DL_STATE_SUPPLIER_UNBIND) {
 		ssam_controller_stateunlock(c);
 		return -ENXIO;
 	}
@@ -316,11 +316,18 @@ static void ssam_serial_hub_shutdown(struct device *dev)
 	int status;
 
 	/*
-	 * Try to signal display-off and D0-exit, ignore any errors.
+	 * Try to disable notifiers, signal display-off and D0-exit, ignore any
+	 * errors.
 	 *
 	 * Note: It has not been established yet if this is actually
 	 * necessary/useful for shutdown.
 	 */
+
+	status = ssam_notifier_disable_registered(c);
+	if (status) {
+		ssam_err(c, "pm: failed to disable notifiers for shutdown: %d\n",
+			 status);
+	}
 
 	status = ssam_ctrl_notif_display_off(c);
 	if (status)

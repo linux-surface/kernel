@@ -999,7 +999,7 @@ static const struct spwr_psy_properties spwr_psy_props_bat1 = {
 
 static const struct spwr_psy_properties spwr_psy_props_bat2_sb3 = {
 	.name = "BAT2",
-	.registry = SSAM_EVENT_REGISTRY_REG,
+	.registry = SSAM_EVENT_REGISTRY_KIP,
 };
 
 static const struct ssam_device_id surface_sam_sid_battery_match[] = {

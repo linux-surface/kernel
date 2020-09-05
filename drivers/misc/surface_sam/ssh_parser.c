@@ -13,8 +13,11 @@
  *
  * Computes the CRC of the provided data span (@src), compares it to the CRC
  * stored at the given address (@crc), and returns the result of this
- * comparison, i.e. true iff equal. This function is intended to run on raw
+ * comparison, i.e. %true iff equal. This function is intended to run on raw
  * input/message data.
+ *
+ * Return: Returns %true iff the computed CRC matches the stored CRC, %false
+ * otherwise.
  */
 static inline bool sshp_validate_crc(const struct ssam_span *src, const u8 *crc)
 {
@@ -41,17 +44,20 @@ static inline bool sshp_starts_with_syn(const struct ssam_span *src)
  *
  * Search for SSH SYN bytes in the given source span. If found, set the @rem
  * span to the remaining data, starting with the first SYN bytes and capped by
- * the source span length, and return ``true``. This function does not copy
+ * the source span length, and return %true. This function does not copy
  * any data, but rather only sets pointers to the respecitve start addresses
  * and length values.
  *
  * If no SSH SYN bytes could be found, set the @rem span to the zero-length
- * span at the end of the source span and return false.
+ * span at the end of the source span and return %false.
  *
  * If partial SSH SYN bytes could be found at the end of the source span, set
  * the @rem span to cover these partial SYN bytes, capped by the end of the
- * source span, and return false. This function should then be re-run once
+ * source span, and return %false. This function should then be re-run once
  * more data is available.
+ *
+ * Return: Returns %true iff a complete SSG SYN sequence could be found,
+ * %false otherwise.
  */
 bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
 {
