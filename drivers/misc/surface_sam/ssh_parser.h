@@ -102,7 +102,7 @@ static inline void sshp_buf_drop(struct sshp_buf *buf, size_t n)
  * limited either by the remaining space in the buffer or by the number of
  * bytes available in the fifo.
  *
- * Returns the number of bytes transfered.
+ * Return: Returns the number of bytes transfered.
  */
 static inline size_t sshp_buf_read_from_fifo(struct sshp_buf *buf,
 					     struct kfifo *fifo)

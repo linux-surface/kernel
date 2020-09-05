@@ -143,9 +143,9 @@ static inline u32 ssam_trace_get_request_id(const struct ssh_packet *p)
  * ssam_trace_get_request_tc() - Read the packet's request target category.
  * @p: The packet.
  *
- * Returns the packet's request target category (TC) field if the packet
- * represents a request with command data, or %SSAM_TC_NOT_APPLICABLE if not
- * (e.g. flush request, control packet).
+ * Return: Returns the packet's request target category (TC) field if the
+ * packet represents a request with command data, or %SSAM_TC_NOT_APPLICABLE
+ * if not (e.g. flush request, control packet).
  */
 static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 {

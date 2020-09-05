@@ -140,7 +140,7 @@ struct ssam_cplt {
 /**
  * enum ssam_controller_state - State values for &struct ssam_controller.
  * @SSAM_CONTROLLER_UNINITIALIZED:
- *	The controller has not been initialized yet or has been de-initialized.
+ *	The controller has not been initialized yet or has been deinitialized.
  * @SSAM_CONTROLLER_INITIALIZED:
  *	The controller is initialized, but has not been started yet.
  * @SSAM_CONTROLLER_STARTED:
@@ -223,8 +223,8 @@ struct ssam_controller {
  * Provide input data to be evaluated by the controller, which has been
  * received via the lower-level transport.
  *
- * Returns the number of bytes consumed, or, if the packet transition
- * layer of the controller has been shut down, -ESHUTDOWN.
+ * Return: Returns the number of bytes consumed, or, if the packet
+ * transmission layer of the controller has been shut down, %-ESHUTDOWN.
  */
 static inline
 int ssam_controller_receive_buf(struct ssam_controller *ctrl,
@@ -240,7 +240,7 @@ int ssam_controller_receive_buf(struct ssam_controller *ctrl,
  */
 static inline void ssam_controller_write_wakeup(struct ssam_controller *ctrl)
 {
-	ssh_ptl_tx_wakeup(&ctrl->rtl.ptl, true);
+	ssh_ptl_tx_wakeup(&ctrl->rtl.ptl);
 }
 
 
