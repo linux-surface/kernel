@@ -232,11 +232,8 @@ static int __init surface_gpe_init(void)
 {
 	const struct dmi_system_id *match;
 	const struct surface_lid_device *lid;
-
 	struct platform_device *pdev;
 	int status;
-
-	surface_gpe_device = NULL;
 
 	match = dmi_first_match(dmi_lid_device_table);
 	if (!match) {
