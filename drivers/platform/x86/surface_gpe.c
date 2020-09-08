@@ -10,6 +10,12 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
+/*
+ * Note: The GPE numbers for the lid devices found below have been obtained
+ *       from ACPI/the DSDT table, specifically from the GPE handler for the
+ *       lid.
+ */
+
 struct surface_lid_device {
 	u32 gpe_number;
 };
