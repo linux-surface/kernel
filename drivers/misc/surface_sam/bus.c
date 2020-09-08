@@ -97,7 +97,7 @@ EXPORT_SYMBOL_GPL(ssam_device_alloc);
  * shut down.
  *
  * The caller of this function should ensure that the corresponding call to
- * ssam_device_remove is issued before the controller is shut down. If the
+ * ssam_device_remove() is issued before the controller is shut down. If the
  * added device is a direct child of the controller device (default), it will
  * be automatically removed when the controller is shut down.
  *
@@ -130,8 +130,8 @@ int ssam_device_add(struct ssam_device *sdev)
 	 *
 	 * Note that for this to work, the controller has to be a parent device.
 	 * If it is not a direct parent, care has to be taken that the device is
-	 * removed via ssam_device_remove, as device_unregister does not remove
-	 * child devices recursively.
+	 * removed via ssam_device_remove(), as device_unregister does not
+	 * remove child devices recursively.
 	 */
 	ssam_controller_statelock(sdev->ctrl);
 

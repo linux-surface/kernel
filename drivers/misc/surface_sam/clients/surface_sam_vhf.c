@@ -162,13 +162,10 @@ static struct hid_device *vhf_create_hid_device(struct platform_device *pdev)
 	return hid;
 }
 
-static u32 vhf_event_handler(struct ssam_notifier_block *nb, const struct ssam_event *event)
+static u32 vhf_event_handler(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
-	struct vhf_drvdata *drvdata = container_of(nb, struct vhf_drvdata, notif.base);
+	struct vhf_drvdata *drvdata = container_of(nf, struct vhf_drvdata, notif);
 	int status;
-
-	if (event->target_category != 0x08)
-		return 0;
 
 	if (event->command_id == 0x03 || event->command_id == 0x04) {
 		status = hid_input_report(drvdata->hid, HID_INPUT_REPORT, (u8 *)&event->data[0], event->length, 1);
@@ -282,6 +279,7 @@ static int surface_sam_vhf_probe(struct platform_device *pdev)
 	drvdata->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
 	drvdata->notif.event.id.target_category = SSAM_SSH_TC_KBD;
 	drvdata->notif.event.id.instance = 0;
+	drvdata->notif.event.mask = SSAM_EVENT_MASK_NONE;
 	drvdata->notif.event.flags = 0;
 
 	platform_set_drvdata(pdev, drvdata);

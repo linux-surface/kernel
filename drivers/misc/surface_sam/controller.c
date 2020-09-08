@@ -99,6 +99,30 @@ static inline u16 ssh_rqid_next(struct ssh_rqid_counter *c)
  * and identify new/currently unimplemented features.
  */
 
+
+/**
+ * ssam_event_matches_notifier() - Test if an event matches a notifier;
+ * @notif: The event notifier to test against.
+ * @event: The event to test.
+ *
+ * Return: Returns %true iff the given event matches the given notifier
+ * according to the rules set in the notifier's event mask, %false otherwise.
+ */
+static bool ssam_event_matches_notifier(
+		const struct ssam_event_notifier *notif,
+		const struct ssam_event *event)
+{
+	bool match = notif->event.id.target_category == event->target_category;
+
+	if (notif->event.mask & SSAM_EVENT_MASK_TARGET)
+		match &= notif->event.reg.target_id == event->target_id;
+
+	if (notif->event.mask & SSAM_EVENT_MASK_INSTANCE)
+		match &= notif->event.id.instance == event->instance_id;
+
+	return match;
+}
+
 /**
  * ssam_nfblk_call_chain() - Call event notifier callbacks of the given chain.
  * @nh:    The notifier head for which the notifier callbacks should be called.
@@ -118,17 +142,21 @@ static inline u16 ssh_rqid_next(struct ssh_rqid_counter *c)
 static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *event)
 {
 	struct ssam_notifier_block *nb, *next_nb;
+	struct ssam_event_notifier *nf;
 	int ret = 0, idx;
 
 	idx = srcu_read_lock(&nh->srcu);
 
 	nb = rcu_dereference_raw(nh->head);
 	while (nb) {
+		nf = container_of(nb, struct ssam_event_notifier, base);
 		next_nb = rcu_dereference_raw(nb->next);
 
-		ret = (ret & SSAM_NOTIF_STATE_MASK) | nb->fn(nb, event);
-		if (ret & SSAM_NOTIF_STOP)
-			break;
+		if (ssam_event_matches_notifier(nf, event)) {
+			ret = (ret & SSAM_NOTIF_STATE_MASK) | nb->fn(nf, event);
+			if (ret & SSAM_NOTIF_STOP)
+				break;
+		}
 
 		nb = next_nb;
 	}
@@ -975,7 +1003,8 @@ static const guid_t SSAM_SSH_DSM_UUID = GUID_INIT(0xd5e383e1, 0xd892, 0x4a76,
 		0x89, 0xfc, 0xf6, 0xaa, 0xae, 0x7e, 0xd5, 0xb5);
 
 /**
- * ssam_device_caps_load_from_acpi() - Load controller capabilities from _DSM.
+ * ssam_controller_caps_load_from_acpi() - Load controller capabilities from
+ * ACPI _DSM.
  * @handle: The handle of the ACPI controller/SSH device.
  * @caps:   Where to store the capabilities in.
  *
@@ -985,8 +1014,8 @@ static const guid_t SSAM_SSH_DSM_UUID = GUID_INIT(0xd5e383e1, 0xd892, 0x4a76,
  *
  * Return: Returns zero on success, %-EFAULT on failure.
  */
-static int ssam_device_caps_load_from_acpi(acpi_handle handle,
-					   struct ssam_device_caps *caps)
+static int ssam_controller_caps_load_from_acpi(
+		acpi_handle handle, struct ssam_controller_caps *caps)
 {
 	union acpi_object *obj;
 	u64 funcs = 0;
@@ -1047,7 +1076,7 @@ int ssam_controller_init(struct ssam_controller *ctrl,
 	init_rwsem(&ctrl->lock);
 	kref_init(&ctrl->kref);
 
-	status = ssam_device_caps_load_from_acpi(handle, &ctrl->caps);
+	status = ssam_controller_caps_load_from_acpi(handle, &ctrl->caps);
 	if (status)
 		return status;
 
@@ -1063,7 +1092,7 @@ int ssam_controller_init(struct ssam_controller *ctrl,
 	if (status)
 		return status;
 
-	// initialize request and packet transmission layers
+	// initialize request and packet transport layers
 	status = ssh_rtl_init(&ctrl->rtl, serdev, &ssam_rtl_ops);
 	if (status) {
 		ssam_cplt_destroy(&ctrl->cplt);
@@ -1129,7 +1158,7 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
 	// try to flush pending events and requests while everything still works
 	status = ssh_rtl_flush(&ctrl->rtl, msecs_to_jiffies(5000));
 	if (status) {
-		ssam_err(ctrl, "failed to flush request transmission layer: %d\n",
+		ssam_err(ctrl, "failed to flush request transport layer: %d\n",
 			 status);
 	}
 
@@ -1486,12 +1515,6 @@ int ssam_request_sync(struct ssam_controller *ctrl, struct ssam_request *spec,
 	ssize_t len;
 	int status;
 
-	// prevent overflow, allows us to skip checks later on
-	if (spec->length > SSH_COMMAND_MAX_PAYLOAD_SIZE) {
-		ssam_err(ctrl, "rqst: request payload too large\n");
-		return -EINVAL;
-	}
-
 	status = ssam_request_sync_alloc(spec->length, GFP_KERNEL, &rqst, &buf);
 	if (status)
 		return status;
@@ -1500,8 +1523,10 @@ int ssam_request_sync(struct ssam_controller *ctrl, struct ssam_request *spec,
 	ssam_request_sync_set_resp(rqst, rsp);
 
 	len = ssam_request_write_data(&buf, ctrl, spec);
-	if (len < 0)
+	if (len < 0) {
+		ssam_request_sync_free(rqst);
 		return len;
+	}
 
 	ssam_request_sync_set_data(rqst, buf.ptr, len);
 
@@ -1543,12 +1568,6 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 	struct ssam_request_sync rqst;
 	ssize_t len;
 	int status;
-
-	// prevent overflow, allows us to skip checks later on
-	if (spec->length > SSH_COMMAND_MAX_PAYLOAD_SIZE) {
-		ssam_err(ctrl, "rqst: request payload too large\n");
-		return -EINVAL;
-	}
 
 	ssam_request_sync_init(&rqst, spec->flags);
 	ssam_request_sync_set_resp(&rqst, rsp);

@@ -48,7 +48,7 @@
  * packets, containing all packets awaiting an ACK.
  *
  * Shared ownership of a packet is controlled via reference counting. Inside
- * the transmission system are a total of five packet owners:
+ * the transport system are a total of five packet owners:
  *
  * - the packet queue,
  * - the pending set,
@@ -1084,10 +1084,10 @@ static int ssh_ptl_tx_threadfn(void *data)
 
 /**
  * ssh_ptl_tx_wakeup() - Wake up packet transmitter thread.
- * @ptl: The packet transmission layer.
+ * @ptl: The packet transport layer.
  *
- * Wakes up the packet transmitter thread. If the packet transmission layer
- * has been shut down, calls to this function will be ignored.
+ * Wakes up the packet transmitter thread. If the packet transport layer has
+ * been shut down, calls to this function will be ignored.
  */
 void ssh_ptl_tx_wakeup(struct ssh_ptl *ptl)
 {
@@ -1107,7 +1107,7 @@ void ssh_ptl_tx_wakeup(struct ssh_ptl *ptl)
 
 /**
  * ssh_ptl_tx_start() - Start packet transmitter thread.
- * @ptl: The packet transmission layer.
+ * @ptl: The packet transport layer.
  *
  * Return: Returns zero on success, a negative error code on failure.
  */
@@ -1123,7 +1123,7 @@ int ssh_ptl_tx_start(struct ssh_ptl *ptl)
 
 /**
  * ssh_ptl_tx_stop() - Stop packet transmitter thread.
- * @ptl: The packet transmission layer.
+ * @ptl: The packet transport layer.
  *
  * Return: Returns zero on success, a negative error code on failure.
  */
@@ -1249,16 +1249,16 @@ static void ssh_ptl_acknowledge(struct ssh_ptl *ptl, u8 seq)
 
 
 /**
- * ssh_ptl_submit() - Submit a packet to the transmission layer.
- * @ptl: The packet transmission layer to to submit to.
+ * ssh_ptl_submit() - Submit a packet to the transport layer.
+ * @ptl: The packet transport layer to to submit to.
  * @p:   The packet to submit.
  *
- * Submits a new packet to the transmission layer, queuing it to be sent. This
+ * Submits a new packet to the transport layer, queuing it to be sent. This
  * function should not be used for re-submission.
  *
  * Return: Returns zero on success, %-EINVAL if a packet field is invalid or
  * the packet has been canceled prior to submission, %-EALREADY if the packet
- * has already been submitted, or %-ESHUTDOWN if the packet transmission layer
+ * has already been submitted, or %-ESHUTDOWN if the packet transport layer
  * has been shut down.
  */
 int ssh_ptl_submit(struct ssh_ptl *ptl, struct ssh_packet *p)
@@ -1310,7 +1310,7 @@ static int __ssh_ptl_resubmit(struct ssh_packet *packet)
 	if (status) {
 		/*
 		 * An error here indicates that the packet has either already
-		 * been queued, been locked, or the transmission layer is being
+		 * been queued, been locked, or the transport layer is being
 		 * shut down. In all cases: Ignore the error.
 		 */
 		spin_unlock(&packet->ptl->queue.lock);
@@ -1385,8 +1385,8 @@ static void ssh_ptl_resubmit_pending(struct ssh_ptl *ptl)
  * Note that it is not guaranteed that the packet will actually be cancelled
  * if the packet is concurrently completed by another process. The only
  * guarantee of this function is that the packet will be completed (with
- * success, failure, or cancellation) and released from the transmission layer
- * in a reasonable time-frame.
+ * success, failure, or cancellation) and released from the transport layer in
+ * a reasonable time-frame.
  *
  * May be called before the packet has been submitted, in which case any later
  * packet submission fails.
@@ -1749,8 +1749,8 @@ static inline void ssh_ptl_rx_wakeup(struct ssh_ptl *ptl)
 }
 
 /**
- * ssh_ptl_rx_start() - Start packet transmission layer receiver thread.
- * @ptl: The packet transmission layer.
+ * ssh_ptl_rx_start() - Start packet transport layer receiver thread.
+ * @ptl: The packet transport layer.
  *
  * Return: Returns zero on success, a negative error code on failure.
  */
@@ -1768,8 +1768,8 @@ int ssh_ptl_rx_start(struct ssh_ptl *ptl)
 }
 
 /**
- * ssh_ptl_rx_stop() - Stop packet transmission layer receiver thread.
- * @ptl: The packet transmission layer.
+ * ssh_ptl_rx_stop() - Stop packet transport layer receiver thread.
+ * @ptl: The packet transport layer.
  *
  * Return: Returns zero on success, a negative error code on failure.
  */
@@ -1788,7 +1788,7 @@ int ssh_ptl_rx_stop(struct ssh_ptl *ptl)
 /**
  * ssh_ptl_rx_rcvbuf() - Push data from lower-layer transport to the packet
  * layer.
- * @ptl: The packet transmission layer.
+ * @ptl: The packet transport layer.
  * @buf: Pointer to the data to push to the layer.
  * @n:   Size of the data to push to the layer, in bytes.
  *
@@ -1815,16 +1815,16 @@ int ssh_ptl_rx_rcvbuf(struct ssh_ptl *ptl, const u8 *buf, size_t n)
 
 
 /**
- * ssh_ptl_shutdown() - Shut down the packet transmission layer.
- * @ptl: The packet transmission layer.
+ * ssh_ptl_shutdown() - Shut down the packet transport layer.
+ * @ptl: The packet transport layer.
  *
- * Shuts down the packet transmission layer, removing and canceling all queued
+ * Shuts down the packet transport layer, removing and canceling all queued
  * and pending packets. Packets canceled by this operation will be completed
  * with %-ESHUTDOWN as status. Receiver and transmitter threads will be
  * stopped.
  *
- * As a result of this function, the transmission layer will be marked as shut
- * down. Submission of packets after the transmission layer has been shut down
+ * As a result of this function, the transport layer will be marked as shut
+ * down. Submission of packets after the transport layer has been shut down
  * will fail with %-ESHUTDOWN.
  */
 void ssh_ptl_shutdown(struct ssh_ptl *ptl)
@@ -1926,15 +1926,15 @@ void ssh_ptl_shutdown(struct ssh_ptl *ptl)
 }
 
 /**
- * ssh_ptl_init() - Initialize packet transmission layer.
- * @ptl:    The packet transmission layer to initialize.
+ * ssh_ptl_init() - Initialize packet transport layer.
+ * @ptl:    The packet transport layer to initialize.
  * @serdev: The underlying serial device, i.e. the lower-level transport.
  * @ops:    Packet layer operations.
  *
- * Initializes the given packet transmission layer. Transmitter and receiver
+ * Initializes the given packet transport layer. Transmitter and receiver
  * threads must be started separately via ssh_ptl_tx_start() and
  * ssh_ptl_rx_start(), after the packet-layer has been initialized and the
- * lower-level transmission layer has been set up.
+ * lower-level transport layer has been set up.
  *
  * Return: Returns zero on success and a nonzero error code on failure.
  */
@@ -1986,10 +1986,10 @@ int ssh_ptl_init(struct ssh_ptl *ptl, struct serdev_device *serdev,
 }
 
 /**
- * ssh_ptl_destroy() - Deinitialize packet transmission layer.
- * @ptl: The packet transmission layer to deinitialize.
+ * ssh_ptl_destroy() - Deinitialize packet transport layer.
+ * @ptl: The packet transport layer to deinitialize.
  *
- * Deinitializes the given packet transmission layer and frees resources
+ * Deinitializes the given packet transport layer and frees resources
  * associated with it. If receiver and/or transmitter threads have been
  * started, the layer must first be shut down via ssh_ptl_shutdown() before
  * this function can be called.

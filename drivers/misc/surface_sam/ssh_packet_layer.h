@@ -24,7 +24,7 @@
  * enum ssh_ptl_state_flags - State-flags for &struct ssh_ptl.
  *
  * @SSH_PTL_SF_SHUTDOWN_BIT:
- *	Indicates that the packet transmission layer has been shut down or is
+ *	Indicates that the packet transport layer has been shut down or is
  *	being shut down and should not accept any new packets/data.
  */
 enum ssh_ptl_state_flags {
@@ -32,7 +32,7 @@ enum ssh_ptl_state_flags {
 };
 
 /**
- * struct ssh_ptl_ops - Callback operations for packet transmission layer.
+ * struct ssh_ptl_ops - Callback operations for packet transport layer.
  * @data_received: Function called when a data-packet has been received. Both,
  *                 the packet layer on which the packet has been received and
  *                 the packet's payload data are provided to this function.
@@ -42,9 +42,9 @@ struct ssh_ptl_ops {
 };
 
 /**
- * struct ssh_ptl - SSH packet transmission layer.
+ * struct ssh_ptl - SSH packet transport layer.
  * @serdev:        Serial device providing the underlying data transport.
- * @state:         State(-flags) of the transmission layer.
+ * @state:         State(-flags) of the transport layer.
  * @queue:         Packet submission queue.
  * @queue.lock:    Lock for modifying the packet submission queue.
  * @queue.head:    List-head of the packet submission queue.
@@ -141,11 +141,11 @@ int ssh_ptl_init(struct ssh_ptl *ptl, struct serdev_device *serdev,
 void ssh_ptl_destroy(struct ssh_ptl *ptl);
 
 /**
- * ssh_ptl_get_device() - Get device associated with packet transmission layer.
- * @ptl: The packet transmission layer.
+ * ssh_ptl_get_device() - Get device associated with packet transport layer.
+ * @ptl: The packet transport layer.
  *
- * Return: Returns the device on which the given packet transmission layer
- * builds upon.
+ * Return: Returns the device on which the given packet transport layer builds
+ * upon.
  */
 static inline struct device *ssh_ptl_get_device(struct ssh_ptl *ptl)
 {
