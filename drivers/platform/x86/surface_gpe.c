@@ -153,17 +153,15 @@ static int surface_lid_enable_wakeup(struct device *dev,
 
 static int surface_gpe_suspend(struct device *dev)
 {
-	const struct surface_lid_device *lid;
+	const struct surface_lid_device *lid = dev_get_platdata(dev);
 
-	lid = dev_get_platdata(dev);
 	return surface_lid_enable_wakeup(dev, lid, true);
 }
 
 static int surface_gpe_resume(struct device *dev)
 {
-	const struct surface_lid_device *lid;
+	const struct surface_lid_device *lid = dev_get_platdata(dev);
 
-	lid = dev_get_platdata(dev);
 	return surface_lid_enable_wakeup(dev, lid, false);
 }
 
