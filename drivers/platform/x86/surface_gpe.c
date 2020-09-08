@@ -16,24 +16,24 @@
  *       lid.
  */
 
-struct surface_lid_device {
-	u32 gpe_number;
+static const struct property_entry lid_device_props_l17[] = {
+	PROPERTY_ENTRY_U32("gpe", 0x17),
+	{},
 };
 
-static const struct surface_lid_device lid_device_l17 = {
-	.gpe_number = 0x17,
+static const struct property_entry lid_device_props_l4D[] = {
+	PROPERTY_ENTRY_U32("gpe", 0x4D),
+	{},
 };
 
-static const struct surface_lid_device lid_device_l4D = {
-	.gpe_number = 0x4D,
+static const struct property_entry lid_device_props_l4F[] = {
+	PROPERTY_ENTRY_U32("gpe", 0x4F),
+	{},
 };
 
-static const struct surface_lid_device lid_device_l4F = {
-	.gpe_number = 0x4F,
-};
-
-static const struct surface_lid_device lid_device_l57 = {
-	.gpe_number = 0x57,
+static const struct property_entry lid_device_props_l57[] = {
+	PROPERTY_ENTRY_U32("gpe", 0x57),
+	{},
 };
 
 // Note: When changing this don't forget to change the MODULE_ALIAS below.
@@ -44,7 +44,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
 		},
-		.driver_data = (void *)&lid_device_l17,
+		.driver_data = (void *)lid_device_props_l17,
 	},
 	{
 		.ident = "Surface Pro 5",
@@ -56,7 +56,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
 		},
-		.driver_data = (void *)&lid_device_l4F,
+		.driver_data = (void *)lid_device_props_l4F,
 	},
 	{
 		.ident = "Surface Pro 5 (LTE)",
@@ -68,7 +68,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
 		},
-		.driver_data = (void *)&lid_device_l4F,
+		.driver_data = (void *)lid_device_props_l4F,
 	},
 	{
 		.ident = "Surface Pro 6",
@@ -76,7 +76,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
 		},
-		.driver_data = (void *)&lid_device_l4F,
+		.driver_data = (void *)lid_device_props_l4F,
 	},
 	{
 		.ident = "Surface Pro 7",
@@ -84,7 +84,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 7"),
 		},
-		.driver_data = (void *)&lid_device_l4D,
+		.driver_data = (void *)lid_device_props_l4D,
 	},
 	{
 		.ident = "Surface Book 1",
@@ -92,7 +92,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
 		},
-		.driver_data = (void *)&lid_device_l17,
+		.driver_data = (void *)lid_device_props_l17,
 	},
 	{
 		.ident = "Surface Book 2",
@@ -100,7 +100,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
 		},
-		.driver_data = (void *)&lid_device_l17,
+		.driver_data = (void *)lid_device_props_l17,
 	},
 	{
 		.ident = "Surface Book 3",
@@ -108,7 +108,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 3"),
 		},
-		.driver_data = (void *)&lid_device_l4D,
+		.driver_data = (void *)lid_device_props_l4D,
 	},
 	{
 		.ident = "Surface Laptop 1",
@@ -116,7 +116,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
 		},
-		.driver_data = (void *)&lid_device_l57,
+		.driver_data = (void *)lid_device_props_l57,
 	},
 	{
 		.ident = "Surface Laptop 2",
@@ -124,7 +124,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
 		},
-		.driver_data = (void *)&lid_device_l57,
+		.driver_data = (void *)lid_device_props_l57,
 	},
 	{
 		.ident = "Surface Laptop 3 (Intel 13\")",
@@ -136,15 +136,18 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_3_1867:1868"),
 		},
-		.driver_data = (void *)&lid_device_l4D,
+		.driver_data = (void *)lid_device_props_l4D,
 	},
 	{ }
 };
 
-static int surface_lid_enable_wakeup(struct device *dev,
-				     const struct surface_lid_device *lid,
-				     bool enable)
+struct surface_lid_device {
+	u32 gpe_number;
+};
+
+static int surface_lid_enable_wakeup(struct device *dev, bool enable)
 {
+	const struct surface_lid_device *lid = dev_get_drvdata(dev);
 	int action = enable ? ACPI_GPE_ENABLE : ACPI_GPE_DISABLE;
 	acpi_status status;
 
@@ -159,44 +162,50 @@ static int surface_lid_enable_wakeup(struct device *dev,
 
 static int surface_gpe_suspend(struct device *dev)
 {
-	const struct surface_lid_device *lid = dev_get_platdata(dev);
-
-	return surface_lid_enable_wakeup(dev, lid, true);
+	return surface_lid_enable_wakeup(dev, true);
 }
 
 static int surface_gpe_resume(struct device *dev)
 {
-	const struct surface_lid_device *lid = dev_get_platdata(dev);
-
-	return surface_lid_enable_wakeup(dev, lid, false);
+	return surface_lid_enable_wakeup(dev, false);
 }
 
 static SIMPLE_DEV_PM_OPS(surface_gpe_pm, surface_gpe_suspend, surface_gpe_resume);
 
 static int surface_gpe_probe(struct platform_device *pdev)
 {
-	const struct surface_lid_device *lid;
+	struct surface_lid_device *lid;
+	u32 gpe_number;
 	int status;
 
-	lid = dev_get_platdata(&pdev->dev);
-	if (!lid)
+	status = device_property_read_u32(&pdev->dev, "gpe", &gpe_number);
+	if (status)
 		return -ENODEV;
 
-	status = acpi_mark_gpe_for_wake(NULL, lid->gpe_number);
+	status = acpi_mark_gpe_for_wake(NULL, gpe_number);
 	if (status) {
 		dev_err(&pdev->dev, "failed to mark GPE for wake: %d\n", status);
 		return -EINVAL;
 	}
 
-	status = acpi_enable_gpe(NULL, lid->gpe_number);
+	status = acpi_enable_gpe(NULL, gpe_number);
 	if (status) {
 		dev_err(&pdev->dev, "failed to enable GPE: %d\n", status);
 		return -EINVAL;
 	}
 
-	status = surface_lid_enable_wakeup(&pdev->dev, lid, false);
+	lid = devm_kzalloc(&pdev->dev, sizeof(struct surface_lid_device),
+			   GFP_KERNEL);
+	if (!lid)
+		return -ENOMEM;
+
+	lid->gpe_number = gpe_number;
+	platform_set_drvdata(pdev, lid);
+
+	status = surface_lid_enable_wakeup(&pdev->dev, false);
 	if (status) {
-		acpi_disable_gpe(NULL, lid->gpe_number);
+		acpi_disable_gpe(NULL, gpe_number);
+		platform_set_drvdata(pdev, NULL);
 		return status;
 	}
 
@@ -205,12 +214,13 @@ static int surface_gpe_probe(struct platform_device *pdev)
 
 static int surface_gpe_remove(struct platform_device *pdev)
 {
-	struct surface_lid_device *lid = dev_get_platdata(&pdev->dev);
+	struct surface_lid_device *lid = dev_get_drvdata(&pdev->dev);
 
 	/* restore default behavior without this module */
-	surface_lid_enable_wakeup(&pdev->dev, lid, false);
+	surface_lid_enable_wakeup(&pdev->dev, false);
 	acpi_disable_gpe(NULL, lid->gpe_number);
 
+	platform_set_drvdata(pdev, NULL);
 	return 0;
 }
 
@@ -229,8 +239,9 @@ static struct platform_device *surface_gpe_device;
 static int __init surface_gpe_init(void)
 {
 	const struct dmi_system_id *match;
-	const struct surface_lid_device *lid;
+	const struct property_entry *props;
 	struct platform_device *pdev;
+	struct fwnode_handle *fwnode;
 	int status;
 
 	match = dmi_first_match(dmi_lid_device_table);
@@ -239,7 +250,7 @@ static int __init surface_gpe_init(void)
 		return 0;
 	}
 
-	lid = match->driver_data;
+	props = match->driver_data;
 
 	status = platform_driver_register(&surface_gpe_driver);
 	if (status)
@@ -251,12 +262,14 @@ static int __init surface_gpe_init(void)
 		return -ENOMEM;
 	}
 
-	status = platform_device_add_data(pdev, lid, sizeof(*lid));
-	if (status) {
+	fwnode = fwnode_create_software_node(props, NULL);
+	if (IS_ERR(fwnode)) {
 		platform_device_put(pdev);
 		platform_driver_unregister(&surface_gpe_driver);
-		return status;
+		return PTR_ERR(fwnode);
 	}
+
+	pdev->dev.fwnode = fwnode;
 
 	status = platform_device_add(pdev);
 	if (status) {
@@ -271,6 +284,10 @@ static int __init surface_gpe_init(void)
 
 static void __exit surface_gpe_exit(void)
 {
+	if (!surface_gpe_device)
+		return;
+
+	fwnode_remove_software_node(surface_gpe_device->dev.fwnode);
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
 }
