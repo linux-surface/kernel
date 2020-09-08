@@ -10,7 +10,6 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
-
 struct surface_lid_device {
 	u32 gpe_number;
 };
@@ -136,7 +135,6 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 	{ }
 };
 
-
 static int surface_lid_enable_wakeup(struct device *dev,
 				     const struct surface_lid_device *lid,
 				     bool enable)
@@ -152,7 +150,6 @@ static int surface_lid_enable_wakeup(struct device *dev,
 
 	return 0;
 }
-
 
 static int surface_gpe_suspend(struct device *dev)
 {
@@ -171,7 +168,6 @@ static int surface_gpe_resume(struct device *dev)
 }
 
 static SIMPLE_DEV_PM_OPS(surface_gpe_pm, surface_gpe_suspend, surface_gpe_resume);
-
 
 static int surface_gpe_probe(struct platform_device *pdev)
 {
@@ -223,7 +219,6 @@ static struct platform_driver surface_gpe_driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
-
 
 static struct platform_device *surface_gpe_device;
 
@@ -278,7 +273,6 @@ static void __exit surface_gpe_exit(void)
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
 }
-
 module_init(surface_gpe_init);
 module_exit(surface_gpe_exit);
 
