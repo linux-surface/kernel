@@ -265,9 +265,6 @@ static int __init surface_gpe_init(void)
 
 static void __exit surface_gpe_exit(void)
 {
-	if (!surface_gpe_device)
-		return;
-
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
 }
