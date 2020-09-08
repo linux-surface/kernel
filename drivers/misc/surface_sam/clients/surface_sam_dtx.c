@@ -393,9 +393,9 @@ static void surface_dtx_opmode_workfn(struct work_struct *work)
 	surface_dtx_update_opmpde(ddev);
 }
 
-static u32 surface_dtx_notification(struct ssam_notifier_block *nb, const struct ssam_event *in_event)
+static u32 surface_dtx_notification(struct ssam_event_notifier *nf, const struct ssam_event *in_event)
 {
-	struct surface_dtx_dev *ddev = container_of(nb, struct surface_dtx_dev, notif.base);
+	struct surface_dtx_dev *ddev = container_of(nf, struct surface_dtx_dev, notif);
 	struct surface_dtx_event event;
 	unsigned long delay;
 
@@ -510,6 +510,7 @@ static int surface_sam_dtx_probe(struct platform_device *pdev)
 	ddev->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
 	ddev->notif.event.id.target_category = SSAM_SSH_TC_BAS;
 	ddev->notif.event.id.instance = 0;
+	ddev->notif.event.mask = SSAM_EVENT_MASK_NONE;
 	ddev->notif.event.flags = SSAM_EVENT_SEQUENCED;
 
 	status = ssam_notifier_register(ctrl, &ddev->notif);

@@ -412,9 +412,9 @@ static void san_evt_power_workfn(struct work_struct *work)
 }
 
 
-static u32 san_evt_power_nb(struct ssam_notifier_block *nb, const struct ssam_event *event)
+static u32 san_evt_power_nf(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
-	struct san_data *d = to_san_data(nb, nf_bat.base);
+	struct san_data *d = to_san_data(nf, nf_bat);
 	struct san_event_work *work;
 	unsigned long delay = san_evt_power_delay(event->command_id);
 
@@ -465,9 +465,9 @@ static bool san_evt_thermal(const struct ssam_event *event, struct device *dev)
 	return true;
 }
 
-static u32 san_evt_thermal_nb(struct ssam_notifier_block *nb, const struct ssam_event *event)
+static u32 san_evt_thermal_nf(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
-	if (san_evt_thermal(event, to_san_data(nb, nf_tmp.base)->dev))
+	if (san_evt_thermal(event, to_san_data(nf, nf_tmp)->dev))
 		return SSAM_NOTIF_HANDLED;
 	else
 		return 0;
@@ -692,17 +692,19 @@ static int san_events_register(struct platform_device *pdev)
 	int status;
 
 	d->nf_bat.base.priority = 1;
-	d->nf_bat.base.fn = san_evt_power_nb;
+	d->nf_bat.base.fn = san_evt_power_nf;
 	d->nf_bat.event.reg = SSAM_EVENT_REGISTRY_SAM;
 	d->nf_bat.event.id.target_category = SSAM_SSH_TC_BAT;
 	d->nf_bat.event.id.instance = 0;
+	d->nf_bat.event.mask = SSAM_EVENT_MASK_TARGET;
 	d->nf_bat.event.flags = SSAM_EVENT_SEQUENCED;
 
 	d->nf_tmp.base.priority = 1;
-	d->nf_tmp.base.fn = san_evt_thermal_nb;
+	d->nf_tmp.base.fn = san_evt_thermal_nf;
 	d->nf_tmp.event.reg = SSAM_EVENT_REGISTRY_SAM;
 	d->nf_tmp.event.id.target_category = SSAM_SSH_TC_TMP;
 	d->nf_tmp.event.id.instance = 0;
+	d->nf_tmp.event.mask = SSAM_EVENT_MASK_TARGET;
 	d->nf_tmp.event.flags = SSAM_EVENT_SEQUENCED;
 
 	status = ssam_notifier_register(d->ctrl, &d->nf_bat);

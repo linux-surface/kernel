@@ -455,13 +455,13 @@ static inline int spwr_notify_adapter_ac(struct spwr_ac_device *ac)
 	return status >= 0 ? 0 : status;
 }
 
-static u32 spwr_notify_bat(struct ssam_notifier_block *nb,
+static u32 spwr_notify_bat(struct ssam_event_notifier *nf,
 			   const struct ssam_event *event)
 {
 	struct spwr_battery_device *bat;
 	int status;
 
-	bat = container_of(nb, struct spwr_battery_device, notif.base);
+	bat = container_of(nf, struct spwr_battery_device, notif);
 
 	dev_dbg(&bat->sdev->dev, "power event (cid = 0x%02x, iid = %d, tid = %d)\n",
 		event->command_id, event->instance_id, event->target_id);
@@ -472,7 +472,10 @@ static u32 spwr_notify_bat(struct ssam_notifier_block *nb,
 		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 	}
 
-	if (!ssam_event_matches_device(bat->sdev->uid, event))
+	if (bat->sdev->uid.target != event->target_id)
+		return 0;
+
+	if (bat->sdev->uid.instance != event->instance_id)
 		return 0;
 
 	switch (event->command_id) {
@@ -491,19 +494,16 @@ static u32 spwr_notify_bat(struct ssam_notifier_block *nb,
 	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 }
 
-static u32 spwr_notify_ac(struct ssam_notifier_block *nb,
+static u32 spwr_notify_ac(struct ssam_event_notifier *nf,
 			  const struct ssam_event *event)
 {
 	struct spwr_ac_device *ac;
 	int status;
 
-	ac = container_of(nb, struct spwr_ac_device, notif.base);
+	ac = container_of(nf, struct spwr_ac_device, notif);
 
 	dev_dbg(&ac->sdev->dev, "power event (cid = 0x%02x, iid = %d, tid = %d)\n",
 		event->command_id, event->instance_id, event->target_id);
-
-	if (event->target_category != ac->sdev->uid.category)
-		return 0;
 
 	/*
 	 * Allow events of all targets/instances here. Global adapter status
@@ -824,6 +824,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac,
 	ac->notif.event.reg = registry;
 	ac->notif.event.id.target_category = sdev->uid.category;
 	ac->notif.event.id.instance = 0;
+	ac->notif.event.mask = SSAM_EVENT_MASK_NONE;
 	ac->notif.event.flags = SSAM_EVENT_SEQUENCED;
 
 	status = ssam_notifier_register(sdev->ctrl, &ac->notif);
@@ -911,6 +912,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat,
 	bat->notif.event.reg = registry;
 	bat->notif.event.id.target_category = sdev->uid.category;
 	bat->notif.event.id.instance = 0;
+	bat->notif.event.mask = SSAM_EVENT_MASK_NONE;
 	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
 
 	status = ssam_notifier_register(sdev->ctrl, &bat->notif);
