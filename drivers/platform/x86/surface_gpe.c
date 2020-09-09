@@ -284,6 +284,7 @@ static int __init surface_gpe_init(void)
 	surface_gpe_device = pdev;
 	return 0;
 }
+module_init(surface_gpe_init);
 
 static void __exit surface_gpe_exit(void)
 {
@@ -294,7 +295,6 @@ static void __exit surface_gpe_exit(void)
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
 }
-module_init(surface_gpe_init);
 module_exit(surface_gpe_exit);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
