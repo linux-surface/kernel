@@ -798,6 +798,31 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 		ssam_request_sync_with_buffer(ctrl, rqst, rsp, &__buf);		\
 	})
 
+/**
+ * ssam_retry - Retry request in case of I/O errors or timeouts.
+ * @request: The request function to execute. Must return an integer.
+ * @n:       Number of tries.
+ * @args:    Arguments for the request function.
+ *
+ * Executes the given request function, i.e. calls @request. In case the
+ * request returns %-EREMOTEIO (indicates I/O error) or -%ETIMEDOUT (request
+ * or underlying packet timed out), @request will be re-executed again, up to
+ * @n times in total.
+ *
+ * Return: Returns the return value of the last execution of @request.
+ */
+#define ssam_retry(request, n, args...)					\
+	({								\
+		int __i, __s = 0;					\
+									\
+		for (__i = (n); __i > 0; __i--) {			\
+			__s = request(args);				\
+			if (__s != -ETIMEDOUT && __s != -EREMOTEIO)	\
+				break;					\
+		}							\
+		__s;							\
+	})
+
 
 /**
  * struct ssam_request_spec - Blue-print specification of SAM request.
@@ -1359,28 +1384,6 @@ struct ssam_device_uid {
 	u8 instance;
 	u8 function;
 };
-
-/**
- * SSAM_DUID() - Define a &struct ssam_device_uid.
- * @cat: Target category of the device.
- * @tid: Target ID of the device.
- * @iid: Instance ID of the device.
- * @fun: Sub-function of the (virtual) device.
- *
- * Return: The &struct ssam_device_uid specified by the given parameters.
- */
-#define SSAM_DUID(cat, tid, iid, fun)		\
-	((struct ssam_device_uid) {		\
-		.category = SSAM_SSH_TC_##cat,	\
-		.target = (tid),		\
-		.instance = (iid),		\
-		.function = (fun)		\
-	})
-
-/*
- * SSAM_DUID_NULL - Null device UID.
- */
-#define SSAM_DUID_NULL		((struct ssam_device_uid) { 0 })
 
 /*
  * Special values for device matching.
