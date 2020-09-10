@@ -11,6 +11,7 @@ Surface System Aggregator Module (SSAM)
    ssh
    client
    internal
+   clients/index
 
 .. only::  subproject and html
 
