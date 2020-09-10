@@ -42,28 +42,24 @@ struct ssam_perf_info {
 	__le16 unknown2;
 } __packed;
 
-static SSAM_DEFINE_SYNC_REQUEST_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
 	.target_category = SSAM_SSH_TC_TMP,
-	.target_id       = 0x01,
 	.command_id      = 0x02,
-	.instance_id     = 0x00,
 });
 
-static SSAM_DEFINE_SYNC_REQUEST_W(__ssam_tmp_perf_mode_set, __le32, {
+static SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_perf_mode_set, __le32, {
 	.target_category = SSAM_SSH_TC_TMP,
-	.target_id       = 0x01,
 	.command_id      = 0x03,
-	.instance_id     = 0x00,
 });
 
-static int ssam_tmp_perf_mode_set(struct ssam_controller *ctrl, u32 mode)
+static int ssam_tmp_perf_mode_set(struct ssam_device *sdev, u32 mode)
 {
 	__le32 mode_le = cpu_to_le32(mode);
 
 	if (mode < __SAM_PERF_MODE__START || mode > __SAM_PERF_MODE__END)
 		return -EINVAL;
 
-	return __ssam_tmp_perf_mode_set(ctrl, &mode_le);
+	return __ssam_tmp_perf_mode_set(sdev, &mode_le);
 }
 
 
@@ -103,7 +99,7 @@ static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr,
 	struct ssam_perf_info info;
 	int status;
 
-	status = ssam_tmp_perf_mode_get(sdev->ctrl, &info);
+	status = ssam_tmp_perf_mode_get(sdev, &info);
 	if (status) {
 		dev_err(dev, "failed to get current performance mode: %d\n", status);
 		return -EIO;
@@ -123,7 +119,7 @@ static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr
 	if (status)
 		return status;
 
-	status = ssam_tmp_perf_mode_set(sdev->ctrl, perf_mode);
+	status = ssam_tmp_perf_mode_set(sdev, perf_mode);
 	if (status)
 		return status;
 
@@ -152,7 +148,7 @@ static int surface_sam_sid_perfmode_probe(struct ssam_device *sdev)
 
 	// set initial perf_mode
 	if (param_perf_mode_init != SID_PARAM_PERF_MODE_AS_IS) {
-		status = ssam_tmp_perf_mode_set(sdev->ctrl, param_perf_mode_init);
+		status = ssam_tmp_perf_mode_set(sdev, param_perf_mode_init);
 		if (status)
 			return status;
 	}
@@ -160,7 +156,7 @@ static int surface_sam_sid_perfmode_probe(struct ssam_device *sdev)
 	// register perf_mode attribute
 	status = sysfs_create_file(&sdev->dev.kobj, &dev_attr_perf_mode.attr);
 	if (status)
-		ssam_tmp_perf_mode_set(sdev->ctrl, param_perf_mode_exit);
+		ssam_tmp_perf_mode_set(sdev, param_perf_mode_exit);
 
 	return status;
 }
@@ -168,7 +164,7 @@ static int surface_sam_sid_perfmode_probe(struct ssam_device *sdev)
 static void surface_sam_sid_perfmode_remove(struct ssam_device *sdev)
 {
 	sysfs_remove_file(&sdev->dev.kobj, &dev_attr_perf_mode.attr);
-	ssam_tmp_perf_mode_set(sdev->ctrl, param_perf_mode_exit);
+	ssam_tmp_perf_mode_set(sdev, param_perf_mode_exit);
 }
 
 
