@@ -858,7 +858,7 @@ static int shps_dgpu_handle_rqsg(struct notifier_block *nb, unsigned long action
 {
 	struct shps_driver_data *drvdata = container_of(nb, struct shps_driver_data, dgpu_nf);
 	struct platform_device *pdev = drvdata->pdev;
-	struct ssam_anf_dgpu_event *evt = data;
+	struct san_dgpu_event *evt = data;
 
 	if (evt->category == SAM_DGPU_TC && evt->command == SAM_DGPU_CID_POWERON)
 		return shps_dgpu_powered_on(pdev);
@@ -1111,7 +1111,7 @@ static int shps_probe(struct platform_device *pdev)
 
 	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
 		// link to SAN
-		status = ssam_anf_client_link(&pdev->dev);
+		status = san_client_link(&pdev->dev);
 		if (status) {
 			dev_err(&pdev->dev, "failed to register as SAN client: %d\n", status);
 			return status == -ENXIO ? -EPROBE_DEFER : status;
@@ -1168,7 +1168,7 @@ static int shps_probe(struct platform_device *pdev)
 		drvdata->dgpu_nf.priority = 1;
 		drvdata->dgpu_nf.notifier_call = shps_dgpu_handle_rqsg;
 
-		status = ssam_anf_dgpu_notifier_register(&drvdata->dgpu_nf);
+		status = san_dgpu_notifier_register(&drvdata->dgpu_nf);
 		if (status) {
 			dev_err(&pdev->dev, "unable to register SAN notification handler (%d)\n", status);
 			goto err_devlink;
@@ -1216,7 +1216,7 @@ err_post_notification:
 	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
 		shps_remove_sgcp_notification(pdev);
 	} else if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
-		ssam_anf_dgpu_notifier_unregister(&drvdata->dgpu_nf);
+		san_dgpu_notifier_unregister(&drvdata->dgpu_nf);
 	}
 err_devlink:
 	device_remove_groups(&pdev->dev, shps_power_groups);
@@ -1251,7 +1251,7 @@ static int shps_remove(struct platform_device *pdev)
 	if (drvdata->hardware_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
 		shps_remove_sgcp_notification(pdev);
 	} else if (drvdata->hardware_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
-		ssam_anf_dgpu_notifier_unregister(&drvdata->dgpu_nf);
+		san_dgpu_notifier_unregister(&drvdata->dgpu_nf);
 	}
 	device_remove_groups(&pdev->dev, shps_power_groups);
 	shps_gpios_remove_irq(pdev);

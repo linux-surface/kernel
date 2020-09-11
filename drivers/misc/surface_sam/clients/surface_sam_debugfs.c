@@ -11,9 +11,26 @@
 #include <linux/surface_aggregator_module.h>
 
 #define SSAM_DBGDEV_NAME	"surface_sam_dbgdev"
-#define SSAM_DBGDEV_VERS	0x0100
+#define SSAM_DBGDEV_VERS	0x010000
 
 
+/**
+ * struct ssam_dbgdev_request - Controller request IOCTL argument.
+ * @target_category: Target category of the SAM request.
+ * @target_id:       Target ID of the SAM request.
+ * @command_id:      Command ID of the SAM request.
+ * @instance_id:     Instance ID of the SAM request.
+ * @flags:           SAM Request flags.
+ * @status:          Request status (output).
+ * @payload:         Request payload (input data).
+ * @payload.data:    Pointer to request payload data.
+ * @payload.length:  Length of request payload data (in bytes).
+ * @response:        Request response (output data).
+ * @response.data:   Pointer to response buffer.
+ * @response.length: On input: Capacity of response buffer (in bytes).
+ *                   On output: Length of request response (number of bytes
+ *                   in the buffer that are actually used).
+ */
 struct ssam_dbgdev_request {
 	__u8 target_category;
 	__u8 target_id;
@@ -190,7 +207,7 @@ static int ssam_dbgdev_probe(struct platform_device *pdev)
 
 	ddev->ctrl = ctrl;
 
-	ddev->dentry_dir = debugfs_create_dir("surface_sam", NULL);
+	ddev->dentry_dir = debugfs_create_dir("ssam", NULL);
 	if (IS_ERR(ddev->dentry_dir))
 		return PTR_ERR(ddev->dentry_dir);
 
