@@ -59,7 +59,23 @@ static int san_set_rqsg_interface_device(struct device *dev)
 	return status;
 }
 
-int ssam_anf_client_link(struct device *client)
+/**
+ * san_client_link() - Link client as consumer to SAN device.
+ * @client: The client to link.
+ *
+ * Sets up a device link between the provided client device as consumer and
+ * the SAN device as provider. This function can be used to ensure that the
+ * SAN interface has been set up and will be set up for as long as the driver
+ * of the client device is bound. This guarantees that, during that time, all
+ * dGPU events will be received by any registered notifier.
+ *
+ * The link will be automatically removed once the client device's driver is
+ * unbound.
+ *
+ * Return: Returns zero on succes, %-ENXIO if the SAN interface has not been
+ * set up yet, and %-ENOMEM if device link creation failed.
+ */
+int san_client_link(struct device *client)
 {
 	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
 	struct device_link *link;
@@ -85,21 +101,33 @@ int ssam_anf_client_link(struct device *client)
 	up_read(&san_rqsg_if.lock);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(ssam_anf_client_link);
+EXPORT_SYMBOL_GPL(san_client_link);
 
-int ssam_anf_dgpu_notifier_register(struct notifier_block *nb)
+/**
+ * san_dgpu_notifier_register() - Register a SAN dGPU notifier.
+ * @nb: The notifier-block to register.
+ *
+ * Registers a SAN dGPU notifier, receiving any new SAN dGPU events sent from
+ * ACPI. The registered notifier will be called with &struct san_dgpu_event
+ * as notifier data and the command ID of that event as notifier action.
+ */
+int san_dgpu_notifier_register(struct notifier_block *nb)
 {
 	return blocking_notifier_chain_register(&san_rqsg_if.nh, nb);
 }
-EXPORT_SYMBOL_GPL(ssam_anf_dgpu_notifier_register);
+EXPORT_SYMBOL_GPL(san_dgpu_notifier_register);
 
-int ssam_anf_dgpu_notifier_unregister(struct notifier_block *nb)
+/**
+ * san_dgpu_notifier_unregister() - Unregister a SAN dGPU notifier.
+ * @nb: The notifier-block to unregister.
+ */
+int san_dgpu_notifier_unregister(struct notifier_block *nb)
 {
 	return blocking_notifier_chain_unregister(&san_rqsg_if.nh, nb);
 }
-EXPORT_SYMBOL_GPL(ssam_anf_dgpu_notifier_unregister);
+EXPORT_SYMBOL_GPL(san_dgpu_notifier_unregister);
 
-static int san_dgpu_notifier_call(struct ssam_anf_dgpu_event *evt)
+static int san_dgpu_notifier_call(struct san_dgpu_event *evt)
 {
 	int ret;
 
@@ -563,7 +591,7 @@ static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
 static acpi_status san_rqsg(struct san_data *d, struct gsb_buffer *buffer)
 {
 	struct gsb_data_rqsx *gsb_rqsg;
-	struct ssam_anf_dgpu_event evt;
+	struct san_dgpu_event evt;
 	int status;
 
 	gsb_rqsg = san_validate_rqsx(d->dev, "RQSG", buffer);
