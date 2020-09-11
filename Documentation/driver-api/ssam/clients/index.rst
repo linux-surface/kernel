@@ -10,6 +10,8 @@ This is the documentation for client drivers themselves. Refer to
 .. toctree::
    :maxdepth: 1
 
+   dbgdev
+
 .. only::  subproject and html
 
    Indices
