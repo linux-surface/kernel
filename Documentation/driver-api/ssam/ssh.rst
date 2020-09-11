@@ -50,15 +50,25 @@ The fundamental communication unit of the SSH protocol is a frame
 (:c:type:`struct ssh_frame <ssh_frame>`). A frame consists of the following
 fields, packed together and in order:
 
-  +--------+-------+--------------------------------------------------+
-  | Field  | Type  | Description                                      |
-  +========+=======+==================================================+
-  | |TYPE| | |u8|  | Type identifier of the frame.                    |
-  +--------+-------+--------------------------------------------------+
-  | |LEN|  | |u16| | Length of the payload associated with the frame. |
-  +--------+-------+--------------------------------------------------+
-  | |SEQ|  | |u8|  | Sequence ID (see explanation below).             |
-  +--------+-------+--------------------------------------------------+
+.. flat-table:: SSH Frame
+   :widths: 1 1 4
+   :header-rows: 1
+
+   * - Field
+     - Type
+     - Description
+
+   * - |TYPE|
+     - |u8|
+     - Type identifier of the frame.
+
+   * - |LEN|
+     - |u16|
+     - Length of the payload associated with the frame.
+
+   * - |SEQ|
+     - |u8|
+     - Sequence ID (see explanation below).
 
 Each frame structure is followed by a CRC over this structure. The CRC over
 the frame structure (|TYPE|, |LEN|, and |SEQ| fields) is placed directly
@@ -71,11 +81,17 @@ payload.
 
 Additionally, the following fixed two-byte sequences are used:
 
-  +-------+------------------+------------------------+
-  | Name  | Value            | Description            |
-  +=======+==================+========================+
-  | |SYN| | ``[0xAA, 0x55]`` | Synchronization bytes. |
-  +-------+------------------+------------------------+
+.. flat-table:: SSH Byte Sequences
+   :widths: 1 1 4
+   :header-rows: 1
+
+   * - Name
+     - Value
+     - Description
+
+   * - |SYN|
+     - ``[0xAA, 0x55]``
+     - Synchronization bytes.
 
 A message consists of |SYN|, followed by the frame (|TYPE|, |LEN|, |SEQ| and
 CRC) and, if specified in the frame (i.e. ``LEN > 0``), payload bytes,
@@ -87,17 +103,29 @@ section). The sequence ID is a wrapping counter.
 A frame can have the following types
 (:c:type:`enum ssh_frame_type <ssh_frame_type>`):
 
-  +------------+----------+----------------------------------------------------+
-  | Name       | Value    | Short Description                                  |
-  +============+==========+====================================================+
-  | |NAK|      | ``0x04`` | Sent on error in previously received message.      |
-  +------------+----------+----------------------------------------------------+
-  | |ACK|      | ``0x40`` | Sent to acknowledge receival of |DATA| frame.      |
-  +------------+----------+----------------------------------------------------+
-  | |DATA_SEQ| | ``0x80`` | Sent to transfer data. Sequenced.                  |
-  +------------+----------+----------------------------------------------------+
-  | |DATA_NSQ| | ``0x00`` | Same as |DATA_SEQ|, but does not need to be ACKed. |
-  +------------+----------+----------------------------------------------------+
+.. flat-table:: SSH Frame Types
+   :widths: 1 1 4
+   :header-rows: 1
+
+   * - Name
+     - Value
+     - Short Description
+
+   * - |NAK|
+     - ``0x04``
+     - Sent on error in previously received message.
+
+   * - |ACK|
+     - ``0x40``
+     - Sent to acknowledge receival of |DATA| frame.
+
+   * - |DATA_SEQ|
+     - ``0x80``
+     - Sent to transfer data. Sequenced.
+
+   * - |DATA_NSQ|
+     - ``0x00``
+     - Same as |DATA_SEQ|, but does not need to be ACKed.
 
 Both |NAK|- and |ACK|-type frames are used to control flow of messages and
 thus do not carry a payload. |DATA_SEQ|- and |DATA_NSQ|-type frames on the
@@ -174,23 +202,41 @@ from the frame payload length given in the corresponding frame, i.e. it is
 ``frame.len - sizeof(struct ssh_command)``. The command struct contains the
 following fields, packed together and in order:
 
-  +-------------+-------+----------------------------------------------------+
-  | Field       | Type  | Description                                        |
-  +=============+=======+====================================================+
-  | |TYPE|      | |u8|  | Type of the payload. For commands always ``0x80``. |
-  +-------------+-------+----------------------------------------------------+
-  | |TC|        | |u8|  | Target category.                                   |
-  +-------------+-------+----------------------------------------------------+
-  | |TID| (out) | |u8|  | Target ID for outgoing (host to EC) commands.      |
-  +-------------+-------+----------------------------------------------------+
-  | |TID| (in)  | |u8|  | Target ID for incoming (EC to host) commands.      |
-  +-------------+-------+----------------------------------------------------+
-  | |IID|       | |u8|  | Instance ID.                                       |
-  +-------------+-------+----------------------------------------------------+
-  | |RQID|      | |u16| | Request ID.                                        |
-  +-------------+-------+----------------------------------------------------+
-  | |CID|       | |u8|  | Command ID.                                        |
-  +-------------+-------+----------------------------------------------------+
+.. flat-table:: SSH Command
+   :widths: 1 1 4
+   :header-rows: 1
+
+   * - Field
+     - Type
+     - Description
+
+   * - |TYPE|
+     - |u8|
+     - Type of the payload. For commands always ``0x80``.
+
+   * - |TC|
+     - |u8|
+     - Target category.
+
+   * - |TID| (out)
+     - |u8|
+     - Target ID for outgoing (host to EC) commands.
+
+   * - |TID| (in)
+     - |u8|
+     - Target ID for incoming (EC to host) commands.
+
+   * - |IID|
+     - |u8|
+     - Instance ID.
+
+   * - |RQID|
+     - |u16|
+     - Request ID.
+
+   * - |CID|
+     - |u8|
+     - Command ID.
 
 The command struct and data, in general, does not contain any failure
 detection mechanism (e.g. CRCs), this is solely done on the frame level.
