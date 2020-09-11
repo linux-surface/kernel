@@ -11,6 +11,7 @@ This is the documentation for client drivers themselves. Refer to
    :maxdepth: 1
 
    dbgdev
+   san
 
 .. only::  subproject and html
 
