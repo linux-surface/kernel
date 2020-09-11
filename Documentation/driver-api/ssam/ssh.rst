@@ -287,9 +287,9 @@ event request ID.
 Furthermore, requests, responses, and events have an associated target ID
 (``TID``). This target ID is split into output (host to EC) and input (EC to
 host) fields, with the respecting other field (e.g. output field on incoming
-messages) set to zero. Two ``TID`` values are known: Primary (0x01) and
-secondary (0x02). In general, the response to a request should have the same
-``TID`` value, however, the field (output vs. input) should be used in
+messages) set to zero. Two ``TID`` values are known: Primary (``0x01``) and
+secondary (``0x02``). In general, the response to a request should have the
+same ``TID`` value, however, the field (output vs. input) should be used in
 accordance to the direction in which the response is sent (i.e. on the input
 field, as responses are generally sent from the EC to the host).
 
