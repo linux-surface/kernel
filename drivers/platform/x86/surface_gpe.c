@@ -155,8 +155,9 @@ static int surface_lid_enable_wakeup(struct device *dev, bool enable)
 	acpi_status status;
 
 	status = acpi_set_gpe_wake_mask(NULL, lid->gpe_number, action);
-	if (status) {
-		dev_err(dev, "failed to set GPE wake mask: %d\n", status);
+	if (ACPI_FAILURE(status)) {
+		dev_err(dev, "failed to set GPE wake mask: %s\n",
+			acpi_format_exception(status));
 		return -EINVAL;
 	}
 
@@ -179,21 +180,24 @@ static int surface_gpe_probe(struct platform_device *pdev)
 {
 	struct surface_lid_device *lid;
 	u32 gpe_number;
-	int status;
+	acpi_status status;
+	int ret;
 
-	status = device_property_read_u32(&pdev->dev, "gpe", &gpe_number);
-	if (status)
+	ret = device_property_read_u32(&pdev->dev, "gpe", &gpe_number);
+	if (ret)
 		return -ENODEV;
 
 	status = acpi_mark_gpe_for_wake(NULL, gpe_number);
-	if (status) {
-		dev_err(&pdev->dev, "failed to mark GPE for wake: %d\n", status);
+	if (ACPI_FAILURE(status)) {
+		dev_err(&pdev->dev, "failed to mark GPE for wake: %s\n",
+			acpi_format_exception(status));
 		return -EINVAL;
 	}
 
 	status = acpi_enable_gpe(NULL, gpe_number);
-	if (status) {
-		dev_err(&pdev->dev, "failed to enable GPE: %d\n", status);
+	if (ACPI_FAILURE(status)) {
+		dev_err(&pdev->dev, "failed to enable GPE: %s\n",
+			acpi_format_exception(status));
 		return -EINVAL;
 	}
 
@@ -205,11 +209,11 @@ static int surface_gpe_probe(struct platform_device *pdev)
 	lid->gpe_number = gpe_number;
 	platform_set_drvdata(pdev, lid);
 
-	status = surface_lid_enable_wakeup(&pdev->dev, false);
-	if (status) {
+	ret = surface_lid_enable_wakeup(&pdev->dev, false);
+	if (ret) {
 		acpi_disable_gpe(NULL, gpe_number);
 		platform_set_drvdata(pdev, NULL);
-		return status;
+		return ret;
 	}
 
 	return 0;
