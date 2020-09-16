@@ -187,6 +187,13 @@ static int surface_gpe_probe(struct platform_device *pdev)
 	if (ret)
 		return -ENODEV;
 
+	lid = devm_kzalloc(&pdev->dev, sizeof(*lid), GFP_KERNEL);
+	if (!lid)
+		return -ENOMEM;
+
+	lid->gpe_number = gpe_number;
+	platform_set_drvdata(pdev, lid);
+
 	status = acpi_mark_gpe_for_wake(NULL, gpe_number);
 	if (ACPI_FAILURE(status)) {
 		dev_err(&pdev->dev, "failed to mark GPE for wake: %s\n",
@@ -200,13 +207,6 @@ static int surface_gpe_probe(struct platform_device *pdev)
 			acpi_format_exception(status));
 		return -EINVAL;
 	}
-
-	lid = devm_kzalloc(&pdev->dev, sizeof(*lid), GFP_KERNEL);
-	if (!lid)
-		return -ENOMEM;
-
-	lid->gpe_number = gpe_number;
-	platform_set_drvdata(pdev, lid);
 
 	ret = surface_lid_enable_wakeup(&pdev->dev, false);
 	if (ret) {
