@@ -201,8 +201,7 @@ static int surface_gpe_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	lid = devm_kzalloc(&pdev->dev, sizeof(struct surface_lid_device),
-			   GFP_KERNEL);
+	lid = devm_kzalloc(&pdev->dev, sizeof(*lid), GFP_KERNEL);
 	if (!lid)
 		return -ENOMEM;
 
