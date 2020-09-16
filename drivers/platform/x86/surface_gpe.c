@@ -251,7 +251,7 @@ static int __init surface_gpe_init(void)
 	match = dmi_first_match(dmi_lid_device_table);
 	if (!match) {
 		pr_info("no device detected, exiting\n");
-		return 0;
+		return -ENODEV;
 	}
 
 	props = match->driver_data;
@@ -294,9 +294,6 @@ module_init(surface_gpe_init);
 
 static void __exit surface_gpe_exit(void)
 {
-	if (!surface_gpe_device)
-		return;
-
 	fwnode_remove_software_node(surface_gpe_device->dev.fwnode);
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
