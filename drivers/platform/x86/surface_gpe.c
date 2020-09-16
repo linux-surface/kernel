@@ -264,28 +264,33 @@ static int __init surface_gpe_init(void)
 
 	pdev = platform_device_alloc("surface_gpe", PLATFORM_DEVID_NONE);
 	if (!pdev) {
-		platform_driver_unregister(&surface_gpe_driver);
-		return -ENOMEM;
+		status = -ENOMEM;
+		goto err_alloc;
 	}
 
 	fwnode = fwnode_create_software_node(props, NULL);
 	if (IS_ERR(fwnode)) {
-		platform_device_put(pdev);
-		platform_driver_unregister(&surface_gpe_driver);
-		return PTR_ERR(fwnode);
+		status = PTR_ERR(fwnode);
+		goto err_fwnode;
 	}
 
-	pdev->dev.fwnode = fwnode;
+	set_primary_fwnode(&pdev->dev, fwnode);
 
 	status = platform_device_add(pdev);
-	if (status) {
-		platform_device_put(pdev);
-		platform_driver_unregister(&surface_gpe_driver);
-		return status;
-	}
+	if (status)
+		goto err_add;
 
 	surface_gpe_device = pdev;
 	return 0;
+
+err_add:
+	set_primary_fwnode(&pdev->dev, NULL);
+	fwnode_remove_software_node(fwnode);
+err_fwnode:
+	platform_device_put(pdev);
+err_alloc:
+	platform_driver_unregister(&surface_gpe_driver);
+	return status;
 }
 module_init(surface_gpe_init);
 
