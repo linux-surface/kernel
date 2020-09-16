@@ -4,6 +4,8 @@
  * properly configuring the respective GPEs.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/acpi.h>
 #include <linux/dmi.h>
 #include <linux/kernel.h>
@@ -250,7 +252,7 @@ static int __init surface_gpe_init(void)
 
 	match = dmi_first_match(dmi_lid_device_table);
 	if (!match) {
-		pr_info(KBUILD_MODNAME": no device detected, exiting\n");
+		pr_info("no device detected, exiting\n");
 		return 0;
 	}
 
