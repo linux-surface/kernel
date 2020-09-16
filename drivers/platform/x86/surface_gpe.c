@@ -211,12 +211,10 @@ static int surface_gpe_probe(struct platform_device *pdev)
 	}
 
 	ret = surface_lid_enable_wakeup(&pdev->dev, false);
-	if (ret) {
+	if (ret)
 		acpi_disable_gpe(NULL, gpe_number);
-		return ret;
-	}
 
-	return 0;
+	return ret;
 }
 
 static int surface_gpe_remove(struct platform_device *pdev)
