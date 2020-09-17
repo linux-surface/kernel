@@ -272,7 +272,7 @@ static int __init surface_gpe_init(void)
 		goto err_alloc;
 	}
 
-	set_primary_fwnode(&pdev->dev, fwnode);
+	pdev->dev.fwnode = fwnode;
 
 	status = platform_device_add(pdev);
 	if (status)
@@ -293,7 +293,7 @@ module_init(surface_gpe_init);
 
 static void __exit surface_gpe_exit(void)
 {
-	struct fwnode_handle *fwnode = dev_fwnode(&surface_gpe_device->dev);
+	struct fwnode_handle *fwnode = surface_gpe_device->dev.fwnode;
 
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
