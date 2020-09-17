@@ -282,7 +282,6 @@ static int __init surface_gpe_init(void)
 	return 0;
 
 err_add:
-	set_primary_fwnode(&pdev->dev, NULL);
 	platform_device_put(pdev);
 err_alloc:
 	fwnode_remove_software_node(fwnode);
