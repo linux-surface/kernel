@@ -125,6 +125,19 @@ which should be set when declaring the driver struct instance. Refer to the
 |SSAM_DEVICE| macro documentation for more details on how to define members
 of the driver's match table.
 
+The UID for SSAM client devices consists of a ``domain``, a ``category``,
+a ``target``, an ``instance``, and a ``function``. The ``domain`` is used
+differentiate between physical SAM devices
+(:c:type:`SSAM_DOMAIN_SERIALHUB <ssam_device_domain>`), i.e. devices that can
+be accessed via the Surface Serial Hub, and virtual ones
+(:c:type:`SSAM_DOMAIN_VIRTUAL <ssam_device_domain>`), such as client-device
+hubs, that have no real representation on the SAM EC and are solely used on
+the kernel/driver-side. For physical devices, ``category`` represents the
+target category, ``target`` the target ID, and ``instace`` the instance ID
+used to access the physical SAM device. In addition, ``function`` references
+a specific device functionality, but has no meaning to the SAM EC. The
+(default) name of a client device is generated based on its UID.
+
 A driver instance can be registered via |ssam_device_driver_register| and
 unregistered via |ssam_device_driver_unregister|. For convenience, the
 |module_ssam_device_driver| macro may be used to define module init- and
