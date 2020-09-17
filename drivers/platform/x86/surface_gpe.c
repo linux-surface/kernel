@@ -294,9 +294,11 @@ module_init(surface_gpe_init);
 
 static void __exit surface_gpe_exit(void)
 {
-	fwnode_remove_software_node(surface_gpe_device->dev.fwnode);
+	struct fwnode_handle *fwnode = dev_fwnode(&surface_gpe_device->dev);
+
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
+	fwnode_remove_software_node(fwnode);
 }
 module_exit(surface_gpe_exit);
 
