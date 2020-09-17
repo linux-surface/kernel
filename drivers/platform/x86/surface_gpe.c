@@ -187,8 +187,8 @@ static int surface_gpe_probe(struct platform_device *pdev)
 
 	ret = device_property_read_u32(&pdev->dev, "gpe", &gpe_number);
 	if (ret) {
-		dev_dbg(&pdev->dev, "failed to read 'gpe' property: %d\n", ret);
-		return -ENODEV;
+		dev_err(&pdev->dev, "failed to read 'gpe' property: %d\n", ret);
+		return ret;
 	}
 
 	lid = devm_kzalloc(&pdev->dev, sizeof(*lid), GFP_KERNEL);
