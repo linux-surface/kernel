@@ -246,7 +246,6 @@ static struct platform_device *surface_gpe_device;
 static int __init surface_gpe_init(void)
 {
 	const struct dmi_system_id *match;
-	const struct property_entry *props;
 	struct platform_device *pdev;
 	struct fwnode_handle *fwnode;
 	int status;
@@ -257,22 +256,20 @@ static int __init surface_gpe_init(void)
 		return -ENODEV;
 	}
 
-	props = match->driver_data;
-
 	status = platform_driver_register(&surface_gpe_driver);
 	if (status)
 		return status;
+
+	fwnode = fwnode_create_software_node(match->driver_data, NULL);
+	if (IS_ERR(fwnode)) {
+		status = PTR_ERR(fwnode);
+		goto err_node;
+	}
 
 	pdev = platform_device_alloc("surface_gpe", PLATFORM_DEVID_NONE);
 	if (!pdev) {
 		status = -ENOMEM;
 		goto err_alloc;
-	}
-
-	fwnode = fwnode_create_software_node(props, NULL);
-	if (IS_ERR(fwnode)) {
-		status = PTR_ERR(fwnode);
-		goto err_fwnode;
 	}
 
 	set_primary_fwnode(&pdev->dev, fwnode);
@@ -286,10 +283,10 @@ static int __init surface_gpe_init(void)
 
 err_add:
 	set_primary_fwnode(&pdev->dev, NULL);
-	fwnode_remove_software_node(fwnode);
-err_fwnode:
 	platform_device_put(pdev);
 err_alloc:
+	fwnode_remove_software_node(fwnode);
+err_node:
 	platform_driver_unregister(&surface_gpe_driver);
 	return status;
 }
