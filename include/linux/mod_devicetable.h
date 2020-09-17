@@ -845,6 +845,7 @@ struct mhi_device_id {
 struct ssam_device_id {
 	__u8 match_flags;
 
+	__u8 domain;
 	__u8 category;
 	__u8 target;
 	__u8 instance;
