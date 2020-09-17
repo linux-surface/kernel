@@ -252,7 +252,7 @@ static int __init surface_gpe_init(void)
 
 	match = dmi_first_match(dmi_lid_device_table);
 	if (!match) {
-		pr_info("no device detected, exiting\n");
+		pr_info("no compatible Microsoft Surface device found, exiting\n");
 		return -ENODEV;
 	}
 
