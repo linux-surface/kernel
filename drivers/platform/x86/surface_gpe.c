@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Surface GPE/Lid driver to enable wakeup from suspend via the lid by
- * properly configuring the respective GPEs.
+ * properly configuring the respective GPEs. Required for wakeup via lid on
+ * newer Intel-based Microsoft Surface devices.
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/acpi.h>
 #include <linux/dmi.h>
@@ -155,8 +158,9 @@ static int surface_lid_enable_wakeup(struct device *dev, bool enable)
 	acpi_status status;
 
 	status = acpi_set_gpe_wake_mask(NULL, lid->gpe_number, action);
-	if (status) {
-		dev_err(dev, "failed to set GPE wake mask: %d\n", status);
+	if (ACPI_FAILURE(status)) {
+		dev_err(dev, "failed to set GPE wake mask: %s\n",
+			acpi_format_exception(status));
 		return -EINVAL;
 	}
 
@@ -179,40 +183,41 @@ static int surface_gpe_probe(struct platform_device *pdev)
 {
 	struct surface_lid_device *lid;
 	u32 gpe_number;
-	int status;
+	acpi_status status;
+	int ret;
 
-	status = device_property_read_u32(&pdev->dev, "gpe", &gpe_number);
-	if (status)
-		return -ENODEV;
-
-	status = acpi_mark_gpe_for_wake(NULL, gpe_number);
-	if (status) {
-		dev_err(&pdev->dev, "failed to mark GPE for wake: %d\n", status);
-		return -EINVAL;
+	ret = device_property_read_u32(&pdev->dev, "gpe", &gpe_number);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to read 'gpe' property: %d\n", ret);
+		return ret;
 	}
 
-	status = acpi_enable_gpe(NULL, gpe_number);
-	if (status) {
-		dev_err(&pdev->dev, "failed to enable GPE: %d\n", status);
-		return -EINVAL;
-	}
-
-	lid = devm_kzalloc(&pdev->dev, sizeof(struct surface_lid_device),
-			   GFP_KERNEL);
+	lid = devm_kzalloc(&pdev->dev, sizeof(*lid), GFP_KERNEL);
 	if (!lid)
 		return -ENOMEM;
 
 	lid->gpe_number = gpe_number;
 	platform_set_drvdata(pdev, lid);
 
-	status = surface_lid_enable_wakeup(&pdev->dev, false);
-	if (status) {
-		acpi_disable_gpe(NULL, gpe_number);
-		platform_set_drvdata(pdev, NULL);
-		return status;
+	status = acpi_mark_gpe_for_wake(NULL, gpe_number);
+	if (ACPI_FAILURE(status)) {
+		dev_err(&pdev->dev, "failed to mark GPE for wake: %s\n",
+			acpi_format_exception(status));
+		return -EINVAL;
 	}
 
-	return 0;
+	status = acpi_enable_gpe(NULL, gpe_number);
+	if (ACPI_FAILURE(status)) {
+		dev_err(&pdev->dev, "failed to enable GPE: %s\n",
+			acpi_format_exception(status));
+		return -EINVAL;
+	}
+
+	ret = surface_lid_enable_wakeup(&pdev->dev, false);
+	if (ret)
+		acpi_disable_gpe(NULL, gpe_number);
+
+	return ret;
 }
 
 static int surface_gpe_remove(struct platform_device *pdev)
@@ -223,7 +228,6 @@ static int surface_gpe_remove(struct platform_device *pdev)
 	surface_lid_enable_wakeup(&pdev->dev, false);
 	acpi_disable_gpe(NULL, lid->gpe_number);
 
-	platform_set_drvdata(pdev, NULL);
 	return 0;
 }
 
@@ -242,58 +246,58 @@ static struct platform_device *surface_gpe_device;
 static int __init surface_gpe_init(void)
 {
 	const struct dmi_system_id *match;
-	const struct property_entry *props;
 	struct platform_device *pdev;
 	struct fwnode_handle *fwnode;
 	int status;
 
 	match = dmi_first_match(dmi_lid_device_table);
 	if (!match) {
-		pr_info(KBUILD_MODNAME": no device detected, exiting\n");
-		return 0;
+		pr_info("no compatible Microsoft Surface device found, exiting\n");
+		return -ENODEV;
 	}
-
-	props = match->driver_data;
 
 	status = platform_driver_register(&surface_gpe_driver);
 	if (status)
 		return status;
 
-	pdev = platform_device_alloc("surface_gpe", PLATFORM_DEVID_NONE);
-	if (!pdev) {
-		platform_driver_unregister(&surface_gpe_driver);
-		return -ENOMEM;
+	fwnode = fwnode_create_software_node(match->driver_data, NULL);
+	if (IS_ERR(fwnode)) {
+		status = PTR_ERR(fwnode);
+		goto err_node;
 	}
 
-	fwnode = fwnode_create_software_node(props, NULL);
-	if (IS_ERR(fwnode)) {
-		platform_device_put(pdev);
-		platform_driver_unregister(&surface_gpe_driver);
-		return PTR_ERR(fwnode);
+	pdev = platform_device_alloc("surface_gpe", PLATFORM_DEVID_NONE);
+	if (!pdev) {
+		status = -ENOMEM;
+		goto err_alloc;
 	}
 
 	pdev->dev.fwnode = fwnode;
 
 	status = platform_device_add(pdev);
-	if (status) {
-		platform_device_put(pdev);
-		platform_driver_unregister(&surface_gpe_driver);
-		return status;
-	}
+	if (status)
+		goto err_add;
 
 	surface_gpe_device = pdev;
 	return 0;
+
+err_add:
+	platform_device_put(pdev);
+err_alloc:
+	fwnode_remove_software_node(fwnode);
+err_node:
+	platform_driver_unregister(&surface_gpe_driver);
+	return status;
 }
 module_init(surface_gpe_init);
 
 static void __exit surface_gpe_exit(void)
 {
-	if (!surface_gpe_device)
-		return;
+	struct fwnode_handle *fwnode = surface_gpe_device->dev.fwnode;
 
-	fwnode_remove_software_node(surface_gpe_device->dev.fwnode);
 	platform_device_unregister(surface_gpe_device);
 	platform_driver_unregister(&surface_gpe_driver);
+	fwnode_remove_software_node(fwnode);
 }
 module_exit(surface_gpe_exit);
 
