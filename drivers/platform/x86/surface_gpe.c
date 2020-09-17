@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Surface GPE/Lid driver to enable wakeup from suspend via the lid by
- * properly configuring the respective GPEs.
+ * properly configuring the respective GPEs. Required for wakeup via lid on
+ * newer Intel-based Microsoft Surface devices.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
