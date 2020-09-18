@@ -1072,7 +1072,7 @@ static int ssam_dsm_load_u32(acpi_handle handle, u64 funcs, u64 func, u32 *ret)
 static int ssam_controller_caps_load_from_acpi(
 		acpi_handle handle, struct ssam_controller_caps *caps)
 {
-	u32 d3_closes_handle;
+	u32 d3_closes_handle = false;
 	u64 funcs;
 	int status;
 
