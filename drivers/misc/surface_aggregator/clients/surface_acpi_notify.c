@@ -522,7 +522,8 @@ static void gsb_rqsx_response_success(struct gsb_buffer *gsb, u8 *ptr, size_t le
 		memcpy(&gsb->data.out.pld[0], ptr, len);
 }
 
-static acpi_status san_rqst_fixup_suspended(struct ssam_request *rqst,
+static acpi_status san_rqst_fixup_suspended(struct san_data *d,
+					    struct ssam_request *rqst,
 					    struct gsb_buffer *gsb)
 {
 	if (rqst->target_category == SSAM_SSH_TC_BAS && rqst->command_id == 0x0D) {
@@ -542,6 +543,8 @@ static acpi_status san_rqst_fixup_suspended(struct ssam_request *rqst,
 		 * waiting for the EC to wake up, which may incur a notable
 		 * delay.
 		 */
+
+		dev_dbg(d->dev, "rqst: fixup: base-state quirk\n");
 
 		gsb_rqsx_response_success(gsb, &base_state, sizeof(base_state));
 		return AE_OK;
@@ -578,7 +581,7 @@ static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
 	// handle suspended device
 	if (d->dev->power.is_suspended) {
 		dev_warn(d->dev, "rqst: device is suspended, not executing\n");
-		return san_rqst_fixup_suspended(&rqst, buffer);
+		return san_rqst_fixup_suspended(d, &rqst, buffer);
 	}
 
 	status = ssam_retry(ssam_request_sync_onstack, SAN_REQUEST_NUM_TRIES,
