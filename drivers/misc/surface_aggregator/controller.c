@@ -1467,7 +1467,7 @@ int ssam_request_sync_alloc(size_t payload_len, gfp_t flags,
 {
 	size_t msglen = SSH_COMMAND_MESSAGE_LENGTH(payload_len);
 
-	*rqst = kzalloc(sizeof(*rqst) + msglen, flags);
+	*rqst = kzalloc(sizeof(**rqst) + msglen, flags);
 	if (!*rqst)
 		return -ENOMEM;
 

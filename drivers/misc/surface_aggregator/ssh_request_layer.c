@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <asm/unaligned.h>
 #include <linux/atomic.h>
 #include <linux/completion.h>
 #include <linux/error-injection.h>
 #include <linux/ktime.h>
 #include <linux/list.h>
+#include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
