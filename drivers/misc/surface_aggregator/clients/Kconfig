@@ -1,0 +1,18 @@
+config SURFACE_AGGREGATOR_DEBUGFS
+	tristate "Surface System Aggregator Module DebugFS interface"
+	depends on SURFACE_AGGREGATOR
+	depends on DEBUG_FS
+	default n
+	help
+	  Provides a DebugFS interface to the Surface System Aggregator Module
+	  (SSAM) controller.
+
+	  This option provides a module (called surface_aggregator_debugfs),
+	  that, when loaded, will add a client device (and its respective
+	  driver) to the SSAM controller. Said client device manages a DebugFS
+	  interface (/sys/kernel/debug/surface_aggregator/controller), which can
+	  be used by user-space tools to directly communicate with the SSAM EC
+	  by sending requests and receiving the correspondign responses.
+
+	  The provided interface is intended for debugging and development only,
+	  and should not be used otherwise.

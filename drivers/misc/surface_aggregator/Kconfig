@@ -61,3 +61,5 @@ config SURFACE_AGGREGATOR_ERROR_INJECTION
 	  transport and communication problems, such as invalid data sent to or
 	  received from the EC, dropped data, and communication timeouts.
 	  Intended for development and debugging.
+
+source "drivers/misc/surface_aggregator/clients/Kconfig"
