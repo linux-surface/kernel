@@ -1365,7 +1365,7 @@ static int do_mhi_entry(const char *filename, void *symval, char *alias)
 }
 
 /*
- * Looks like: ssam:cNtNiNfN
+ * Looks like: ssam:dNcNtNiNfN
  *
  * N is exactly 2 digits, where each is an upper-case hex digit.
  */
