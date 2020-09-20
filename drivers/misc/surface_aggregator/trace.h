@@ -594,6 +594,15 @@ DEFINE_SSAM_REQUEST_EVENT(request_cancel);
 DEFINE_SSAM_REQUEST_STATUS_EVENT(request_complete);
 DEFINE_SSAM_GENERIC_UINT_EVENT(rtl_timeout_reap);
 
+DEFINE_SSAM_PACKET_EVENT(ei_tx_drop_ack_packet);
+DEFINE_SSAM_PACKET_EVENT(ei_tx_drop_nak_packet);
+DEFINE_SSAM_PACKET_EVENT(ei_tx_drop_dsq_packet);
+DEFINE_SSAM_PACKET_STATUS_EVENT(ei_tx_fail_write);
+DEFINE_SSAM_PACKET_EVENT(ei_tx_corrupt_data);
+DEFINE_SSAM_GENERIC_UINT_EVENT(ei_rx_corrupt_syn);
+DEFINE_SSAM_FRAME_EVENT(ei_rx_corrupt_data);
+DEFINE_SSAM_REQUEST_EVENT(ei_rx_drop_response);
+
 DEFINE_SSAM_ALLOC_EVENT(ctrl_packet_alloc);
 DEFINE_SSAM_FREE_EVENT(ctrl_packet_free);
 

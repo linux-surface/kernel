@@ -34,3 +34,18 @@ menuconfig SURFACE_AGGREGATOR
 	  devices using SAM-over-SSH are supported, whereas devices using
 	  SAM-over-HID, which is used on the 4th generation, are currently not
 	  supported.
+
+config SURFACE_AGGREGATOR_ERROR_INJECTION
+	bool "Surface System Aggregator Module Error Injection Capabilities"
+	depends on SURFACE_AGGREGATOR
+	depends on FUNCTION_ERROR_INJECTION
+	default n
+	help
+	  Provides error-injection capabilities for the Surface System
+	  Aggregator Module subsystem and Surface Serial Hub driver.
+
+	  Specifically, exports error injection hooks to be used with the
+	  kernel's function error injection capabilities to simulate underlying
+	  transport and communication problems, such as invalid data sent to or
+	  received from the EC, dropped data, and communication timeouts.
+	  Intended for development and debugging.

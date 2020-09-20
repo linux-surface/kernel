@@ -3,6 +3,7 @@
 #include <asm/unaligned.h>
 #include <linux/atomic.h>
 #include <linux/completion.h>
+#include <linux/error-injection.h>
 #include <linux/ktime.h>
 #include <linux/list.h>
 #include <linux/slab.h>
@@ -45,6 +46,31 @@
  * have a response or waiting for a response if they have one).
  */
 #define SSH_RTL_MAX_PENDING		3
+
+
+#ifdef CONFIG_SURFACE_AGGREGATOR_ERROR_INJECTION
+
+/**
+ * ssh_rtl_should_drop_response() - Error injection hook to drop request
+ * responses.
+ *
+ * Useful to cause request transmission timeouts in the driver by dropping the
+ * response to a request.
+ */
+static noinline bool ssh_rtl_should_drop_response(void)
+{
+	return false;
+}
+ALLOW_ERROR_INJECTION(ssh_rtl_should_drop_response, TRUE);
+
+#else
+
+static inline bool ssh_rtl_should_drop_response(void)
+{
+	return false;
+}
+
+#endif
 
 
 static u16 ssh_request_get_rqid(struct ssh_request *rqst)
@@ -452,6 +478,16 @@ static void ssh_rtl_complete(struct ssh_rtl *rtl,
 		// we generally expect requests to be processed in order
 		if (unlikely(ssh_request_get_rqid(p) != rqid))
 			continue;
+
+		// simulate response timeout
+		if (ssh_rtl_should_drop_response()) {
+			spin_unlock(&rtl->pending.lock);
+
+			trace_ssam_ei_rx_drop_response(p);
+			rtl_info(rtl, "request error injection: dropping response for request %p\n",
+				 &p->packet);
+			return;
+		}
 
 		/*
 		 * Mark as "response received" and "locked" as we're going to
