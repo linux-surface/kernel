@@ -16,3 +16,23 @@ config SURFACE_AGGREGATOR_DEBUGFS
 
 	  The provided interface is intended for debugging and development only,
 	  and should not be used otherwise.
+
+config SURFACE_ACPI_NOTIFY
+	tristate "Surface ACPI Notify Driver"
+	depends on SURFACE_AGGREGATOR
+	default m
+	help
+	  Surface ACPI Notify (SAN) driver for Microsoft Surface devices.
+
+	  This driver provides support for the ACPI interface (called SAN) of
+	  the Surface System Aggregator Module (SSAM) EC. This interface is used
+	  on 5th- and 6th-generation Microsoft Surface devices (including
+	  Surface Pro 5 and 6, Surface Book 2, Surface Laptops 1 and 2, and in
+	  reduced functionality on the Surface Laptop 3) to execute SSAM
+	  requests directly from ACPI code, as well as receive SSAM events and
+	  turn them into ACPI notifications. It essentially acts as a
+	  translation layer between the SSAM controller and ACPI.
+
+	  Specifically, this driver may be needed for battery status reporting,
+	  thermal sensor access, and real-time clock information, depending on
+	  the Surface device in question.

@@ -11570,6 +11570,7 @@ W:	https://github.com/linux-surface/surface-aggregator-module
 C:	irc://chat.freenode.net/##linux-surface
 F:	Documentation/driver-api/surface_aggregator/
 F:	drivers/misc/surface_aggregator/
+F:	include/linux/surface_acpi_notify.h
 F:	include/linux/surface_aggregator/
 
 MICROTEK X6 SCANNER
