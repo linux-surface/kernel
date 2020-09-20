@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+# For include/trace/define_trace.h to include trace.h
+CFLAGS_core.o = -I$(src)
+
 obj-$(CONFIG_SURFACE_AGGREGATOR) += surface_aggregator.o
 
 surface_aggregator-objs := core.o

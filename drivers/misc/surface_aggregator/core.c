@@ -22,6 +22,9 @@
 #include <linux/surface_aggregator/controller.h>
 #include "controller.h"
 
+#define CREATE_TRACE_POINTS
+#include "trace.h"
+
 
 /* -- Static controller reference. ------------------------------------------ */
 
