@@ -164,4 +164,7 @@ void ssh_ptl_tx_wakeup(struct ssh_ptl *ptl);
 void ssh_packet_init(struct ssh_packet *packet, unsigned long type,
 		     u8 priority, const struct ssh_packet_ops *ops);
 
+int ssh_ctrl_packet_cache_init(void);
+void ssh_ctrl_packet_cache_destroy(void);
+
 #endif /* _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H */
