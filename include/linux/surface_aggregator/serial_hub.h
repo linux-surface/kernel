@@ -131,7 +131,7 @@ static_assert(sizeof(struct ssh_command) == 8);
 #define SSH_MSG_LEN_CTRL	SSH_MSG_LEN_BASE
 
 /**
- * SSH_MESSAGE_LENGTH() - Comute lenght of SSH message.
+ * SSH_MESSAGE_LENGTH() - Comute length of SSH message.
  * @payload_size: Length of the payload inside the SSH frame.
  *
  * Return: Returns the length of a SSH message with payload of specified size.

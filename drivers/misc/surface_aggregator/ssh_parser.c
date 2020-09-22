@@ -127,7 +127,7 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 		return -ENOMSG;
 	}
 
-	// check for minumum packet length
+	// check for minimum packet length
 	if (unlikely(source->len < SSH_MESSAGE_LENGTH(0))) {
 		dev_dbg(dev, "rx: parser: not enough data for frame\n");
 		return 0;

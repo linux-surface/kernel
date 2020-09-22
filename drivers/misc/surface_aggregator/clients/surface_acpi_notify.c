@@ -669,10 +669,6 @@ static acpi_status san_opreg_handler(u32 function,
 
 /* -- Driver setup. --------------------------------------------------------- */
 
-struct san_acpi_consumer {
-	const char *path;
-};
-
 static int san_events_register(struct platform_device *pdev)
 {
 	struct san_data *d = platform_get_drvdata(pdev);
@@ -713,38 +709,92 @@ static void san_events_unregister(struct platform_device *pdev)
 	ssam_notifier_unregister(d->ctrl, &d->nf_tmp);
 }
 
-static int san_consumers_link(struct platform_device *pdev,
-			      const struct san_acpi_consumer *cons)
+#define san_consumer_printk(level, dev, handle, fmt, ...)			\
+do {										\
+	char *path = "<error getting consumer path>";				\
+	struct acpi_buffer buffer = {						\
+		.length = ACPI_ALLOCATE_BUFFER,					\
+		.pointer = NULL,						\
+	};									\
+										\
+	if (ACPI_SUCCESS(acpi_get_name(handle, ACPI_FULL_PATHNAME, &buffer)))	\
+		path = buffer.pointer;						\
+										\
+	dev_##level(dev, "[%s]: " fmt, path, ##__VA_ARGS__);			\
+	kfree(buffer.pointer);							\
+} while (0)
+
+#define san_consumer_dbg(dev, handle, fmt, ...) \
+	san_consumer_printk(dbg, dev, handle, fmt, ##__VA_ARGS__)
+
+#define san_consumer_warn(dev, handle, fmt, ...) \
+	san_consumer_printk(warn, dev, handle, fmt, ##__VA_ARGS__)
+
+static bool is_san_consumer(struct platform_device *pdev, acpi_handle handle)
 {
-	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_SUPPLIER;
-	const struct san_acpi_consumer *c;
+	struct acpi_handle_list dep_devices;
+	acpi_handle supplier = ACPI_HANDLE(&pdev->dev);
+	acpi_status status;
+	int i;
 
-	for (c = cons; c && c->path; ++c) {
-		struct acpi_device *adev;
-		acpi_handle handle;
-		acpi_status status;
-		int ret;
+	if (!acpi_has_method(handle, "_DEP"))
+		return false;
 
-		status = acpi_get_handle(NULL, (acpi_string)c->path, &handle);
-		if (status == AE_NOT_FOUND)
-			continue;
-		else if (ACPI_FAILURE(status))
-			return -ENXIO;
-
-		ret = acpi_bus_get_device(handle, &adev);
-		if (ret)
-			return ret;
-
-		if (!device_link_add(&adev->dev, &pdev->dev, flags))
-			return -EFAULT;
+	status = acpi_evaluate_reference(handle, "_DEP", NULL, &dep_devices);
+	if (ACPI_FAILURE(status)) {
+		san_consumer_dbg(&pdev->dev, handle, "failed to evaluate _DEP\n");
+		return false;
 	}
 
-	return 0;
+	for (i = 0; i < dep_devices.count; i++) {
+		if (dep_devices.handles[i] == supplier)
+			return true;
+	}
+
+	return false;
+}
+
+static acpi_status san_consumer_setup(acpi_handle handle, u32 lvl,
+				      void *context, void **rv)
+{
+	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_SUPPLIER;
+	struct platform_device *pdev = context;
+	struct acpi_device *adev;
+	struct device_link *link;
+
+	if (!is_san_consumer(pdev, handle))
+		return AE_OK;
+
+	// ignore ACPI devices that are not present
+	if (acpi_bus_get_device(handle, &adev) != 0)
+		return AE_OK;
+
+	san_consumer_dbg(&pdev->dev, handle, "creating device link\n");
+
+	// try to set up device links, ignore but log errors
+	link = device_link_add(&adev->dev, &pdev->dev, flags);
+	if (!link) {
+		san_consumer_warn(&pdev->dev, handle,
+				  "failed to create device link\n");
+		return AE_OK;
+	}
+
+	return AE_OK;
+}
+
+static int san_consumer_links_setup(struct platform_device *pdev)
+{
+	acpi_status status;
+
+	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
+				     ACPI_UINT32_MAX, san_consumer_setup, NULL,
+				     pdev, NULL);
+
+	return status ? -EFAULT : 0;
 }
 
 static int san_probe(struct platform_device *pdev)
 {
-	const struct san_acpi_consumer *cons;
 	acpi_handle san = ACPI_HANDLE(&pdev->dev);
 	struct ssam_controller *ctrl;
 	struct san_data *data;
@@ -755,12 +805,9 @@ static int san_probe(struct platform_device *pdev)
 	if (status)
 		return status == -ENXIO ? -EPROBE_DEFER : status;
 
-	cons = acpi_device_get_match_data(&pdev->dev);
-	if (cons) {
-		status = san_consumers_link(pdev, cons);
-		if (status)
-			return status;
-	}
+	status = san_consumer_links_setup(pdev);
+	if (status)
+		return status;
 
 	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
@@ -813,20 +860,8 @@ static int san_remove(struct platform_device *pdev)
 	return 0;
 }
 
-/*
- * ACPI devices that make use of the SAM EC via the SAN interface. Link them
- * to the SAN device to try and enforce correct suspend/resume orderding.
- */
-static const struct san_acpi_consumer san_mshw0091_consumers[] = {
-	{ "\\_SB.SRTC" },
-	{ "\\ADP1"     },
-	{ "\\_SB.BAT1" },
-	{ "\\_SB.BAT2" },
-	{ },
-};
-
 static const struct acpi_device_id san_match[] = {
-	{ "MSHW0091", (unsigned long) san_mshw0091_consumers },
+	{ "MSHW0091" },
 	{ },
 };
 MODULE_DEVICE_TABLE(acpi, san_match);

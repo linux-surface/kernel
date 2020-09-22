@@ -52,7 +52,7 @@ struct ssh_rtl_ops {
  * @tx:            Transmitter subsystem.
  * @tx.work:       Transmitter work item.
  * @rtx_timeout:   Retransmission timeout subsystem.
- * @rtx_timeout.timeout: Timout inverval for retransmission.
+ * @rtx_timeout.timeout: Timeout inverval for retransmission.
  * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
  * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
  * @ops:           Request layer operations.

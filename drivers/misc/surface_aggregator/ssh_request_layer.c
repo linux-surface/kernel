@@ -314,7 +314,7 @@ static void ssh_rtl_tx_work_fn(struct work_struct *work)
 	/*
 	 * Try to be nice and not block/live-lock the workqueue: Run a maximum
 	 * of 10 tries, then re-submit if necessary. This should not be
-	 * neccesary for normal execution, but guarantee it anyway.
+	 * necessary for normal execution, but guarantee it anyway.
 	 */
 	for (i = 0; i < 10; i++) {
 		status = ssh_rtl_tx_try_process_one(rtl);
@@ -626,8 +626,8 @@ static bool ssh_rtl_cancel_nonpending(struct ssh_request *r)
 	/*
 	 * Note: 1) Requests cannot be re-submitted. 2) If a request is queued,
 	 * it cannot be "transmitting"/"pending" yet. Thus, if we successfully
-	 * remove the the request here, we have removed all its occurences in
-	 * the system.
+	 * remove the request here, we have removed all its occurences in the
+	 * system.
 	 */
 
 	remove = test_and_clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &r->state);

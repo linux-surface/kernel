@@ -65,7 +65,7 @@ struct ssh_ptl_ops {
  * @rx.blocked.seqs:   Array of blocked sequence IDs.
  * @rx.blocked.offset: Offset indicating where a new ID should be inserted.
  * @rtx_timeout:   Retransmission timeout subsystem.
- * @rtx_timeout.timeout: Timout inverval for retransmission.
+ * @rtx_timeout.timeout: Timeout inverval for retransmission.
  * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
  * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
  * @ops:           Packet layer operations.
