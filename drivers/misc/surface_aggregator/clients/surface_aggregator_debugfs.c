@@ -249,6 +249,7 @@ static struct platform_driver ssam_dbg_driver = {
 	.remove = ssam_dbg_device_remove,
 	.driver = {
 		.name = SSAM_DBG_DEVICE_NAME,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 

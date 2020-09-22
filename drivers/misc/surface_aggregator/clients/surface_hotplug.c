@@ -1273,6 +1273,7 @@ static struct platform_driver surface_sam_hps = {
 		.name = "surface_dgpu_hotplug",
 		.acpi_match_table = shps_acpi_match,
 		.pm = &shps_pm_ops,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 module_platform_driver(surface_sam_hps);

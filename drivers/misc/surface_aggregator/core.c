@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/pm.h>
 #include <linux/serdev.h>
+#include <linux/sysfs.h>
 
 #include <linux/surface_aggregator/controller.h>
 
@@ -243,6 +244,55 @@ static void ssam_write_wakeup(struct serdev_device *dev)
 static const struct serdev_device_ops ssam_serdev_ops = {
 	.receive_buf = ssam_receive_buf,
 	.write_wakeup = ssam_write_wakeup,
+};
+
+
+/* -- SysFS and misc. ------------------------------------------------------- */
+
+static int ssam_log_firmware_version(struct ssam_controller *ctrl)
+{
+	u32 version, a, b, c;
+	int status;
+
+	status = ssam_get_firmware_version(ctrl, &version);
+	if (status)
+		return status;
+
+	a = (version >> 24) & 0xff;
+	b = ((version >> 8) & 0xffff);
+	c = version & 0xff;
+
+	ssam_info(ctrl, "SAM firmware version: %u.%u.%u\n", a, b, c);
+	return 0;
+}
+
+static ssize_t firmware_version_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct ssam_controller *ctrl = dev_get_drvdata(dev);
+	u32 version, a, b, c;
+	int status;
+
+	status = ssam_get_firmware_version(ctrl, &version);
+	if (status < 0)
+		return status;
+
+	a = (version >> 24) & 0xff;
+	b = ((version >> 8) & 0xffff);
+	c = version & 0xff;
+
+	return snprintf(buf, PAGE_SIZE - 1, "%u.%u.%u\n", a, b, c);
+}
+static DEVICE_ATTR_RO(firmware_version);
+
+static struct attribute *ssam_sam_attrs[] = {
+	&dev_attr_firmware_version.attr,
+	NULL,
+};
+
+static const struct attribute_group ssam_sam_group = {
+	.name = "sam",
+	.attrs = ssam_sam_attrs,
 };
 
 
@@ -616,15 +666,19 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		goto err_initrq;
 
+	status = sysfs_create_group(&serdev->dev.kobj, &ssam_sam_group);
+	if (status)
+		goto err_initrq;
+
 	// setup IRQ
 	status = ssam_irq_setup(ctrl);
 	if (status)
-		goto err_initrq;
+		goto err_irq;
 
 	// finally, set main controller reference
 	status = ssam_try_set_controller(ctrl);
 	if (WARN_ON(status))	// currently, we're the only provider
-		goto err_initrq;
+		goto err_mainref;
 
 	/*
 	 * TODO: The EC can wake up the system via the associated GPIO interrupt
@@ -641,6 +695,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 
 	return 0;
 
+err_mainref:
+	ssam_irq_free(ctrl);
+err_irq:
+	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 err_initrq:
 	ssam_controller_shutdown(ctrl);
 err_devinit:
@@ -661,6 +719,7 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 	ssam_clear_controller();
 
 	ssam_irq_free(ctrl);
+	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 	ssam_controller_lock(ctrl);
 
 	// remove all client devices
@@ -746,6 +805,7 @@ err_cpkg:
 err_bus:
 	return status;
 }
+module_init(ssam_core_init);
 
 static void __exit ssam_core_exit(void)
 {
@@ -754,18 +814,6 @@ static void __exit ssam_core_exit(void)
 	ssh_ctrl_packet_cache_destroy();
 	ssam_bus_unregister();
 }
-
-/*
- * Ensure that the driver is loaded late due to some issues with the UART
- * communication. Specifically, we want to ensure that DMA is ready and being
- * used. Not using DMA can result in spurious communication failures,
- * especially during boot, which among other things will result in wrong
- * battery information (via ACPI _BIX) being displayed. Using a late init_call
- * instead of the normal module_init gives the DMA subsystem time to
- * initialize and via that results in a more stable communication, avoiding
- * such failures.
- */
-late_initcall(ssam_core_init);
 module_exit(ssam_core_exit);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");

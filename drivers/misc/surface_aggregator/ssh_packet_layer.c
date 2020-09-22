@@ -849,7 +849,7 @@ static void __ssh_ptl_complete(struct ssh_packet *p, int status)
 static void ssh_ptl_remove_and_complete(struct ssh_packet *p, int status)
 {
 	/*
-	 * A call to this function should in general be preceeded by
+	 * A call to this function should in general be preceded by
 	 * set_bit(SSH_PACKET_SF_LOCKED_BIT, &p->flags) to avoid re-adding the
 	 * packet to the structures it's going to be removed from.
 	 *
@@ -1251,7 +1251,7 @@ static void ssh_ptl_acknowledge(struct ssh_ptl *ptl, u8 seq)
 
 /**
  * ssh_ptl_submit() - Submit a packet to the transport layer.
- * @ptl: The packet transport layer to to submit to.
+ * @ptl: The packet transport layer to submit the packet to.
  * @p:   The packet to submit.
  *
  * Submits a new packet to the transport layer, queuing it to be sent. This
@@ -1340,7 +1340,7 @@ static void ssh_ptl_resubmit_pending(struct ssh_ptl *ptl)
 	 * Note: We deliberately do not remove/attempt to cancel and complete
 	 * packets that are out of tires in this function. The packet will be
 	 * eventually canceled and completed by the timeout. Removing the packet
-	 * here could lead to overly eager cancelation if the packet has not
+	 * here could lead to overly eager cancellation if the packet has not
 	 * been re-transmitted yet but the tries-counter already updated (i.e
 	 * ssh_ptl_tx_next() removed the packet from the queue and updated the
 	 * counter, but re-transmission for the last try has not actually
@@ -1874,7 +1874,7 @@ void ssh_ptl_shutdown(struct ssh_ptl *ptl)
 	 *
 	 * Note 3: There may be overlap between complete_p and complete_q.
 	 * This is handled via test_and_set_bit() on the "completed" flag
-	 * (also handles cancelation).
+	 * (also handles cancellation).
 	 */
 
 	// mark queued packets as locked and move them to complete_q

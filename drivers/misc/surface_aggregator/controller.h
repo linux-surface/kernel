@@ -243,7 +243,7 @@ int ssam_controller_receive_buf(struct ssam_controller *ctrl,
 
 /**
  * ssam_controller_write_wakeup() - Notify the controller that the underlying
- * device has space avaliable for data to be written.
+ * device has space available for data to be written.
  * @ctrl: The controller.
  */
 static inline void ssam_controller_write_wakeup(struct ssam_controller *ctrl)
@@ -268,7 +268,7 @@ void ssam_irq_disarm_wakeup(struct ssam_controller *ctrl);
 void ssam_controller_lock(struct ssam_controller *c);
 void ssam_controller_unlock(struct ssam_controller *c);
 
-int ssam_log_firmware_version(struct ssam_controller *ctrl);
+int ssam_get_firmware_version(struct ssam_controller *ctrl, u32 *version);
 int ssam_ctrl_notif_display_off(struct ssam_controller *ctrl);
 int ssam_ctrl_notif_display_on(struct ssam_controller *ctrl);
 int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl);
