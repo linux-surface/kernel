@@ -145,8 +145,7 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
  * registered functions must have drivers with suspend and resume
  * methods. Failing that the kernel simply removes the whole card.
  *
- * If already not suspended, this function allocates and sends a host
- * sleep activate request to the firmware and turns off the traffic.
+ * This function shuts down the adapter.
  */
 static int mwifiex_pcie_suspend(struct device *dev)
 {
@@ -154,31 +153,21 @@ static int mwifiex_pcie_suspend(struct device *dev)
 	struct pcie_service_card *card = dev_get_drvdata(dev);
 
 
-	/* Might still be loading firmware */
-	wait_for_completion(&card->fw_done);
-
 	adapter = card->adapter;
 	if (!adapter) {
 		dev_err(dev, "adapter is not valid\n");
 		return 0;
 	}
 
-	mwifiex_enable_wake(adapter);
-
-	/* Enable the Host Sleep */
-	if (!mwifiex_enable_hs(adapter)) {
+	/* Shut down SW */
+	if (mwifiex_shutdown_sw(adapter)) {
 		mwifiex_dbg(adapter, ERROR,
 			    "cmd: failed to suspend\n");
-		clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
-		mwifiex_disable_wake(adapter);
 		return -EFAULT;
 	}
 
-	flush_workqueue(adapter->workqueue);
-
 	/* Indicate device suspended */
 	set_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
-	clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
 
 	return 0;
 }
@@ -188,13 +177,13 @@ static int mwifiex_pcie_suspend(struct device *dev)
  * registered functions must have drivers with suspend and resume
  * methods. Failing that the kernel simply removes the whole card.
  *
- * If already not resumed, this function turns on the traffic and
- * sends a host sleep cancel request to the firmware.
+ * If already not resumed, this function reinits the adapter.
  */
 static int mwifiex_pcie_resume(struct device *dev)
 {
 	struct mwifiex_adapter *adapter;
 	struct pcie_service_card *card = dev_get_drvdata(dev);
+	int ret;
 
 
 	if (!card->adapter) {
@@ -212,9 +201,11 @@ static int mwifiex_pcie_resume(struct device *dev)
 
 	clear_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
 
-	mwifiex_cancel_hs(mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA),
-			  MWIFIEX_ASYNC_CMD);
-	mwifiex_disable_wake(adapter);
+	ret = mwifiex_reinit_sw(adapter);
+	if (ret)
+		dev_err(dev, "reinit failed: %d\n", ret);
+	else
+		mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
 
 	return 0;
 }
