@@ -1054,6 +1054,9 @@ struct mwifiex_adapter {
 	void *devdump_data;
 	int devdump_len;
 	struct timer_list devdump_timer;
+
+	/* Indicates a reset is ongoing or not */
+	bool pci_reset_ongoing;
 };
 
 void mwifiex_process_tx_queue(struct mwifiex_adapter *adapter);
