@@ -302,10 +302,10 @@ void mei_stop(struct mei_device *dev)
 {
 	dev_dbg(dev->dev, "stopping the device.\n");
 
+	mei_cl_bus_remove_devices(dev);
 	mutex_lock(&dev->device_lock);
 	mei_set_devstate(dev, MEI_DEV_POWER_DOWN);
 	mutex_unlock(&dev->device_lock);
-	mei_cl_bus_remove_devices(dev);
 
 	mei_cancel_work(dev);
 
