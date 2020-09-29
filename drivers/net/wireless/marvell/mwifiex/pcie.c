@@ -2993,6 +2993,16 @@ static void mwifiex_pcie_card_reset_work(struct mwifiex_adapter *adapter)
 {
 	struct pcie_service_card *card = adapter->card;
 
+	/* On Surface 3, reset_wsid method removes then re-probes card by
+	 * itself. So, need to place it here and skip performing any other
+	 * reset-related works.
+	 */
+	if (card->quirks & QUIRK_FW_RST_WSID_S3) {
+		mwifiex_pcie_reset_wsid_quirk(card->dev);
+		/* skip performing any other reset-related works */
+		return;
+	}
+
 	/* We can't afford to wait here; remove() might be waiting on us. If we
 	 * can't grab the device lock, maybe we'll get another chance later.
 	 */
