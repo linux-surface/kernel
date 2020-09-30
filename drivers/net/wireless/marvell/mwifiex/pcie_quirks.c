@@ -106,6 +106,15 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 		},
 		.driver_data = (void *)QUIRK_FW_RST_WSID_S3,
 	},
+	{
+		.ident = "Surface 3",
+		.matches = {
+			DMI_EXACT_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "OEMB"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "OEMB"),
+		},
+		.driver_data = (void *)QUIRK_FW_RST_WSID_S3,
+	},
 	{}
 };
 
