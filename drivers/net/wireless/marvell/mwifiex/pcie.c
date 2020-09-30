@@ -394,7 +394,7 @@ static void mwifiex_pcie_reset_prepare(struct pci_dev *pdev)
 	clear_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
 	mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
 
-	adapter->pci_reset_ongoing = true;
+	card->pci_reset_ongoing = true;
 }
 
 /*
@@ -424,7 +424,7 @@ static void mwifiex_pcie_reset_done(struct pci_dev *pdev)
 	else
 		mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
 
-	adapter->pci_reset_ongoing = false;
+	card->pci_reset_ongoing = false;
 }
 
 static const struct pci_error_handlers mwifiex_pcie_err_handler = {
@@ -3020,7 +3020,7 @@ static void mwifiex_cleanup_pcie(struct mwifiex_adapter *adapter)
 	 * in reset path. If we're here when resetting the card, it means
 	 * that we failed to reset the card (reset failure path).
 	 */
-	if (!adapter->pci_reset_ongoing) {
+	if (!card->pci_reset_ongoing) {
 		mwifiex_dbg(adapter, MSG, "performing cancel_work_sync()...\n");
 		cancel_work_sync(&card->work);
 		mwifiex_dbg(adapter, MSG, "cancel_work_sync() done\n");
