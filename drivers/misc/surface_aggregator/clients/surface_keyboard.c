@@ -4,6 +4,8 @@
  *
  * Provides support for the legacy HID keyboard device found on the Surface
  * Laptop 1 and 2.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>

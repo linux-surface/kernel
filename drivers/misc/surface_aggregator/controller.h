@@ -1,4 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Main SSAM/SSH controller structure and functionality.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ */
 
 #ifndef _SURFACE_AGGREGATOR_CONTROLLER_H
 #define _SURFACE_AGGREGATOR_CONTROLLER_H

@@ -6,6 +6,8 @@
  * Provides access to a SAM-over-SSH connected EC via a controller device.
  * Handles communication via requests as well as enabling, disabling, and
  * relaying of events.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
@@ -130,7 +132,7 @@ int ssam_client_link(struct ssam_controller *c, struct device *client)
 
 	ssam_controller_statelock(c);
 
-	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED) {
+	if (c->state != SSAM_CONTROLLER_STARTED) {
 		ssam_controller_stateunlock(c);
 		return -ENXIO;
 	}
@@ -393,6 +395,8 @@ static void ssam_serial_hub_shutdown(struct device *dev)
 		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
 }
 
+#ifdef CONFIG_PM_SLEEP
+
 static int ssam_serial_hub_pm_prepare(struct device *dev)
 {
 	struct ssam_controller *c = dev_get_drvdata(dev);
@@ -598,6 +602,12 @@ static const struct dev_pm_ops ssam_serial_hub_pm_ops = {
 	.poweroff = ssam_serial_hub_pm_poweroff,
 	.restore  = ssam_serial_hub_pm_restore,
 };
+
+#else /* CONFIG_PM_SLEEP */
+
+static const struct dev_pm_ops ssam_serial_hub_pm_ops = { };
+
+#endif /* CONFIG_PM_SLEEP */
 
 
 /* -- Device/driver setup. -------------------------------------------------- */

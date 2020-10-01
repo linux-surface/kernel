@@ -4,6 +4,8 @@
  *
  * Provides support for HID input devices connected via the Surface System
  * Aggregator Module.
+ *
+ * Copyright (C) 2019-2020 Blaž Hrastnik <blaz@mxxn.io>
  */
 
 #include <linux/hid.h>

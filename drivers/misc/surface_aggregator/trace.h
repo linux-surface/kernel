@@ -1,4 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Trace points for SSAM/SSH.
+ *
+ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
+ */
 
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM surface_aggregator
@@ -338,18 +343,18 @@ DECLARE_EVENT_CLASS(ssam_packet_class,
 	TP_ARGS(packet),
 
 	TP_STRUCT__entry(
+		__field(unsigned long, state)
 		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(u8, priority)
 		__field(u16, length)
-		__field(unsigned long, state)
 		__field(u16, seq)
 	),
 
 	TP_fast_assign(
+		__entry->state = READ_ONCE(packet->state);
 		ssam_trace_ptr_uid(packet, __entry->uid);
 		__entry->priority = READ_ONCE(packet->priority);
 		__entry->length = packet->data.len;
-		__entry->state = READ_ONCE(packet->state);
 		__entry->seq = ssam_trace_get_packet_seq(packet);
 	),
 
@@ -376,21 +381,21 @@ DECLARE_EVENT_CLASS(ssam_packet_status_class,
 	TP_ARGS(packet, status),
 
 	TP_STRUCT__entry(
+		__field(unsigned long, state)
+		__field(int, status)
 		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(u8, priority)
 		__field(u16, length)
-		__field(unsigned long, state)
 		__field(u16, seq)
-		__field(int, status)
 	),
 
 	TP_fast_assign(
+		__entry->state = READ_ONCE(packet->state);
+		__entry->status = status;
 		ssam_trace_ptr_uid(packet, __entry->uid);
 		__entry->priority = READ_ONCE(packet->priority);
 		__entry->length = packet->data.len;
-		__entry->state = READ_ONCE(packet->state);
 		__entry->seq = ssam_trace_get_packet_seq(packet);
-		__entry->status = status;
 	),
 
 	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s, status=%d",
@@ -417,9 +422,9 @@ DECLARE_EVENT_CLASS(ssam_request_class,
 	TP_ARGS(request),
 
 	TP_STRUCT__entry(
-		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(unsigned long, state)
 		__field(u32, rqid)
+		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(u8, tc)
 		__field(u16, cid)
 		__field(u16, iid)
@@ -429,9 +434,9 @@ DECLARE_EVENT_CLASS(ssam_request_class,
 		const struct ssh_packet *p = &request->packet;
 
 		// use packet for UID so we can match requests to packets
-		ssam_trace_ptr_uid(p, __entry->uid);
 		__entry->state = READ_ONCE(request->state);
 		__entry->rqid = ssam_trace_get_request_id(p);
+		ssam_trace_ptr_uid(p, __entry->uid);
 		__entry->tc = ssam_trace_get_request_tc(p);
 		__entry->cid = ssam_trace_get_command_field_u8(p, cid);
 		__entry->iid = ssam_trace_get_command_field_u8(p, iid);
@@ -461,26 +466,26 @@ DECLARE_EVENT_CLASS(ssam_request_status_class,
 	TP_ARGS(request, status),
 
 	TP_STRUCT__entry(
-		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(unsigned long, state)
 		__field(u32, rqid)
+		__field(int, status)
+		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(u8, tc)
 		__field(u16, cid)
 		__field(u16, iid)
-		__field(int, status)
 	),
 
 	TP_fast_assign(
 		const struct ssh_packet *p = &request->packet;
 
 		// use packet for UID so we can match requests to packets
-		ssam_trace_ptr_uid(p, __entry->uid);
 		__entry->state = READ_ONCE(request->state);
 		__entry->rqid = ssam_trace_get_request_id(p);
+		__entry->status = status;
+		ssam_trace_ptr_uid(p, __entry->uid);
 		__entry->tc = ssam_trace_get_request_tc(p);
 		__entry->cid = ssam_trace_get_command_field_u8(p, cid);
 		__entry->iid = ssam_trace_get_command_field_u8(p, iid);
-		__entry->status = status;
 	),
 
 	TP_printk("uid=%s, rqid=%s, ty=%s, sta=%s, tc=%s, cid=%s, iid=%s, status=%d",
@@ -508,13 +513,13 @@ DECLARE_EVENT_CLASS(ssam_alloc_class,
 	TP_ARGS(ptr, len),
 
 	TP_STRUCT__entry(
-		__array(char, uid, SSAM_PTR_UID_LEN)
 		__field(size_t, len)
+		__array(char, uid, SSAM_PTR_UID_LEN)
 	),
 
 	TP_fast_assign(
-		ssam_trace_ptr_uid(ptr, __entry->uid);
 		__entry->len = len;
+		ssam_trace_ptr_uid(ptr, __entry->uid);
 	),
 
 	TP_printk("uid=%s, len=%zu", __entry->uid, __entry->len)
@@ -534,7 +539,6 @@ DECLARE_EVENT_CLASS(ssam_free_class,
 
 	TP_STRUCT__entry(
 		__array(char, uid, SSAM_PTR_UID_LEN)
-		__field(size_t, len)
 	),
 
 	TP_fast_assign(
@@ -557,13 +561,13 @@ DECLARE_EVENT_CLASS(ssam_generic_uint_class,
 	TP_ARGS(property, value),
 
 	TP_STRUCT__entry(
-		__string(property, property)
 		__field(unsigned int, value)
+		__string(property, property)
 	),
 
 	TP_fast_assign(
-		__assign_str(property, property);
 		__entry->value = value;
+		__assign_str(property, property);
 	),
 
 	TP_printk("%s=%u", __get_str(property), __entry->value)

@@ -7,6 +7,8 @@
  * events back to ACPI notifications. Allows handling of discrete GPU
  * notifications sent from ACPI via the SAN interface by providing them to any
  * registered external driver.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <asm/unaligned.h>

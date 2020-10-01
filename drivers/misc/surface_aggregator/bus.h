@@ -1,4 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Surface System Aggregator Module bus and device integration.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ */
 
 #ifndef _SURFACE_AGGREGATOR_BUS_H
 #define _SURFACE_AGGREGATOR_BUS_H

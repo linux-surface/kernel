@@ -4,6 +4,8 @@
  *
  * Registry for non-platform/non-ACPI SSAM client devices, i.e. devices that
  * cannot be auto-detected. Provides device-hubs for these devices.
+ *
+ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
@@ -443,7 +445,6 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 	hub->sdev = sdev;
 	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
 
-	// TODO: still need to verify registry
 	hub->notif.base.priority = 1000;  // this notifier should run first
 	hub->notif.base.fn = ssam_base_hub_notif;
 	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
@@ -568,7 +569,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
 
 	root = software_node_fwnode(&ssam_node_root);
 	if (!root)
-		return -EFAULT;
+		return -ENOENT;
 
 	set_secondary_fwnode(&pdev->dev, root);
 

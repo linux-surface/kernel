@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Main SSAM/SSH controller structure and functionality.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ */
 
 #include <linux/acpi.h>
 #include <linux/atomic.h>
@@ -887,7 +892,8 @@ static void __ssam_controller_release(struct kref *kref)
  */
 struct ssam_controller *ssam_controller_get(struct ssam_controller *c)
 {
-	kref_get(&c->kref);
+	if (c)
+		kref_get(&c->kref);
 	return c;
 }
 EXPORT_SYMBOL_GPL(ssam_controller_get);
@@ -898,7 +904,8 @@ EXPORT_SYMBOL_GPL(ssam_controller_get);
  */
 void ssam_controller_put(struct ssam_controller *c)
 {
-	kref_put(&c->kref, __ssam_controller_release);
+	if (c)
+		kref_put(&c->kref, __ssam_controller_release);
 }
 EXPORT_SYMBOL_GPL(ssam_controller_put);
 
@@ -1174,7 +1181,11 @@ int ssam_controller_init(struct ssam_controller *ctrl,
 		return status;
 	}
 
-	// update state
+	/*
+	 * Set state via write_once even though we expect to be in an
+	 * exclusive context, due to smoke-testing in
+	 * ssam_request_sync_submit().
+	 */
 	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_INITIALIZED);
 	return 0;
 }
@@ -1187,18 +1198,26 @@ int ssam_controller_init(struct ssam_controller *ctrl,
  * Note: When this function is called, the controller shouldbe properly hooked
  * up to the serdev core via &struct serdev_device_ops. Please refert to
  * ssam_controller_init() for more details on controller initialization.
+ *
+ * This function must be called from an exclusive context with regards to the
+ * state, if necessary, by locking the controller via ssam_controller_lock().
  */
 int ssam_controller_start(struct ssam_controller *ctrl)
 {
 	int status;
 
-	if (READ_ONCE(ctrl->state) != SSAM_CONTROLLER_INITIALIZED)
+	if (ctrl->state != SSAM_CONTROLLER_INITIALIZED)
 		return -EINVAL;
 
 	status = ssh_rtl_start(&ctrl->rtl);
 	if (status)
 		return status;
 
+	/*
+	 * Set state via write_once even though we expect to be locked/in an
+	 * exclusive context, due to smoke-testing in
+	 * ssam_request_sync_submit().
+	 */
 	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_STARTED);
 	return 0;
 }
@@ -1221,10 +1240,13 @@ int ssam_controller_start(struct ssam_controller *ctrl)
  * Note that events may still be pending after this call, but due to the
  * notifiers being unregistered, the will be dropped when the controller is
  * subsequently being destroyed via ssam_controller_destroy().
+ *
+ * This function must be called from an exclusive context with regards to the
+ * state, if necessary, by locking the controller via ssam_controller_lock().
  */
 void ssam_controller_shutdown(struct ssam_controller *ctrl)
 {
-	enum ssam_controller_state s = READ_ONCE(ctrl->state);
+	enum ssam_controller_state s = ctrl->state;
 	int status;
 
 	if (s == SSAM_CONTROLLER_UNINITIALIZED || s == SSAM_CONTROLLER_STOPPED)
@@ -1256,6 +1278,11 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
 	// cancel rem. requests, ensure no new ones can be queued, stop threads
 	ssh_rtl_shutdown(&ctrl->rtl);
 
+	/*
+	 * Set state via write_once even though we expect to be locked/in an
+	 * exclusive context, due to smoke-testing in
+	 * ssam_request_sync_submit().
+	 */
 	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_STOPPED);
 	ctrl->rtl.ptl.serdev = NULL;
 }
@@ -1266,11 +1293,18 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
  *
  * Ensures that all resources associated with the controller get freed. This
  * function should only be called after the controller has been stopped via
- * ssam_controller_shutdown().
+ * ssam_controller_shutdown(). In general, this function should not be called
+ * directly. The only valid place to call this function direclty is during
+ * initialization, before the controller has been fully initialized and passed
+ * to other processes. This function is called automatically when the
+ * reference count of the controller reaches zero.
+ *
+ * Must be called from an exclusive context with regards to the controller
+ * state.
  */
 void ssam_controller_destroy(struct ssam_controller *ctrl)
 {
-	if (READ_ONCE(ctrl->state) == SSAM_CONTROLLER_UNINITIALIZED)
+	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
 		return;
 
 	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
@@ -1287,6 +1321,11 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
 	ssam_cplt_destroy(&ctrl->cplt);
 	ssh_rtl_destroy(&ctrl->rtl);
 
+	/*
+	 * Set state via write_once even though we expect to be locked/in an
+	 * exclusive context, due to smoke-testing in
+	 * ssam_request_sync_submit().
+	 */
 	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_UNINITIALIZED);
 }
 
@@ -1307,12 +1346,17 @@ int ssam_controller_suspend(struct ssam_controller *ctrl)
 {
 	ssam_controller_lock(ctrl);
 
-	if (READ_ONCE(ctrl->state) != SSAM_CONTROLLER_STARTED) {
+	if (ctrl->state != SSAM_CONTROLLER_STARTED) {
 		ssam_controller_unlock(ctrl);
 		return -EINVAL;
 	}
 
 	ssam_dbg(ctrl, "pm: suspending controller\n");
+
+	/*
+	 * Set state via write_once even though we're locked, due to
+	 * smoke-testing in ssam_request_sync_submit().
+	 */
 	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_SUSPENDED);
 
 	ssam_controller_unlock(ctrl);
@@ -1334,12 +1378,17 @@ int ssam_controller_resume(struct ssam_controller *ctrl)
 {
 	ssam_controller_lock(ctrl);
 
-	if (READ_ONCE(ctrl->state) != SSAM_CONTROLLER_SUSPENDED) {
+	if (ctrl->state != SSAM_CONTROLLER_SUSPENDED) {
 		ssam_controller_unlock(ctrl);
 		return -EINVAL;
 	}
 
 	ssam_dbg(ctrl, "pm: resuming controller\n");
+
+	/*
+	 * Set state via write_once even though we're locked, due to
+	 * smoke-testing in ssam_request_sync_submit().
+	 */
 	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_STARTED);
 
 	ssam_controller_unlock(ctrl);

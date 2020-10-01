@@ -7,6 +7,8 @@
  * (containing the keyboard and optionally a discrete GPU). Allows to
  * acknowledge (to speed things up), abort (e.g. in case the dGPU is stil in
  * use), or request detachment via user-space.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>

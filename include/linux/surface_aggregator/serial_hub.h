@@ -5,6 +5,8 @@
  * Lower-level communication layers and SSH protocol definitions for the
  * Surface System Aggregator Module (SSAM). Provides the interface for basic
  * packet- and request-based communication with the SSAM EC via SSH.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #ifndef _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H
@@ -618,8 +620,7 @@ static inline struct ssh_request *to_ssh_request(struct ssh_packet *p)
  */
 static inline struct ssh_request *ssh_request_get(struct ssh_request *r)
 {
-	ssh_packet_get(&r->packet);
-	return r;
+	return r ? to_ssh_request(ssh_packet_get(&r->packet)) : NULL;
 }
 
 /**
@@ -636,7 +637,8 @@ static inline struct ssh_request *ssh_request_get(struct ssh_request *r)
  */
 static inline void ssh_request_put(struct ssh_request *r)
 {
-	ssh_packet_put(&r->packet);
+	if (r)
+		ssh_packet_put(&r->packet);
 }
 
 /**

@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * SSH packet transport layer.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ */
 
 #include <asm/unaligned.h>
 #include <linux/atomic.h>
@@ -511,7 +516,8 @@ static void __ssh_ptl_packet_release(struct kref *kref)
  */
 struct ssh_packet *ssh_packet_get(struct ssh_packet *packet)
 {
-	kref_get(&packet->refcnt);
+	if (packet)
+		kref_get(&packet->refcnt);
 	return packet;
 }
 EXPORT_SYMBOL_GPL(ssh_packet_get);
@@ -528,7 +534,8 @@ EXPORT_SYMBOL_GPL(ssh_packet_get);
  */
 void ssh_packet_put(struct ssh_packet *packet)
 {
-	kref_put(&packet->refcnt, __ssh_ptl_packet_release);
+	if (packet)
+		kref_put(&packet->refcnt, __ssh_ptl_packet_release);
 }
 EXPORT_SYMBOL_GPL(ssh_packet_put);
 
@@ -757,7 +764,7 @@ static int __ssh_ptl_queue_push(struct ssh_packet *packet)
 
 	head = __ssh_ptl_queue_find_entrypoint(packet);
 
-	list_add_tail(&ssh_packet_get(packet)->queue_node, &ptl->queue.head);
+	list_add_tail(&ssh_packet_get(packet)->queue_node, head);
 	return 0;
 }
 

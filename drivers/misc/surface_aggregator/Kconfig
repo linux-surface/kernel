@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+
 menuconfig SURFACE_AGGREGATOR
 	tristate "Microsoft Surface System Aggregator Module Subsystem and Drivers"
 	depends on SERIAL_DEV_BUS
@@ -51,7 +54,6 @@ config SURFACE_AGGREGATOR_ERROR_INJECTION
 	bool "Surface System Aggregator Module Error Injection Capabilities"
 	depends on SURFACE_AGGREGATOR
 	depends on FUNCTION_ERROR_INJECTION
-	default n
 	help
 	  Provides error-injection capabilities for the Surface System
 	  Aggregator Module subsystem and Surface Serial Hub driver.

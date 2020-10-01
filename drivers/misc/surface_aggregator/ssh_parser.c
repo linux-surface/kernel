@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * SSH message parser.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ */
 
 #include <asm/unaligned.h>
 #include <linux/compiler.h>

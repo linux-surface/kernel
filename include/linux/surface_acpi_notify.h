@@ -4,6 +4,8 @@
  *
  * Provides access to discrete GPU notifications sent from ACPI via the SAN
  * driver, which are not handled by this driver directly.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #ifndef _LINUX_SURFACE_ACPI_NOTIFY_H

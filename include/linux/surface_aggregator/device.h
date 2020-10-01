@@ -6,6 +6,8 @@
  * devices, and respective drivers building on top of the SSAM controller.
  * Provides support for non-platform/non-ACPI SSAM clients via dedicated
  * subsystem.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #ifndef _LINUX_SURFACE_AGGREGATOR_DEVICE_H
@@ -59,6 +61,11 @@ struct ssam_device_uid {
 
 /*
  * Special values for device matching.
+ *
+ * These values are intended to be used with SSAM_DEVICE(), SSAM_VDEV(), and
+ * SSAM_SDEV() exclusively. Specifically, they are used to initialize the
+ * match_flags member of the device ID structure. Do not use them directly
+ * with struct ssam_device_id or struct ssam_device_uid.
  */
 #define SSAM_ANY_TID		0xffff
 #define SSAM_ANY_IID		0xffff
@@ -79,6 +86,11 @@ struct ssam_device_uid {
  * matching should ignore target ID, instance ID, and/or sub-function,
  * respectively. This macro initializes the ``match_flags`` field based on the
  * given parameters.
+ *
+ * Note: The parameters @d and @cat must be valid &u8 values, the parameters
+ * @tid, @iid, and @fun must be either valid &u8 values or %SSAM_ANY_TID,
+ * %SSAM_ANY_IID, or %SSAM_ANY_FUN, respectively. Other non-&u8 values are not
+ * allowed.
  */
 #define SSAM_DEVICE(d, cat, tid, iid, fun)					\
 	.match_flags = (((tid) != SSAM_ANY_TID) ? SSAM_MATCH_TARGET : 0)	\
@@ -104,6 +116,11 @@ struct ssam_device_uid {
  * %SSAM_ANY_FUN can be used to specify that matching should ignore target ID,
  * instance ID, and/or sub-function, respectively. This macro initializes the
  * ``match_flags`` field based on the given parameters.
+ *
+ * Note: The parameter @cat must be a valid &u8 value, the parameters @tid,
+ * @iid, and @fun must be either valid &u8 values or %SSAM_ANY_TID,
+ * %SSAM_ANY_IID, or %SSAM_ANY_FUN, respectively. Other non-&u8 values are not
+ * allowed.
  */
 #define SSAM_VDEV(cat, tid, iid, fun) \
 	SSAM_DEVICE(SSAM_DOMAIN_VIRTUAL, SSAM_VIRTUAL_TC_##cat, tid, iid, fun)
@@ -123,6 +140,11 @@ struct ssam_device_uid {
  * used to specify that matching should ignore target ID, instance ID, and/or
  * sub-function, respectively. This macro initializes the ``match_flags``
  * field based on the given parameters.
+ *
+ * Note: The parameter @cat must be a valid &u8 value, the parameters @tid,
+ * @iid, and @fun must be either valid &u8 values or %SSAM_ANY_TID,
+ * %SSAM_ANY_IID, or %SSAM_ANY_FUN, respectively. Other non-&u8 values are not
+ * allowed.
  */
 #define SSAM_SDEV(cat, tid, iid, fun) \
 	SSAM_DEVICE(SSAM_DOMAIN_SERIALHUB, SSAM_SSH_TC_##cat, tid, iid, fun)
@@ -238,8 +260,7 @@ void ssam_device_remove(struct ssam_device *sdev);
  */
 static inline struct ssam_device *ssam_device_get(struct ssam_device *sdev)
 {
-	get_device(&sdev->dev);
-	return sdev;
+	return sdev ? to_ssam_device(get_device(&sdev->dev)) : NULL;
 }
 
 /**
@@ -254,7 +275,8 @@ static inline struct ssam_device *ssam_device_get(struct ssam_device *sdev)
  */
 static inline void ssam_device_put(struct ssam_device *sdev)
 {
-	put_device(&sdev->dev);
+	if (sdev)
+		put_device(&sdev->dev);
 }
 
 /**

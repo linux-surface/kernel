@@ -5,6 +5,8 @@
  * Supports explicit setting of the dGPU power-state on the Surface Books via
  * a user-space interface. Properly handles dGPU hot-plugging by detaching the
  * base of the device.
+ *
+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
