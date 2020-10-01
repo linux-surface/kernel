@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Provides user-space access to the SSAM EC via the /dev/surface/aggregator
  * misc device. Intended for debugging and development.

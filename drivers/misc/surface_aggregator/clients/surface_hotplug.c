@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Surface Book (gen. 2 and later) discrete GPU (dGPU) hot-plug system driver.
  *
