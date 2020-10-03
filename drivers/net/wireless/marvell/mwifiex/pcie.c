@@ -377,6 +377,7 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
 					const struct pci_device_id *ent)
 {
 	struct pcie_service_card *card;
+	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
 	int ret;
 
 	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
@@ -417,6 +418,12 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
 		pr_err("%s failed\n", __func__);
 		return -1;
 	}
+
+	/* disable bridge_d3 for Surface gen4+ devices to fix fw crashing
+	 * after suspend
+	 */
+	if (card->quirks & QUIRK_NO_BRIDGE_D3)
+		parent_pdev->bridge_d3 = false;
 
 	return 0;
 }
