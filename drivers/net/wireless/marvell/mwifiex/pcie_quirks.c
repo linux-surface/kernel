@@ -14,7 +14,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Pro 5",
@@ -24,7 +25,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Pro 5 (LTE)",
@@ -34,7 +36,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Pro 6",
@@ -43,7 +46,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Book 1",
@@ -52,7 +56,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Book 2",
@@ -61,7 +66,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Laptop 1",
@@ -70,7 +76,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{
 		.ident = "Surface Laptop 2",
@@ -79,7 +86,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
 		},
 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
-					QUIRK_DO_FLR_ON_BRIDGE),
+					QUIRK_DO_FLR_ON_BRIDGE |
+					QUIRK_NO_BRIDGE_D3),
 	},
 	{}
 };
@@ -99,6 +107,9 @@ void mwifiex_initialize_quirks(struct pcie_service_card *card)
 		dev_info(&pdev->dev, "quirk reset_d3cold enabled\n");
 	if (card->quirks & QUIRK_DO_FLR_ON_BRIDGE)
 		dev_info(&pdev->dev, "quirk do_flr_on_bridge enabled\n");
+	if (card->quirks & QUIRK_NO_BRIDGE_D3)
+		dev_info(&pdev->dev,
+			 "quirk no_brigde_d3 enabled\n");
 }
 
 static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
