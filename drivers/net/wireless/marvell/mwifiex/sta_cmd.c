@@ -2340,12 +2340,17 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 			return -1;
 
 		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
-			/* Enable IEEE PS by default */
-			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
+			/* Disable IEEE PS by default */
+			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_CAM;
 			ret = mwifiex_send_cmd(priv,
 					       HostCmd_CMD_802_11_PS_MODE_ENH,
-					       EN_AUTO_PS, BITMAP_STA_PS, NULL,
+					       DIS_AUTO_PS, BITMAP_STA_PS, NULL,
 					       true);
+			if (ret)
+				return -1;
+			ret = mwifiex_send_cmd(priv,
+					       HostCmd_CMD_802_11_PS_MODE_ENH,
+					       GET_PS, 0, NULL, false);
 			if (ret)
 				return -1;
 		}
