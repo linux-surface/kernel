@@ -451,6 +451,13 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
 		return -EPERM;
 	}
 
+	if (ps_mode)
+		mwifiex_dbg(priv->adapter, MSG,
+			    "Enabling ps_mode, disable if unstable.\n");
+	else
+		mwifiex_dbg(priv->adapter, MSG,
+			    "Disabling ps_mode.\n");
+
 	return mwifiex_drv_set_power(priv, &ps_mode);
 }
 
