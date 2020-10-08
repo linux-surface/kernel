@@ -1,4 +1,4 @@
-.. SPDX-License-Identifier: GPL-2.0
+.. SPDX-License-Identifier: GPL-2.0+
 
 .. |u8| replace:: :c:type:`u8 <u8>`
 .. |u16| replace:: :c:type:`u16 <u16>`

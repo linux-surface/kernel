@@ -1,4 +1,4 @@
-.. SPDX-License-Identifier: GPL-2.0
+.. SPDX-License-Identifier: GPL-2.0+
 
 .. |ssam_controller| replace:: :c:type:`struct ssam_controller <ssam_controller>`
 .. |ssam_device| replace:: :c:type:`struct ssam_device <ssam_device>`

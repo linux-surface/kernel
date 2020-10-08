@@ -1,4 +1,4 @@
-.. SPDX-License-Identifier: GPL-2.0
+.. SPDX-License-Identifier: GPL-2.0+
 
 ===========================
 Client Driver Documentation
@@ -10,7 +10,7 @@ This is the documentation for client drivers themselves. Refer to
 .. toctree::
    :maxdepth: 1
 
-   dbgdev
+   cdev
    san
 
 .. only::  subproject and html

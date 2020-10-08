@@ -1,4 +1,4 @@
-.. SPDX-License-Identifier: GPL-2.0
+.. SPDX-License-Identifier: GPL-2.0+
 
 .. |san_client_link| replace:: :c:func:`san_client_link`
 .. |san_dgpu_notifier_register| replace:: :c:func:`san_dgpu_notifier_register`
