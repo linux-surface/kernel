@@ -398,7 +398,7 @@ static bool san_evt_tmp(const struct ssam_event *event, struct device *dev)
 static u32 san_evt_tmp_nf(struct ssam_event_notifier *nf,
 			  const struct ssam_event *event)
 {
-	struct san_data *d = to_san_data(nf, nf_bat);
+	struct san_data *d = to_san_data(nf, nf_tmp);
 
 	return san_evt_tmp(event, d->dev) ? SSAM_NOTIF_HANDLED : 0;
 }

@@ -76,10 +76,10 @@ struct spwr_bix {
 	__le32 min_avg_interval;
 	__le32 bat_cap_granularity_1;
 	__le32 bat_cap_granularity_2;
-	u8 model[21];
-	u8 serial[11];
-	u8 type[5];
-	u8 oem_info[21];
+	__u8 model[21];
+	__u8 serial[11];
+	__u8 type[5];
+	__u8 oem_info[21];
 } __packed;
 
 static_assert(sizeof(struct spwr_bix) == 119);
@@ -410,7 +410,7 @@ static int spwr_battery_recheck_full(struct spwr_battery_device *bat)
 
 	mutex_lock(&bat->lock);
 	unit = get_unaligned_le32(&bat->bix.power_unit);
- 	present = spwr_battery_present(bat);
+	present = spwr_battery_present(bat);
 
 	status = spwr_battery_update_bix_unlocked(bat);
 	if (status)
@@ -966,6 +966,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 
 	if (spwr_battery_present(bat)) {
 		u32 cap_warn = get_unaligned_le32(&bat->bix.design_cap_warn);
+
 		status = spwr_battery_set_alarm_unlocked(bat, cap_warn);
 		if (status)
 			return status;
