@@ -8,9 +8,11 @@
 
 #include <linux/fs.h>
 #include <linux/kernel.h>
+#include <linux/kref.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/rwsem.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
@@ -20,21 +22,48 @@
 #define SSAM_CDEV_DEVICE_NAME	"surface_aggregator_cdev"
 
 struct ssam_cdev {
+	struct kref kref;
+	struct rw_semaphore lock;
 	struct ssam_controller *ctrl;
 	struct miscdevice mdev;
 };
 
+static void __ssam_cdev_release(struct kref *kref)
+{
+	kfree(container_of(kref, struct ssam_cdev, kref));
+}
+
+static struct ssam_cdev *ssam_cdev_get(struct ssam_cdev *cdev)
+{
+	if (cdev)
+		kref_get(&cdev->kref);
+
+	return cdev;
+}
+
+static void ssam_cdev_put(struct ssam_cdev *cdev)
+{
+	if (cdev)
+		kref_put(&cdev->kref, __ssam_cdev_release);
+}
+
 static int ssam_cdev_device_open(struct inode *inode, struct file *filp)
 {
 	struct miscdevice *mdev = filp->private_data;
+	struct ssam_cdev *cdev = container_of(mdev, struct ssam_cdev, mdev);
 
-	filp->private_data = container_of(mdev, struct ssam_cdev, mdev);
-	return nonseekable_open(inode, filp);
+	filp->private_data = ssam_cdev_get(cdev);
+	return stream_open(inode, filp);
 }
 
-static long ssam_cdev_request(struct file *file, unsigned long arg)
+static int ssam_cdev_device_release(struct inode *inode, struct file *filp)
 {
-	struct ssam_cdev *cdev = file->private_data;
+	ssam_cdev_put(filp->private_data);
+	return 0;
+}
+
+static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
+{
 	struct ssam_cdev_request __user *r;
 	struct ssam_cdev_request rqst;
 	struct ssam_request spec;
@@ -125,21 +154,43 @@ out:
 	return ret;
 }
 
-static long ssam_cdev_device_ioctl(struct file *file, unsigned int cmd,
-				   unsigned long arg)
+static long __ssam_cdev_device_ioctl(struct ssam_cdev *cdev, unsigned int cmd,
+				     unsigned long arg)
 {
 	switch (cmd) {
 	case SSAM_CDEV_REQUEST:
-		return ssam_cdev_request(file, arg);
+		return ssam_cdev_request(cdev, arg);
 
 	default:
 		return -ENOTTY;
 	}
 }
 
+static long ssam_cdev_device_ioctl(struct file *file, unsigned int cmd,
+				   unsigned long arg)
+{
+	struct ssam_cdev *cdev = file->private_data;
+	long status;
+
+	// ensure that controller is valid for as long as we need it
+	if (down_read_killable(&cdev->lock))
+		return -ERESTARTSYS;
+
+	if (!cdev->ctrl) {
+		up_read(&cdev->lock);
+		return -ENODEV;
+	}
+
+	status = __ssam_cdev_device_ioctl(cdev, cmd, arg);
+
+	up_read(&cdev->lock);
+	return status;
+}
+
 static const struct file_operations ssam_controller_fops = {
 	.owner          = THIS_MODULE,
 	.open           = ssam_cdev_device_open,
+	.release        = ssam_cdev_device_release,
 	.unlocked_ioctl = ssam_cdev_device_ioctl,
 	.compat_ioctl   = ssam_cdev_device_ioctl,
 	.llseek         = noop_llseek,
@@ -155,19 +206,28 @@ static int ssam_dbg_device_probe(struct platform_device *pdev)
 	if (status)
 		return status == -ENXIO ? -EPROBE_DEFER : status;
 
-	cdev = devm_kzalloc(&pdev->dev, sizeof(*cdev), GFP_KERNEL);
+	cdev = kzalloc(sizeof(*cdev), GFP_KERNEL);
 	if (!cdev)
 		return -ENOMEM;
 
+	kref_init(&cdev->kref);
+	init_rwsem(&cdev->lock);
 	cdev->ctrl = ctrl;
+
 	cdev->mdev.parent   = &pdev->dev;
 	cdev->mdev.minor    = MISC_DYNAMIC_MINOR;
 	cdev->mdev.name     = "surface_aggregator";
 	cdev->mdev.nodename = "surface/aggregator";
 	cdev->mdev.fops     = &ssam_controller_fops;
 
+	status = misc_register(&cdev->mdev);
+	if (status) {
+		kfree(cdev);
+		return status;
+	}
+
 	platform_set_drvdata(pdev, cdev);
-	return misc_register(&cdev->mdev);
+	return 0;
 }
 
 static int ssam_dbg_device_remove(struct platform_device *pdev)
@@ -175,6 +235,17 @@ static int ssam_dbg_device_remove(struct platform_device *pdev)
 	struct ssam_cdev *cdev = platform_get_drvdata(pdev);
 
 	misc_deregister(&cdev->mdev);
+
+	/*
+	 * The controller is only guaranteed to be valid for as long as the
+	 * driver is bound. Remove controller so that any lingering open files
+	 * cannot access it any more after we're gone.
+	 */
+	down_write(&cdev->lock);
+	cdev->ctrl = NULL;
+	up_write(&cdev->lock);
+
+	ssam_cdev_put(cdev);
 	return 0;
 }
 

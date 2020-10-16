@@ -8,5 +8,4 @@ obj-$(CONFIG_SURFACE_BATTERY)			+= surface_battery.o
 obj-$(CONFIG_SURFACE_DTX)			+= surface_dtx.o
 obj-$(CONFIG_SURFACE_HID)			+= surface_hid.o
 obj-$(CONFIG_SURFACE_HOTPLUG)			+= surface_hotplug.o
-obj-$(CONFIG_SURFACE_KEYBOARD)			+= surface_keyboard.o
 obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o

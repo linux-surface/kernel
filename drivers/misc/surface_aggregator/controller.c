@@ -1420,7 +1420,7 @@ int ssam_controller_resume(struct ssam_controller *ctrl)
  */
 ssize_t ssam_request_write_data(struct ssam_span *buf,
 				struct ssam_controller *ctrl,
-				struct ssam_request *spec)
+				const struct ssam_request *spec)
 {
 	struct msgbuf msgb;
 	u16 rqid;
@@ -1631,7 +1631,8 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_submit);
  *
  * Return: Returns the status of the request or any failure during setup.
  */
-int ssam_request_sync(struct ssam_controller *ctrl, struct ssam_request *spec,
+int ssam_request_sync(struct ssam_controller *ctrl,
+		      const struct ssam_request *spec,
 		      struct ssam_response *rsp)
 {
 	struct ssam_request_sync *rqst;
@@ -1685,7 +1686,7 @@ EXPORT_SYMBOL_GPL(ssam_request_sync);
  * Return: Returns the status of the request or any failure during setup.
  */
 int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
-				  struct ssam_request *spec,
+				  const struct ssam_request *spec,
 				  struct ssam_response *rsp,
 				  struct ssam_span *buf)
 {

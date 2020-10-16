@@ -39,7 +39,7 @@ struct san_data {
 	container_of(ptr, struct san_data, member)
 
 
-/* -- dGPU Notifier Interface. ---------------------------------------------- */
+/* -- dGPU notifier interface. ---------------------------------------------- */
 
 struct san_rqsg_if {
 	struct rw_semaphore lock;
@@ -404,7 +404,7 @@ static u32 san_evt_tmp_nf(struct ssam_event_notifier *nf,
 }
 
 
-/* -- ACPI GSB OperationRegion Handler -------------------------------------- */
+/* -- ACPI GSB OperationRegion handler -------------------------------------- */
 
 struct gsb_data_in {
 	u8 cv;

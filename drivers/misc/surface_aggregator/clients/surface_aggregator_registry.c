@@ -56,6 +56,11 @@ static const struct software_node ssam_node_tmp_perf = {
 	.parent = &ssam_node_hub_main,
 };
 
+static const struct software_node ssam_node_bas_dtx = {
+	.name = "ssam:01:11:01:00:00",
+	.parent = &ssam_node_hub_main,
+};
+
 static const struct software_node ssam_node_hid_main_keyboard = {
 	.name = "ssam:01:15:02:01:00",
 	.parent = &ssam_node_hub_main,
@@ -111,6 +116,7 @@ static const struct software_node *ssam_node_group_sb3[] = {
 	&ssam_node_hid_base_touchpad,
 	&ssam_node_hid_base_iid5,
 	&ssam_node_hid_base_iid6,
+	&ssam_node_bas_dtx,
 	NULL,
 };
 

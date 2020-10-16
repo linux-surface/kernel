@@ -162,7 +162,7 @@ static SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_chgi, __le32, {
 });
 
 
-/* -- Common Power-Subsystem Interface. ------------------------------------- */
+/* -- Common power-subsystem interface. ------------------------------------- */
 
 struct spwr_psy_properties {
 	const char *name;
@@ -1021,7 +1021,7 @@ static void spwr_battery_unregister(struct spwr_battery_device *bat)
 }
 
 
-/* -- Power Management. ----------------------------------------------------- */
+/* -- Power management. ----------------------------------------------------- */
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -1046,7 +1046,7 @@ SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
 
 
-/* -- Battery Driver. ------------------------------------------------------- */
+/* -- Battery driver. ------------------------------------------------------- */
 
 static int surface_battery_probe(struct ssam_device *sdev)
 {
@@ -1109,7 +1109,7 @@ static struct ssam_device_driver surface_battery_driver = {
 };
 
 
-/* -- AC Driver. ------------------------------------------------------------ */
+/* -- AC driver. ------------------------------------------------------------ */
 
 static int surface_ac_probe(struct ssam_device *sdev)
 {
@@ -1166,7 +1166,7 @@ static struct ssam_device_driver surface_ac_driver = {
 };
 
 
-/* -- Module Setup. --------------------------------------------------------- */
+/* -- Module setup. --------------------------------------------------------- */
 
 static int __init surface_battery_init(void)
 {

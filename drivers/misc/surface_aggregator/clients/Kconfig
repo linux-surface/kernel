@@ -92,6 +92,10 @@ config SURFACE_DTX
 	  behavior of this process, which includes the option to abort it in
 	  case the base is still in use or speed it up in case it is not.
 
+	  Note that this module can be built without support for the Surface
+	  Aggregator Bus (i.e. CONFIG_SURFACE_AGGREGATOR_BUS=n). In that case,
+	  some devices, specifically the Surface Book 3, will not be supported.
+
 config SURFACE_HID
 	tristate "Surface HID Transport Driver"
 	depends on SURFACE_AGGREGATOR_BUS
@@ -105,6 +109,11 @@ config SURFACE_HID
 	  keyboard) connected via SSAM. It is required for keyboard input on the
 	  Surface Laptop 1 and 2, as well as keyboard and touchpad input on the
 	  Surface Laptop 3 and Surface Book 3.
+
+	  Note that this module can be built without support for the Surface
+	  Aggregator Bus (i.e. CONFIG_SURFACE_AGGREGATOR_BUS=n). In that case,
+	  some devices, specifically the Surface Book 3 and Surface Laptop 3,
+	  will not be supported.
 
 config SURFACE_HOTPLUG
 	tristate "Surface Hot-Plug System Driver"
@@ -122,19 +131,6 @@ config SURFACE_HOTPLUG
 	  user-space interface via which the dGPU power-state (on/off) can be
 	  set, allowing users to turn off the dGPU in order to reduce power
 	  consumption.
-
-config SURFACE_KEYBOARD
-	tristate "Surface Legacy HID Keyboard Transport Driver"
-	depends on SURFACE_AGGREGATOR
-	depends on HID
-	default m
-	help
-	  Legacy HID keyboard transport driver for the Surface System Aggregator
-	  Module (SSAM).
-
-	  This driver provides a HID transport driver for the legacy HID
-	  keyboard found on the Surface Laptop 1 and 2. To be integrated with
-	  the Surface HID driver.
 
 config SURFACE_PERFMODE
 	tristate "Surface Performance-Mode Driver"

@@ -10,10 +10,12 @@
  */
 
 #include <asm/unaligned.h>
+#include <linux/acpi.h>
 #include <linux/hid.h>
 #include <linux/input.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/types.h>
 #include <linux/usb/ch9.h>
 
@@ -53,6 +55,38 @@ struct surface_hid_attributes {
 
 static_assert(sizeof(struct surface_hid_attributes) == 32);
 
+struct surface_hid_device;
+
+struct surface_hid_device_ops {
+	int (*get_descriptor)(struct surface_hid_device *shid, u8 entry,
+			      u8 *buf, size_t len);
+	int (*output_report)(struct surface_hid_device *shid, u8 report_id,
+			     u8 *data, size_t len);
+	int (*get_feature_report)(struct surface_hid_device *shid, u8 report_id,
+				  u8 *data, size_t len);
+	int (*set_feature_report)(struct surface_hid_device *shid, u8 report_id,
+				  u8 *data, size_t len);
+};
+
+struct surface_hid_device {
+	struct device *dev;
+	struct ssam_controller *ctrl;
+	struct ssam_device_uid uid;
+
+	struct surface_hid_descriptor hid_desc;
+	struct surface_hid_attributes attrs;
+
+	struct ssam_event_notifier notif;
+	struct hid_device *hid;
+
+	struct surface_hid_device_ops ops;
+};
+
+
+/* -- SAM interface (HID). -------------------------------------------------- */
+
+#ifdef CONFIG_SURFACE_AGGREGATOR_BUS
+
 struct surface_hid_buffer_slice {
 	__u8 entry;
 	__le32 offset;
@@ -69,21 +103,6 @@ enum surface_hid_cid {
 	SURFACE_HID_CID_SET_FEATURE_REPORT = 0x03,
 	SURFACE_HID_CID_GET_DESCRIPTOR     = 0x04,
 };
-
-struct surface_hid_device {
-	struct device *dev;
-	struct ssam_controller *ctrl;
-	struct ssam_device_uid uid;
-
-	struct surface_hid_descriptor hid_desc;
-	struct surface_hid_attributes attrs;
-
-	struct ssam_event_notifier notif;
-	struct hid_device *hid;
-};
-
-
-/* -- SAM interface. -------------------------------------------------------- */
 
 static int ssam_hid_get_descriptor(struct surface_hid_device *shid, u8 entry,
 				   u8 *buf, size_t len)
@@ -127,7 +146,8 @@ static int ssam_hid_get_descriptor(struct surface_hid_device *shid, u8 entry,
 
 		rsp.length = 0;
 
-		status = shid_retry(ssam_request_sync, shid->ctrl, &rqst, &rsp);
+		status = shid_retry(ssam_request_sync_onstack, shid->ctrl,
+				    &rqst, &rsp, sizeof(*slice));
 		if (status)
 			return status;
 
@@ -192,14 +212,15 @@ static int ssam_hid_get_raw_report(struct surface_hid_device *shid,
 	rqst.instance_id = shid->uid.instance;
 	rqst.command_id = SURFACE_HID_CID_GET_FEATURE_REPORT;
 	rqst.flags = 0;
-	rqst.length = sizeof(u8);
+	rqst.length = sizeof(report_id);
 	rqst.payload = &report_id;
 
 	rsp.capacity = len;
 	rsp.length = 0;
 	rsp.pointer = buf;
 
-	return shid_retry(ssam_request_sync, shid->ctrl, &rqst, &rsp);
+	return shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
+			  sizeof(report_id));
 }
 
 static u32 ssam_hid_event_fn(struct ssam_event_notifier *nf,
@@ -220,13 +241,269 @@ static u32 ssam_hid_event_fn(struct ssam_event_notifier *nf,
 }
 
 
+/* -- Transport driver (HID). ----------------------------------------------- */
+
+static int shid_output_report(struct surface_hid_device *shid, u8 report_id,
+			      u8 *data, size_t len)
+{
+	int status;
+
+	status =  ssam_hid_set_raw_report(shid, report_id, false, data, len);
+	return status >= 0 ? len : status;
+}
+
+static int shid_get_feature_report(struct surface_hid_device *shid,
+				   u8 report_id, u8 *data, size_t len)
+{
+	int status;
+
+	status = ssam_hid_get_raw_report(shid, report_id, data, len);
+	return status >= 0 ? len : status;
+}
+
+static int shid_set_feature_report(struct surface_hid_device *shid,
+				   u8 report_id, u8 *data, size_t len)
+{
+	int status;
+
+	status =  ssam_hid_set_raw_report(shid, report_id, true, data, len);
+	return status >= 0 ? len : status;
+}
+
+#endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
+
+
+/* -- SAM interface (KBD). -------------------------------------------------- */
+
+#define KBD_FEATURE_REPORT_SIZE		7  // 6 + report ID
+
+enum surface_kbd_cid {
+	SURFACE_KBD_CID_GET_DESCRIPTOR     = 0x00,
+	SURFACE_KBD_CID_SET_CAPSLOCK_LED   = 0x01,
+	SURFACE_KBD_CID_EVT_INPUT_GENERIC  = 0x03,
+	SURFACE_KBD_CID_EVT_INPUT_HOTKEYS  = 0x04,
+	SURFACE_KBD_CID_GET_FEATURE_REPORT = 0x0b,
+};
+
+static int ssam_kbd_get_descriptor(struct surface_hid_device *shid, u8 entry,
+				   u8 *buf, size_t len)
+{
+	struct ssam_request rqst;
+	struct ssam_response rsp;
+	int status;
+
+	rqst.target_category = shid->uid.category;
+	rqst.target_id = shid->uid.target;
+	rqst.command_id = SURFACE_KBD_CID_GET_DESCRIPTOR;
+	rqst.instance_id = shid->uid.instance;
+	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
+	rqst.length = sizeof(entry);
+	rqst.payload = &entry;
+
+	rsp.capacity = len;
+	rsp.length = 0;
+	rsp.pointer = buf;
+
+	status = shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
+			    sizeof(entry));
+	if (status)
+		return status;
+
+	if (rsp.length != len) {
+		dev_err(shid->dev, "invalid descriptor length: got %zu, "
+			"expected, %zu\n", rsp.length, len);
+		return -EPROTO;
+	}
+
+	return 0;
+}
+
+static int ssam_kbd_set_caps_led(struct surface_hid_device *shid, bool value)
+{
+	struct ssam_request rqst;
+	u8 value_u8 = value;
+
+	rqst.target_category = shid->uid.category;
+	rqst.target_id = shid->uid.target;
+	rqst.command_id = SURFACE_KBD_CID_SET_CAPSLOCK_LED;
+	rqst.instance_id = shid->uid.instance;
+	rqst.flags = 0;
+	rqst.length = sizeof(value_u8);
+	rqst.payload = &value_u8;
+
+	return shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, NULL,
+			  sizeof(value_u8));
+}
+
+static int ssam_kbd_get_feature_report(struct surface_hid_device *shid, u8 *buf,
+				       size_t len)
+{
+	struct ssam_request rqst;
+	struct ssam_response rsp;
+	u8 payload = 0;
+	int status;
+
+	rqst.target_category = shid->uid.category;
+	rqst.target_id = shid->uid.target;
+	rqst.command_id = SURFACE_KBD_CID_GET_FEATURE_REPORT;
+	rqst.instance_id = shid->uid.instance;
+	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
+	rqst.length = sizeof(payload);
+	rqst.payload = &payload;
+
+	rsp.capacity = len;
+	rsp.length = 0;
+	rsp.pointer = buf;
+
+	status = shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
+			    sizeof(payload));
+	if (status)
+		return status;
+
+	if (rsp.length != len) {
+		dev_err(shid->dev, "invalid feature report length: got %zu, "
+			"expected, %zu\n", rsp.length, len);
+		return -EPROTO;
+	}
+
+	return 0;
+}
+
+static bool ssam_kbd_is_input_event(const struct ssam_event *event)
+{
+	if (event->command_id == SURFACE_KBD_CID_EVT_INPUT_GENERIC)
+		return true;
+
+	if (event->command_id == SURFACE_KBD_CID_EVT_INPUT_HOTKEYS)
+		return true;
+
+	return false;
+}
+
+static u32 ssam_kbd_event_fn(struct ssam_event_notifier *nf,
+				const struct ssam_event *event)
+{
+	struct surface_hid_device *shid;
+	int status;
+
+	shid = container_of(nf, struct surface_hid_device, notif);
+
+	/*
+	 * Check against device UID manually, as registry and device target
+	 * category doesn't line up.
+	 */
+
+	if (shid->uid.category != event->target_category)
+		return 0;
+
+	if (shid->uid.target != event->target_id)
+		return 0;
+
+	if (shid->uid.instance != event->instance_id)
+		return 0;
+
+	if (!ssam_kbd_is_input_event(event))
+		return 0;
+
+	status = hid_input_report(shid->hid, HID_INPUT_REPORT,
+				  (u8 *)&event->data[0], event->length, 0);
+
+	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
+}
+
+
+/* -- Transport driver (KBD). ----------------------------------------------- */
+
+static int skbd_get_caps_led_value(struct hid_device *hid, u8 report_id,
+				   u8 *data, size_t len)
+{
+	struct hid_field *field;
+	unsigned int offset, size;
+	int i;
+
+	// get led field
+	field = hidinput_get_led_field(hid);
+	if (!field)
+		return -ENOENT;
+
+	// check if we got the correct report
+	if (len != hid_report_len(field->report))
+		return -ENOENT;
+
+	if (report_id != field->report->id)
+		return -ENOENT;
+
+	// get caps lock led index
+	for (i = 0; i < field->report_count; i++)
+		if ((field->usage[i].hid & 0xffff) == 0x02)
+			break;
+
+	if (i == field->report_count)
+		return -ENOENT;
+
+	// extract value
+	size = field->report_size;
+	offset = field->report_offset + i * size;
+	return !!hid_field_extract(hid, data + 1, size, offset);
+}
+
+static int skbd_output_report(struct surface_hid_device *shid, u8 report_id,
+			      u8 *data, size_t len)
+{
+	int caps_led;
+	int status;
+
+	caps_led = skbd_get_caps_led_value(shid->hid, report_id, data, len);
+	if (caps_led < 0)
+		return -EIO;	// only caps output reports are supported
+
+	status = ssam_kbd_set_caps_led(shid, caps_led);
+	if (status < 0)
+		return status;
+
+	return len;
+}
+
+static int skbd_get_feature_report(struct surface_hid_device *shid,
+				   u8 report_id, u8 *data, size_t len)
+{
+	u8 report[KBD_FEATURE_REPORT_SIZE];
+	int status;
+
+	/*
+	 * The keyboard only has a single hard-coded read-only feature report
+	 * of size KBD_FEATURE_REPORT_SIZE. Try to load it and compare its
+	 * report ID against the requested one.
+	 */
+
+	if (len < ARRAY_SIZE(report))
+		return -ENOSPC;
+
+	status = ssam_kbd_get_feature_report(shid, report, ARRAY_SIZE(report));
+	if (status < 0)
+		return status;
+
+	if (report_id != report[0])
+		return -ENOENT;
+
+	memcpy(data, report, ARRAY_SIZE(report));
+	return len;
+}
+
+static int skbd_set_feature_report(struct surface_hid_device *shid,
+				   u8 report_id, u8 *data, size_t len)
+{
+	return -EIO;
+}
+
+
 /* -- Device descriptor access. --------------------------------------------- */
 
 static int surface_hid_load_hid_descriptor(struct surface_hid_device *shid)
 {
 	int status;
 
-	status = ssam_hid_get_descriptor(shid, SURFACE_HID_DESC_HID,
+	status = shid->ops.get_descriptor(shid, SURFACE_HID_DESC_HID,
 			(u8 *)&shid->hid_desc, sizeof(shid->hid_desc));
 	if (status)
 		return status;
@@ -265,7 +542,7 @@ static int surface_hid_load_device_attributes(struct surface_hid_device *shid)
 {
 	int status;
 
-	status = ssam_hid_get_descriptor(shid, SURFACE_HID_DESC_ATTRS,
+	status = shid->ops.get_descriptor(shid, SURFACE_HID_DESC_ATTRS,
 			(u8 *)&shid->attrs, sizeof(shid->attrs));
 	if (status)
 		return status;
@@ -281,35 +558,7 @@ static int surface_hid_load_device_attributes(struct surface_hid_device *shid)
 }
 
 
-/* -- Transport driver. ----------------------------------------------------- */
-
-static int shid_output_report(struct surface_hid_device *shid, u8 report_id,
-			      u8 *data, size_t len)
-{
-	int status;
-
-	status =  ssam_hid_set_raw_report(shid, report_id, false, data, len);
-	return status >= 0 ? len : status;
-}
-
-static int shid_get_feature_report(struct surface_hid_device *shid,
-				   u8 report_id, u8 *data, size_t len)
-{
-	int status;
-
-	status = ssam_hid_get_raw_report(shid, report_id, data, len);
-	return status >= 0 ? len : status;
-}
-
-static int shid_set_feature_report(struct surface_hid_device *shid,
-				   u8 report_id, u8 *data, size_t len)
-{
-	int status;
-
-	status =  ssam_hid_set_raw_report(shid, report_id, true, data, len);
-	return status >= 0 ? len : status;
-}
-
+/* -- Transport driver (common). -------------------------------------------- */
 
 static int surface_hid_start(struct hid_device *hid)
 {
@@ -346,7 +595,7 @@ static int surface_hid_parse(struct hid_device *hid)
 	if (!buf)
 		return -ENOMEM;
 
-	status = ssam_hid_get_descriptor(shid, SURFACE_HID_DESC_REPORT, buf, len);
+	status = shid->ops.get_descriptor(shid, SURFACE_HID_DESC_REPORT, buf, len);
 	if (!status)
 		status = hid_parse_report(hid, buf, len);
 
@@ -361,13 +610,13 @@ static int surface_hid_raw_request(struct hid_device *hid,
 	struct surface_hid_device *shid = hid->driver_data;
 
 	if (rtype == HID_OUTPUT_REPORT && reqtype == HID_REQ_SET_REPORT)
-		return shid_output_report(shid, reportnum, buf, len);
+		return shid->ops.output_report(shid, reportnum, buf, len);
 
 	else if (rtype == HID_FEATURE_REPORT && reqtype == HID_REQ_GET_REPORT)
-		return shid_get_feature_report(shid, reportnum, buf, len);
+		return shid->ops.get_feature_report(shid, reportnum, buf, len);
 
 	else if (rtype == HID_FEATURE_REPORT && reqtype == HID_REQ_SET_REPORT)
-		return shid_set_feature_report(shid, reportnum, buf, len);
+		return shid->ops.set_feature_report(shid, reportnum, buf, len);
 
 	return -EIO;
 }
@@ -401,7 +650,7 @@ static int surface_hid_device_add(struct surface_hid_device *shid)
 		return PTR_ERR(shid->hid);
 
 	shid->hid->dev.parent = shid->dev;
-	shid->hid->bus = BUS_VIRTUAL;		// TODO: BUS_SURFACE
+	shid->hid->bus = BUS_HOST;		// TODO: BUS_SURFACE
 	shid->hid->vendor = cpu_to_le16(shid->attrs.vendor);
 	shid->hid->product = cpu_to_le16(shid->attrs.product);
 	shid->hid->version = cpu_to_le16(shid->hid_desc.hid_version);
@@ -499,7 +748,9 @@ const struct dev_pm_ops surface_hid_pm_ops = { };
 #endif /* CONFIG_PM */
 
 
-/* -- Driver setup. --------------------------------------------------------- */
+/* -- Driver setup (HID). --------------------------------------------------- */
+
+#ifdef CONFIG_SURFACE_AGGREGATOR_BUS
 
 static int surface_hid_probe(struct ssam_device *sdev)
 {
@@ -520,6 +771,11 @@ static int surface_hid_probe(struct ssam_device *sdev)
 	shid->notif.event.id.instance = sdev->uid.instance;
 	shid->notif.event.mask = SSAM_EVENT_MASK_STRICT;
 	shid->notif.event.flags = 0;
+
+	shid->ops.get_descriptor = ssam_hid_get_descriptor;
+	shid->ops.output_report = shid_output_report;
+	shid->ops.get_feature_report = shid_get_feature_report;
+	shid->ops.set_feature_report = shid_set_feature_report;
 
 	ssam_device_set_drvdata(sdev, shid);
 	return surface_hid_device_add(shid);
@@ -546,7 +802,122 @@ static struct ssam_device_driver surface_hid_driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
-module_ssam_device_driver(surface_hid_driver);
+
+static int surface_hid_driver_register(void)
+{
+	return ssam_device_driver_register(&surface_hid_driver);
+}
+
+static void surface_hid_driver_unregister(void)
+{
+	ssam_device_driver_unregister(&surface_hid_driver);
+}
+
+#else /* CONFIG_SURFACE_AGGREGATOR_BUS */
+
+static int surface_hid_driver_register(void)
+{
+	return 0;
+}
+
+static void surface_hid_driver_unregister(void)
+{
+}
+
+#endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
+
+
+/* -- Driver setup (KBD). --------------------------------------------------- */
+
+static int surface_kbd_probe(struct platform_device *pdev)
+{
+	struct ssam_controller *ctrl;
+	struct surface_hid_device *shid;
+	int status;
+
+	// add device link to EC
+	status = ssam_client_bind(&pdev->dev, &ctrl);
+	if (status)
+		return status == -ENXIO ? -EPROBE_DEFER : status;
+
+	shid = devm_kzalloc(&pdev->dev, sizeof(*shid), GFP_KERNEL);
+	if (!shid)
+		return -ENOMEM;
+
+	shid->dev = &pdev->dev;
+	shid->ctrl = ctrl;
+
+	shid->uid.domain = SSAM_DOMAIN_SERIALHUB;
+	shid->uid.category = SSAM_SSH_TC_KBD;
+	shid->uid.target = 2;
+	shid->uid.instance = 0;
+	shid->uid.function = 0;
+
+	shid->notif.base.priority = 1;
+	shid->notif.base.fn = ssam_kbd_event_fn;
+	shid->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+	shid->notif.event.id.target_category = shid->uid.category;
+	shid->notif.event.id.instance = shid->uid.instance;
+	shid->notif.event.mask = SSAM_EVENT_MASK_NONE;
+	shid->notif.event.flags = 0;
+
+	shid->ops.get_descriptor = ssam_kbd_get_descriptor;
+	shid->ops.output_report = skbd_output_report;
+	shid->ops.get_feature_report = skbd_get_feature_report;
+	shid->ops.set_feature_report = skbd_set_feature_report;
+
+	platform_set_drvdata(pdev, shid);
+	return surface_hid_device_add(shid);
+}
+
+static int surface_kbd_remove(struct platform_device *pdev)
+{
+	surface_hid_device_destroy(platform_get_drvdata(pdev));
+	return 0;
+}
+
+static const struct acpi_device_id surface_kbd_match[] = {
+	{ "MSHW0096" },
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, surface_kbd_match);
+
+static struct platform_driver surface_kbd_driver = {
+	.probe = surface_kbd_probe,
+	.remove = surface_kbd_remove,
+	.driver = {
+		.name = "surface_keyboard",
+		.acpi_match_table = surface_kbd_match,
+		.pm = &surface_hid_pm_ops,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+	},
+};
+
+
+/* -- Module setup. --------------------------------------------------------- */
+
+static int __init surface_hid_init(void)
+{
+	int status;
+
+	status = surface_hid_driver_register();
+	if (status)
+		return status;
+
+	status = platform_driver_register(&surface_kbd_driver);
+	if (status)
+		surface_hid_driver_unregister();
+
+	return status;
+}
+module_init(surface_hid_init);
+
+static void __exit surface_hid_exit(void)
+{
+	platform_driver_unregister(&surface_kbd_driver);
+	surface_hid_driver_unregister();
+}
+module_exit(surface_hid_exit);
 
 MODULE_AUTHOR("Blaž Hrastnik <blaz@mxxn.io>");
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
