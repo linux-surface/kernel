@@ -3718,6 +3718,15 @@ static const struct dmi_system_id dmi_platform_data[] = {
 		.driver_data = (void *)&intel_braswell_platform_data,
 	},
 	{
+		.ident = "Microsoft Surface 3",
+		.matches = {
+			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
+			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
+		},
+		.driver_data = (void *)&intel_braswell_platform_data,
+	},
+	{
 		/*
 		 * Match for the GPDwin which unfortunately uses somewhat
 		 * generic dmi strings, which is why we test for 4 strings.
