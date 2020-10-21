@@ -720,20 +720,25 @@ EXPORT_SYMBOL_GPL(software_node_register_nodes);
 
 /**
  * software_node_unregister_nodes - Unregister an array of software nodes
- * @nodes: Zero terminated array of software nodes to be unregistered
+ * @nodes: Zero terminated array of software nodes to be unregistered. If
+ * parent pointers are set up in any of the software nodes then the array
+ * MUST be ordered such that parents come before their children.
  *
  * Unregister multiple software nodes at once.
  *
- * NOTE: Be careful using this call if the nodes had parent pointers set up in
- * them before registering.  If so, it is wiser to remove the nodes
- * individually, in the correct order (child before parent) instead of relying
- * on the sequential order of the list of nodes in the array.
+ * NOTE: If you are uncertain whether the array is ordered such that
+ * parents will be unregistered before their children, it is wiser to
+ * remove the nodes individually, in the correct order (child before
+ * parent).
  */
 void software_node_unregister_nodes(const struct software_node *nodes)
 {
-	int i;
+	unsigned int i = 0;
 
-	for (i = 0; nodes[i].name; i++)
+	while (nodes[i].name)
+		i++;
+
+	while (i--)
 		software_node_unregister(&nodes[i]);
 }
 EXPORT_SYMBOL_GPL(software_node_unregister_nodes);
