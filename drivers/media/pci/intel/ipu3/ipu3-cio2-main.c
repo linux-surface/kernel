@@ -1712,6 +1712,22 @@ static void cio2_queues_exit(struct cio2_device *cio2)
 		cio2_queue_exit(cio2, &cio2->queue[i]);
 }
 
+static bool cio2_check_fwnode_graph(struct fwnode_handle *fwnode)
+{
+	struct fwnode_handle *endpoint;
+
+	if (IS_ERR_OR_NULL(fwnode))
+		return false;
+
+	endpoint = fwnode_graph_get_next_endpoint(fwnode, NULL);
+	if (endpoint) {
+		fwnode_handle_put(endpoint);
+		return true;
+	}
+
+	return cio2_check_fwnode_graph(fwnode->secondary);
+}
+
 /**************** PCI interface ****************/
 
 static int cio2_pci_probe(struct pci_dev *pci_dev,
@@ -1724,6 +1740,17 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 	if (!cio2)
 		return -ENOMEM;
 	cio2->pci_dev = pci_dev;
+
+	/*
+	 * On some platforms no connections to sensors are defined in firmware,
+	 * if the device has no endpoints then we can try to build those as
+	 * software_nodes parsed from SSDB.
+	 */
+	if (!cio2_check_fwnode_graph(dev_fwnode(&pci_dev->dev))) {
+		r = cio2_bridge_init(pci_dev);
+		if (r)
+			return r;
+	}
 
 	r = pcim_enable_device(pci_dev);
 	if (r) {
