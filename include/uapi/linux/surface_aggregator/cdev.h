@@ -12,8 +12,8 @@
 #ifndef _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
 #define _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
 
-#include <linux/types.h>
 #include <linux/ioctl.h>
+#include <linux/types.h>
 
 /**
  * struct ssam_cdev_request - Controller request IOCTL argument.
