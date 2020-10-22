@@ -11,3 +11,7 @@ config MISC_IPTS
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ipts.
+
+	  Building this driver alone will not give you a working touchscreen.
+	  It only exposed a userspace API that can be used by a daemon to
+	  receive and process data from the touchscreen hardware.

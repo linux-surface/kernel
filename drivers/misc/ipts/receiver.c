@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2020 Dorian Stoll
+ *
+ * Linux driver for Intel Precise Touch & Stylus
+ */
 
 #include <linux/mei_cl_bus.h>
 #include <linux/types.h>
@@ -7,35 +13,20 @@
 #include "control.h"
 #include "protocol.h"
 #include "resources.h"
-#include "uapi.h"
-
-static int ipts_receiver_handle_notify_dev_ready(struct ipts_context *ipts)
-{
-	return ipts_control_send(ipts, IPTS_CMD(GET_DEVICE_INFO), NULL, 0);
-}
 
 static int ipts_receiver_handle_get_device_info(struct ipts_context *ipts,
-		struct ipts_response *msg)
+		struct ipts_response *rsp)
 {
-	memcpy(&ipts->device_info, &msg->data.device_info,
-			sizeof(struct ipts_device_info));
+	struct ipts_set_mode_cmd cmd;
 
-	dev_info(ipts->dev, "Device %04hX:%04hX found\n",
-			ipts->device_info.vendor_id,
-			ipts->device_info.device_id);
+	memcpy(&ipts->device_info, rsp->payload,
+			sizeof(struct ipts_get_device_info_rsp));
 
-	return ipts_control_send(ipts, IPTS_CMD(CLEAR_MEM_WINDOW), NULL, 0);
-}
+	memset(&cmd, 0, sizeof(struct ipts_set_mode_cmd));
+	cmd.mode = IPTS_MODE_MULTITOUCH;
 
-static int ipts_receiver_handle_clear_mem_window(struct ipts_context *ipts)
-{
-	struct ipts_set_mode_cmd sensor_mode_cmd;
-
-	memset(&sensor_mode_cmd, 0, sizeof(struct ipts_set_mode_cmd));
-	sensor_mode_cmd.sensor_mode = IPTS_SENSOR_MODE_MULTITOUCH;
-
-	return ipts_control_send(ipts, IPTS_CMD(SET_MODE),
-			&sensor_mode_cmd, sizeof(struct ipts_set_mode_cmd));
+	return ipts_control_send(ipts, IPTS_CMD_SET_MODE,
+			&cmd, sizeof(struct ipts_set_mode_cmd));
 }
 
 static int ipts_receiver_handle_set_mode(struct ipts_context *ipts)
@@ -43,9 +34,11 @@ static int ipts_receiver_handle_set_mode(struct ipts_context *ipts)
 	int i, ret;
 	struct ipts_set_mem_window_cmd cmd;
 
-	ret = ipts_resources_init(ipts);
-	if (ret)
+	ret = ipts_resources_alloc(ipts);
+	if (ret) {
+		dev_err(ipts->dev, "Failed to allocate resources\n");
 		return ret;
+	}
 
 	memset(&cmd, 0, sizeof(struct ipts_set_mem_window_cmd));
 
@@ -71,132 +64,120 @@ static int ipts_receiver_handle_set_mode(struct ipts_context *ipts)
 
 	cmd.host2me_addr_lower = lower_32_bits(ipts->host2me.dma_address);
 	cmd.host2me_addr_upper = upper_32_bits(ipts->host2me.dma_address);
-	cmd.host2me_size = ipts->device_info.data_size;
 
 	cmd.workqueue_size = IPTS_WORKQUEUE_SIZE;
 	cmd.workqueue_item_size = IPTS_WORKQUEUE_ITEM_SIZE;
 
-	return ipts_control_send(ipts, IPTS_CMD(SET_MEM_WINDOW),
+	return ipts_control_send(ipts, IPTS_CMD_SET_MEM_WINDOW,
 			&cmd, sizeof(struct ipts_set_mem_window_cmd));
 }
 
 static int ipts_receiver_handle_set_mem_window(struct ipts_context *ipts)
 {
+	dev_info(ipts->dev, "Device %04hX:%04hX ready\n",
+			ipts->device_info.vendor_id,
+			ipts->device_info.device_id);
 	ipts->status = IPTS_HOST_STATUS_STARTED;
-	dev_info(ipts->dev, "IPTS enabled\n");
 
-	return ipts_control_send(ipts, IPTS_CMD(READY_FOR_DATA), NULL, 0);
+	return ipts_control_send(ipts, IPTS_CMD_READY_FOR_DATA, NULL, 0);
 }
 
-static int ipts_receiver_handle_quiesce_io(struct ipts_context *ipts)
+static int ipts_receiver_handle_clear_mem_window(struct ipts_context *ipts)
 {
-	if (ipts->status != IPTS_HOST_STATUS_RESTARTING)
-		return 0;
+	if (ipts->restart)
+		return ipts_control_start(ipts);
 
-	ipts_uapi_free(ipts);
-	ipts_resources_free(ipts);
-
-	return ipts_control_start(ipts);
+	ipts->status = IPTS_HOST_STATUS_STOPPED;
+	return 0;
 }
 
 static bool ipts_receiver_handle_error(struct ipts_context *ipts,
-		struct ipts_response *msg)
+		struct ipts_response *rsp)
 {
 	bool error;
-	bool restart;
 
-	switch (msg->status) {
-	case IPTS_ME_STATUS_SUCCESS:
-	case IPTS_ME_STATUS_COMPAT_CHECK_FAIL:
+	switch (rsp->status) {
+	case IPTS_STATUS_SUCCESS:
+	case IPTS_STATUS_COMPAT_CHECK_FAIL:
 		error = false;
-		restart = false;
 		break;
-	case IPTS_ME_STATUS_INVALID_PARAMS:
-		error = msg->code != IPTS_RSP(FEEDBACK);
-		restart = false;
+	case IPTS_STATUS_INVALID_PARAMS:
+		error = rsp->code != IPTS_RSP_FEEDBACK;
 		break;
-	case IPTS_ME_STATUS_SENSOR_DISABLED:
-		error = msg->code != IPTS_RSP(READY_FOR_DATA);
-		restart = false;
-		break;
-	case IPTS_ME_STATUS_TIMEOUT:
-		error = msg->code != IPTS_RSP(CLEAR_MEM_WINDOW);
-		restart = false;
-		break;
-	case IPTS_ME_STATUS_SENSOR_EXPECTED_RESET:
-	case IPTS_ME_STATUS_SENSOR_UNEXPECTED_RESET:
-		error = true;
-		restart = true;
+	case IPTS_STATUS_SENSOR_DISABLED:
+		error = ipts->status != IPTS_HOST_STATUS_STOPPING;
 		break;
 	default:
 		error = true;
-		restart = false;
 		break;
 	}
 
 	if (!error)
 		return false;
 
-	dev_err(ipts->dev, "0x%08x failed: %d\n", msg->code, msg->status);
+	dev_err(ipts->dev, "Command 0x%08x failed: %d\n",
+			rsp->code, rsp->status);
 
-	if (restart) {
-		dev_err(ipts->dev, "Sensor reset: %d\n", msg->status);
-		ipts_control_restart(ipts);
+	if (rsp->code == IPTS_STATUS_SENSOR_UNEXPECTED_RESET) {
+		dev_err(ipts->dev, "Sensor was reset\n");
+
+		if (ipts_control_restart(ipts))
+			dev_err(ipts->dev, "Failed to restart IPTS\n");
 	}
 
 	return true;
 }
 
 static void ipts_receiver_handle_response(struct ipts_context *ipts,
-		struct ipts_response *msg)
+		struct ipts_response *rsp)
 {
-	int ret = 0;
+	int ret;
 
-	if (ipts_receiver_handle_error(ipts, msg))
+	if (ipts_receiver_handle_error(ipts, rsp))
 		return;
 
-	switch (msg->code) {
-	case IPTS_RSP(NOTIFY_DEV_READY):
-		ret = ipts_receiver_handle_notify_dev_ready(ipts);
+	switch (rsp->code) {
+	case IPTS_RSP_GET_DEVICE_INFO:
+		ret = ipts_receiver_handle_get_device_info(ipts, rsp);
 		break;
-	case IPTS_RSP(GET_DEVICE_INFO):
-		ret = ipts_receiver_handle_get_device_info(ipts, msg);
-		break;
-	case IPTS_RSP(CLEAR_MEM_WINDOW):
-		ret = ipts_receiver_handle_clear_mem_window(ipts);
-		break;
-	case IPTS_RSP(SET_MODE):
+	case IPTS_RSP_SET_MODE:
 		ret = ipts_receiver_handle_set_mode(ipts);
 		break;
-	case IPTS_RSP(SET_MEM_WINDOW):
+	case IPTS_RSP_SET_MEM_WINDOW:
 		ret = ipts_receiver_handle_set_mem_window(ipts);
 		break;
-	case IPTS_RSP(QUIESCE_IO):
-		ret = ipts_receiver_handle_quiesce_io(ipts);
+	case IPTS_RSP_CLEAR_MEM_WINDOW:
+		ret = ipts_receiver_handle_clear_mem_window(ipts);
+		break;
+	default:
+		ret = 0;
 		break;
 	}
 
 	if (!ret)
 		return;
 
-	dev_err(ipts->dev, "Detected MEI bus error\n");
-	dev_err(ipts->dev, "Stopping IPTS\n");
+	dev_err(ipts->dev, "Error while handling response 0x%08x: %d\n",
+			rsp->code, ret);
 
-	ipts->status = IPTS_HOST_STATUS_STOPPED;
+	if (ipts_control_stop(ipts))
+		dev_err(ipts->dev, "Failed to stop IPTS\n");
 }
 
 void ipts_receiver_callback(struct mei_cl_device *cldev)
 {
-	struct ipts_response msg;
-	struct ipts_context *ipts = mei_cldev_get_drvdata(cldev);
+	int ret;
+	struct ipts_response rsp;
+	struct ipts_context *ipts;
 
-	if (mei_cldev_recv(ipts->cldev, (u8 *)&msg, sizeof(msg)) <= 0) {
-		dev_err(ipts->dev, "Error while reading MEI message\n");
+	ipts = mei_cldev_get_drvdata(cldev);
+
+	ret = mei_cldev_recv(cldev, (u8 *)&rsp, sizeof(struct ipts_response));
+	if (ret <= 0) {
+		dev_err(ipts->dev, "Error while reading response: %d\n", ret);
 		return;
 	}
 
-	if (ipts->status == IPTS_HOST_STATUS_STOPPED)
-		return;
-
-	ipts_receiver_handle_response(ipts, &msg);
+	ipts_receiver_handle_response(ipts, &rsp);
 }
+
