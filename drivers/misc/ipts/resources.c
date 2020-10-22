@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2020 Dorian Stoll
+ *
+ * Linux driver for Intel Precise Touch & Stylus
+ */
 
 #include <linux/dma-mapping.h>
 
@@ -7,19 +13,17 @@
 void ipts_resources_free(struct ipts_context *ipts)
 {
 	int i;
-	u32 touch_buffer_size;
-	u32 feedback_buffer_size;
 	struct ipts_buffer_info *buffers;
 
-	touch_buffer_size = ipts->device_info.data_size;
-	feedback_buffer_size = ipts->device_info.feedback_size;
+	u32 data_buffer_size = ipts->device_info.data_size;
+	u32 feedback_buffer_size = ipts->device_info.feedback_size;
 
 	buffers = ipts->data;
 	for (i = 0; i < IPTS_BUFFERS; i++) {
 		if (!buffers[i].address)
 			continue;
 
-		dmam_free_coherent(ipts->dev, touch_buffer_size,
+		dma_free_coherent(ipts->dev, data_buffer_size,
 				buffers[i].address, buffers[i].dma_address);
 
 		buffers[i].address = NULL;
@@ -31,7 +35,7 @@ void ipts_resources_free(struct ipts_context *ipts)
 		if (!buffers[i].address)
 			continue;
 
-		dmam_free_coherent(ipts->dev, feedback_buffer_size,
+		dma_free_coherent(ipts->dev, feedback_buffer_size,
 				buffers[i].address, buffers[i].dma_address);
 
 		buffers[i].address = NULL;
@@ -39,7 +43,7 @@ void ipts_resources_free(struct ipts_context *ipts)
 	}
 
 	if (ipts->doorbell.address) {
-		dmam_free_coherent(ipts->dev, sizeof(u32),
+		dma_free_coherent(ipts->dev, sizeof(u32),
 				ipts->doorbell.address,
 				ipts->doorbell.dma_address);
 
@@ -48,7 +52,7 @@ void ipts_resources_free(struct ipts_context *ipts)
 	}
 
 	if (ipts->workqueue.address) {
-		dmam_free_coherent(ipts->dev, sizeof(u32),
+		dma_free_coherent(ipts->dev, sizeof(u32),
 				ipts->workqueue.address,
 				ipts->workqueue.dma_address);
 
@@ -57,7 +61,7 @@ void ipts_resources_free(struct ipts_context *ipts)
 	}
 
 	if (ipts->host2me.address) {
-		dmam_free_coherent(ipts->dev, touch_buffer_size,
+		dma_free_coherent(ipts->dev, feedback_buffer_size,
 				ipts->host2me.address,
 				ipts->host2me.dma_address);
 
@@ -66,20 +70,18 @@ void ipts_resources_free(struct ipts_context *ipts)
 	}
 }
 
-int ipts_resources_init(struct ipts_context *ipts)
+int ipts_resources_alloc(struct ipts_context *ipts)
 {
 	int i;
-	u32 touch_buffer_size;
-	u32 feedback_buffer_size;
 	struct ipts_buffer_info *buffers;
 
-	touch_buffer_size = ipts->device_info.data_size;
-	feedback_buffer_size = ipts->device_info.feedback_size;
+	u32 data_buffer_size = ipts->device_info.data_size;
+	u32 feedback_buffer_size = ipts->device_info.feedback_size;
 
 	buffers = ipts->data;
 	for (i = 0; i < IPTS_BUFFERS; i++) {
-		buffers[i].address = dmam_alloc_coherent(ipts->dev,
-				touch_buffer_size,
+		buffers[i].address = dma_alloc_coherent(ipts->dev,
+				data_buffer_size,
 				&buffers[i].dma_address,
 				GFP_KERNEL);
 
@@ -89,7 +91,7 @@ int ipts_resources_init(struct ipts_context *ipts)
 
 	buffers = ipts->feedback;
 	for (i = 0; i < IPTS_BUFFERS; i++) {
-		buffers[i].address = dmam_alloc_coherent(ipts->dev,
+		buffers[i].address = dma_alloc_coherent(ipts->dev,
 				feedback_buffer_size,
 				&buffers[i].dma_address,
 				GFP_KERNEL);
@@ -98,7 +100,7 @@ int ipts_resources_init(struct ipts_context *ipts)
 			goto release_resources;
 	}
 
-	ipts->doorbell.address = dmam_alloc_coherent(ipts->dev,
+	ipts->doorbell.address = dma_alloc_coherent(ipts->dev,
 			sizeof(u32),
 			&ipts->doorbell.dma_address,
 			GFP_KERNEL);
@@ -106,7 +108,7 @@ int ipts_resources_init(struct ipts_context *ipts)
 	if (!ipts->doorbell.address)
 		goto release_resources;
 
-	ipts->workqueue.address = dmam_alloc_coherent(ipts->dev,
+	ipts->workqueue.address = dma_alloc_coherent(ipts->dev,
 			sizeof(u32),
 			&ipts->workqueue.dma_address,
 			GFP_KERNEL);
@@ -114,8 +116,8 @@ int ipts_resources_init(struct ipts_context *ipts)
 	if (!ipts->workqueue.address)
 		goto release_resources;
 
-	ipts->host2me.address = dmam_alloc_coherent(ipts->dev,
-			touch_buffer_size,
+	ipts->host2me.address = dma_alloc_coherent(ipts->dev,
+			feedback_buffer_size,
 			&ipts->host2me.dma_address,
 			GFP_KERNEL);
 
@@ -126,8 +128,7 @@ int ipts_resources_init(struct ipts_context *ipts)
 
 release_resources:
 
-	dev_err(ipts->dev, "Failed to allocate buffers\n");
 	ipts_resources_free(ipts);
-
 	return -ENOMEM;
 }
+
