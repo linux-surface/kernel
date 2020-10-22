@@ -5,7 +5,8 @@
 
 obj-$(CONFIG_MISC_IPTS) += ipts.o
 ipts-objs := control.o
-ipts-objs += init.o
+ipts-objs += mei.o
 ipts-objs += receiver.o
 ipts-objs += resources.o
 ipts-objs += uapi.o
+
