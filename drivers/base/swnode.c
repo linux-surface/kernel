@@ -700,14 +700,21 @@ int software_node_register_nodes(const struct software_node *nodes)
 	int i;
 
 	for (i = 0; nodes[i].name; i++) {
+		if (nodes[i].parent)
+			if (!software_node_to_swnode(nodes[i].parent)) {
+				ret = -EINVAL;
+				goto err_unregister_nodes;
+			}
+
 		ret = software_node_register(&nodes[i]);
-		if (ret) {
-			software_node_unregister_nodes(nodes);
-			return ret;
-		}
+		if (ret)
+			goto err_unregister_nodes;
 	}
 
 	return 0;
+err_unregister_nodes:
+	software_node_unregister_nodes(nodes);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(software_node_register_nodes);
 
