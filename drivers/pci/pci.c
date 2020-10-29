@@ -2523,6 +2523,32 @@ static const struct dmi_system_id bridge_d3_blacklist[] = {
 	{ }
 };
 
+static const struct dmi_system_id bridge_d3_hotplug_whitelist[] = {
+#ifdef CONFIG_X86
+	{
+		/*
+		 * Microsoft Surface Books have a hot-plug root port for the
+		 * discrete GPU (the device containing it can be detached form
+		 * the top-part, containing the cpu).
+		 *
+		 * If this discrete GPU is not transitioned into D3cold for
+		 * suspend, the device will become notably warm and also
+		 * consume a lot more power than desirable.
+		 *
+		 * We assume that since those devices have been confirmed
+		 * working with D3, future Surface devices will too. So let's
+		 * keep this match generic.
+		 */
+		.ident = "Microsoft Surface",
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface"),
+		},
+	},
+#endif
+	{ }
+};
+
 /**
  * pci_bridge_d3_possible - Is it possible to put the bridge into D3
  * @bridge: Bridge to check
@@ -2563,10 +2589,11 @@ bool pci_bridge_d3_possible(struct pci_dev *bridge)
 		/*
 		 * Hotplug ports handled natively by the OS were not validated
 		 * by vendors for runtime D3 at least until 2018 because there
-		 * was no OS support.
+		 * was no OS support. Explicitly whitelist systems that have
+		 * been confirmed working.
 		 */
 		if (bridge->is_hotplug_bridge)
-			return false;
+			return dmi_check_system(bridge_d3_hotplug_whitelist);
 
 		if (dmi_check_system(bridge_d3_blacklist))
 			return false;
