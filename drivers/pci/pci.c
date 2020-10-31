@@ -1587,7 +1587,7 @@ static void pci_enable_bridge(struct pci_dev *dev)
 static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
 {
 	struct pci_dev *bridge;
-	int err;
+	int err = 0;
 	int i, bars = 0;
 
 	/*
@@ -1597,9 +1597,35 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
 	 * (e.g. if the device really is in D0 at enable time).
 	 */
 	if (dev->pm_cap) {
+		pci_power_t current_state;
 		u16 pmcsr;
+
 		pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
-		dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
+		current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
+
+		/*
+		 * On some platforms, the initial power state may not be in
+		 * sync with the PCI power state. Specifically, on ACPI based
+		 * platforms, power-resources for the current state may not
+		 * have been properly enabled (or power-resources not required
+		 * for the current state disabled) yet. Thus, ensure that the
+		 * platform power state reflects the PCI state.
+		 *
+		 * Update platform state before actually setting current state
+		 * so that it can still be accessed in platform code, if
+		 * necessary.
+		 */
+		if (platform_pci_power_manageable(dev))
+			err = platform_pci_set_power_state(dev, current_state);
+
+		// always update current state
+		dev->current_state = current_state;
+
+		if (err) {
+			pci_err(dev, "failed to update platform power state: %d\n",
+				err);
+			return err;
+		}
 	}
 
 	if (atomic_inc_return(&dev->enable_cnt) > 1)
