@@ -1017,7 +1017,6 @@ static void spwr_battery_unregister(struct spwr_battery_device *bat)
 	cancel_delayed_work_sync(&bat->update_work);
 	device_remove_file(&bat->psy->dev, &alarm_attr);
 	power_supply_unregister(bat->psy);
-	mutex_destroy(&bat->lock);
 }
 
 

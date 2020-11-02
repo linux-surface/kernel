@@ -680,7 +680,7 @@ static void surface_hid_device_destroy(struct surface_hid_device *shid)
 
 /* -- PM ops. --------------------------------------------------------------- */
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 
 static int surface_hid_suspend(struct device *dev)
 {
@@ -741,11 +741,11 @@ const struct dev_pm_ops surface_hid_pm_ops = {
 	.restore  = surface_hid_restore,
 };
 
-#else /* CONFIG_PM */
+#else /* CONFIG_PM_SLEEP */
 
 const struct dev_pm_ops surface_hid_pm_ops = { };
 
-#endif /* CONFIG_PM */
+#endif /* CONFIG_PM_SLEEP */
 
 
 /* -- Driver setup (HID). --------------------------------------------------- */
