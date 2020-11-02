@@ -187,7 +187,10 @@ struct sdtx_client {
 
 static void __sdtx_device_release(struct kref *kref)
 {
-	kfree(container_of(kref, struct sdtx_device, kref));
+	struct sdtx_device *ddev = container_of(kref, struct sdtx_device, kref);
+
+	mutex_destroy(&ddev->write_lock);
+	kfree(ddev);
 }
 
 static struct sdtx_device *sdtx_device_get(struct sdtx_device *ddev)
@@ -439,6 +442,7 @@ static int surface_dtx_release(struct inode *inode, struct file *file)
 	up_write(&client->ddev->client_lock);
 
 	sdtx_device_put(client->ddev);
+	mutex_destroy(&client->read_lock);
 	kfree(client);
 
 	return 0;
@@ -1056,6 +1060,9 @@ static void sdtx_device_destroy(struct sdtx_device *ddev)
 
 	// stop mode_work, prevent access to mode_switch
 	cancel_delayed_work_sync(&ddev->mode_work);
+
+	// stop state_work
+	cancel_delayed_work_sync(&ddev->state_work);
 
 	// with mode_work canceled, we can unregister the mode_switch
 	input_unregister_device(ddev->mode_switch);
