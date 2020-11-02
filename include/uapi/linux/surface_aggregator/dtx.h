@@ -92,7 +92,7 @@ struct sdtx_event {
 	__u16 length;
 	__u16 code;
 	__u8 data[];
-} __packed;
+} __attribute__((__packed__));
 
 /**
  * enum sdtx_event_code - Code describing the type of an event.
@@ -128,7 +128,7 @@ enum sdtx_event_code {
 struct sdtx_base_info {
 	__u16 state;
 	__u16 base_id;
-} __packed;
+} __attribute__((__packed__));
 
 
 /* IOCTLs */
