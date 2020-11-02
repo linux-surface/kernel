@@ -388,7 +388,7 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf,
 	return 0;
 }
 
-static int ssam_base_hub_resume(struct device *dev)
+static int __maybe_unused ssam_base_hub_resume(struct device *dev)
 {
 	struct ssam_device *sdev = to_ssam_device(dev);
 	enum ssam_base_hub_state state;
@@ -420,6 +420,8 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
 	if (!hub)
 		return -ENOMEM;
+
+	mutex_init(&hub->lock);
 
 	hub->sdev = sdev;
 	hub->devices = desc;
@@ -468,6 +470,8 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
 
 	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
 	ssam_hub_remove_devices(&sdev->dev);
+
+	mutex_destroy(&hub->lock);
 }
 
 static const struct ssam_device_id ssam_base_hub_match[] = {
