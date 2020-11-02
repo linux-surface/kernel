@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Pseudo device and driver to enable wakeup from suspend via the lid by
- * properly configuring the respective GPEs on Microsoft Surface devices.
+ * Surface GPE/Lid driver to enable wakeup from suspend via the lid by
+ * properly configuring the respective GPEs. Required for wakeup via lid on
+ * newer Intel-based Microsoft Surface devices.
+ *
+ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
