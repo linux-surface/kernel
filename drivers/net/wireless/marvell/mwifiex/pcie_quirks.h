@@ -24,6 +24,7 @@
  */
 #define QUIRK_FW_RST_WSID_S3	BIT(1)
 #define QUIRK_NO_BRIDGE_D3	BIT(2)
+#define QUIRK_DO_FLR_ON_BRIDGE	BIT(3)
 
 void mwifiex_initialize_quirks(struct pcie_service_card *card);
 int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
