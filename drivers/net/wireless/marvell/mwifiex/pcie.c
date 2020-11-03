@@ -1702,8 +1702,20 @@ mwifiex_pcie_send_boot_cmd(struct mwifiex_adapter *adapter, struct sk_buff *skb)
 static void mwifiex_pcie_init_fw_port(struct mwifiex_adapter *adapter)
 {
 	struct pcie_service_card *card = adapter->card;
+	struct pci_dev *pdev = card->dev;
+	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
 	const struct mwifiex_pcie_card_reg *reg = card->pcie.reg;
 	int tx_wrap = card->txbd_wrptr & reg->tx_wrap_mask;
+
+	/* Trigger a function level reset of the PCI bridge device, this makes
+	 * the firmware of PCIe 88W8897 cards stop reporting a fixed LTR value
+	 * that prevents the system from entering package C10 and S0ix powersaving
+	 * states.
+	 * We need to do it here because it must happen after firmware
+	 * initialization and this function is called after that is done.
+	 */
+	if (card->quirks & QUIRK_DO_FLR_ON_BRIDGE)
+		pci_reset_function(parent_pdev);
 
 	/* Write the RX ring read pointer in to reg->rx_rdptr */
 	mwifiex_write_reg(adapter, reg->rx_rdptr, card->rxbd_rdptr | tx_wrap);
