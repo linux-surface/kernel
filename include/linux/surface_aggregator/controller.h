@@ -246,7 +246,7 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 	})
 
 /**
- * ssam_retry - Retry request in case of I/O errors or timeouts.
+ * __ssam_retry - Retry request in case of I/O errors or timeouts.
  * @request: The request function to execute. Must return an integer.
  * @n:       Number of tries.
  * @args:    Arguments for the request function.
@@ -258,7 +258,7 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
  *
  * Return: Returns the return value of the last execution of @request.
  */
-#define ssam_retry(request, n, args...)					\
+#define __ssam_retry(request, n, args...)				\
 	({								\
 		int __i, __s = 0;					\
 									\
@@ -270,6 +270,23 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 		__s;							\
 	})
 
+/**
+ * ssam_retry - Retry request in case of I/O errors or timeouts up to three
+ * times in total.
+ * @request: The request function to execute. Must return an integer.
+ * @args:    Arguments for the request function.
+ *
+ * Executes the given request function, i.e. calls @request. In case the
+ * request returns %-EREMOTEIO (indicates I/O error) or -%ETIMEDOUT (request
+ * or underlying packet timed out), @request will be re-executed again, up to
+ * three times in total.
+ *
+ * See __ssam_retry() for a more generic macro for this purpose.
+ *
+ * Return: Returns the return value of the last execution of @request.
+ */
+#define ssam_retry(request, args...) \
+	__ssam_retry(request, 3, args)
 
 /**
  * struct ssam_request_spec - Blue-print specification of SAM request.

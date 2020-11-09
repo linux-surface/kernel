@@ -22,9 +22,6 @@
 #include <linux/surface_aggregator/controller.h>
 #include <linux/surface_aggregator/device.h>
 
-#define SHID_RETRY			3
-#define shid_retry(fn, args...)		ssam_retry(fn, SHID_RETRY, args)
-
 
 enum surface_hid_descriptor_entry {
 	SURFACE_HID_DESC_HID    = 0,
@@ -146,7 +143,7 @@ static int ssam_hid_get_descriptor(struct surface_hid_device *shid, u8 entry,
 
 		rsp.length = 0;
 
-		status = shid_retry(ssam_request_sync_onstack, shid->ctrl,
+		status = ssam_retry(ssam_request_sync_onstack, shid->ctrl,
 				    &rqst, &rsp, sizeof(*slice));
 		if (status)
 			return status;
@@ -198,7 +195,7 @@ static int ssam_hid_set_raw_report(struct surface_hid_device *shid,
 
 	buf[0] = report_id;
 
-	return shid_retry(ssam_request_sync, shid->ctrl, &rqst, NULL);
+	return ssam_retry(ssam_request_sync, shid->ctrl, &rqst, NULL);
 }
 
 static int ssam_hid_get_raw_report(struct surface_hid_device *shid,
@@ -219,7 +216,7 @@ static int ssam_hid_get_raw_report(struct surface_hid_device *shid,
 	rsp.length = 0;
 	rsp.pointer = buf;
 
-	return shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
+	return ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
 			  sizeof(report_id));
 }
 
@@ -304,7 +301,7 @@ static int ssam_kbd_get_descriptor(struct surface_hid_device *shid, u8 entry,
 	rsp.length = 0;
 	rsp.pointer = buf;
 
-	status = shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
+	status = ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
 			    sizeof(entry));
 	if (status)
 		return status;
@@ -331,7 +328,7 @@ static int ssam_kbd_set_caps_led(struct surface_hid_device *shid, bool value)
 	rqst.length = sizeof(value_u8);
 	rqst.payload = &value_u8;
 
-	return shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, NULL,
+	return ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, NULL,
 			  sizeof(value_u8));
 }
 
@@ -355,7 +352,7 @@ static int ssam_kbd_get_feature_report(struct surface_hid_device *shid, u8 *buf,
 	rsp.length = 0;
 	rsp.pointer = buf;
 
-	status = shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
+	status = ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
 			    sizeof(payload));
 	if (status)
 		return status;

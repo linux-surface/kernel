@@ -286,7 +286,7 @@ static int sdtx_ioctl_get_base_info(struct sdtx_device *ddev,
 	struct sdtx_base_info info;
 	int status;
 
-	status = ssam_bas_get_base(ddev->ctrl, &raw);
+	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &raw);
 	if (status < 0)
 		return status;
 
@@ -304,7 +304,7 @@ static int sdtx_ioctl_get_device_mode(struct sdtx_device *ddev, u16 __user *buf)
 	u8 mode;
 	int status;
 
-	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
+	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 	if (status < 0)
 		return status;
 
@@ -316,7 +316,7 @@ static int sdtx_ioctl_get_latch_status(struct sdtx_device *ddev, u16 __user *buf
 	u8 latch;
 	int status;
 
-	status = ssam_bas_get_latch_status(ddev->ctrl, &latch);
+	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl, &latch);
 	if (status < 0)
 		return status;
 
@@ -338,22 +338,22 @@ static long __surface_dtx_ioctl(struct sdtx_client *client, unsigned int cmd,
 		return 0;
 
 	case SDTX_IOCTL_LATCH_LOCK:
-		return ssam_bas_latch_lock(ddev->ctrl);
+		return ssam_retry(ssam_bas_latch_lock, ddev->ctrl);
 
 	case SDTX_IOCTL_LATCH_UNLOCK:
-		return ssam_bas_latch_unlock(ddev->ctrl);
+		return ssam_retry(ssam_bas_latch_unlock, ddev->ctrl);
 
 	case SDTX_IOCTL_LATCH_REQUEST:
-		return ssam_bas_latch_request(ddev->ctrl);
+		return ssam_retry(ssam_bas_latch_request, ddev->ctrl);
 
 	case SDTX_IOCTL_LATCH_CONFIRM:
-		return ssam_bas_latch_confirm(ddev->ctrl);
+		return ssam_retry(ssam_bas_latch_confirm, ddev->ctrl);
 
 	case SDTX_IOCTL_LATCH_HEARTBEAT:
-		return ssam_bas_latch_heartbeat(ddev->ctrl);
+		return ssam_retry(ssam_bas_latch_heartbeat, ddev->ctrl);
 
 	case SDTX_IOCTL_LATCH_CANCEL:
-		return ssam_bas_latch_cancel(ddev->ctrl);
+		return ssam_retry(ssam_bas_latch_cancel, ddev->ctrl);
 
 	case SDTX_IOCTL_GET_BASE_INFO:
 		return sdtx_ioctl_get_base_info(ddev,
@@ -734,14 +734,14 @@ static void sdtx_device_mode_workfn(struct work_struct *work)
 	ddev = container_of(work, struct sdtx_device, mode_work.work);
 
 	// get operation mode
-	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
+	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 	if (status) {
 		dev_err(ddev->dev, "failed to get device mode: %d\n", status);
 		return;
 	}
 
 	// get base info
-	status = ssam_bas_get_base(ddev->ctrl, &base);
+	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &base);
 	if (status) {
 		dev_err(ddev->dev, "failed to get base info: %d\n", status);
 		return;
@@ -885,19 +885,19 @@ static void sdtx_device_state_workfn(struct work_struct *work)
 	 */
 	smp_mb__after_atomic();
 
-	status = ssam_bas_get_base(ddev->ctrl, &base);
+	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &base);
 	if (status) {
 		dev_err(ddev->dev, "failed to get base state: %d\n", status);
 		return;
 	}
 
-	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
+	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 	if (status) {
 		dev_err(ddev->dev, "failed to get device mode: %d\n", status);
 		return;
 	}
 
-	status = ssam_bas_get_latch_status(ddev->ctrl, &latch);
+	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl, &latch);
 	if (status) {
 		dev_err(ddev->dev, "failed to get latch status: %d\n", status);
 		return;
@@ -975,15 +975,17 @@ static int sdtx_device_init(struct sdtx_device *ddev, struct device *dev,
 	 * Note that we also need to do this before registring the event
 	 * notifier, as that may access the state values.
 	 */
-	status = ssam_bas_get_base(ddev->ctrl, &ddev->state.base);
+	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &ddev->state.base);
 	if (status)
 		return status;
 
-	status = ssam_bas_get_device_mode(ddev->ctrl, &ddev->state.device_mode);
+	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl,
+			    &ddev->state.device_mode);
 	if (status)
 		return status;
 
-	status = ssam_bas_get_latch_status(ddev->ctrl, &ddev->state.latch_status);
+	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl,
+			    &ddev->state.latch_status);
 	if (status)
 		return status;
 

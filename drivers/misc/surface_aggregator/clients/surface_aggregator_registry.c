@@ -317,7 +317,7 @@ static int ssam_base_hub_query_state(struct ssam_device *sdev,
 	u8 opmode;
 	int status;
 
-	status = ssam_bas_query_opmode(sdev->ctrl, &opmode);
+	status = ssam_retry(ssam_bas_query_opmode, sdev->ctrl, &opmode);
 	if (status < 0) {
 		dev_err(&sdev->dev, "failed to query base state: %d\n", status);
 		return status;
