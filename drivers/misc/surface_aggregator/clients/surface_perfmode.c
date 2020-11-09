@@ -50,7 +50,7 @@ static int ssam_tmp_perf_mode_set(struct ssam_device *sdev, u32 mode)
 	if (mode < __SAM_PERF_MODE__MIN || mode > __SAM_PERF_MODE__MAX)
 		return -EINVAL;
 
-	return __ssam_tmp_perf_mode_set(sdev, &mode_le);
+	return ssam_retry(__ssam_tmp_perf_mode_set, sdev, &mode_le);
 }
 
 static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr,
@@ -60,7 +60,7 @@ static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr,
 	struct ssam_perf_info info;
 	int status;
 
-	status = ssam_tmp_perf_mode_get(sdev, &info);
+	status = ssam_retry(ssam_tmp_perf_mode_get, sdev, &info);
 	if (status) {
 		dev_err(dev, "failed to get current performance mode: %d\n",
 			status);

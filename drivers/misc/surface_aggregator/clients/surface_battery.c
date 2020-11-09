@@ -19,9 +19,6 @@
 
 #include <linux/surface_aggregator/device.h>
 
-#define SPWR_RETRY			3
-#define spwr_retry(fn, args...)		ssam_retry(fn, SPWR_RETRY, args)
-
 #define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
 
 
@@ -250,7 +247,7 @@ static bool spwr_battery_present(struct spwr_battery_device *bat)
 
 static int spwr_battery_load_sta(struct spwr_battery_device *bat)
 {
-	return spwr_retry(ssam_bat_get_sta, bat->sdev, &bat->sta);
+	return ssam_retry(ssam_bat_get_sta, bat->sdev, &bat->sta);
 }
 
 static int spwr_battery_load_bix(struct spwr_battery_device *bat)
@@ -260,7 +257,7 @@ static int spwr_battery_load_bix(struct spwr_battery_device *bat)
 	if (!spwr_battery_present(bat))
 		return 0;
 
-	status = spwr_retry(ssam_bat_get_bix, bat->sdev, &bat->bix);
+	status = ssam_retry(ssam_bat_get_bix, bat->sdev, &bat->bix);
 
 	// enforce NULL terminated strings in case anything goes wrong...
 	bat->bix.model[ARRAY_SIZE(bat->bix.model) - 1] = 0;
@@ -276,7 +273,7 @@ static int spwr_battery_load_bst(struct spwr_battery_device *bat)
 	if (!spwr_battery_present(bat))
 		return 0;
 
-	return spwr_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
+	return ssam_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
 }
 
 static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat,
@@ -285,7 +282,7 @@ static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat,
 	__le32 value_le = cpu_to_le32(value);
 
 	bat->alarm = value;
-	return spwr_retry(ssam_bat_set_btp, bat->sdev, &value_le);
+	return ssam_retry(ssam_bat_set_btp, bat->sdev, &value_le);
 }
 
 static int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
@@ -362,7 +359,7 @@ static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 	int status;
 	u32 old = ac->state;
 
-	status = spwr_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
+	status = ssam_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
 	if (status < 0)
 		return status;
 
@@ -890,7 +887,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
 	int status;
 
 	// make sure the device is there and functioning properly
-	status = spwr_retry(ssam_bat_get_sta, ac->sdev, &sta);
+	status = ssam_retry(ssam_bat_get_sta, ac->sdev, &sta);
 	if (status)
 		return status;
 
@@ -953,7 +950,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	int status;
 
 	// make sure the device is there and functioning properly
-	status = spwr_retry(ssam_bat_get_sta, bat->sdev, &sta);
+	status = ssam_retry(ssam_bat_get_sta, bat->sdev, &sta);
 	if (status)
 		return status;
 

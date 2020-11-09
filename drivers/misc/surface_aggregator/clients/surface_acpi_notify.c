@@ -586,8 +586,8 @@ static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
 		return san_rqst_fixup_suspended(d, &rqst, buffer);
 	}
 
-	status = ssam_retry(ssam_request_sync_onstack, SAN_REQUEST_NUM_TRIES,
-			    d->ctrl, &rqst, &rsp, SAN_GSB_MAX_RQSX_PAYLOAD);
+	status = __ssam_retry(ssam_request_sync_onstack, SAN_REQUEST_NUM_TRIES,
+			      d->ctrl, &rqst, &rsp, SAN_GSB_MAX_RQSX_PAYLOAD);
 
 	if (!status) {
 		gsb_rqsx_response_success(buffer, rsp.pointer, rsp.length);

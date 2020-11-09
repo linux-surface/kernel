@@ -1817,7 +1817,8 @@ static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
 	result.length = 0;
 	result.pointer = buf;
 
-	status = ssam_request_sync_onstack(ctrl, &rqst, &result, sizeof(params));
+	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
+			    sizeof(params));
 	if (status) {
 		ssam_err(ctrl, "failed to enable event source (tc: 0x%02x, "
 			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
@@ -1885,7 +1886,8 @@ static int ssam_ssh_event_disable(struct ssam_controller *ctrl,
 	result.length = 0;
 	result.pointer = buf;
 
-	status = ssam_request_sync_onstack(ctrl, &rqst, &result, sizeof(params));
+	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
+			    sizeof(params));
 	if (status) {
 		ssam_err(ctrl, "failed to disable event source (tc: 0x%02x, "
 			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
@@ -1919,7 +1921,7 @@ int ssam_get_firmware_version(struct ssam_controller *ctrl, u32 *version)
 	__le32 __version;
 	int status;
 
-	status = ssam_ssh_get_firmware_version(ctrl, &__version);
+	status = ssam_retry(ssam_ssh_get_firmware_version, ctrl, &__version);
 	if (status)
 		return status;
 
@@ -1961,7 +1963,7 @@ int ssam_ctrl_notif_display_off(struct ssam_controller *ctrl)
 
 	ssam_dbg(ctrl, "pm: notifying display off\n");
 
-	status = ssam_ssh_notif_display_off(ctrl, &response);
+	status = ssam_retry(ssam_ssh_notif_display_off, ctrl, &response);
 	if (status)
 		return status;
 
@@ -2000,7 +2002,7 @@ int ssam_ctrl_notif_display_on(struct ssam_controller *ctrl)
 
 	ssam_dbg(ctrl, "pm: notifying display on\n");
 
-	status = ssam_ssh_notif_display_on(ctrl, &response);
+	status = ssam_retry(ssam_ssh_notif_display_on, ctrl, &response);
 	if (status)
 		return status;
 
@@ -2042,7 +2044,7 @@ int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl)
 
 	ssam_dbg(ctrl, "pm: notifying D0 exit\n");
 
-	status = ssam_ssh_notif_d0_exit(ctrl, &response);
+	status = ssam_retry(ssam_ssh_notif_d0_exit, ctrl, &response);
 	if (status)
 		return status;
 
@@ -2084,7 +2086,7 @@ int ssam_ctrl_notif_d0_entry(struct ssam_controller *ctrl)
 
 	ssam_dbg(ctrl, "pm: notifying D0 entry\n");
 
-	status = ssam_ssh_notif_d0_entry(ctrl, &response);
+	status = ssam_retry(ssam_ssh_notif_d0_entry, ctrl, &response);
 	if (status)
 		return status;
 
