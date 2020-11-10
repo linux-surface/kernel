@@ -238,6 +238,12 @@ static int mwifiex_write_reg(struct mwifiex_adapter *adapter, int reg, u32 data)
 
 	iowrite32(data, card->pci_mmap1 + reg);
 
+	/* Do a read-back, which makes the write non-posted, ensuring the
+	 * completion before returning.
+	 * The firmware of the 88W8897 card is buggy and this avoids crashes.
+	 */
+	ioread32(card->pci_mmap1 + reg);
+
 	return 0;
 }
 
