@@ -1455,7 +1455,7 @@ static void mwifiex_uninit_sw(struct mwifiex_adapter *adapter)
 }
 
 /*
- * This function can be used for shutting down the adapter SW.
+ * This function gets called during PCIe function level reset.
  */
 int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
 {
@@ -1483,7 +1483,7 @@ int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
 }
 EXPORT_SYMBOL_GPL(mwifiex_shutdown_sw);
 
-/* This function can be used for reinitting the adapter SW. Required
+/* This function gets called during PCIe function level reset. Required
  * code is extracted from mwifiex_add_card()
  */
 int
