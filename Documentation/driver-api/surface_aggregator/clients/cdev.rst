@@ -10,7 +10,7 @@ User-Space EC Interface (cdev)
 ==============================
 
 The ``surface_aggregator_cdev`` module provides a misc-device for the SSAM
-controller to allow for a (more or less) direct connection from userspace to
+controller to allow for a (more or less) direct connection from user-space to
 the SAM EC. It is intended to be used for development and debugging, and
 therefore should not be used or relied upon in any other way. Note that this
 module is not loaded automatically, but instead must be loaded manually.
