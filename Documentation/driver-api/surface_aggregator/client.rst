@@ -57,7 +57,7 @@ client device and controller (this can also be done separate via
 |ssam_client_link|). It is important to do this, as it, first, guarantees
 that the returned controller is valid for use in the client driver for as
 long as this driver is bound to its device, i.e. that the driver gets
-un-bound before the controller ever becomes invalid, and, second, as it
+unbound before the controller ever becomes invalid, and, second, as it
 ensures correct suspend/resume ordering. This setup should be done in the
 driver's probe function, and may be used to defer probing in case the SSAM
 subsystem is not ready yet, for example:
@@ -82,7 +82,7 @@ The controller may be separately obtained via |ssam_get_controller| and its
 lifetime be guaranteed via |ssam_controller_get| and |ssam_controller_put|.
 Note that none of these functions, however, guarantee that the controller
 will not be shut down or suspended. These functions essentially only operate
-on the reference, i.e. only guarantee a bare minimum of accessability
+on the reference, i.e. only guarantee a bare minimum of accessibility
 without any guarantees at all on practical operability.
 
 
@@ -218,7 +218,7 @@ data received from it is converted from little-endian to host endianness.
             *   ssam_request_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
             *
             * to perform the request, allocating the message buffer directly
-            * on the stack as opposed to via kzalloc(.
+            * on the stack as opposed to via kzalloc().
             */
 
            /*
@@ -266,12 +266,12 @@ The full list of such function-generating macros is
 
 - :c:func:`SSAM_DEFINE_SYNC_REQUEST_N` for requests without return value and
   without argument.
-- :c:func:`SSAM_DEFINE_SYNC_REQUEST_R` for equests with return value but no
+- :c:func:`SSAM_DEFINE_SYNC_REQUEST_R` for requests with return value but no
   argument.
 - :c:func:`SSAM_DEFINE_SYNC_REQUEST_W` for requests without return value but
   with argument.
 
-Refer to their respecitve documentation for more details. For each one of
+Refer to their respective documentation for more details. For each one of
 these macros, a special variant is provided, which targets request types
 applicable to multiple instances of the same device type:
 

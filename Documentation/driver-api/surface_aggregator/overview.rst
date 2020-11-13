@@ -65,7 +65,7 @@ Surface Serial Hub
 
 As already elaborated above, the Surface Serial Hub (SSH) is the
 communication interface for SAM on 5th- and all later-generation Surface
-devices. On the highest level, communication can be sparated into two main
+devices. On the highest level, communication can be separated into two main
 types: Requests, messages sent from host to EC that may trigger a direct
 response from the EC (explicitly associated with the request), and events
 (sometimes also referred to as notifications), sent from EC to host without
