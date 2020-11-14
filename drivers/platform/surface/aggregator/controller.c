@@ -31,6 +31,8 @@
 #include "ssh_msgb.h"
 #include "ssh_request_layer.h"
 
+#include "trace.h"
+
 
 /* -- Safe counters. -------------------------------------------------------- */
 
@@ -569,6 +571,7 @@ static void __ssam_event_item_free_generic(struct ssam_event_item *item)
  */
 static void ssam_event_item_free(struct ssam_event_item *item)
 {
+	trace_ssam_event_item_free(item);
 	item->ops.free(item);
 }
 
@@ -604,6 +607,8 @@ static struct ssam_event_item *ssam_event_item_alloc(size_t len, gfp_t flags)
 	}
 
 	item->event.length = len;
+
+	trace_ssam_event_item_alloc(item, len);
 	return item;
 }
 

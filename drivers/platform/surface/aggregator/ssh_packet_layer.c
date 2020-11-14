@@ -25,6 +25,8 @@
 #include "ssh_packet_layer.h"
 #include "ssh_parser.h"
 
+#include "trace.h"
+
 /*
  * To simplify reasoning about the code below, we define a few concepts. The
  * system below is similar to a state-machine for packets, however, there are
@@ -227,6 +229,8 @@ static void __ssh_ptl_packet_release(struct kref *kref)
 {
 	struct ssh_packet *p = container_of(kref, struct ssh_packet, refcnt);
 
+	trace_ssam_packet_release(p);
+
 	ptl_dbg_cond(p->ptl, "ptl: releasing packet %p\n", p);
 	p->ops->release(p);
 }
@@ -355,6 +359,7 @@ static int ssh_ctrl_packet_alloc(struct ssh_packet **packet,
 	buffer->ptr = (u8 *)(*packet + 1);
 	buffer->len = SSH_MSG_LEN_CTRL;
 
+	trace_ssam_ctrl_packet_alloc(*packet, buffer->len);
 	return 0;
 }
 
@@ -364,6 +369,7 @@ static int ssh_ctrl_packet_alloc(struct ssh_packet **packet,
  */
 static void ssh_ctrl_packet_free(struct ssh_packet *p)
 {
+	trace_ssam_ctrl_packet_free(p);
 	kmem_cache_free(ssh_ctrl_packet_cache, p);
 }
 
@@ -395,7 +401,12 @@ static void ssh_packet_next_try(struct ssh_packet *p)
 	u8 base = ssh_packet_priority_get_base(p->priority);
 	u8 try = ssh_packet_priority_get_try(p->priority);
 
-	p->priority = __SSH_PACKET_PRIORITY(base, try + 1);
+	/*
+	 * Ensure that we write the priority in one go via WRITE_ONCE() so we
+	 * can access it via READ_ONCE() for tracing. Note that other access
+	 * is guarded by the queue lock, so no need to use READ_ONCE() there.
+	 */
+	WRITE_ONCE(p->priority, __SSH_PACKET_PRIORITY(base, try + 1));
 }
 
 /* Must be called with queue lock held. */
@@ -553,6 +564,7 @@ static void __ssh_ptl_complete(struct ssh_packet *p, int status)
 {
 	struct ssh_ptl *ptl = READ_ONCE(p->ptl);
 
+	trace_ssam_packet_complete(p, status);
 	ptl_dbg_cond(ptl, "ptl: completing packet %p (status: %d)\n", p, status);
 
 	if (p->ops->complete)
@@ -1007,6 +1019,8 @@ int ssh_ptl_submit(struct ssh_ptl *ptl, struct ssh_packet *p)
 	struct ssh_ptl *ptl_old;
 	int status;
 
+	trace_ssam_packet_submit(p);
+
 	/* Validate packet fields. */
 	if (test_bit(SSH_PACKET_TY_FLUSH_BIT, &p->state)) {
 		if (p->data.ptr || test_bit(SSH_PACKET_TY_SEQUENCED_BIT, &p->state))
@@ -1055,6 +1069,8 @@ static int __ssh_ptl_resubmit(struct ssh_packet *packet)
 {
 	int status;
 	u8 try;
+
+	trace_ssam_packet_resubmit(packet);
 
 	spin_lock(&packet->ptl->queue.lock);
 
@@ -1139,6 +1155,8 @@ void ssh_ptl_cancel(struct ssh_packet *p)
 	if (test_and_set_bit(SSH_PACKET_SF_CANCELED_BIT, &p->state))
 		return;
 
+	trace_ssam_packet_cancel(p);
+
 	/*
 	 * Lock packet and commit with memory barrier. If this packet has
 	 * already been locked, it's going to be removed and completed by
@@ -1191,6 +1209,8 @@ static void ssh_ptl_timeout_reap(struct work_struct *work)
 	bool resub = false;
 	int status;
 
+	trace_ssam_ptl_timeout_reap(atomic_read(&ptl->pending.count));
+
 	/*
 	 * Mark reaper as "not pending". This is done before checking any
 	 * packets to avoid lost-update type problems.
@@ -1212,6 +1232,8 @@ static void ssh_ptl_timeout_reap(struct work_struct *work)
 			next = ktime_before(expires, next) ? expires : next;
 			continue;
 		}
+
+		trace_ssam_packet_timeout(p);
 
 		status = __ssh_ptl_resubmit(p);
 
@@ -1404,6 +1426,8 @@ static size_t ssh_ptl_rx_eval(struct ssh_ptl *ptl, struct ssam_span *source)
 		return aligned.ptr - source->ptr + sizeof(u16);
 	if (!frame)	/* Not enough data. */
 		return aligned.ptr - source->ptr;
+
+	trace_ssam_rx_frame_received(frame);
 
 	switch (frame->type) {
 	case SSH_FRAME_TYPE_ACK:
