@@ -111,7 +111,7 @@ static int acpi_gpiochip_find(struct gpio_chip *gc, void *data)
  * controller does not have GPIO chip registered at the moment. This is to
  * support probe deferral.
  */
-static struct gpio_desc *acpi_get_gpiod(char *path, int pin)
+struct gpio_desc *acpi_get_gpiod(char *path, int pin)
 {
 	struct gpio_chip *chip;
 	acpi_handle handle;
@@ -127,6 +127,7 @@ static struct gpio_desc *acpi_get_gpiod(char *path, int pin)
 
 	return gpiochip_get_desc(chip, pin);
 }
+EXPORT_SYMBOL_GPL(acpi_get_gpiod);
 
 static irqreturn_t acpi_gpio_irq_handler(int irq, void *data)
 {
