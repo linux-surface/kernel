@@ -1080,6 +1080,7 @@ void __acpi_handle_debug(struct _ddebug *descriptor, acpi_handle handle, const c
 bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
 				struct acpi_resource_gpio **agpio);
 int acpi_dev_gpio_irq_get_by(struct acpi_device *adev, const char *name, int index);
+struct gpio_desc *acpi_get_gpiod(char *path, int pin);
 #else
 static inline bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
 					      struct acpi_resource_gpio **agpio)
@@ -1090,6 +1091,10 @@ static inline int acpi_dev_gpio_irq_get_by(struct acpi_device *adev,
 					   const char *name, int index)
 {
 	return -ENXIO;
+}
+struct gpio_desc *acpi_get_gpiod(char *path, int pin)
+{
+	return NULL;
 }
 #endif
 
