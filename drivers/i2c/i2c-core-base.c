@@ -814,7 +814,7 @@ static void i2c_dev_set_name(struct i2c_adapter *adap,
 	}
 
 	if (adev) {
-		dev_set_name(&client->dev, "i2c-%s", acpi_dev_name(adev));
+		dev_set_name(&client->dev, i2c_acpi_dev_name(adev));
 		return;
 	}
 
