@@ -811,12 +811,12 @@ static void i2c_dev_set_name(struct i2c_adapter *adap,
 	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
 
 	if (info && info->dev_name) {
-		dev_set_name(&client->dev, "i2c-%s", info->dev_name);
+		dev_set_name(&client->dev, I2C_DEV_NAME_FORMAT, info->dev_name);
 		return;
 	}
 
 	if (adev) {
-		dev_set_name(&client->dev, "i2c-%s", acpi_dev_name(adev));
+		dev_set_name(&client->dev, I2C_DEV_NAME_FORMAT, acpi_dev_name(adev));
 		return;
 	}
 
