@@ -309,7 +309,8 @@ static ssize_t ssam_base_hub_state_show(struct device *dev,
 	connected = hub->state == SSAM_BASE_HUB_CONNECTED;
 	mutex_unlock(&hub->lock);
 
-	return snprintf(buf, PAGE_SIZE - 1, "%d\n", connected);
+	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
+	return scnprintf(buf, PAGE_SIZE, "%d\n", connected);
 }
 
 static struct device_attribute ssam_base_hub_attr_state =
@@ -529,7 +530,6 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
 {
 	const struct ssam_hub_desc *desc;
 	struct ssam_controller *ctrl;
-	int status;
 
 	desc = acpi_device_get_match_data(&pdev->dev);
 	if (!desc)
@@ -542,9 +542,9 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
 	 * controller is removed. This also guarantees proper ordering for
 	 * suspend/resume of the devices on this hub.
 	 */
-	status = ssam_client_bind(&pdev->dev, &ctrl);
-	if (status)
-		return status == -ENXIO ? -EPROBE_DEFER : status;
+	ctrl = ssam_client_bind(&pdev->dev);
+	if (IS_ERR(ctrl))
+		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 
 	return ssam_hub_add_devices(&pdev->dev, ctrl, desc);
 }

@@ -1149,12 +1149,11 @@ static int surface_dtx_platform_probe(struct platform_device *pdev)
 {
 	struct ssam_controller *ctrl;
 	struct sdtx_device *ddev;
-	int status;
 
 	// link to EC
-	status = ssam_client_bind(&pdev->dev, &ctrl);
-	if (status)
-		return status == -ENXIO ? -EPROBE_DEFER : status;
+	ctrl = ssam_client_bind(&pdev->dev);
+	if (IS_ERR(ctrl))
+		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 
 	ddev = sdtx_device_setup(&pdev->dev, ctrl);
 	if (IS_ERR(ddev))

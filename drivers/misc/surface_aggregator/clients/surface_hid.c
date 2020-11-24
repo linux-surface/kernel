@@ -830,12 +830,11 @@ static int surface_kbd_probe(struct platform_device *pdev)
 {
 	struct ssam_controller *ctrl;
 	struct surface_hid_device *shid;
-	int status;
 
 	// add device link to EC
-	status = ssam_client_bind(&pdev->dev, &ctrl);
-	if (status)
-		return status == -ENXIO ? -EPROBE_DEFER : status;
+	ctrl = ssam_client_bind(&pdev->dev);
+	if (IS_ERR(ctrl))
+		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 
 	shid = devm_kzalloc(&pdev->dev, sizeof(*shid), GFP_KERNEL);
 	if (!shid)

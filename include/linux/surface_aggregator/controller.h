@@ -107,8 +107,8 @@ struct ssam_controller;
 
 
 struct ssam_controller *ssam_get_controller(void);
+struct ssam_controller *ssam_client_bind(struct device *client);
 int ssam_client_link(struct ssam_controller *ctrl, struct device *client);
-int ssam_client_bind(struct device *client, struct ssam_controller **ctrl);
 
 struct device *ssam_controller_device(struct ssam_controller *c);
 
@@ -172,9 +172,9 @@ static inline void ssam_request_sync_set_data(struct ssam_request_sync *rqst,
  * @rqst: The request.
  * @resp: The response buffer.
  *
- * Sets the response buffer ot a synchronous request. This buffer will store
- * the response of the request after it has been completed. May be %NULL if
- * no response is expected.
+ * Sets the response buffer of a synchronous request. This buffer will store
+ * the response of the request after it has been completed. May be %NULL if no
+ * response is expected.
  */
 static inline void ssam_request_sync_set_resp(struct ssam_request_sync *rqst,
 					      struct ssam_response *resp)
@@ -226,10 +226,10 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
  * @payload_len: The (maximum) request payload length.
  *
  * Allocates a synchronous request with specified payload length on the stack,
- * fully intializes it via the provided request specification, submits it, and
- * finally waits for its completion before returning its status. This helper
- * macro essentially allocates the request message buffer on the stack and
- * then calls ssam_request_sync_with_buffer().
+ * fully initializes it via the provided request specification, submits it,
+ * and finally waits for its completion before returning its status. This
+ * helper macro essentially allocates the request message buffer on the stack
+ * and then calls ssam_request_sync_with_buffer().
  *
  * Note: The @payload_len parameter specifies the maximum payload length, used
  * for buffer allocation. The actual payload length may be smaller.
@@ -252,7 +252,7 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
  * @args:    Arguments for the request function.
  *
  * Executes the given request function, i.e. calls @request. In case the
- * request returns %-EREMOTEIO (indicates I/O error) or -%ETIMEDOUT (request
+ * request returns %-EREMOTEIO (indicates I/O error) or %-ETIMEDOUT (request
  * or underlying packet timed out), @request will be re-executed again, up to
  * @n times in total.
  *

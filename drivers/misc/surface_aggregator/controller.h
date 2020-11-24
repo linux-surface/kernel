@@ -64,7 +64,7 @@ struct ssam_nf_head {
  *            registration and deregistration.
  * @refcount: The root of the RB-tree used for reference-counting enabled
  *            events/notifications.
- * @head:     The list of notifier heads for event/notifiaction callbacks.
+ * @head:     The list of notifier heads for event/notification callbacks.
  */
 struct ssam_nf {
 	struct mutex lock;
@@ -253,7 +253,7 @@ int ssam_controller_receive_buf(struct ssam_controller *ctrl,
  */
 static inline void ssam_controller_write_wakeup(struct ssam_controller *ctrl)
 {
-	ssh_ptl_tx_wakeup(&ctrl->rtl.ptl);
+	ssh_ptl_tx_wakeup_transfer(&ctrl->rtl.ptl);
 }
 
 

@@ -110,6 +110,8 @@ static inline void ssam_trace_ptr_uid(const void *ptr, char *uid_str)
 {
 	char buf[2 * sizeof(void *) + 1];
 
+	BUILD_BUG_ON(ARRAY_SIZE(buf) < SSAM_PTR_UID_LEN);
+
 	snprintf(buf, ARRAY_SIZE(buf), "%p", ptr);
 	memcpy(uid_str, &buf[ARRAY_SIZE(buf) - SSAM_PTR_UID_LEN],
 	       SSAM_PTR_UID_LEN);
@@ -165,8 +167,8 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 #endif /* _SURFACE_AGGREGATOR_TRACE_HELPERS */
 
 #define ssam_trace_get_command_field_u8(packet, field) \
-	((!packet || packet->data.len < SSH_COMMAND_MESSAGE_LENGTH(0)) \
-	 ? 0 : p->data.ptr[SSH_MSGOFFSET_COMMAND(field)])
+	((!(packet) || (packet)->data.len < SSH_COMMAND_MESSAGE_LENGTH(0)) \
+	 ? 0 : (packet)->data.ptr[SSH_MSGOFFSET_COMMAND(field)])
 
 #define ssam_show_generic_u8_field(value)				\
 	__print_symbolic(value,						\
@@ -555,28 +557,49 @@ DECLARE_EVENT_CLASS(ssam_free_class,
 	)
 
 
-DECLARE_EVENT_CLASS(ssam_generic_uint_class,
-	TP_PROTO(const char *property, unsigned int value),
+DECLARE_EVENT_CLASS(ssam_pending_class,
+	TP_PROTO(unsigned int pending),
 
-	TP_ARGS(property, value),
+	TP_ARGS(pending),
 
 	TP_STRUCT__entry(
-		__field(unsigned int, value)
-		__string(property, property)
+		__field(unsigned int, pending)
 	),
 
 	TP_fast_assign(
-		__entry->value = value;
-		__assign_str(property, property);
+		__entry->pending = pending;
 	),
 
-	TP_printk("%s=%u", __get_str(property), __entry->value)
+	TP_printk("pending=%u", __entry->pending)
 );
 
-#define DEFINE_SSAM_GENERIC_UINT_EVENT(name)				\
-	DEFINE_EVENT(ssam_generic_uint_class, ssam_##name,		\
-		TP_PROTO(const char *property, unsigned int value),	\
-		TP_ARGS(property, value)				\
+#define DEFINE_SSAM_PENDING_EVENT(name)					\
+	DEFINE_EVENT(ssam_pending_class, ssam_##name,			\
+		TP_PROTO(unsigned int pending),				\
+		TP_ARGS(pending)					\
+	)
+
+
+DECLARE_EVENT_CLASS(ssam_data_class,
+	TP_PROTO(size_t length),
+
+	TP_ARGS(length),
+
+	TP_STRUCT__entry(
+		__field(size_t, length)
+	),
+
+	TP_fast_assign(
+		__entry->length = length;
+	),
+
+	TP_printk("length=%zu", __entry->length)
+);
+
+#define DEFINE_SSAM_DATA_EVENT(name)					\
+	DEFINE_EVENT(ssam_data_class, ssam_##name,			\
+		TP_PROTO(size_t length),				\
+		TP_ARGS(length)						\
 	)
 
 
@@ -590,20 +613,20 @@ DEFINE_SSAM_PACKET_EVENT(packet_resubmit);
 DEFINE_SSAM_PACKET_EVENT(packet_timeout);
 DEFINE_SSAM_PACKET_EVENT(packet_cancel);
 DEFINE_SSAM_PACKET_STATUS_EVENT(packet_complete);
-DEFINE_SSAM_GENERIC_UINT_EVENT(ptl_timeout_reap);
+DEFINE_SSAM_PENDING_EVENT(ptl_timeout_reap);
 
 DEFINE_SSAM_REQUEST_EVENT(request_submit);
 DEFINE_SSAM_REQUEST_EVENT(request_timeout);
 DEFINE_SSAM_REQUEST_EVENT(request_cancel);
 DEFINE_SSAM_REQUEST_STATUS_EVENT(request_complete);
-DEFINE_SSAM_GENERIC_UINT_EVENT(rtl_timeout_reap);
+DEFINE_SSAM_PENDING_EVENT(rtl_timeout_reap);
 
 DEFINE_SSAM_PACKET_EVENT(ei_tx_drop_ack_packet);
 DEFINE_SSAM_PACKET_EVENT(ei_tx_drop_nak_packet);
 DEFINE_SSAM_PACKET_EVENT(ei_tx_drop_dsq_packet);
 DEFINE_SSAM_PACKET_STATUS_EVENT(ei_tx_fail_write);
 DEFINE_SSAM_PACKET_EVENT(ei_tx_corrupt_data);
-DEFINE_SSAM_GENERIC_UINT_EVENT(ei_rx_corrupt_syn);
+DEFINE_SSAM_DATA_EVENT(ei_rx_corrupt_syn);
 DEFINE_SSAM_FRAME_EVENT(ei_rx_corrupt_data);
 DEFINE_SSAM_REQUEST_EVENT(ei_rx_drop_response);
 

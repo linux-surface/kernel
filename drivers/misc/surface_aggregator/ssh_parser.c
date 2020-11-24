@@ -52,9 +52,9 @@ static bool sshp_starts_with_syn(const struct ssam_span *src)
  *
  * Search for SSH SYN bytes in the given source span. If found, set the @rem
  * span to the remaining data, starting with the first SYN bytes and capped by
- * the source span length, and return %true. This function does not copy
- * any data, but rather only sets pointers to the respecitve start addresses
- * and length values.
+ * the source span length, and return %true. This function does not copy any
+ * data, but rather only sets pointers to the respective start addresses and
+ * length values.
  *
  * If no SSH SYN bytes could be found, set the @rem span to the zero-length
  * span at the end of the source span and return %false.
@@ -64,7 +64,7 @@ static bool sshp_starts_with_syn(const struct ssam_span *src)
  * source span, and return %false. This function should then be re-run once
  * more data is available.
  *
- * Return: Returns %true iff a complete SSG SYN sequence could be found,
+ * Return: Returns %true iff a complete SSH SYN sequence could be found,
  * %false otherwise.
  */
 bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
@@ -112,7 +112,7 @@ bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
  *
  * Return: Returns zero on success or if the frame is incomplete, %-ENOMSG if
  * the start of the message is invalid, %-EBADMSG if any (frame-header or
- * payload) CRC is ivnalid, or %-EMSGSIZE if the SSH message is bigger than
+ * payload) CRC is invalid, or %-EMSGSIZE if the SSH message is bigger than
  * the maximum message length specified in the @maxlen parameter.
  */
 int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
@@ -150,9 +150,9 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 
 	// ensure packet does not exceed maximum length
 	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
-	if (unlikely(sp.len + SSH_MESSAGE_LENGTH(0) > maxlen)) {
-		dev_warn(dev, "rx: parser: frame too large: %u bytes\n",
-			 ((struct ssh_frame *)sf.ptr)->len);
+	if (unlikely(SSH_MESSAGE_LENGTH(sp.len) > maxlen)) {
+		dev_warn(dev, "rx: parser: frame too large: %llu bytes\n",
+			 SSH_MESSAGE_LENGTH(sp.len));
 		return -EMSGSIZE;
 	}
 
