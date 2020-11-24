@@ -10,6 +10,7 @@
 #include <linux/completion.h>
 #include <linux/error-injection.h>
 #include <linux/ktime.h>
+#include <linux/limits.h>
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -87,7 +88,7 @@ static u16 ssh_request_get_rqid(struct ssh_request *rqst)
 static u32 ssh_request_get_rqid_safe(struct ssh_request *rqst)
 {
 	if (!rqst->packet.data.ptr)
-		return (u32)-1;
+		return U32_MAX;
 
 	return ssh_request_get_rqid(rqst);
 }
@@ -171,7 +172,7 @@ static void ssh_rtl_complete_with_status(struct ssh_request *rqst, int status)
 
 	trace_ssam_request_complete(rqst, status);
 
-	// rtl/ptl may not be set if we're cancelling before submitting
+	// rtl/ptl may not be set if we're canceling before submitting
 	rtl_dbg_cond(rtl, "rtl: completing request (rqid: 0x%04x, status: %d)\n",
 		     ssh_request_get_rqid_safe(rqst), status);
 
@@ -281,13 +282,14 @@ static int ssh_rtl_tx_try_process_one(struct ssh_rtl *rtl)
 	} else if (status) {
 		/*
 		 * If submitting the packet failed and the packet layer isn't
-		 * shutting down, the packet has either been submmitted/queued
-		 * before (-EALREADY, which cannot happen as we have guaranteed
-		 * that requests cannot be re-submitted), or the packet was
-		 * marked as locked (-EINVAL). To mark the packet locked at this
-		 * stage, the request, and thus the packets itself, had to have
-		 * been canceled. Simply drop the reference. Cancellation itself
-		 * will remove it from the set of pending requests.
+		 * shutting down, the packet has either been submitted/queued
+		 * before (-EALREADY, which cannot happen as we have
+		 * guaranteed that requests cannot be re-submitted), or the
+		 * packet was marked as locked (-EINVAL). To mark the packet
+		 * locked at this stage, the request, and thus the packets
+		 * itself, had to have been canceled. Simply drop the
+		 * reference. Cancellation itself will remove it from the set
+		 * of pending requests.
 		 */
 
 		WARN_ON(status != -EINVAL);
@@ -452,6 +454,10 @@ static void ssh_rtl_timeout_start(struct ssh_request *rqst)
 	if (test_bit(SSH_REQUEST_SF_LOCKED_BIT, &rqst->state))
 		return;
 
+	/*
+	 * Note: The timestamp gets set only once. This happens on the packet
+	 * callback. All other access to it is read-only.
+	 */
 	WRITE_ONCE(rqst->timestamp, timestamp);
 	/*
 	 * Ensure timestamp is set before starting the reaper. Paired with
@@ -600,10 +606,10 @@ static bool ssh_rtl_cancel_nonpending(struct ssh_request *r)
 	 * from the queue, where we are now guaranteed that the packet is or has
 	 * been due to the critical section.
 	 *
-	 * Note that if the CMPXCHG fails, we are guaranteed that ptl has
+	 * Note that if the cmpxchg() fails, we are guaranteed that ptl has
 	 * been set and is non-NULL, as states can only be nonzero after this
-	 * has been set. Also note that we need to fetch the static (type) flags
-	 * to ensure that they don't cause the cmpxchg to fail.
+	 * has been set. Also note that we need to fetch the static (type)
+	 * flags to ensure that they don't cause the cmpxchg() to fail.
 	 */
 	fixed = READ_ONCE(r->state) & SSH_REQUEST_FLAGS_TY_MASK;
 	flags = cmpxchg(&r->state, fixed, SSH_REQUEST_SF_LOCKED_BIT);
@@ -629,10 +635,10 @@ static bool ssh_rtl_cancel_nonpending(struct ssh_request *r)
 	spin_lock(&rtl->queue.lock);
 
 	/*
-	 * Note: 1) Requests cannot be re-submitted. 2) If a request is queued,
-	 * it cannot be "transmitting"/"pending" yet. Thus, if we successfully
-	 * remove the request here, we have removed all its occurences in the
-	 * system.
+	 * Note: 1) Requests cannot be re-submitted. 2) If a request is
+	 * queued, it cannot be "transmitting"/"pending" yet. Thus, if we
+	 * successfully remove the request here, we have removed all its
+	 * occurrences in the system.
 	 */
 
 	remove = test_and_clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &r->state);
@@ -663,7 +669,7 @@ static bool ssh_rtl_cancel_pending(struct ssh_request *r)
 
 	/*
 	 * Now that we have locked the packet, we have guaranteed that it can't
-	 * be added to the system any more. If ptl is zero, the locked
+	 * be added to the system any more. If ptl is NULL, the locked
 	 * check in ssh_rtl_submit() has not been run and any submission,
 	 * currently in progress or called later, won't add the packet. Thus we
 	 * can directly complete it.
@@ -761,11 +767,11 @@ static void ssh_rtl_packet_callback(struct ssh_packet *p, int status)
 			return;
 
 		/*
-		 * The packet may get cancelled even though it has not been
+		 * The packet may get canceled even though it has not been
 		 * submitted yet. The request may still be queued. Check the
 		 * queue and remove it if necessary. As the timeout would have
-		 * been started in this function on success, there's no need to
-		 * cancel it here.
+		 * been started in this function on success, there's no need
+		 * to cancel it here.
 		 */
 		ssh_rtl_queue_remove(r);
 		ssh_rtl_pending_remove(r);
@@ -783,6 +789,10 @@ static void ssh_rtl_packet_callback(struct ssh_packet *p, int status)
 
 	// if we expect a response, we just need to start the timeout
 	if (test_bit(SSH_REQUEST_TY_HAS_RESPONSE_BIT, &r->state)) {
+		/*
+		 * Note: This is the only place where the timestamp gets set,
+		 * all other access to it is read-only.
+		 */
 		ssh_rtl_timeout_start(r);
 		return;
 	}
@@ -825,7 +835,7 @@ static void ssh_rtl_timeout_reap(struct work_struct *work)
 	ktime_t timeout = rtl->rtx_timeout.timeout;
 	ktime_t next = KTIME_MAX;
 
-	trace_ssam_rtl_timeout_reap("pending", atomic_read(&rtl->pending.count));
+	trace_ssam_rtl_timeout_reap(atomic_read(&rtl->pending.count));
 
 	/*
 	 * Mark reaper as "not pending". This is done before checking any
@@ -1117,8 +1127,8 @@ static const struct ssh_request_ops ssh_rtl_flush_request_ops = {
  * a special flush packet, meaning that upon completion, also the underlying
  * packet transport layer has been flushed.
  *
- * Flushing the request layer gurarantees that all previously submitted
- * requests have been fully completed before this call returns. Additinally,
+ * Flushing the request layer guarantees that all previously submitted
+ * requests have been fully completed before this call returns. Additionally,
  * flushing blocks execution of all later submitted requests until the flush
  * has been completed.
  *
@@ -1187,9 +1197,9 @@ void ssh_rtl_shutdown(struct ssh_rtl *rtl)
 	set_bit(SSH_RTL_SF_SHUTDOWN_BIT, &rtl->state);
 	/*
 	 * Ensure that the layer gets marked as shut-down before actually
-	 * stopping it. In combination with the check in ssh_rtl_sunmit(), this
-	 * guarantees that no new requests can be added and all already queued
-	 * requests are properly cancelled.
+	 * stopping it. In combination with the check in ssh_rtl_submit(),
+	 * this guarantees that no new requests can be added and all already
+	 * queued requests are properly canceled.
 	 */
 	smp_mb__after_atomic();
 
@@ -1221,9 +1231,9 @@ void ssh_rtl_shutdown(struct ssh_rtl *rtl)
 	cancel_delayed_work_sync(&rtl->rtx_timeout.reaper);
 
 	/*
-	 * Shutting down the packet layer should also have caneled all requests.
-	 * Thus the pending set should be empty. Attempt to handle this
-	 * gracefully anyways, even though this should be dead code.
+	 * Shutting down the packet layer should also have canceled all
+	 * requests. Thus the pending set should be empty. Attempt to handle
+	 * this gracefully anyways, even though this should be dead code.
 	 */
 
 	pending = atomic_read(&rtl->pending.count);

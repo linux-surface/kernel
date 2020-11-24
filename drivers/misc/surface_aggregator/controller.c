@@ -11,6 +11,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/interrupt.h>
 #include <linux/kref.h>
+#include <linux/limits.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/rbtree.h>
@@ -47,7 +48,7 @@ static void ssh_seq_reset(struct ssh_seq_counter *c)
  * ssh_seq_next() - Get next sequence ID.
  * @c: The counter providing the sequence IDs.
  *
- * Return: Retunrs the next sequence ID of the counter.
+ * Return: Returns the next sequence ID of the counter.
  */
 static u8 ssh_seq_next(struct ssh_seq_counter *c)
 {
@@ -98,32 +99,31 @@ static u16 ssh_rqid_next(struct ssh_rqid_counter *c)
 /*
  * The notifier system is based on linux/notifier.h, specifically the SRCU
  * implementation. The difference to that is, that some bits of the notifier
- * call return value can be tracked across multiple calls. This is done so that
- * handling of events can be tracked and a warning can be issued in case an
- * event goes unhandled. The idea of that waring is that it should help discover
- * and identify new/currently unimplemented features.
+ * call return value can be tracked across multiple calls. This is done so
+ * that handling of events can be tracked and a warning can be issued in case
+ * an event goes unhandled. The idea of that warning is that it should help
+ * discover and identify new/currently unimplemented features.
  */
 
 
 /**
- * ssam_event_matches_notifier() - Test if an event matches a notifier;
+ * ssam_event_matches_notifier() - Test if an event matches a notifier.
  * @notif: The event notifier to test against.
  * @event: The event to test.
  *
  * Return: Returns %true iff the given event matches the given notifier
  * according to the rules set in the notifier's event mask, %false otherwise.
  */
-static bool ssam_event_matches_notifier(
-		const struct ssam_event_notifier *notif,
-		const struct ssam_event *event)
+static bool ssam_event_matches_notifier(const struct ssam_event_notifier *n,
+					const struct ssam_event *event)
 {
-	bool match = notif->event.id.target_category == event->target_category;
+	bool match = n->event.id.target_category == event->target_category;
 
-	if (notif->event.mask & SSAM_EVENT_MASK_TARGET)
-		match &= notif->event.reg.target_id == event->target_id;
+	if (n->event.mask & SSAM_EVENT_MASK_TARGET)
+		match &= n->event.reg.target_id == event->target_id;
 
-	if (notif->event.mask & SSAM_EVENT_MASK_INSTANCE)
-		match &= notif->event.id.instance == event->instance_id;
+	if (n->event.mask & SSAM_EVENT_MASK_INSTANCE)
+		match &= n->event.id.instance == event->instance_id;
 
 	return match;
 }
@@ -179,17 +179,17 @@ static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *eve
  * Note: This function must be synchronized by the caller with respect to other
  * insert and/or remove calls.
  *
- * Return: Returns zero on success, %-EINVAL if the notifier block has already
+ * Return: Returns zero on success, %-EEXIST if the notifier block has already
  * been registered.
  */
 static int __ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 {
 	struct ssam_notifier_block **link = &nh->head;
 
-	while ((*link) != NULL) {
-		if (unlikely((*link) == nb)) {
+	while (*link) {
+		if (unlikely(*link == nb)) {
 			WARN(1, "double register detected");
-			return -EINVAL;
+			return -EEXIST;
 		}
 
 		if (nb->priority > (*link)->priority)
@@ -206,7 +206,7 @@ static int __ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_blo
 
 /**
  * __ssam_nfblk_find_link() - Find a notifier block link on the given list.
- * @nh: The notifier head on wich the search should be conducted.
+ * @nh: The notifier head on which the search should be conducted.
  * @nb: The notifier block to search for.
  *
  * Note: This function must be synchronized by the caller with respect to
@@ -221,8 +221,8 @@ static struct ssam_notifier_block **__ssam_nfblk_find_link(
 {
 	struct ssam_notifier_block **link = &nh->head;
 
-	while ((*link) != NULL) {
-		if ((*link) == nb)
+	while (*link) {
+		if (*link == nb)
 			return link;
 
 		link = &((*link)->next);
@@ -315,7 +315,7 @@ struct ssam_nf_refcount_key {
 };
 
 /**
- * struct ssam_nf_refcount_entry - RB-tree entry for referecnce counting event
+ * struct ssam_nf_refcount_entry - RB-tree entry for reference counting event
  * activations.
  * @node:     The node of this entry in the rb-tree.
  * @key:      The key of the event.
@@ -341,9 +341,14 @@ struct ssam_nf_refcount_entry {
  * event type/ID, allocating a new entry for this event ID if necessary. A
  * newly allocated entry will have a refcount of one.
  *
- * Return: Returns the refcount entry on success. Returns ``ERR_PTR(-ENOSPC)``
- * if there have already been %INT_MAX events of the specified ID and type
- * registered, or ``ERR_PTR(-ENOMEM)`` if the entry could not be allocated.
+ * Note: Must be synchronized by the caller with regards to other
+ * ssam_nf_refcount_inc() and ssam_nf_refcount_dec() calls, e.g. via
+ * ``nf->lock``. Note that this lock should also be used to ensure the
+ * corresponding EC requests are sent, if necessary.
+ *
+ * Return: Returns the refcount entry on success. Returns an error pointer
+ * with %-ENOSPC if there have already been %INT_MAX events of the specified
+ * ID and type registered, or %-ENOMEM if the entry could not be allocated.
  */
 static struct ssam_nf_refcount_entry *ssam_nf_refcount_inc(
 		struct ssam_nf *nf, struct ssam_event_registry reg,
@@ -399,6 +404,11 @@ static struct ssam_nf_refcount_entry *ssam_nf_refcount_inc(
  * returning its entry. If the returned entry has a refcount of zero, the
  * caller is responsible for freeing it using kfree().
  *
+ * Note: Must be synchronized by the caller with regards to other
+ * ssam_nf_refcount_inc() and ssam_nf_refcount_dec() calls, e.g. via
+ * ``nf->lock``. Note that this lock should also be used to ensure the
+ * corresponding EC requests are sent, if necessary.
+ *
  * Return: Returns the refcount entry on success or %NULL if the entry has not
  * been found.
  */
@@ -451,9 +461,9 @@ static bool ssam_nf_refcount_empty(struct ssam_nf *nf)
  * @rqid:  The request ID of the event.
  * @event: The event provided to the callbacks.
  *
- * Executa registered callbacks in order of their priority until either no
- * callback is left or a callback returned a value with the %SSAM_NOTIF_STOP
- * bit set. Note that this bit is set automatically when converting non.zero
+ * Execute registered callbacks in order of their priority until either no
+ * callback is left or a callback returns a value with the %SSAM_NOTIF_STOP
+ * bit set. Note that this bit is set automatically when converting non-zero
  * error values via ssam_notifier_from_errno() to notifier values.
  *
  * Also note that any callback that could handle an event should return a value
@@ -508,7 +518,7 @@ static int ssam_nf_init(struct ssam_nf *nf)
 	}
 
 	if (status) {
-		for (i = i - 1; i >= 0; i--)
+		while (i--)
 			ssam_nf_head_destroy(&nf->head[i]);
 
 		return status;
@@ -536,6 +546,13 @@ static void ssam_nf_destroy(struct ssam_nf *nf)
 /* -- Event/async request completion system. -------------------------------- */
 
 #define SSAM_CPLT_WQ_NAME	"ssam_cpltq"
+
+/*
+ * SSAM_CPLT_WQ_BATCH - Maximum number of event item completions executed per
+ * work execution. Used to prevent livelocking of the workqueue. Value chosen
+ * via educated guess, may be adjusted.
+ */
+#define SSAM_CPLT_WQ_BATCH	10
 
 /*
  * SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN - Maximum payload length for a cached
@@ -614,13 +631,13 @@ static struct ssam_event_item *ssam_event_item_alloc(size_t len, gfp_t flags)
 	struct ssam_event_item *item;
 
 	if (len <= SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN) {
-		item = kmem_cache_alloc(ssam_event_item_cache, GFP_KERNEL);
+		item = kmem_cache_alloc(ssam_event_item_cache, flags);
 		if (!item)
 			return NULL;
 
 		item->ops.free = __ssam_event_item_free_cached;
 	} else {
-		item = kzalloc(sizeof(*item) + len, GFP_KERNEL);
+		item = kzalloc(struct_size(item, event.data, len), flags);
 		if (!item)
 			return NULL;
 
@@ -713,7 +730,7 @@ static struct ssam_event_queue *ssam_cplt_get_event_queue(
 }
 
 /**
- * ssam_cplt_submit() - Submit a work item to the compeltion system workqueue.
+ * ssam_cplt_submit() - Submit a work item to the completion system workqueue.
  * @cplt: The completion system.
  * @work: The work item to submit.
  */
@@ -763,7 +780,7 @@ static int ssam_cplt_submit_event(struct ssam_cplt *cplt,
  * This operation is only intended to, during normal operation prior to
  * shutdown, try to complete most events and requests to get them out of the
  * system while the system is still fully operational. It does not aim to
- * provide any guraantee that all of them have been handled.
+ * provide any guarantee that all of them have been handled.
  */
 static void ssam_cplt_flush(struct ssam_cplt *cplt)
 {
@@ -776,21 +793,21 @@ static void ssam_event_queue_work_fn(struct work_struct *work)
 	struct ssam_event_item *item;
 	struct ssam_nf *nf;
 	struct device *dev;
-	int i;
+	unsigned int iterations = SSAM_CPLT_WQ_BATCH;
 
 	queue = container_of(work, struct ssam_event_queue, work);
 	nf = &queue->cplt->event.notif;
 	dev = queue->cplt->dev;
 
 	// limit number of processed events to avoid livelocking
-	for (i = 0; i < 10; i++) {
+	do {
 		item = ssam_event_queue_pop(queue);
-		if (item == NULL)
+		if (!item)
 			return;
 
 		ssam_nf_call(nf, dev, item->rqid, &item->event);
 		ssam_event_item_free(item);
-	}
+	} while (--iterations);
 
 	if (!ssam_event_queue_is_empty(queue))
 		ssam_cplt_submit(queue->cplt, &queue->work);
@@ -990,7 +1007,8 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
 	item->event.instance_id = cmd->iid;
 	memcpy(&item->event.data[0], data->ptr, data->len);
 
-	WARN_ON(ssam_cplt_submit_event(&ctrl->cplt, item));
+	if (WARN_ON(ssam_cplt_submit_event(&ctrl->cplt, item)))
+		ssam_event_item_free(item);
 }
 
 static const struct ssh_rtl_ops ssam_rtl_ops = {
@@ -998,13 +1016,16 @@ static const struct ssh_rtl_ops ssam_rtl_ops = {
 };
 
 
-static bool ssam_notifier_empty(struct ssam_controller *ctrl);
+static bool ssam_notifier_is_empty(struct ssam_controller *ctrl);
 static void ssam_notifier_unregister_all(struct ssam_controller *ctrl);
 
 
 #define SSAM_SSH_DSM_REVISION	0
-static const guid_t SSAM_SSH_DSM_GUID = GUID_INIT(0xd5e383e1, 0xd892, 0x4a76,
-		0x89, 0xfc, 0xf6, 0xaa, 0xae, 0x7e, 0xd5, 0xb5);
+
+/* d5e383e1-d892-4a76-89fc-f6aaae7ed5b5 */
+static const guid_t SSAM_SSH_DSM_GUID =
+	GUID_INIT(0xd5e383e1, 0xd892, 0x4a76,
+		  0x89, 0xfc, 0xf6, 0xaa, 0xae, 0x7e, 0xd5, 0xb5);
 
 enum ssh_dsm_fn {
 	SSH_DSM_FN_SSH_POWER_PROFILE             = 0x05,
@@ -1029,12 +1050,12 @@ static int ssam_dsm_get_functions(acpi_handle handle, u64 *funcs)
 				      SSAM_SSH_DSM_REVISION, 0, NULL,
 				      ACPI_TYPE_BUFFER);
 	if (!obj)
-		return -EFAULT;
+		return -EIO;
 
 	for (i = 0; i < obj->buffer.length && i < 8; i++)
 		mask |= (((u64)obj->buffer.pointer[i]) << (i * 8));
 
-	if (mask & 0x01)
+	if (mask & BIT(0))
 		*funcs = mask;
 
 	ACPI_FREE(obj);
@@ -1053,7 +1074,7 @@ static int ssam_dsm_load_u32(acpi_handle handle, u64 funcs, u64 func, u32 *ret)
 				      SSAM_SSH_DSM_REVISION, func, NULL,
 				      ACPI_TYPE_INTEGER);
 	if (!obj)
-		return -EFAULT;
+		return -EIO;
 
 	val = obj->integer.value;
 	ACPI_FREE(obj);
@@ -1085,11 +1106,11 @@ static int ssam_controller_caps_load_from_acpi(
 	int status;
 
 	// set defaults
-	caps->ssh_power_profile = (u32)-1;
-	caps->screen_on_sleep_idle_timeout = (u32)-1;
-	caps->screen_off_sleep_idle_timeout = (u32)-1;
+	caps->ssh_power_profile = U32_MAX;
+	caps->screen_on_sleep_idle_timeout = U32_MAX;
+	caps->screen_off_sleep_idle_timeout = U32_MAX;
 	caps->d3_closes_handle = false;
-	caps->ssh_buffer_size = (u32)-1;
+	caps->ssh_buffer_size = U32_MAX;
 
 	status = ssam_dsm_get_functions(handle, &funcs);
 	if (status)
@@ -1195,9 +1216,9 @@ int ssam_controller_init(struct ssam_controller *ctrl,
  * controller.
  * @ctrl: The controller.
  *
- * Note: When this function is called, the controller shouldbe properly hooked
- * up to the serdev core via &struct serdev_device_ops. Please refert to
- * ssam_controller_init() for more details on controller initialization.
+ * Note: When this function is called, the controller should be properly
+ * hooked up to the serdev core via &struct serdev_device_ops. Please refer
+ * to ssam_controller_init() for more details on controller initialization.
  *
  * This function must be called from an exclusive context with regards to the
  * state, if necessary, by locking the controller via ssam_controller_lock().
@@ -1222,6 +1243,16 @@ int ssam_controller_start(struct ssam_controller *ctrl)
 	return 0;
 }
 
+/*
+ * SSAM_CTRL_SHUTDOWN_FLUSH_TIMEOUT - Timeout for flushing requests during
+ * shutdown.
+ *
+ * Chosen to be larger than one full request timeout, including packets timing
+ * out. This value should give ample time to complete any outstanding requests
+ * during normal operation and account for the odd package timeout.
+ */
+#define SSAM_CTRL_SHUTDOWN_FLUSH_TIMEOUT	msecs_to_jiffies(5000)
+
 /**
  * ssam_controller_shutdown() - Shut down the controller.
  * @ctrl: The controller.
@@ -1233,13 +1264,13 @@ int ssam_controller_start(struct ssam_controller *ctrl)
  *
  * In the course of this shutdown procedure, all currently registered
  * notifiers will be unregistered. It is, however, strongly recommended to not
- * rely on this behavior, and instead the party registring the notifier should
- * unregister it before the controller gets shut down, e.g. via the SSAM bus
- * which guarantees client devices to be removed before a shutdown.
+ * rely on this behavior, and instead the party registering the notifier
+ * should unregister it before the controller gets shut down, e.g. via the
+ * SSAM bus which guarantees client devices to be removed before a shutdown.
  *
- * Note that events may still be pending after this call, but due to the
- * notifiers being unregistered, the will be dropped when the controller is
- * subsequently being destroyed via ssam_controller_destroy().
+ * Note that events may still be pending after this call, but, due to the
+ * notifiers being unregistered, these events will be dropped when the
+ * controller is subsequently destroyed via ssam_controller_destroy().
  *
  * This function must be called from an exclusive context with regards to the
  * state, if necessary, by locking the controller via ssam_controller_lock().
@@ -1253,7 +1284,7 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
 		return;
 
 	// try to flush pending events and requests while everything still works
-	status = ssh_rtl_flush(&ctrl->rtl, msecs_to_jiffies(5000));
+	status = ssh_rtl_flush(&ctrl->rtl, SSAM_CTRL_SHUTDOWN_FLUSH_TIMEOUT);
 	if (status) {
 		ssam_err(ctrl, "failed to flush request transport layer: %d\n",
 			 status);
@@ -1267,7 +1298,7 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
 	 * driver that set them up at this point. If this warning occurs, some
 	 * client driver has not done that...
 	 */
-	WARN_ON(!ssam_notifier_empty(ctrl));
+	WARN_ON(!ssam_notifier_is_empty(ctrl));
 
 	/*
 	 * Nevertheless, we should still take care of drivers that don't behave
@@ -1294,7 +1325,7 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
  * Ensures that all resources associated with the controller get freed. This
  * function should only be called after the controller has been stopped via
  * ssam_controller_shutdown(). In general, this function should not be called
- * directly. The only valid place to call this function direclty is during
+ * directly. The only valid place to call this function directly is during
  * initialization, before the controller has been fully initialized and passed
  * to other processes. This function is called automatically when the
  * reference count of the controller reaches zero.
@@ -1530,7 +1561,7 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_alloc);
 
 /**
  * ssam_request_sync_free() - Free a synchronous request.
- * @rqst: The request to free.
+ * @rqst: The request to be freed.
  *
  * Free a synchronous request and its corresponding buffer allocated with
  * ssam_request_sync_alloc(). Do not use for requests allocated on the stack
@@ -1608,7 +1639,7 @@ int ssam_request_sync_submit(struct ssam_controller *ctrl,
 	 */
 	if (WARN_ON(READ_ONCE(ctrl->state) != SSAM_CONTROLLER_STARTED)) {
 		ssh_request_put(&rqst->base);
-		return -ENXIO;
+		return -ENODEV;
 	}
 
 	status = ssh_rtl_submit(&ctrl->rtl, &rqst->base);
@@ -1625,9 +1656,9 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_submit);
  * @rsp:  The response buffer.
  *
  * Allocates a synchronous request with its message data buffer on the heap
- * via ssam_request_sync_alloc(), fully intializes it via the provided request
- * specification, submits it, and finally waits for its completion before
- * freeing it and returning its status.
+ * via ssam_request_sync_alloc(), fully initializes it via the provided
+ * request specification, submits it, and finally waits for its completion
+ * before freeing it and returning its status.
  *
  * Return: Returns the status of the request or any failure during setup.
  */
@@ -1666,7 +1697,7 @@ EXPORT_SYMBOL_GPL(ssam_request_sync);
 
 /**
  * ssam_request_sync_with_buffer() - Execute a synchronous request with the
- * provided buffer as backend for the message buffer.
+ * provided buffer as back-end for the message buffer.
  * @ctrl: The controller via which the request will be submitted.
  * @spec: The request specification and payload.
  * @rsp:  The response buffer.
@@ -1674,7 +1705,7 @@ EXPORT_SYMBOL_GPL(ssam_request_sync);
  *
  * Allocates a synchronous request struct on the stack, fully initializes it
  * using the provided buffer as message data buffer, submits it, and then
- * waits for its completion before returning its staus. The
+ * waits for its completion before returning its status. The
  * SSH_COMMAND_MESSAGE_LENGTH() macro can be used to compute the required
  * message buffer size.
  *
@@ -1766,25 +1797,9 @@ struct ssh_notification_params {
 	u8 instance_id;
 } __packed;
 
-/**
- * ssam_ssh_event_enable() - Enable SSH event.
- * @ctrl:  The controller for which to enable the event.
- * @reg:   The event registry describing what request to use for enabling and
- *         disabling the event.
- * @id:    The event identifier.
- * @flags: The event flags.
- *
- * This is a wrapper for the raw SAM request to enable an event, thus it does
- * not handle referecnce counting for enable/disable of events. If an event
- * has already been enabled, the EC will ignore this request.
- *
- * Return: Returns the status of the executed SAM request (zero on success and
- * negative on direct failure) or %-EPROTO if the request response indicates a
- * failure.
- */
-static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
-				 struct ssam_event_registry reg,
-				 struct ssam_event_id id, u8 flags)
+static int __ssam_ssh_event_request(struct ssam_controller *ctrl,
+				    struct ssam_event_registry reg, u8 cid,
+				    struct ssam_event_id id, u8 flags)
 {
 	struct ssh_notification_params params;
 	struct ssam_request rqst;
@@ -1792,7 +1807,7 @@ static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
 	int status;
 
 	u16 rqid = ssh_tc_to_rqid(id.target_category);
-	u8 buf[1] = { 0x00 };
+	u8 buf = 0;
 
 	// only allow RQIDs that lie within event spectrum
 	if (!ssh_rqid_is_event(rqid))
@@ -1805,34 +1820,62 @@ static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
 
 	rqst.target_category = reg.target_category;
 	rqst.target_id = reg.target_id;
-	rqst.command_id = reg.cid_enable;
+	rqst.command_id = cid;
 	rqst.instance_id = 0x00;
 	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
 	rqst.length = sizeof(params);
 	rqst.payload = (u8 *)&params;
 
-	result.capacity = ARRAY_SIZE(buf);
+	result.capacity = sizeof(buf);
 	result.length = 0;
-	result.pointer = buf;
+	result.pointer = &buf;
 
 	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
 			    sizeof(params));
-	if (status) {
+
+	return status < 0 ? status : buf;
+}
+
+/**
+ * ssam_ssh_event_enable() - Enable SSH event.
+ * @ctrl:  The controller for which to enable the event.
+ * @reg:   The event registry describing what request to use for enabling and
+ *         disabling the event.
+ * @id:    The event identifier.
+ * @flags: The event flags.
+ *
+ * Enables the specified event on the EC. This function does not manage
+ * reference counting of enabled events and is basically only a wrapper for
+ * the raw EC request. If the specified event is already enabled, the EC will
+ * ignore this request.
+ *
+ * Return: Returns the status of the executed SAM request (zero on success and
+ * negative on direct failure) or %-EPROTO if the request response indicates a
+ * failure.
+ */
+static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
+				 struct ssam_event_registry reg,
+				 struct ssam_event_id id, u8 flags)
+{
+	int status;
+
+	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
+
+	if (status < 0 && status != -EINVAL) {
 		ssam_err(ctrl, "failed to enable event source (tc: 0x%02x, "
 			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
 			 id.instance, reg.target_category);
 	}
 
-	if (buf[0] != 0x00) {
+	if (status > 0) {
 		ssam_err(ctrl, "unexpected result while enabling event source: "
 			 "0x%02x (tc: 0x%02x, iid: 0x%02x, reg: 0x%02x)\n",
-			 buf[0], id.target_category, id.instance,
+			 status, id.target_category, id.instance,
 			 reg.target_category);
 		return -EPROTO;
 	}
 
 	return status;
-
 }
 
 /**
@@ -1843,9 +1886,10 @@ static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
  * @id:    The event identifier.
  * @flags: The event flags (likely ignored for disabling of events).
  *
- * This is a wrapper for the raw SAM request to disable an event, thus it does
- * not handle reference counting for enable/disable of events. If an event has
- * already been disabled, the EC will ignore this request.
+ * Disables the specified event on the EC. This function does not manage
+ * reference counting of enabled events and is basically only a wrapper for
+ * the raw EC request. If the specified event is already disabled, the EC will
+ * ignore this request.
  *
  * Return: Returns the status of the executed SAM request (zero on success and
  * negative on direct failure) or %-EPROTO if the request response indicates a
@@ -1855,47 +1899,20 @@ static int ssam_ssh_event_disable(struct ssam_controller *ctrl,
 				  struct ssam_event_registry reg,
 				  struct ssam_event_id id, u8 flags)
 {
-	struct ssh_notification_params params;
-	struct ssam_request rqst;
-	struct ssam_response result;
 	int status;
 
-	u16 rqid = ssh_tc_to_rqid(id.target_category);
-	u8 buf[1] = { 0x00 };
+	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
 
-	// only allow RQIDs that lie within event spectrum
-	if (!ssh_rqid_is_event(rqid))
-		return -EINVAL;
-
-	params.target_category = id.target_category;
-	params.instance_id = id.instance;
-	params.flags = flags;
-	put_unaligned_le16(rqid, &params.request_id);
-
-	rqst.target_category = reg.target_category;
-	rqst.target_id = reg.target_id;
-	rqst.command_id = reg.cid_disable;
-	rqst.instance_id = 0x00;
-	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
-	rqst.length = sizeof(params);
-	rqst.payload = (u8 *)&params;
-
-	result.capacity = ARRAY_SIZE(buf);
-	result.length = 0;
-	result.pointer = buf;
-
-	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
-			    sizeof(params));
-	if (status) {
+	if (status < 0 && status != -EINVAL) {
 		ssam_err(ctrl, "failed to disable event source (tc: 0x%02x, "
 			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
 			 id.instance, reg.target_category);
 	}
 
-	if (buf[0] != 0x00) {
+	if (status > 0) {
 		ssam_err(ctrl, "unexpected result while disabling event source: "
 			 "0x%02x (tc: 0x%02x, iid: 0x%02x, reg: 0x%02x)\n",
-			 buf[0], id.target_category, id.instance,
+			 status, id.target_category, id.instance,
 			 reg.target_category);
 		return -EPROTO;
 	}
@@ -1945,8 +1962,8 @@ int ssam_get_firmware_version(struct ssam_controller *ctrl, u32 *version)
  * backlight will be turned off by this call.
  *
  * This function will only send the display-off notification command if
- * display noticications are supported by the EC. Currently all known devices
- * support these notification.
+ * display notifications are supported by the EC. Currently all known devices
+ * support these notifications.
  *
  * Use ssam_ctrl_notif_display_on() to reverse the effects of this function.
  *
@@ -1984,8 +2001,8 @@ int ssam_ctrl_notif_display_off(struct ssam_controller *ctrl)
  * reverse its effects, including resetting events to their default behavior.
  *
  * This function will only send the display-on notification command if display
- * noticications are supported by the EC. Currently all known devices support
- * these notification.
+ * notifications are supported by the EC. Currently all known devices support
+ * these notifications.
  *
  * See ssam_ctrl_notif_display_off() for more details.
  *
@@ -2023,7 +2040,7 @@ int ssam_ctrl_notif_display_on(struct ssam_controller *ctrl)
  * EC are currently unknown.
  *
  * This function will only send the D0-exit notification command if D0-state
- * noticications are supported by the EC. Only newer Surface generations
+ * notifications are supported by the EC. Only newer Surface generations
  * support these notifications.
  *
  * Use ssam_ctrl_notif_d0_entry() to reverse the effects of this function.
@@ -2047,8 +2064,8 @@ int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl)
 		return status;
 
 	if (response != 0) {
-		ssam_err(ctrl, "unexpected response from D0-exit notification:"
-			 " 0x%02x\n", response);
+		ssam_err(ctrl, "unexpected response from D0-exit notification: 0x%02x\n",
+			 response);
 		return -EPROTO;
 	}
 
@@ -2065,7 +2082,7 @@ int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl)
  * currently unknown.
  *
  * This function will only send the D0-entry notification command if D0-state
- * noticications are supported by the EC. Only newer Surface generations
+ * notifications are supported by the EC. Only newer Surface generations
  * support these notifications.
  *
  * See ssam_ctrl_notif_d0_exit() for more details.
@@ -2089,8 +2106,8 @@ int ssam_ctrl_notif_d0_entry(struct ssam_controller *ctrl)
 		return status;
 
 	if (response != 0) {
-		ssam_err(ctrl, "unexpected response from D0-entry notification:"
-			 " 0x%02x\n", response);
+		ssam_err(ctrl, "unexpected response from D0-entry notification: 0x%02x\n",
+			 response);
 		return -EPROTO;
 	}
 
@@ -2139,10 +2156,9 @@ int ssam_notifier_register(struct ssam_controller *ctrl,
 		return PTR_ERR(entry);
 	}
 
-	ssam_dbg(ctrl, "enabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x,"
-		 " rc: %d)\n", n->event.reg.target_category,
-		 n->event.id.target_category, n->event.id.instance,
-		 entry->refcount);
+	ssam_dbg(ctrl, "enabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x, rc: %d)\n",
+		 n->event.reg.target_category, n->event.id.target_category,
+		 n->event.id.instance, entry->refcount);
 
 	status = __ssam_nfblk_insert(nf_head, &n->base);
 	if (status) {
@@ -2224,10 +2240,9 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 		return -ENOENT;
 	}
 
-	ssam_dbg(ctrl, "disabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x,"
-		 " rc: %d)\n", n->event.reg.target_category,
-		 n->event.id.target_category, n->event.id.instance,
-		 entry->refcount);
+	ssam_dbg(ctrl, "disabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x, rc: %d)\n",
+		 n->event.reg.target_category, n->event.id.target_category,
+		 n->event.id.instance, entry->refcount);
 
 	if (entry->flags != n->event.flags) {
 		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
@@ -2259,7 +2274,7 @@ EXPORT_SYMBOL_GPL(ssam_notifier_unregister);
  * (EC command failing), all previously disabled events will be restored and
  * the error code returned.
  *
- * This function is intended to disable all events prior to hibenration entry.
+ * This function is intended to disable all events prior to hibernation entry.
  * See ssam_notifier_restore_registered() to restore/re-enable all events
  * disabled with this function.
  *
@@ -2334,13 +2349,13 @@ void ssam_notifier_restore_registered(struct ssam_controller *ctrl)
 }
 
 /**
- * ssam_notifier_empty() - Check if there are any registered notifiers.
+ * ssam_notifier_is_empty() - Check if there are any registered notifiers.
  * @ctrl: The controller to check on.
  *
  * Return: Returns %true if there are currently no notifiers registered on the
  * controller, %false otherwise.
  */
-static bool ssam_notifier_empty(struct ssam_controller *ctrl)
+static bool ssam_notifier_is_empty(struct ssam_controller *ctrl)
 {
 	struct ssam_nf *nf = &ctrl->cplt.event.notif;
 	bool result;
@@ -2358,7 +2373,7 @@ static bool ssam_notifier_empty(struct ssam_controller *ctrl)
  * @ctrl: The controller to unregister the notifiers on.
  *
  * Unregisters all currently registered notifiers. This function is used to
- * ensure that all notifiers will be unregistered and assocaited
+ * ensure that all notifiers will be unregistered and associated
  * entries/resources freed when the controller is being shut down.
  */
 static void ssam_notifier_unregister_all(struct ssam_controller *ctrl)

@@ -25,7 +25,7 @@
 /**
  * enum ssam_device_domain - SAM device domain.
  * @SSAM_DOMAIN_VIRTUAL:   Virtual device.
- * @SSAM_DOMAIN_SERIALHUB: Physical dovice connected via Surface Serial Hub.
+ * @SSAM_DOMAIN_SERIALHUB: Physical device connected via Surface Serial Hub.
  */
 enum ssam_device_domain {
 	SSAM_DOMAIN_VIRTUAL   = 0x00,
@@ -318,8 +318,8 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
  * @drv: The driver managed by this module.
  *
  * Helper macro to register a SSAM device driver via module_init() and
- * module_exit(). This macro may only be used once per module and replaces
- * the afforementioned definitions.
+ * module_exit(). This macro may only be used once per module and replaces the
+ * aforementioned definitions.
  */
 #define module_ssam_device_driver(drv)			\
 	module_driver(drv, ssam_device_driver_register,	\
