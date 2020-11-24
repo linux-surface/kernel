@@ -20,7 +20,8 @@ static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 {
 	struct ssam_device *sdev = to_ssam_device(dev);
 
-	return snprintf(buf, PAGE_SIZE - 1, "ssam:d%02Xc%02Xt%02Xi%02xf%02X\n",
+	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
+	return scnprintf(buf, PAGE_SIZE, "ssam:d%02Xc%02Xt%02Xi%02xf%02X\n",
 			sdev->uid.domain, sdev->uid.category, sdev->uid.target,
 			sdev->uid.instance, sdev->uid.function);
 }
@@ -101,8 +102,8 @@ EXPORT_SYMBOL_GPL(ssam_device_alloc);
  * @sdev: The SSAM client device to be added.
  *
  * Added client devices must be guaranteed to always have a valid and active
- * controller. Thus, this function will fail with %-ENXIO if the controller of
- * the device has not been initialized yet, has been suspended, or has been
+ * controller. Thus, this function will fail with %-ENODEV if the controller
+ * of the device has not been initialized yet, has been suspended, or has been
  * shut down.
  *
  * The caller of this function should ensure that the corresponding call to
@@ -113,7 +114,7 @@ EXPORT_SYMBOL_GPL(ssam_device_alloc);
  * By default, the controller device will become the parent of the newly
  * created client device. The parent may be changed before ssam_device_add is
  * called, but care must be taken that a) the correct suspend/resume ordering
- * is guaranteed and b) the client device does not oultive the controller,
+ * is guaranteed and b) the client device does not outlive the controller,
  * i.e. that the device is removed before the controller is being shut down.
  * In case these guarantees have to be manually enforced, please refer to the
  * ssam_client_link() and ssam_client_bind() functions, which are intended to
@@ -146,7 +147,7 @@ int ssam_device_add(struct ssam_device *sdev)
 
 	if (sdev->ctrl->state != SSAM_CONTROLLER_STARTED) {
 		ssam_controller_stateunlock(sdev->ctrl);
-		return -ENXIO;
+		return -ENODEV;
 	}
 
 	status = device_add(&sdev->dev);
@@ -275,7 +276,7 @@ const struct ssam_device_id *ssam_device_get_match(
 EXPORT_SYMBOL_GPL(ssam_device_get_match);
 
 /**
- * ssam_device_get_match_data() - Find the ID matching the device in hte
+ * ssam_device_get_match_data() - Find the ID matching the device in the
  * ID table of the bound driver and return its ``driver_data`` member.
  * @dev: The device for which to get the match data.
  *
@@ -389,7 +390,7 @@ static int ssam_remove_device(struct device *dev, void *_data)
  * @ctrl: The controller to remove all direct clients for.
  *
  * Remove all SSAM client devices registered as direct children under the
- * given controller. Note that this only accounts for direct children ot the
+ * given controller. Note that this only accounts for direct children of the
  * controller device. This does not take care of any client devices where the
  * parent device has been manually set before calling ssam_device_add. Refer
  * to ssam_device_add()/ssam_device_remove() for more details on those cases.

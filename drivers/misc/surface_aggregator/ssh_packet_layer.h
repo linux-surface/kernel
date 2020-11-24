@@ -55,12 +55,11 @@ struct ssh_ptl_ops {
  * @pending.head:  List-head of the pending set/list.
  * @pending.count: Number of currently pending packets.
  * @tx:            Transmitter subsystem.
- * @tx.thread_signal: Signal notifying transmitter thread of data to be sent.
+ * @tx.running:    Flag indicating (desired) transmitter thread state.
  * @tx.thread:     Transmitter thread.
- * @tx.thread_wq:  Waitqueue-head for transmitter thread.
+ * @tx.thread_cplt_tx:  Completion for transmitter thread waiting on transfer.
+ * @tx.thread_cplt_pkt: Completion for transmitter thread waiting on packets.
  * @tx.packet_wq:  Waitqueue-head for packet transmit completion.
- * @tx.packet:     Currently sent packet.
- * @tx.offset:     Data-offset into the packet currently being transmitted.
  * @rx:            Receiver subsystem.
  * @rx.thread:     Receiver thread.
  * @rx.wq:         Waitqueue-head for receiver thread.
@@ -70,7 +69,7 @@ struct ssh_ptl_ops {
  * @rx.blocked.seqs:   Array of blocked sequence IDs.
  * @rx.blocked.offset: Offset indicating where a new ID should be inserted.
  * @rtx_timeout:   Retransmission timeout subsystem.
- * @rtx_timeout.timeout: Timeout inverval for retransmission.
+ * @rtx_timeout.timeout: Timeout interval for retransmission.
  * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
  * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
  * @ops:           Packet layer operations.
@@ -91,12 +90,11 @@ struct ssh_ptl {
 	} pending;
 
 	struct {
-		bool thread_signal;
+		atomic_t running;
 		struct task_struct *thread;
-		struct wait_queue_head thread_wq;
+		struct completion thread_cplt_tx;
+		struct completion thread_cplt_pkt;
 		struct wait_queue_head packet_wq;
-		struct ssh_packet *packet;
-		size_t offset;
 	} tx;
 
 	struct {
@@ -123,8 +121,8 @@ struct ssh_ptl {
 
 #define __ssam_prcond(func, p, fmt, ...)		\
 	do {						\
-		if ((p))				\
-			func((p), fmt, ##__VA_ARGS__);	\
+		if (p)					\
+			func(p, fmt, ##__VA_ARGS__);	\
 	} while (0)
 
 #define ptl_dbg(p, fmt, ...)  dev_dbg(&(p)->serdev->dev, fmt, ##__VA_ARGS__)
@@ -164,7 +162,23 @@ int ssh_ptl_submit(struct ssh_ptl *ptl, struct ssh_packet *p);
 void ssh_ptl_cancel(struct ssh_packet *p);
 
 int ssh_ptl_rx_rcvbuf(struct ssh_ptl *ptl, const u8 *buf, size_t n);
-void ssh_ptl_tx_wakeup(struct ssh_ptl *ptl);
+
+/**
+ * ssh_ptl_tx_wakeup_transfer() - Wake up packet transmitter thread for
+ * transfer.
+ * @ptl: The packet transport layer.
+ *
+ * Wakes up the packet transmitter thread, notifying it that the underlying
+ * transport has more space for data to be transmitted. If the packet
+ * transport layer has been shut down, calls to this function will be ignored.
+ */
+static inline void ssh_ptl_tx_wakeup_transfer(struct ssh_ptl *ptl)
+{
+	if (test_bit(SSH_PTL_SF_SHUTDOWN_BIT, &ptl->state))
+		return;
+
+	complete(&ptl->tx.thread_cplt_tx);
+}
 
 void ssh_packet_init(struct ssh_packet *packet, unsigned long type,
 		     u8 priority, const struct ssh_packet_ops *ops);

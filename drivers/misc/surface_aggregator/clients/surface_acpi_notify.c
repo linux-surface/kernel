@@ -80,7 +80,7 @@ static int san_set_rqsg_interface_device(struct device *dev)
  * The link will be automatically removed once the client device's driver is
  * unbound.
  *
- * Return: Returns zero on succes, %-ENXIO if the SAN interface has not been
+ * Return: Returns zero on success, %-ENXIO if the SAN interface has not been
  * set up yet, and %-ENOMEM if device link creation failed.
  */
 int san_client_link(struct device *client)
@@ -216,9 +216,9 @@ static int san_evt_bat_adp(struct device *dev, const struct ssam_event *event)
 		return status;
 
 	/*
-	 * Enusre that the battery states get updated correctly.
-	 * When the battery is fully charged and an adapter is plugged in, it
-	 * sometimes is not updated correctly, instead showing it as charging.
+	 * Ensure that the battery states get updated correctly. When the
+	 * battery is fully charged and an adapter is plugged in, it sometimes
+	 * is not updated correctly, instead showing it as charging.
 	 * Explicitly trigger battery updates to fix this.
 	 */
 
@@ -274,7 +274,7 @@ static unsigned long san_evt_bat_delay(u8 cid)
 	switch (cid) {
 	case SAM_EVENT_CID_BAT_ADP:
 		/*
-		 * Wait for battery state to update before signalling adapter
+		 * Wait for battery state to update before signaling adapter
 		 * change.
 		 */
 		return msecs_to_jiffies(5000);
@@ -803,9 +803,9 @@ static int san_probe(struct platform_device *pdev)
 	acpi_status astatus;
 	int status;
 
-	status = ssam_client_bind(&pdev->dev, &ctrl);
-	if (status)
-		return status == -ENXIO ? -EPROBE_DEFER : status;
+	ctrl = ssam_client_bind(&pdev->dev);
+	if (IS_ERR(ctrl))
+		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 
 	status = san_consumer_links_setup(pdev);
 	if (status)

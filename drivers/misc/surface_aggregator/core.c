@@ -74,7 +74,7 @@ EXPORT_SYMBOL_GPL(ssam_get_controller);
  * Set the main controller reference to the given pointer if the reference
  * hasn't been set already.
  *
- * Return: Returns zero on success or %-EBUSY if the reference has already
+ * Return: Returns zero on success or %-EEXIST if the reference has already
  * been set.
  */
 static int ssam_try_set_controller(struct ssam_controller *ctrl)
@@ -85,7 +85,7 @@ static int ssam_try_set_controller(struct ssam_controller *ctrl)
 	if (!__ssam_controller)
 		__ssam_controller = ctrl;
 	else
-		status = -EBUSY;
+		status = -EEXIST;
 	spin_unlock(&__ssam_controller_lock);
 
 	return status;
@@ -120,7 +120,7 @@ static void ssam_clear_controller(void)
  * The device link does not have to be destructed manually. It is removed
  * automatically once the driver of the client device unbinds.
  *
- * Return: Returns zero on success, %-ENXIO if the controller is not ready or
+ * Return: Returns zero on success, %-ENODEV if the controller is not ready or
  * going to be removed soon, or %-ENOMEM if the device link could not be
  * created for other reasons.
  */
@@ -134,13 +134,13 @@ int ssam_client_link(struct ssam_controller *c, struct device *client)
 
 	if (c->state != SSAM_CONTROLLER_STARTED) {
 		ssam_controller_stateunlock(c);
-		return -ENXIO;
+		return -ENODEV;
 	}
 
 	ctrldev = ssam_controller_device(c);
 	if (!ctrldev) {
 		ssam_controller_stateunlock(c);
-		return -ENXIO;
+		return -ENODEV;
 	}
 
 	link = device_link_add(client, ctrldev, flags);
@@ -150,14 +150,14 @@ int ssam_client_link(struct ssam_controller *c, struct device *client)
 	}
 
 	/*
-	 * Return -ENXIO if supplier driver is on its way to be removed. In this
-	 * case, the controller won't be around for much longer and the device
-	 * link is not going to save us any more, as unbinding is already in
-	 * progress.
+	 * Return -ENODEV if supplier driver is on its way to be removed. In
+	 * this case, the controller won't be around for much longer and the
+	 * device link is not going to save us any more, as unbinding is
+	 * already in progress.
 	 */
 	if (READ_ONCE(link->status) == DL_STATE_SUPPLIER_UNBIND) {
 		ssam_controller_stateunlock(c);
-		return -ENXIO;
+		return -ENODEV;
 	}
 
 	ssam_controller_stateunlock(c);
@@ -168,7 +168,6 @@ EXPORT_SYMBOL_GPL(ssam_client_link);
 /**
  * ssam_client_bind() - Bind an arbitrary client device to the controller.
  * @client: The client device.
- * @ctrl: A pointer to where the controller reference should be returned.
  *
  * Link an arbitrary client device to the controller by creating a device link
  * between it as consumer and the main controller device as provider. This
@@ -178,10 +177,10 @@ EXPORT_SYMBOL_GPL(ssam_client_link);
  *
  * This function does essentially the same as ssam_client_link(), except that
  * it first fetches the main controller reference, then creates the link, and
- * finally returns this reference in the @ctrl parameter. Note that this
- * function does not increment the reference counter of the controller, as,
- * due to the link, the controller lifetime is assured as long as the driver
- * of the client device is bound.
+ * finally returns this reference. Note that this function does not increment
+ * the reference counter of the controller, as, due to the link, the
+ * controller lifetime is assured as long as the driver of the client device
+ * is bound.
  *
  * It is not valid to use the controller reference obtained by this method
  * outside of the driver bound to the client device at the time of calling
@@ -197,18 +196,18 @@ EXPORT_SYMBOL_GPL(ssam_client_link);
  * The created device link does not have to be destructed manually. It is
  * removed automatically once the driver of the client device unbinds.
  *
- * Return: Returns zero on success, %-ENXIO if the controller is not present,
- * not ready or going to be removed soon, or %-ENOMEM if the device link could
- * not be created for other reasons.
+ * Return: Returns the controller on success, an error pointer with %-ENODEV
+ * if the controller is not present, not ready or going to be removed soon, or
+ * %-ENOMEM if the device link could not be created for other reasons.
  */
-int ssam_client_bind(struct device *client, struct ssam_controller **ctrl)
+struct ssam_controller *ssam_client_bind(struct device *client)
 {
 	struct ssam_controller *c;
 	int status;
 
 	c = ssam_get_controller();
 	if (!c)
-		return -ENXIO;
+		return ERR_PTR(-ENODEV);
 
 	status = ssam_client_link(c, client);
 
@@ -221,8 +220,7 @@ int ssam_client_bind(struct device *client, struct ssam_controller **ctrl)
 	 */
 	ssam_controller_put(c);
 
-	*ctrl = status == 0 ? c : NULL;
-	return status;
+	return status >= 0 ? c : ERR_PTR(status);
 }
 EXPORT_SYMBOL_GPL(ssam_client_bind);
 
@@ -283,13 +281,14 @@ static ssize_t firmware_version_show(struct device *dev,
 	b = ((version >> 8) & 0xffff);
 	c = version & 0xff;
 
-	return snprintf(buf, PAGE_SIZE - 1, "%u.%u.%u\n", a, b, c);
+	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
+	return scnprintf(buf, PAGE_SIZE, "%u.%u.%u\n", a, b, c);
 }
 static DEVICE_ATTR_RO(firmware_version);
 
 static struct attribute *ssam_sam_attrs[] = {
 	&dev_attr_firmware_version.attr,
-	NULL,
+	NULL
 };
 
 static const struct attribute_group ssam_sam_group = {
@@ -349,8 +348,8 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
 	}
 
 	if (status) {
-		dev_err(&serdev->dev, "setup: failed to set parity (value: 0x%02x,"
-			" error: %d)\n", uart->parity, status);
+		dev_err(&serdev->dev, "setup: failed to set parity (value: 0x%02x, error: %d)\n",
+			uart->parity, status);
 		return AE_ERROR;
 	}
 
@@ -405,9 +404,9 @@ static int ssam_serial_hub_pm_prepare(struct device *dev)
 	/*
 	 * Try to signal display-off, This will quiesce events.
 	 *
-	 * Note: Signalling display-off/display-on should normally be done from
-	 * some sort of display state notifier. As that is not available, signal
-	 * it here.
+	 * Note: Signaling display-off/display-on should normally be done from
+	 * some sort of display state notifier. As that is not available,
+	 * signal it here.
 	 */
 
 	status = ssam_ctrl_notif_display_off(c);
@@ -425,9 +424,9 @@ static void ssam_serial_hub_pm_complete(struct device *dev)
 	/*
 	 * Try to signal display-on. This will restore events.
 	 *
-	 * Note: Signalling display-off/display-on should normally be done from
-	 * some sort of display state notifier. As that is not available, signal
-	 * it here.
+	 * Note: Signaling display-off/display-on should normally be done from
+	 * some sort of display state notifier. As that is not available,
+	 * signal it here.
 	 */
 
 	status = ssam_ctrl_notif_display_on(c);
@@ -477,9 +476,9 @@ static int ssam_serial_hub_pm_resume(struct device *dev)
 	 * case of errors, log them and try to restore normal operation state
 	 * as far as possible.
 	 *
-	 * Note: Signalling display-off/display-on should normally be done from
-	 * some sort of display state notifier. As that is not available, signal
-	 * it here.
+	 * Note: Signaling display-off/display-on should normally be done from
+	 * some sort of display state notifier. As that is not available,
+	 * signal it here.
 	 */
 
 	ssam_irq_disarm_wakeup(c);
