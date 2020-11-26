@@ -831,6 +831,18 @@ bool acpi_lpss_dep(struct acpi_device *adev, acpi_handle handle)
 	return false;
 }
 
+static int acpi_dev_match_by_dep(struct device *dev, const void *data)
+{
+	struct acpi_device *adev = to_acpi_device(dev);
+	const struct acpi_device *dependee = data;
+	acpi_handle handle = dependee->handle;
+
+	if (acpi_lpss_dep(adev, handle))
+		return 1;
+
+	return 0;
+}
+
 /**
  * acpi_dev_present - Detect that a given ACPI device is present
  * @hid: Hardware ID of the device.
@@ -865,6 +877,28 @@ bool acpi_dev_present(const char *hid, const char *uid, s64 hrv)
 	return !!dev;
 }
 EXPORT_SYMBOL(acpi_dev_present);
+
+/**
+ * acpi_dev_get_next_dep_dev - Return next ACPI device dependent on input dev
+ * @adev: Pointer to the dependee device
+ * @prev: Pointer to the previous dependent device (or NULL for first match)
+ *
+ * Return the next ACPI device which declares itself dependent on @adev in
+ * the _DEP buffer.
+ *
+ * The caller is responsible to call put_device() on the returned device.
+ */
+struct acpi_device *acpi_dev_get_next_dep_dev(struct acpi_device *adev,
+					      struct acpi_device *prev)
+{
+	struct device *start = prev ? &prev->dev : NULL;
+	struct device *dev;
+
+	dev = bus_find_device(&acpi_bus_type, start, adev, acpi_dev_match_by_dep);
+
+	return dev ? to_acpi_device(dev) : NULL;
+}
+EXPORT_SYMBOL(acpi_dev_get_next_dep_dev);
 
 /**
  * acpi_dev_get_next_match_dev - Return the next match of ACPI device
