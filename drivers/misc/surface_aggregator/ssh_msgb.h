@@ -14,7 +14,6 @@
 #include <linux/surface_aggregator/controller.h>
 #include <linux/surface_aggregator/serial_hub.h>
 
-
 /**
  * struct msgbuf - Buffer struct to construct SSH messages.
  * @begin: Pointer to the beginning of the allocated buffer space.
@@ -53,6 +52,18 @@ static inline size_t msgb_bytes_used(const struct msgbuf *msgb)
 	return msgb->ptr - msgb->begin;
 }
 
+static inline void __msgb_push_u8(struct msgbuf *msgb, u8 value)
+{
+	*msgb->ptr = value;
+	msgb->ptr += sizeof(u8);
+}
+
+static inline void __msgb_push_u16(struct msgbuf *msgb, u16 value)
+{
+	put_unaligned_le16(value, msgb->ptr);
+	msgb->ptr += sizeof(u16);
+}
+
 /**
  * msgb_push_u16() - Push a u16 value to the buffer.
  * @msgb:  The message buffer.
@@ -63,8 +74,7 @@ static inline void msgb_push_u16(struct msgbuf *msgb, u16 value)
 	if (WARN_ON(msgb->ptr + sizeof(u16) > msgb->end))
 		return;
 
-	put_unaligned_le16(value, msgb->ptr);
-	msgb->ptr += sizeof(u16);
+	__msgb_push_u16(msgb, value);
 }
 
 /**
@@ -112,11 +122,10 @@ static inline void msgb_push_frame(struct msgbuf *msgb, u8 ty, u16 len, u8 seq)
 	if (WARN_ON(msgb->ptr + sizeof(struct ssh_frame) > msgb->end))
 		return;
 
-	put_unaligned(ty,  begin + offsetof(struct ssh_frame, type));
-	put_unaligned(len, begin + offsetof(struct ssh_frame, len));
-	put_unaligned(seq, begin + offsetof(struct ssh_frame, seq));
+	__msgb_push_u8(msgb, ty);	/* Frame type. */
+	__msgb_push_u16(msgb, len);	/* Frame payload length. */
+	__msgb_push_u8(msgb, seq);	/* Frame sequence ID. */
 
-	msgb->ptr += sizeof(struct ssh_frame);
 	msgb_push_crc(msgb, begin, msgb->ptr - begin);
 }
 
@@ -127,13 +136,13 @@ static inline void msgb_push_frame(struct msgbuf *msgb, u8 ty, u16 len, u8 seq)
  */
 static inline void msgb_push_ack(struct msgbuf *msgb, u8 seq)
 {
-	// SYN
+	/* SYN. */
 	msgb_push_syn(msgb);
 
-	// ACK-type frame + CRC
+	/* ACK-type frame + CRC. */
 	msgb_push_frame(msgb, SSH_FRAME_TYPE_ACK, 0x00, seq);
 
-	// payload CRC (ACK-type frames do not have a payload)
+	/* Payload CRC (ACK-type frames do not have a payload). */
 	msgb_push_crc(msgb, msgb->ptr, 0);
 }
 
@@ -143,13 +152,13 @@ static inline void msgb_push_ack(struct msgbuf *msgb, u8 seq)
  */
 static inline void msgb_push_nak(struct msgbuf *msgb)
 {
-	// SYN
+	/* SYN. */
 	msgb_push_syn(msgb);
 
-	// NAK-type frame + CRC
+	/* NAK-type frame + CRC. */
 	msgb_push_frame(msgb, SSH_FRAME_TYPE_NAK, 0x00, 0x00);
 
-	// payload CRC (ACK-type frames do not have a payload)
+	/* Payload CRC (ACK-type frames do not have a payload). */
 	msgb_push_crc(msgb, msgb->ptr, 0);
 }
 
@@ -164,35 +173,33 @@ static inline void msgb_push_cmd(struct msgbuf *msgb, u8 seq, u16 rqid,
 				 const struct ssam_request *rqst)
 {
 	const u8 type = SSH_FRAME_TYPE_DATA_SEQ;
-	u8 *p;
+	u8 *cmd;
 
-	// SYN
+	/* SYN. */
 	msgb_push_syn(msgb);
 
-	// command frame + crc
+	/* Command frame + CRC. */
 	msgb_push_frame(msgb, type, sizeof(struct ssh_command) + rqst->length, seq);
 
-	// frame payload: command struct + payload
+	/* Frame payload: Command struct + payload. */
 	if (WARN_ON(msgb->ptr + sizeof(struct ssh_command) > msgb->end))
 		return;
 
-	p = msgb->ptr;
+	cmd = msgb->ptr;
 
-	put_unaligned(SSH_PLD_TYPE_CMD,      p + offsetof(struct ssh_command, type));
-	put_unaligned(rqst->target_category, p + offsetof(struct ssh_command, tc));
-	put_unaligned(rqst->target_id,       p + offsetof(struct ssh_command, tid_out));
-	put_unaligned(0x00,                  p + offsetof(struct ssh_command, tid_in));
-	put_unaligned(rqst->instance_id,     p + offsetof(struct ssh_command, iid));
-	put_unaligned(rqid,                  p + offsetof(struct ssh_command, rqid));
-	put_unaligned(rqst->command_id,      p + offsetof(struct ssh_command, cid));
+	__msgb_push_u8(msgb, SSH_PLD_TYPE_CMD);		/* Payload type. */
+	__msgb_push_u8(msgb, rqst->target_category);	/* Target category. */
+	__msgb_push_u8(msgb, rqst->target_id);		/* Target ID (out). */
+	__msgb_push_u8(msgb, 0x00);			/* Target ID (in). */
+	__msgb_push_u8(msgb, rqst->instance_id);	/* Instance ID. */
+	__msgb_push_u16(msgb, rqid);			/* Request ID. */
+	__msgb_push_u8(msgb, rqst->command_id);		/* Command ID. */
 
-	msgb->ptr += sizeof(struct ssh_command);
-
-	// command payload
+	/* Command payload. */
 	msgb_push_buf(msgb, rqst->payload, rqst->length);
 
-	// crc for command struct + payload
-	msgb_push_crc(msgb, p, msgb->ptr - p);
+	/* CRC for command struct + payload. */
+	msgb_push_crc(msgb, cmd, msgb->ptr - cmd);
 }
 
 #endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */

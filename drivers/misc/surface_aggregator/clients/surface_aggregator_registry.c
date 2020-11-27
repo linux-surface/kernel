@@ -96,7 +96,6 @@ static const struct software_node ssam_node_hid_base_iid6 = {
 	.parent = &ssam_node_hub_base,
 };
 
-
 static const struct software_node *ssam_node_group_sb2[] = {
 	&ssam_node_root,
 	&ssam_node_hub_main,
@@ -300,7 +299,6 @@ struct ssam_base_hub {
 	struct ssam_event_notifier notif;
 };
 
-
 static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
 	.target_category = SSAM_SSH_TC_BAS,
 	.target_id       = 0x01,
@@ -331,7 +329,6 @@ static int ssam_base_hub_query_state(struct ssam_device *sdev,
 	return 0;
 }
 
-
 static ssize_t ssam_base_hub_state_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -359,7 +356,6 @@ static struct attribute *ssam_base_hub_attrs[] = {
 const struct attribute_group ssam_base_hub_group = {
 	.attrs = ssam_base_hub_attrs,
 };
-
 
 static int ssam_base_hub_update(struct ssam_device *sdev,
 				enum ssam_base_hub_state new)
@@ -454,7 +450,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 	hub->sdev = sdev;
 	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
 
-	hub->notif.base.priority = 1000;  // this notifier should run first
+	hub->notif.base.priority = 1000;  /* This notifier should run first. */
 	hub->notif.base.fn = ssam_base_hub_notif;
 	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
 	hub->notif.event.id.target_category = SSAM_SSH_TC_BAS,

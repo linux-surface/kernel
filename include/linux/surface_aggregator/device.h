@@ -125,7 +125,6 @@ struct ssam_device_uid {
 #define SSAM_VDEV(cat, tid, iid, fun) \
 	SSAM_DEVICE(SSAM_DOMAIN_VIRTUAL, SSAM_VIRTUAL_TC_##cat, tid, iid, fun)
 
-
 /**
  * SSAM_SDEV() - Initialize a &struct ssam_device_id as physical SSH device
  * with the given parameters.
@@ -148,7 +147,6 @@ struct ssam_device_uid {
  */
 #define SSAM_SDEV(cat, tid, iid, fun) \
 	SSAM_DEVICE(SSAM_DOMAIN_SERIALHUB, SSAM_SSH_TC_##cat, tid, iid, fun)
-
 
 /**
  * struct ssam_device - SSAM client device.
@@ -181,7 +179,6 @@ struct ssam_device_driver {
 
 extern struct bus_type ssam_bus_type;
 extern const struct device_type ssam_device_type;
-
 
 /**
  * is_ssam_device() - Check if the given device is a SSAM client device.
@@ -230,13 +227,10 @@ struct ssam_device_driver *to_ssam_device_driver(struct device_driver *d)
 	return container_of(d, struct ssam_device_driver, driver);
 }
 
+const struct ssam_device_id *ssam_device_id_match(const struct ssam_device_id *table,
+						  const struct ssam_device_uid uid);
 
-const struct ssam_device_id *ssam_device_id_match(
-		const struct ssam_device_id *table,
-		const struct ssam_device_uid uid);
-
-const struct ssam_device_id *ssam_device_get_match(
-		const struct ssam_device *dev);
+const struct ssam_device_id *ssam_device_get_match(const struct ssam_device *dev);
 
 const void *ssam_device_get_match_data(const struct ssam_device *dev);
 
@@ -300,7 +294,6 @@ static inline void ssam_device_set_drvdata(struct ssam_device *sdev, void *data)
 {
 	dev_set_drvdata(&sdev->dev, data);
 }
-
 
 int __ssam_device_driver_register(struct ssam_device_driver *d, struct module *o);
 void ssam_device_driver_unregister(struct ssam_device_driver *d);

@@ -65,7 +65,6 @@ static inline int sshp_buf_alloc(struct sshp_buf *buf, size_t cap, gfp_t flags)
 
 	sshp_buf_init(buf, ptr, cap);
 	return 0;
-
 }
 
 /**
@@ -142,7 +141,6 @@ static inline void sshp_buf_span_from(struct sshp_buf *buf, size_t offset,
 	span->ptr = buf->ptr + offset;
 	span->len = buf->len - offset;
 }
-
 
 bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem);
 
