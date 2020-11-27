@@ -15,7 +15,6 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-
 /* Status/error categories */
 #define SDTX_CATEGORY_STATUS		0x0000
 #define SDTX_CATEGORY_RUNTIME_ERROR	0x1000
@@ -49,7 +48,6 @@
 #define SDTX_ERR_FAILED_TO_REMAIN_OPEN	SDTX_ERR_HW(0x02)
 #define SDTX_ERR_FAILED_TO_CLOSE	SDTX_ERR_HW(0x03)
 
-
 /* Base types */
 #define SDTX_DEVICE_TYPE_HID		0x0100
 #define SDTX_DEVICE_TYPE_SSH		0x0200
@@ -59,7 +57,6 @@
 
 #define SDTX_BASE_TYPE_HID(id)		((id) | SDTX_DEVICE_TYPE_HID)
 #define SDTX_BASE_TYPE_SSH(id)		((id) | SDTX_DEVICE_TYPE_SSH)
-
 
 /**
  * enum sdtx_device_mode - Mode describing how (and if) the clipboard is
@@ -129,7 +126,6 @@ struct sdtx_base_info {
 	__u16 state;
 	__u16 base_id;
 } __attribute__((__packed__));
-
 
 /* IOCTLs */
 #define SDTX_IOCTL_EVENTS_ENABLE	_IO(0xa5, 0x21)

@@ -138,7 +138,7 @@ static_assert(sizeof(struct ssh_command) == 8);
  *
  * Return: Returns the length of a SSH message with payload of specified size.
  */
-#define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + payload_size)
+#define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + (payload_size))
 
 /**
  * SSH_COMMAND_MESSAGE_LENGTH() - Compute length of SSH command message.
@@ -148,7 +148,7 @@ static_assert(sizeof(struct ssh_command) == 8);
  * specified size.
  */
 #define SSH_COMMAND_MESSAGE_LENGTH(payload_size) \
-	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + payload_size)
+	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + (payload_size))
 
 /**
  * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
@@ -292,15 +292,15 @@ struct ssam_span {
  * Windows driver.
  */
 enum ssam_ssh_tc {
-				// category 0x00 is invalid for EC use
-	SSAM_SSH_TC_SAM = 0x01,	// generic system functionality, real-time clock
-	SSAM_SSH_TC_BAT = 0x02,	// battery/power subsystem
-	SSAM_SSH_TC_TMP = 0x03,	// thermal subsystem
+				/* Category 0x00 is invalid for EC use. */
+	SSAM_SSH_TC_SAM = 0x01,	/* Generic system functionality, real-time clock. */
+	SSAM_SSH_TC_BAT = 0x02,	/* Battery/power subsystem. */
+	SSAM_SSH_TC_TMP = 0x03,	/* Thermal subsystem. */
 	SSAM_SSH_TC_PMC = 0x04,
 	SSAM_SSH_TC_FAN = 0x05,
 	SSAM_SSH_TC_PoM = 0x06,
 	SSAM_SSH_TC_DBG = 0x07,
-	SSAM_SSH_TC_KBD = 0x08,	// legacy keyboard (Laptop 1/2)
+	SSAM_SSH_TC_KBD = 0x08,	/* Legacy keyboard (Laptop 1/2). */
 	SSAM_SSH_TC_FWU = 0x09,
 	SSAM_SSH_TC_UNI = 0x0a,
 	SSAM_SSH_TC_LPC = 0x0b,
@@ -309,11 +309,11 @@ enum ssam_ssh_tc {
 	SSAM_SSH_TC_KIP = 0x0e,
 	SSAM_SSH_TC_EXT = 0x0f,
 	SSAM_SSH_TC_BLD = 0x10,
-	SSAM_SSH_TC_BAS = 0x11,	// detachment system (Surface Book 2/3)
+	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
 	SSAM_SSH_TC_SEN = 0x12,
 	SSAM_SSH_TC_SRQ = 0x13,
 	SSAM_SSH_TC_MCU = 0x14,
-	SSAM_SSH_TC_HID = 0x15,	// generic HID input subsystem
+	SSAM_SSH_TC_HID = 0x15,	/* Generic HID input subsystem. */
 	SSAM_SSH_TC_TCH = 0x16,
 	SSAM_SSH_TC_BKL = 0x17,
 	SSAM_SSH_TC_TAM = 0x18,
@@ -325,7 +325,7 @@ enum ssam_ssh_tc {
 	SSAM_SSH_TC_AUD = 0x1e,
 	SSAM_SSH_TC_SMC = 0x1f,
 	SSAM_SSH_TC_KPD = 0x20,
-	SSAM_SSH_TC_REG = 0x21,	// extended event registry
+	SSAM_SSH_TC_REG = 0x21,	/* Extended event registry. */
 };
 
 
@@ -392,7 +392,6 @@ static inline u8 ssh_packet_priority_get_base(u8 priority)
 	return (priority & 0xf0) >> 4;
 }
 
-
 enum ssh_packet_flags {
 	/* state flags */
 	SSH_PACKET_SF_LOCKED_BIT,
@@ -426,7 +425,6 @@ enum ssh_packet_flags {
 		| BIT(SSH_PACKET_TY_SEQUENCED_BIT)
 		| BIT(SSH_PACKET_TY_BLOCKING_BIT),
 };
-
 
 struct ssh_ptl;
 struct ssh_packet;
@@ -548,7 +546,6 @@ enum ssh_request_flags {
 		  BIT(SSH_REQUEST_TY_FLUSH_BIT)
 		| BIT(SSH_REQUEST_TY_HAS_RESPONSE_BIT),
 };
-
 
 struct ssh_rtl;
 struct ssh_request;

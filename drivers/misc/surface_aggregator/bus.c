@@ -14,14 +14,13 @@
 #include "bus.h"
 #include "controller.h"
 
-
 static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
 	struct ssam_device *sdev = to_ssam_device(dev);
 
 	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
-	return scnprintf(buf, PAGE_SIZE, "ssam:d%02Xc%02Xt%02Xi%02xf%02X\n",
+	return scnprintf(buf, PAGE_SIZE, "ssam:d%02Xc%02Xt%02Xi%02Xf%02X\n",
 			sdev->uid.domain, sdev->uid.category, sdev->uid.target,
 			sdev->uid.instance, sdev->uid.function);
 }
@@ -37,7 +36,7 @@ static int ssam_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	struct ssam_device *sdev = to_ssam_device(dev);
 
-	return add_uevent_var(env, "MODALIAS=ssam:d%02Xc%02Xt%02Xi%02xf%02X",
+	return add_uevent_var(env, "MODALIAS=ssam:d%02Xc%02Xt%02Xi%02Xf%02X",
 			      sdev->uid.domain, sdev->uid.category,
 			      sdev->uid.target, sdev->uid.instance,
 			      sdev->uid.function);
@@ -58,7 +57,6 @@ const struct device_type ssam_device_type = {
 	.release = ssam_device_release,
 };
 EXPORT_SYMBOL_GPL(ssam_device_type);
-
 
 /**
  * ssam_device_alloc() - Allocate and initialize a SSAM client device.
@@ -169,7 +167,6 @@ void ssam_device_remove(struct ssam_device *sdev)
 }
 EXPORT_SYMBOL_GPL(ssam_device_remove);
 
-
 /**
  * ssam_device_id_compatible() - Check if a device ID matches a UID.
  * @id:  The device ID as potential match.
@@ -212,13 +209,13 @@ static bool ssam_device_id_compatible(const struct ssam_device_id *id,
  */
 static bool ssam_device_id_is_null(const struct ssam_device_id *id)
 {
-	return id->match_flags == 0
-		&& id->domain == 0
-		&& id->category == 0
-		&& id->target == 0
-		&& id->instance == 0
-		&& id->function == 0
-		&& id->driver_data == 0;
+	return id->match_flags == 0 &&
+		id->domain == 0 &&
+		id->category == 0 &&
+		id->target == 0 &&
+		id->instance == 0 &&
+		id->function == 0 &&
+		id->driver_data == 0;
 }
 
 /**
@@ -229,9 +226,8 @@ static bool ssam_device_id_is_null(const struct ssam_device_id *id)
  * Find the first match for the provided device UID in the provided ID table
  * and return it. Returns %NULL if no match could be found.
  */
-const struct ssam_device_id *ssam_device_id_match(
-		const struct ssam_device_id *table,
-		const struct ssam_device_uid uid)
+const struct ssam_device_id *ssam_device_id_match(const struct ssam_device_id *table,
+						  const struct ssam_device_uid uid)
 {
 	const struct ssam_device_id *id;
 
@@ -259,8 +255,7 @@ EXPORT_SYMBOL_GPL(ssam_device_id_match);
  * Return: Returns the first match for the UID of the device in the device
  * driver's match table, or %NULL if no such match could be found.
  */
-const struct ssam_device_id *ssam_device_get_match(
-		const struct ssam_device *dev)
+const struct ssam_device_id *ssam_device_get_match(const struct ssam_device *dev)
 {
 	const struct ssam_device_driver *sdrv;
 
@@ -305,7 +300,6 @@ const void *ssam_device_get_match_data(const struct ssam_device *dev)
 }
 EXPORT_SYMBOL_GPL(ssam_device_get_match_data);
 
-
 static int ssam_bus_match(struct device *dev, struct device_driver *drv)
 {
 	struct ssam_device_driver *sdrv = to_ssam_device_driver(drv);
@@ -341,7 +335,6 @@ struct bus_type ssam_bus_type = {
 };
 EXPORT_SYMBOL_GPL(ssam_bus_type);
 
-
 /**
  * __ssam_device_driver_register() - Register a SSAM client device driver.
  * @sdrv:  The driver to register.
@@ -372,7 +365,6 @@ void ssam_device_driver_unregister(struct ssam_device_driver *sdrv)
 	driver_unregister(&sdrv->driver);
 }
 EXPORT_SYMBOL_GPL(ssam_device_driver_unregister);
-
 
 static int ssam_remove_device(struct device *dev, void *_data)
 {
@@ -406,7 +398,6 @@ void ssam_controller_remove_clients(struct ssam_controller *ctrl)
 	dev = ssam_controller_device(ctrl);
 	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
 }
-
 
 /**
  * ssam_bus_register() - Register and set-up the SSAM client device bus.

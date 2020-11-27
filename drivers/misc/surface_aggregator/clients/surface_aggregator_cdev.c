@@ -80,7 +80,7 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 	plddata = u64_to_user_ptr(rqst.payload.data);
 	rspdata = u64_to_user_ptr(rqst.response.data);
 
-	// setup basic request fields
+	/* Setup basic request fields. */
 	spec.target_category = rqst.target_category;
 	spec.target_id = rqst.target_id;
 	spec.command_id = rqst.command_id;
@@ -93,7 +93,7 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 	rsp.length = 0;
 	rsp.pointer = NULL;
 
-	// get request payload from user-space
+	/* Get request payload from user-space. */
 	if (spec.length) {
 		if (!plddata) {
 			ret = -EINVAL;
@@ -113,7 +113,7 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 		}
 	}
 
-	// allocate response buffer
+	/* Allocate response buffer. */
 	if (rsp.capacity) {
 		if (!rspdata) {
 			ret = -EINVAL;
@@ -128,17 +128,17 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 		}
 	}
 
-	// perform request
+	/* Perform request. */
 	status = ssam_request_sync(cdev->ctrl, &spec, &rsp);
 	if (status)
 		goto out;
 
-	// copy response to user-space
+	/* Copy response to user-space. */
 	if (rsp.length && copy_to_user(rspdata, rsp.pointer, rsp.length))
 		ret = -EFAULT;
 
 out:
-	// always try to set response-length and status
+	/* Always try to set response-length and status. */
 	tmp = put_user(rsp.length, &r->response.length);
 	if (tmp)
 		ret = tmp;
@@ -147,7 +147,7 @@ out:
 	if (tmp)
 		ret = tmp;
 
-	// cleanup
+	/* Cleanup. */
 	kfree(spec.payload);
 	kfree(rsp.pointer);
 
@@ -172,7 +172,7 @@ static long ssam_cdev_device_ioctl(struct file *file, unsigned int cmd,
 	struct ssam_cdev *cdev = file->private_data;
 	long status;
 
-	// ensure that controller is valid for as long as we need it
+	/* Ensure that controller is valid for as long as we need it. */
 	if (down_read_killable(&cdev->lock))
 		return -ERESTARTSYS;
 

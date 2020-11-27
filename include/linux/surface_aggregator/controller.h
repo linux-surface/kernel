@@ -105,7 +105,6 @@ struct ssam_response {
 
 struct ssam_controller;
 
-
 struct ssam_controller *ssam_get_controller(void);
 struct ssam_controller *ssam_client_bind(struct device *client);
 int ssam_client_link(struct ssam_controller *ctrl, struct device *client);
@@ -216,7 +215,6 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 				  const struct ssam_request *spec,
 				  struct ssam_response *rsp,
 				  struct ssam_span *buf);
-
 
 /**
  * ssam_request_sync_onstack - Execute a synchronous request on the stack.
@@ -461,8 +459,8 @@ struct ssam_request_spec_md {
 										\
 		if (rsp.length != sizeof(rtype)) {				\
 			struct device *dev = ssam_controller_device(ctrl);	\
-			dev_err(dev, "rqst: invalid response length, expected "	\
-				"%zu, got %zu (tc: 0x%02x, cid: 0x%02x)",	\
+			dev_err(dev,						\
+				"rqst: invalid response length, expected %zu, got %zu (tc: %#04x, cid: %#04x)", \
 				sizeof(rtype), rsp.length, rqst.target_category,\
 				rqst.command_id);				\
 			return -EIO;						\
@@ -497,8 +495,7 @@ struct ssam_request_spec_md {
 #define SSAM_DEFINE_SYNC_REQUEST_MD_N(name, spec...)				\
 	int name(struct ssam_controller *ctrl, u8 tid, u8 iid)			\
 	{									\
-		struct ssam_request_spec_md s					\
-			= (struct ssam_request_spec_md)spec;			\
+		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 		struct ssam_request rqst;					\
 										\
 		rqst.target_category = s.target_category;			\
@@ -540,8 +537,7 @@ struct ssam_request_spec_md {
 #define SSAM_DEFINE_SYNC_REQUEST_MD_W(name, atype, spec...)			\
 	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg)\
 	{									\
-		struct ssam_request_spec_md s					\
-			= (struct ssam_request_spec_md)spec;			\
+		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 		struct ssam_request rqst;					\
 										\
 		rqst.target_category = s.target_category;			\
@@ -584,8 +580,7 @@ struct ssam_request_spec_md {
 #define SSAM_DEFINE_SYNC_REQUEST_MD_R(name, rtype, spec...)			\
 	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret)	\
 	{									\
-		struct ssam_request_spec_md s					\
-			= (struct ssam_request_spec_md)spec;			\
+		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 		struct ssam_request rqst;					\
 		struct ssam_response rsp;					\
 		int status;							\
@@ -608,8 +603,8 @@ struct ssam_request_spec_md {
 										\
 		if (rsp.length != sizeof(rtype)) {				\
 			struct device *dev = ssam_controller_device(ctrl);	\
-			dev_err(dev, "rqst: invalid response length, expected "	\
-				"%zu, got %zu (tc: 0x%02x, cid: 0x%02x)",	\
+			dev_err(dev,						\
+				"rqst: invalid response length, expected %zu, got %zu (tc: %#04x, cid: %#04x)", \
 				sizeof(rtype), rsp.length, rqst.target_category,\
 				rqst.command_id);				\
 			return -EIO;						\
@@ -650,7 +645,6 @@ enum ssam_notif_flags {
 	SSAM_NOTIF_STOP    = BIT(1),
 };
 
-
 struct ssam_event_notifier;
 
 typedef u32 (*ssam_notifier_fn_t)(struct ssam_event_notifier *nf,
@@ -659,7 +653,7 @@ typedef u32 (*ssam_notifier_fn_t)(struct ssam_event_notifier *nf,
 /**
  * struct ssam_notifier_block - Base notifier block for SSAM event
  * notifications.
- * @next:     The next notifier block in order of priority.
+ * @node:     The node for the list of notifiers.
  * @fn:       The callback function of this notifier. This function takes the
  *            respective notifier block and event as input and should return
  *            a notifier value, which can either be obtained from the flags
@@ -672,7 +666,7 @@ typedef u32 (*ssam_notifier_fn_t)(struct ssam_event_notifier *nf,
  *            priority) callbacks.
  */
 struct ssam_notifier_block {
-	struct ssam_notifier_block __rcu *next;
+	struct list_head node;
 	ssam_notifier_fn_t fn;
 	int priority;
 };
@@ -769,11 +763,10 @@ enum ssam_event_mask {
 	SSAM_EVENT_MASK_INSTANCE = BIT(1),
 
 	SSAM_EVENT_MASK_NONE = 0,
-	SSAM_EVENT_MASK_STRICT
-		= SSAM_EVENT_MASK_TARGET
+	SSAM_EVENT_MASK_STRICT =
+		  SSAM_EVENT_MASK_TARGET
 		| SSAM_EVENT_MASK_INSTANCE,
 };
-
 
 /**
  * SSAM_EVENT_REGISTRY() - Define a new event registry.
@@ -801,7 +794,6 @@ enum ssam_event_mask {
 
 #define SSAM_EVENT_REGISTRY_REG \
 	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, 0x02, 0x01, 0x02)
-
 
 /**
  * struct ssam_event_notifier - Notifier block for SSAM events.
