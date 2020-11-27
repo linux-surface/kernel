@@ -13,7 +13,6 @@
 #include <linux/surface_aggregator/serial_hub.h>
 #include "ssh_parser.h"
 
-
 /**
  * sshp_validate_crc() - Validate a CRC in raw message data.
  * @src: The span of data over which the CRC should be computed.
@@ -122,7 +121,7 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 	struct ssam_span sf;
 	struct ssam_span sp;
 
-	// initialize output
+	/* Initialize output. */
 	*frame = NULL;
 	payload->ptr = NULL;
 	payload->len = 0;
@@ -132,23 +131,23 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 		return -ENOMSG;
 	}
 
-	// check for minimum packet length
+	/* Check for minimum packet length. */
 	if (unlikely(source->len < SSH_MESSAGE_LENGTH(0))) {
 		dev_dbg(dev, "rx: parser: not enough data for frame\n");
 		return 0;
 	}
 
-	// pin down frame
+	/* Pin down frame. */
 	sf.ptr = source->ptr + sizeof(u16);
 	sf.len = sizeof(struct ssh_frame);
 
-	// validate frame CRC
+	/* Validate frame CRC. */
 	if (unlikely(!sshp_validate_crc(&sf, sf.ptr + sf.len))) {
 		dev_warn(dev, "rx: parser: invalid frame CRC\n");
 		return -EBADMSG;
 	}
 
-	// ensure packet does not exceed maximum length
+	/* Ensure packet does not exceed maximum length. */
 	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
 	if (unlikely(SSH_MESSAGE_LENGTH(sp.len) > maxlen)) {
 		dev_warn(dev, "rx: parser: frame too large: %llu bytes\n",
@@ -156,16 +155,16 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 		return -EMSGSIZE;
 	}
 
-	// pin down payload
+	/* Pin down payload. */
 	sp.ptr = sf.ptr + sf.len + sizeof(u16);
 
-	// check for frame + payload length
+	/* Check for frame + payload length. */
 	if (source->len < SSH_MESSAGE_LENGTH(sp.len)) {
 		dev_dbg(dev, "rx: parser: not enough data for payload\n");
 		return 0;
 	}
 
-	// validate payload crc
+	/* Validate payload CRC. */
 	if (unlikely(!sshp_validate_crc(&sp, sp.ptr + sp.len))) {
 		dev_warn(dev, "rx: parser: invalid payload CRC\n");
 		return -EBADMSG;
@@ -174,7 +173,7 @@ int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 	*frame = (struct ssh_frame *)sf.ptr;
 	*payload = sp;
 
-	dev_dbg(dev, "rx: parser: valid frame found (type: 0x%02x, len: %u)\n",
+	dev_dbg(dev, "rx: parser: valid frame found (type: %#04x, len: %u)\n",
 		(*frame)->type, (*frame)->len);
 
 	return 0;
@@ -208,7 +207,7 @@ int sshp_parse_command(const struct device *dev, const struct ssam_span *source,
 		       struct ssh_command **command,
 		       struct ssam_span *command_data)
 {
-	// check for minimum length
+	/* Check for minimum length. */
 	if (unlikely(source->len < sizeof(struct ssh_command))) {
 		*command = NULL;
 		command_data->ptr = NULL;
@@ -222,7 +221,7 @@ int sshp_parse_command(const struct device *dev, const struct ssam_span *source,
 	command_data->ptr = source->ptr + sizeof(struct ssh_command);
 	command_data->len = source->len - sizeof(struct ssh_command);
 
-	dev_dbg(dev, "rx: parser: valid command found (tc: 0x%02x, cid: 0x%02x)\n",
+	dev_dbg(dev, "rx: parser: valid command found (tc: %#04x, cid: %#04x)\n",
 		(*command)->tc, (*command)->cid);
 
 	return 0;

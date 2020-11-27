@@ -19,7 +19,6 @@
 
 #include "ssh_packet_layer.h"
 
-
 /**
  * enum ssh_rtl_state_flags - State-flags for &struct ssh_rtl.
  *

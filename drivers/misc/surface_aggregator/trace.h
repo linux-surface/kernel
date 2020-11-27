@@ -16,7 +16,6 @@
 #include <asm/unaligned.h>
 #include <linux/tracepoint.h>
 
-
 TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_DATA_SEQ);
 TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_DATA_NSQ);
 TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_ACK);
@@ -87,13 +86,11 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_SMC);
 TRACE_DEFINE_ENUM(SSAM_SSH_TC_KPD);
 TRACE_DEFINE_ENUM(SSAM_SSH_TC_REG);
 
-
 #define SSAM_PTR_UID_LEN		9
 #define SSAM_U8_FIELD_NOT_APPLICABLE	((u16)-1)
 #define SSAM_SEQ_NOT_APPLICABLE		((u16)-1)
 #define SSAM_RQID_NOT_APPLICABLE	((u32)-1)
 #define SSAM_SSH_TC_NOT_APPLICABLE	0
-
 
 #ifndef _SURFACE_AGGREGATOR_TRACE_HELPERS
 #define _SURFACE_AGGREGATOR_TRACE_HELPERS
@@ -175,7 +172,6 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 		{ SSAM_U8_FIELD_NOT_APPLICABLE,		"N/A" }		\
 	)
 
-
 #define ssam_show_frame_type(ty)					\
 	__print_symbolic(ty,						\
 		{ SSH_FRAME_TYPE_DATA_SEQ,		"DSEQ" },	\
@@ -208,15 +204,14 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 		{ SSAM_SEQ_NOT_APPLICABLE,		"N/A" }		\
 	)
 
-
 #define ssam_show_request_type(flags)					\
-	__print_flags(flags & SSH_REQUEST_FLAGS_TY_MASK, "",		\
+	__print_flags((flags) & SSH_REQUEST_FLAGS_TY_MASK, "",		\
 		{ BIT(SSH_REQUEST_TY_FLUSH_BIT),	"F" },		\
 		{ BIT(SSH_REQUEST_TY_HAS_RESPONSE_BIT),	"R" }		\
 	)
 
 #define ssam_show_request_state(flags)					\
-	__print_flags(flags & SSH_REQUEST_FLAGS_SF_MASK, "",		\
+	__print_flags((flags) & SSH_REQUEST_FLAGS_SF_MASK, "",		\
 		{ BIT(SSH_REQUEST_SF_LOCKED_BIT),	"L" },		\
 		{ BIT(SSH_REQUEST_SF_QUEUED_BIT),	"Q" },		\
 		{ BIT(SSH_REQUEST_SF_PENDING_BIT),	"P" },		\
@@ -270,7 +265,6 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 		{ SSAM_SSH_TC_REG,			"REG" }		\
 	)
 
-
 DECLARE_EVENT_CLASS(ssam_frame_class,
 	TP_PROTO(const struct ssh_frame *frame),
 
@@ -288,7 +282,7 @@ DECLARE_EVENT_CLASS(ssam_frame_class,
 		__entry->len = get_unaligned_le16(&frame->len);
 	),
 
-	TP_printk("ty=%s, seq=0x%02x, len=%u",
+	TP_printk("ty=%s, seq=%#04x, len=%u",
 		ssam_show_frame_type(__entry->type),
 		__entry->seq,
 		__entry->len
@@ -300,7 +294,6 @@ DECLARE_EVENT_CLASS(ssam_frame_class,
 		TP_PROTO(const struct ssh_frame *frame),	\
 		TP_ARGS(frame)					\
 	)
-
 
 DECLARE_EVENT_CLASS(ssam_command_class,
 	TP_PROTO(const struct ssh_command *cmd, u16 len),
@@ -323,7 +316,7 @@ DECLARE_EVENT_CLASS(ssam_command_class,
 		__entry->len = len;
 	),
 
-	TP_printk("rqid=0x%04x, tc=%s, cid=0x%02x, iid=0x%02x, len=%u",
+	TP_printk("rqid=%#06x, tc=%s, cid=%#04x, iid=%#04x, len=%u",
 		__entry->rqid,
 		ssam_show_ssh_tc(__entry->tc),
 		__entry->cid,
@@ -337,7 +330,6 @@ DECLARE_EVENT_CLASS(ssam_command_class,
 		TP_PROTO(const struct ssh_command *cmd, u16 len),	\
 		TP_ARGS(cmd, len)					\
 	)
-
 
 DECLARE_EVENT_CLASS(ssam_packet_class,
 	TP_PROTO(const struct ssh_packet *packet),
@@ -360,7 +352,7 @@ DECLARE_EVENT_CLASS(ssam_packet_class,
 		__entry->seq = ssam_trace_get_packet_seq(packet);
 	),
 
-	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s",
+	TP_printk("uid=%s, seq=%s, ty=%s, pri=%#04x, len=%u, sta=%s",
 		__entry->uid,
 		ssam_show_packet_seq(__entry->seq),
 		ssam_show_packet_type(__entry->state),
@@ -375,7 +367,6 @@ DECLARE_EVENT_CLASS(ssam_packet_class,
 		TP_PROTO(const struct ssh_packet *packet),	\
 		TP_ARGS(packet)					\
 	)
-
 
 DECLARE_EVENT_CLASS(ssam_packet_status_class,
 	TP_PROTO(const struct ssh_packet *packet, int status),
@@ -400,7 +391,7 @@ DECLARE_EVENT_CLASS(ssam_packet_status_class,
 		__entry->seq = ssam_trace_get_packet_seq(packet);
 	),
 
-	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s, status=%d",
+	TP_printk("uid=%s, seq=%s, ty=%s, pri=%#04x, len=%u, sta=%s, status=%d",
 		__entry->uid,
 		ssam_show_packet_seq(__entry->seq),
 		ssam_show_packet_type(__entry->state),
@@ -416,7 +407,6 @@ DECLARE_EVENT_CLASS(ssam_packet_status_class,
 		TP_PROTO(const struct ssh_packet *packet, int status),	\
 		TP_ARGS(packet, status)					\
 	)
-
 
 DECLARE_EVENT_CLASS(ssam_request_class,
 	TP_PROTO(const struct ssh_request *request),
@@ -435,7 +425,7 @@ DECLARE_EVENT_CLASS(ssam_request_class,
 	TP_fast_assign(
 		const struct ssh_packet *p = &request->packet;
 
-		// use packet for UID so we can match requests to packets
+		/* Use packet for UID so we can match requests to packets. */
 		__entry->state = READ_ONCE(request->state);
 		__entry->rqid = ssam_trace_get_request_id(p);
 		ssam_trace_ptr_uid(p, __entry->uid);
@@ -461,7 +451,6 @@ DECLARE_EVENT_CLASS(ssam_request_class,
 		TP_ARGS(request)				\
 	)
 
-
 DECLARE_EVENT_CLASS(ssam_request_status_class,
 	TP_PROTO(const struct ssh_request *request, int status),
 
@@ -480,7 +469,7 @@ DECLARE_EVENT_CLASS(ssam_request_status_class,
 	TP_fast_assign(
 		const struct ssh_packet *p = &request->packet;
 
-		// use packet for UID so we can match requests to packets
+		/* Use packet for UID so we can match requests to packets. */
 		__entry->state = READ_ONCE(request->state);
 		__entry->rqid = ssam_trace_get_request_id(p);
 		__entry->status = status;
@@ -508,7 +497,6 @@ DECLARE_EVENT_CLASS(ssam_request_status_class,
 		TP_ARGS(request, status)				\
 	)
 
-
 DECLARE_EVENT_CLASS(ssam_alloc_class,
 	TP_PROTO(void *ptr, size_t len),
 
@@ -533,7 +521,6 @@ DECLARE_EVENT_CLASS(ssam_alloc_class,
 		TP_ARGS(ptr, len)					\
 	)
 
-
 DECLARE_EVENT_CLASS(ssam_free_class,
 	TP_PROTO(void *ptr),
 
@@ -555,7 +542,6 @@ DECLARE_EVENT_CLASS(ssam_free_class,
 		TP_PROTO(void *ptr),					\
 		TP_ARGS(ptr)						\
 	)
-
 
 DECLARE_EVENT_CLASS(ssam_pending_class,
 	TP_PROTO(unsigned int pending),
@@ -579,7 +565,6 @@ DECLARE_EVENT_CLASS(ssam_pending_class,
 		TP_ARGS(pending)					\
 	)
 
-
 DECLARE_EVENT_CLASS(ssam_data_class,
 	TP_PROTO(size_t length),
 
@@ -601,7 +586,6 @@ DECLARE_EVENT_CLASS(ssam_data_class,
 		TP_PROTO(size_t length),				\
 		TP_ARGS(length)						\
 	)
-
 
 DEFINE_SSAM_FRAME_EVENT(rx_frame_received);
 DEFINE_SSAM_COMMAND_EVENT(rx_response_received);

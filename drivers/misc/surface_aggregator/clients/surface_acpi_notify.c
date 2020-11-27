@@ -24,7 +24,6 @@
 #include <linux/surface_aggregator/controller.h>
 #include <linux/surface_acpi_notify.h>
 
-
 struct san_data {
 	struct device *dev;
 	struct ssam_controller *ctrl;
@@ -148,6 +147,7 @@ static int san_dgpu_notifier_call(struct san_dgpu_event *evt)
 
 #define SAN_DSM_REVISION	0
 
+/* 93b666c5-70c6-469f-a215-3d487c91ab3c */
 static const guid_t SAN_DSM_UUID =
 	GUID_INIT(0x93b666c5, 0x70c6, 0x469f, 0xa2, 0x15, 0x3d,
 		  0x48, 0x7c, 0x91, 0xab, 0x3c);
@@ -178,7 +178,7 @@ enum sam_event_cid_tmp {
 struct san_event_work {
 	struct delayed_work work;
 	struct device *dev;
-	struct ssam_event event;	// must be last
+	struct ssam_event event;	/* must be last */
 };
 
 static int san_acpi_notify_event(struct device *dev, u64 func,
@@ -191,7 +191,7 @@ static int san_acpi_notify_event(struct device *dev, u64 func,
 	if (!acpi_check_dsm(san, &SAN_DSM_UUID, SAN_DSM_REVISION, 1 << func))
 		return 0;
 
-	dev_dbg(dev, "notify event 0x%02llx\n", func);
+	dev_dbg(dev, "notify event %#04llx\n", func);
 
 	obj = acpi_evaluate_dsm_typed(san, &SAN_DSM_UUID, SAN_DSM_REVISION,
 				      func, param, ACPI_TYPE_BUFFER);
@@ -320,9 +320,10 @@ static bool san_evt_bat(const struct ssam_event *event, struct device *dev)
 		return false;
 	}
 
-	if (status)
-		dev_err(dev, "error handling power event (cid = %x)\n",
+	if (status) {
+		dev_err(dev, "error handling power event (cid = %#04x)\n",
 			event->command_id);
+	}
 
 	return true;
 }
@@ -388,7 +389,7 @@ static bool san_evt_tmp(const struct ssam_event *event, struct device *dev)
 	}
 
 	if (status) {
-		dev_err(dev, "error handling thermal event (cid = %x)\n",
+		dev_err(dev, "error handling thermal event (cid = %#04x)\n",
 			event->command_id);
 	}
 
@@ -411,39 +412,39 @@ struct gsb_data_in {
 } __packed;
 
 struct gsb_data_rqsx {
-	u8 cv;				// command value (san_gsb_request_cv)
-	u8 tc;				// target category
-	u8 tid;				// target ID
-	u8 iid;				// instance ID
-	u8 snc;				// expect-response-flag?
-	u8 cid;				// command ID
-	u16 cdl;			// payload length
-	u8 pld[];			// payload
+	u8 cv;				/* Command value (san_gsb_request_cv). */
+	u8 tc;				/* Target category. */
+	u8 tid;				/* Target ID. */
+	u8 iid;				/* Instance ID. */
+	u8 snc;				/* Expect-response-flag. */
+	u8 cid;				/* Command ID. */
+	u16 cdl;			/* Payload length. */
+	u8 pld[];			/* Payload. */
 } __packed;
 
 struct gsb_data_etwl {
-	u8 cv;				// command value (should be 0x02)
-	u8 etw3;			// unknown
-	u8 etw4;			// unknown
-	u8 msg[];			// error message (ASCIIZ)
+	u8 cv;				/* Command value (should be 0x02). */
+	u8 etw3;			/* Unknown. */
+	u8 etw4;			/* Unknown. */
+	u8 msg[];			/* Error message (ASCIIZ). */
 } __packed;
 
 struct gsb_data_out {
-	u8 status;			// _SSH communication status
-	u8 len;				// _SSH payload length
-	u8 pld[];			// _SSH payload
+	u8 status;			/* _SSH communication status. */
+	u8 len;				/* _SSH payload length. */
+	u8 pld[];			/* _SSH payload. */
 } __packed;
 
 union gsb_buffer_data {
-	struct gsb_data_in   in;	// common input
-	struct gsb_data_rqsx rqsx;	// RQSX input
-	struct gsb_data_etwl etwl;	// ETWL input
-	struct gsb_data_out  out;	// output
+	struct gsb_data_in   in;	/* Common input. */
+	struct gsb_data_rqsx rqsx;	/* RQSX input. */
+	struct gsb_data_etwl etwl;	/* ETWL input. */
+	struct gsb_data_out  out;	/* Output. */
 };
 
 struct gsb_buffer {
-	u8 status;			// GSB AttribRawProcess status
-	u8 len;				// GSB AttribRawProcess length
+	u8 status;			/* GSB AttribRawProcess status. */
+	u8 len;				/* GSB AttribRawProcess length. */
 	union gsb_buffer_data data;
 } __packed;
 
@@ -469,19 +470,20 @@ static acpi_status san_etwl(struct san_data *d, struct gsb_buffer *b)
 		return AE_OK;
 	}
 
-	dev_err(d->dev, "ETWL(0x%02x, 0x%02x): %.*s\n", etwl->etw3, etwl->etw4,
+	dev_err(d->dev, "ETWL(%#04x, %#04x): %.*s\n", etwl->etw3, etwl->etw4,
 		(unsigned int)(b->len - sizeof(struct gsb_data_etwl)),
 		(char *)etwl->msg);
 
-	// indicate success
+	/* Indicate success. */
 	b->status = 0x00;
 	b->len = 0x00;
 
 	return AE_OK;
 }
 
-static struct gsb_data_rqsx *san_validate_rqsx(struct device *dev,
-		const char *type, struct gsb_buffer *b)
+static
+struct gsb_data_rqsx *san_validate_rqsx(struct device *dev, const char *type,
+					struct gsb_buffer *b)
 {
 	struct gsb_data_rqsx *rqsx = &b->data.rqsx;
 
@@ -580,7 +582,7 @@ static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
 	rsp.length = 0;
 	rsp.pointer = &rspbuf[0];
 
-	// handle suspended device
+	/* Handle suspended device. */
 	if (d->dev->power.is_suspended) {
 		dev_warn(d->dev, "rqst: device is suspended, not executing\n");
 		return san_rqst_fixup_suspended(d, &rqst, buffer);
@@ -627,25 +629,25 @@ static acpi_status san_rqsg(struct san_data *d, struct gsb_buffer *buffer)
 	return AE_OK;
 }
 
-static acpi_status san_opreg_handler(u32 function,
-		acpi_physical_address command, u32 bits, u64 *value64,
-		void *opreg_context, void *region_context)
+static acpi_status san_opreg_handler(u32 function, acpi_physical_address command,
+				     u32 bits, u64 *value64, void *opreg_context,
+				     void *region_context)
 {
 	struct san_data *d = to_san_data(opreg_context, info);
 	struct gsb_buffer *buffer = (struct gsb_buffer *)value64;
 	int accessor_type = (function & 0xFFFF0000) >> 16;
 
 	if (command != SAN_GSB_COMMAND) {
-		dev_warn(d->dev, "unsupported command: 0x%02llx\n", command);
+		dev_warn(d->dev, "unsupported command: %#04llx\n", command);
 		return AE_OK;
 	}
 
 	if (accessor_type != ACPI_GSB_ACCESS_ATTRIB_RAW_PROCESS) {
-		dev_err(d->dev, "invalid access type: 0x%02x\n", accessor_type);
+		dev_err(d->dev, "invalid access type: %#04x\n", accessor_type);
 		return AE_OK;
 	}
 
-	// buffer must have at least contain the command-value
+	/* Buffer must have at least contain the command-value. */
 	if (buffer->len == 0) {
 		dev_err(d->dev, "request-package too small\n");
 		return AE_OK;
@@ -662,7 +664,7 @@ static acpi_status san_opreg_handler(u32 function,
 		return san_rqsg(d, buffer);
 
 	default:
-		dev_warn(d->dev, "unsupported SAN0 request (cv: 0x%02x)\n",
+		dev_warn(d->dev, "unsupported SAN0 request (cv: %#04x)\n",
 			 buffer->data.in.cv);
 		return AE_OK;
 	}
@@ -767,17 +769,16 @@ static acpi_status san_consumer_setup(acpi_handle handle, u32 lvl,
 	if (!is_san_consumer(pdev, handle))
 		return AE_OK;
 
-	// ignore ACPI devices that are not present
+	/* Ignore ACPI devices that are not present. */
 	if (acpi_bus_get_device(handle, &adev) != 0)
 		return AE_OK;
 
 	san_consumer_dbg(&pdev->dev, handle, "creating device link\n");
 
-	// try to set up device links, ignore but log errors
+	/* Try to set up device links, ignore but log errors. */
 	link = device_link_add(&adev->dev, &pdev->dev, flags);
 	if (!link) {
-		san_consumer_warn(&pdev->dev, handle,
-				  "failed to create device link\n");
+		san_consumer_warn(&pdev->dev, handle, "failed to create device link\n");
 		return AE_OK;
 	}
 
@@ -821,7 +822,8 @@ static int san_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, data);
 
 	astatus = acpi_install_address_space_handler(san, ACPI_ADR_SPACE_GSBUS,
-			&san_opreg_handler, NULL, &data->info);
+						     &san_opreg_handler, NULL,
+						     &data->info);
 	if (ACPI_FAILURE(astatus))
 		return -ENXIO;
 

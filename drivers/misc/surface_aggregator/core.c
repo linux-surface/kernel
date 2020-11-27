@@ -104,7 +104,6 @@ static void ssam_clear_controller(void)
 	spin_unlock(&__ssam_controller_lock);
 }
 
-
 /**
  * ssam_client_link() - Link an arbitrary client device to the controller.
  * @c: The controller to link to.
@@ -317,20 +316,20 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
 
 	uart = &rsc->data.uart_serial_bus;
 
-	// set up serdev device
+	/* Set up serdev device. */
 	serdev_device_set_baudrate(serdev, uart->default_baud_rate);
 
-	// serdev currently only supports RTSCTS flow control
-	if (uart->flow_control & (~((u8) ACPI_UART_FLOW_CONTROL_HW))) {
-		dev_warn(&serdev->dev, "setup: unsupported flow control (value: 0x%02x)\n",
+	/* serdev currently only supports RTSCTS flow control. */
+	if (uart->flow_control & (~((u8)ACPI_UART_FLOW_CONTROL_HW))) {
+		dev_warn(&serdev->dev, "setup: unsupported flow control (value: %#04x)\n",
 			 uart->flow_control);
 	}
 
-	// set RTSCTS flow control
+	/* Set RTSCTS flow control. */
 	flow_control = uart->flow_control & ACPI_UART_FLOW_CONTROL_HW;
 	serdev_device_set_flow_control(serdev, flow_control);
 
-	// serdev currently only supports EVEN/ODD parity
+	/* serdev currently only supports EVEN/ODD parity. */
 	switch (uart->parity) {
 	case ACPI_UART_PARITY_NONE:
 		status = serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
@@ -342,18 +341,19 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
 		status = serdev_device_set_parity(serdev, SERDEV_PARITY_ODD);
 		break;
 	default:
-		dev_warn(&serdev->dev, "setup: unsupported parity (value: 0x%02x)\n",
+		dev_warn(&serdev->dev, "setup: unsupported parity (value: %#04x)\n",
 			 uart->parity);
 		break;
 	}
 
 	if (status) {
-		dev_err(&serdev->dev, "setup: failed to set parity (value: 0x%02x, error: %d)\n",
+		dev_err(&serdev->dev, "setup: failed to set parity (value: %#04x, error: %d)\n",
 			uart->parity, status);
 		return AE_ERROR;
 	}
 
-	return AE_CTRL_TERMINATE;       // we've found the resource and are done
+	/* We've found the resource and are done. */
+	return AE_CTRL_TERMINATE;
 }
 
 static acpi_status ssam_serdev_setup_via_acpi(acpi_handle handle,
@@ -634,17 +634,17 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		return status;
 
-	// allocate controller
+	/* Allocate controller. */
 	ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
 	if (!ctrl)
 		return -ENOMEM;
 
-	// initialize controller
+	/* Initialize controller. */
 	status = ssam_controller_init(ctrl, serdev);
 	if (status)
 		goto err_ctrl_init;
 
-	// set up serdev device
+	/* Set up serdev device. */
 	serdev_device_set_drvdata(serdev, ctrl);
 	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
 	status = serdev_device_open(serdev);
@@ -657,12 +657,15 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 		goto err_devinit;
 	}
 
-	// start controller
+	/* Start controller. */
 	status = ssam_controller_start(ctrl);
 	if (status)
 		goto err_devinit;
 
-	// initial SAM requests: log version, notify default/init power states
+	/*
+	 * Initial SAM requests: Log version and notify default/init power
+	 * states.
+	 */
 	status = ssam_log_firmware_version(ctrl);
 	if (status)
 		goto err_initrq;
@@ -679,14 +682,14 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		goto err_initrq;
 
-	// setup IRQ
+	/* Set up IRQ. */
 	status = ssam_irq_setup(ctrl);
 	if (status)
 		goto err_irq;
 
-	// finally, set main controller reference
+	/* Finally, set main controller reference. */
 	status = ssam_try_set_controller(ctrl);
-	if (WARN_ON(status))	// currently, we're the only provider
+	if (WARN_ON(status))	/* Currently, we're the only provider. */
 		goto err_mainref;
 
 	/*
@@ -724,17 +727,19 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 	struct ssam_controller *ctrl = serdev_device_get_drvdata(serdev);
 	int status;
 
-	// clear static reference, so that no one else can get a new one
+	/* Clear static reference so that no one else can get a new one. */
 	ssam_clear_controller();
 
+	/* Disable and free IRQ. */
 	ssam_irq_free(ctrl);
+
 	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 	ssam_controller_lock(ctrl);
 
-	// remove all client devices
+	/* Remove all client devices. */
 	ssam_controller_remove_clients(ctrl);
 
-	// act as if suspending to disable events
+	/* Act as if suspending to silence events. */
 	status = ssam_ctrl_notif_display_off(ctrl);
 	if (status) {
 		dev_err(&serdev->dev, "display-off notification failed: %d\n",
@@ -747,20 +752,19 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 			status);
 	}
 
-	// shut down controller and remove serdev device reference from it
+	/* Shut down controller and remove serdev device reference from it. */
 	ssam_controller_shutdown(ctrl);
 
-	// shut down actual transport
+	/* Shut down actual transport. */
 	serdev_device_wait_until_sent(serdev, 0);
 	serdev_device_close(serdev);
 
-	// drop our controller reference
+	/* Drop our controller reference. */
 	ssam_controller_unlock(ctrl);
 	ssam_controller_put(ctrl);
 
 	device_set_wakeup_capable(&serdev->dev, false);
 }
-
 
 static const struct acpi_device_id ssam_serial_hub_match[] = {
 	{ "MSHW0084", 0 },

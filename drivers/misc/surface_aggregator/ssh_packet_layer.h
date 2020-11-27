@@ -21,7 +21,6 @@
 #include <linux/surface_aggregator/serial_hub.h>
 #include "ssh_parser.h"
 
-
 /**
  * enum ssh_ptl_state_flags - State-flags for &struct ssh_ptl.
  *
@@ -118,11 +117,12 @@ struct ssh_ptl {
 	struct ssh_ptl_ops ops;
 };
 
-
 #define __ssam_prcond(func, p, fmt, ...)		\
 	do {						\
-		if (p)					\
-			func(p, fmt, ##__VA_ARGS__);	\
+		typeof(p) __p = (p);			\
+							\
+		if (__p)				\
+			func(__p, fmt, ##__VA_ARGS__);	\
 	} while (0)
 
 #define ptl_dbg(p, fmt, ...)  dev_dbg(&(p)->serdev->dev, fmt, ##__VA_ARGS__)
@@ -133,7 +133,6 @@ struct ssh_ptl {
 
 #define to_ssh_ptl(ptr, member) \
 	container_of(ptr, struct ssh_ptl, member)
-
 
 int ssh_ptl_init(struct ssh_ptl *ptl, struct serdev_device *serdev,
 		 struct ssh_ptl_ops *ops);

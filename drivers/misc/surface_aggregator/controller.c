@@ -14,6 +14,7 @@
 #include <linux/limits.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
+#include <linux/rculist.h>
 #include <linux/rbtree.h>
 #include <linux/rwsem.h>
 #include <linux/serdev.h>
@@ -105,7 +106,6 @@ static u16 ssh_rqid_next(struct ssh_rqid_counter *c)
  * discover and identify new/currently unimplemented features.
  */
 
-
 /**
  * ssam_event_matches_notifier() - Test if an event matches a notifier.
  * @notif: The event notifier to test against.
@@ -146,24 +146,17 @@ static bool ssam_event_matches_notifier(const struct ssam_event_notifier *n,
  */
 static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *event)
 {
-	struct ssam_notifier_block *nb, *next_nb;
 	struct ssam_event_notifier *nf;
 	int ret = 0, idx;
 
 	idx = srcu_read_lock(&nh->srcu);
 
-	nb = rcu_dereference_raw(nh->head);
-	while (nb) {
-		nf = container_of(nb, struct ssam_event_notifier, base);
-		next_nb = rcu_dereference_raw(nb->next);
-
+	list_for_each_entry_rcu(nf, &nh->head, base.node) {
 		if (ssam_event_matches_notifier(nf, event)) {
-			ret = (ret & SSAM_NOTIF_STATE_MASK) | nb->fn(nf, event);
+			ret = (ret & SSAM_NOTIF_STATE_MASK) | nf->base.fn(nf, event);
 			if (ret & SSAM_NOTIF_STOP)
 				break;
 		}
-
-		nb = next_nb;
 	}
 
 	srcu_read_unlock(&nh->srcu, idx);
@@ -171,108 +164,78 @@ static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *eve
 }
 
 /**
- * __ssam_nfblk_insert() - Insert a new notifier block into the given notifier
+ * ssam_nfblk_insert() - Insert a new notifier block into the given notifier
  * list.
  * @nh: The notifier head into which the block should be inserted.
  * @nb: The notifier block to add.
  *
  * Note: This function must be synchronized by the caller with respect to other
- * insert and/or remove calls.
+ * insert, find, and/or remove calls.
  *
  * Return: Returns zero on success, %-EEXIST if the notifier block has already
  * been registered.
  */
-static int __ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
+static int ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 {
-	struct ssam_notifier_block **link = &nh->head;
+	struct ssam_notifier_block *p;
+	struct list_head *h;
 
-	while (*link) {
-		if (unlikely(*link == nb)) {
+	/* Runs under lock, no need for RCU variant. */
+	list_for_each(h, &nh->head) {
+		p = list_entry(h, struct ssam_notifier_block, node);
+
+		if (unlikely(p == nb)) {
 			WARN(1, "double register detected");
 			return -EEXIST;
 		}
 
-		if (nb->priority > (*link)->priority)
+		if (nb->priority > p->priority)
 			break;
-
-		link = &((*link)->next);
 	}
 
-	nb->next = *link;
-	rcu_assign_pointer(*link, nb);
-
+	list_add_tail_rcu(&nb->node, h);
 	return 0;
 }
 
 /**
- * __ssam_nfblk_find_link() - Find a notifier block link on the given list.
- * @nh: The notifier head on which the search should be conducted.
+ * ssam_nfblk_find() - Check if a notifier block is registered on the given
+ * notifier head.
+ * list.
+ * @nh: The notifier head on which to search.
  * @nb: The notifier block to search for.
  *
- * Note: This function must be synchronized by the caller with respect to
- * insert and/or remove calls.
+ * Note: This function must be synchronized by the caller with respect to other
+ * insert, find, and/or remove calls.
  *
- * Return: Returns a pointer to the link (i.e. pointer pointing) to the given
- * notifier block, from the previous node in the list, or %NULL if the given
- * notifier block is not contained in the notifier list.
+ * Return: Returns true if the given notifier block is registered on the given
+ * notifier head, false otherwise.
  */
-static struct ssam_notifier_block **__ssam_nfblk_find_link(
-		struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
+static bool ssam_nfblk_find(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 {
-	struct ssam_notifier_block **link = &nh->head;
+	struct ssam_notifier_block *p;
 
-	while (*link) {
-		if (*link == nb)
-			return link;
-
-		link = &((*link)->next);
+	/* Runs under lock, no need for RCU variant. */
+	list_for_each_entry(p, &nh->head, node) {
+		if (p == nb)
+			return true;
 	}
 
-	return NULL;
+	return false;
 }
 
 /**
- * __ssam_nfblk_erase() - Erase a notifier block link in the given notifier
- * list.
- * @link: The link to be erased.
+ * ssam_nfblk_remove() - Remove a notifier block from its notifier list.
+ * @nb: The notifier block to be removed.
  *
  * Note: This function must be synchronized by the caller with respect to
- * other insert and/or remove/erase/find calls. The caller _must_ ensure SRCU
+ * other insert, find and/or remove calls. The caller _must_ ensure SRCU
  * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
  * leaving the critical section, to ensure that the removed notifier block is
  * not in use any more.
  */
-static void __ssam_nfblk_erase(struct ssam_notifier_block **link)
+static void ssam_nfblk_remove(struct ssam_notifier_block *nb)
 {
-	rcu_assign_pointer(*link, (*link)->next);
-}
-
-
-/**
- * __ssam_nfblk_remove() - Remove a notifier block from the given notifier list.
- * @nh: The notifier head from which the block should be removed.
- * @nb: The notifier block to remove.
- *
- * Note: This function must be synchronized by the caller with respect to
- * other insert and/or remove calls. On success, the caller *must* ensure SRCU
- * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
- * leaving the critical section, to ensure that the removed notifier block is
- * not in use any more.
- *
- * Return: Returns zero on success, %-ENOENT if the specified notifier block
- * could not be found on the notifier list.
- */
-static int __ssam_nfblk_remove(struct ssam_nf_head *nh,
-			       struct ssam_notifier_block *nb)
-{
-	struct ssam_notifier_block **link;
-
-	link = __ssam_nfblk_find_link(nh, nb);
-	if (!link)
-		return -ENOENT;
-
-	__ssam_nfblk_erase(link);
-	return 0;
+	list_del_rcu(&nb->node);
 }
 
 /**
@@ -287,7 +250,7 @@ static int ssam_nf_head_init(struct ssam_nf_head *nh)
 	if (status)
 		return status;
 
-	nh->head = NULL;
+	INIT_LIST_HEAD(&nh->head);
 	return 0;
 }
 
@@ -329,7 +292,6 @@ struct ssam_nf_refcount_entry {
 	u8 flags;
 };
 
-
 /**
  * ssam_nf_refcount_inc() - Increment reference-/activation-count of the given
  * event.
@@ -350,9 +312,9 @@ struct ssam_nf_refcount_entry {
  * with %-ENOSPC if there have already been %INT_MAX events of the specified
  * ID and type registered, or %-ENOMEM if the entry could not be allocated.
  */
-static struct ssam_nf_refcount_entry *ssam_nf_refcount_inc(
-		struct ssam_nf *nf, struct ssam_event_registry reg,
-		struct ssam_event_id id)
+static struct ssam_nf_refcount_entry
+*ssam_nf_refcount_inc(struct ssam_nf *nf, struct ssam_event_registry reg,
+		      struct ssam_event_id id)
 {
 	struct ssam_nf_refcount_entry *entry;
 	struct ssam_nf_refcount_key key;
@@ -412,9 +374,9 @@ static struct ssam_nf_refcount_entry *ssam_nf_refcount_inc(
  * Return: Returns the refcount entry on success or %NULL if the entry has not
  * been found.
  */
-static struct ssam_nf_refcount_entry *ssam_nf_refcount_dec(
-		struct ssam_nf *nf, struct ssam_event_registry reg,
-		struct ssam_event_id id)
+static struct ssam_nf_refcount_entry
+*ssam_nf_refcount_dec(struct ssam_nf *nf, struct ssam_event_registry reg,
+		      struct ssam_event_id id)
 {
 	struct ssam_nf_refcount_entry *entry;
 	struct ssam_nf_refcount_key key;
@@ -480,7 +442,7 @@ static void ssam_nf_call(struct ssam_nf *nf, struct device *dev, u16 rqid,
 	int status, nf_ret;
 
 	if (!ssh_rqid_is_event(rqid)) {
-		dev_warn(dev, "event: unsupported rqid: 0x%04x\n", rqid);
+		dev_warn(dev, "event: unsupported rqid: %#06x\n", rqid);
 		return;
 	}
 
@@ -489,15 +451,15 @@ static void ssam_nf_call(struct ssam_nf *nf, struct device *dev, u16 rqid,
 	status = ssam_notifier_to_errno(nf_ret);
 
 	if (status < 0) {
-		dev_err(dev, "event: error handling event: %d "
-			"(tc: 0x%02x, tid: 0x%02x, cid: 0x%02x, iid: 0x%02x)\n",
+		dev_err(dev,
+			"event: error handling event: %d (tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 			status, event->target_category, event->target_id,
 			event->command_id, event->instance_id);
 	}
 
 	if (!(nf_ret & SSAM_NOTIF_HANDLED)) {
-		dev_warn(dev, "event: unhandled event (rqid: 0x%02x, "
-			 "tc: 0x%02x, tid: 0x%02x, cid: 0x%02x, iid: 0x%02x)\n",
+		dev_warn(dev,
+			 "event: unhandled event (rqid: %#04x, tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 			 rqid, event->target_category, event->target_id,
 			 event->command_id, event->instance_id);
 	}
@@ -650,7 +612,6 @@ static struct ssam_event_item *ssam_event_item_alloc(size_t len, gfp_t flags)
 	return item;
 }
 
-
 /**
  * ssam_event_queue_push() - Push an event item to the event queue.
  * @q:    The event queue.
@@ -710,14 +671,15 @@ static bool ssam_event_queue_is_empty(struct ssam_event_queue *q)
  * this function returns %NULL. If the target ID is not supported, this
  * function will fall back to the default target ID (``tid = 1``).
  */
-static struct ssam_event_queue *ssam_cplt_get_event_queue(
-		struct ssam_cplt *cplt, u8 tid, u16 rqid)
+static
+struct ssam_event_queue *ssam_cplt_get_event_queue(struct ssam_cplt *cplt,
+						   u8 tid, u16 rqid)
 {
 	u16 event = ssh_rqid_to_event(rqid);
 	u16 tidx = ssh_tid_to_index(tid);
 
 	if (!ssh_rqid_is_event(rqid)) {
-		dev_err(cplt->dev, "event: unsupported request ID: 0x%04x\n", rqid);
+		dev_err(cplt->dev, "event: unsupported request ID: %#06x\n", rqid);
 		return NULL;
 	}
 
@@ -799,7 +761,7 @@ static void ssam_event_queue_work_fn(struct work_struct *work)
 	nf = &queue->cplt->event.notif;
 	dev = queue->cplt->dev;
 
-	// limit number of processed events to avoid livelocking
+	/* Limit number of processed events to avoid livelocking. */
 	do {
 		item = ssam_event_queue_pop(queue);
 		if (!item)
@@ -926,7 +888,6 @@ void ssam_controller_put(struct ssam_controller *c)
 }
 EXPORT_SYMBOL_GPL(ssam_controller_put);
 
-
 /**
  * ssam_controller_statelock() - Lock the controller against state transitions.
  * @c: The controller to lock.
@@ -988,7 +949,6 @@ void ssam_controller_unlock(struct ssam_controller *c)
 	up_write(&c->lock);
 }
 
-
 static void ssam_handle_event(struct ssh_rtl *rtl,
 			      const struct ssh_command *cmd,
 			      const struct ssam_span *data)
@@ -1015,10 +975,8 @@ static const struct ssh_rtl_ops ssam_rtl_ops = {
 	.handle_event = ssam_handle_event,
 };
 
-
 static bool ssam_notifier_is_empty(struct ssam_controller *ctrl);
 static void ssam_notifier_unregister_all(struct ssam_controller *ctrl);
-
 
 #define SSAM_SSH_DSM_REVISION	0
 
@@ -1098,24 +1056,27 @@ static int ssam_dsm_load_u32(acpi_handle handle, u64 funcs, u64 func, u32 *ret)
  *
  * Return: Returns zero on success, a negative error code on failure.
  */
-static int ssam_controller_caps_load_from_acpi(
-		acpi_handle handle, struct ssam_controller_caps *caps)
+static
+int ssam_controller_caps_load_from_acpi(acpi_handle handle,
+					struct ssam_controller_caps *caps)
 {
 	u32 d3_closes_handle = false;
 	u64 funcs;
 	int status;
 
-	// set defaults
+	/* Set defaults. */
 	caps->ssh_power_profile = U32_MAX;
 	caps->screen_on_sleep_idle_timeout = U32_MAX;
 	caps->screen_off_sleep_idle_timeout = U32_MAX;
 	caps->d3_closes_handle = false;
 	caps->ssh_buffer_size = U32_MAX;
 
+	/* Pre-load supported DSM functions. */
 	status = ssam_dsm_get_functions(handle, &funcs);
 	if (status)
 		return status;
 
+	/* Load actual values from ACPI, if present. */
 	status = ssam_dsm_load_u32(handle, funcs, SSH_DSM_FN_SSH_POWER_PROFILE,
 				   &caps->ssh_power_profile);
 	if (status)
@@ -1190,12 +1151,12 @@ int ssam_controller_init(struct ssam_controller *ctrl,
 	ssh_seq_reset(&ctrl->counter.seq);
 	ssh_rqid_reset(&ctrl->counter.rqid);
 
-	// initialize event/request completion system
+	/* Initialize event/request completion system. */
 	status = ssam_cplt_init(&ctrl->cplt, &serdev->dev);
 	if (status)
 		return status;
 
-	// initialize request and packet transport layers
+	/* Initialize request and packet transport layers. */
 	status = ssh_rtl_init(&ctrl->rtl, serdev, &ssam_rtl_ops);
 	if (status) {
 		ssam_cplt_destroy(&ctrl->cplt);
@@ -1283,14 +1244,20 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
 	if (s == SSAM_CONTROLLER_UNINITIALIZED || s == SSAM_CONTROLLER_STOPPED)
 		return;
 
-	// try to flush pending events and requests while everything still works
+	/*
+	 * Try to flush pending events and requests while everything still
+	 * works. Note: There may still be packets and/or requests in the
+	 * system after this call (e.g. via control packets submitted by the
+	 * packet transport layer or flush timeout / failure, ...). Those will
+	 * be handled with the ssh_rtl_shutdown() call below.
+	 */
 	status = ssh_rtl_flush(&ctrl->rtl, SSAM_CTRL_SHUTDOWN_FLUSH_TIMEOUT);
 	if (status) {
 		ssam_err(ctrl, "failed to flush request transport layer: %d\n",
 			 status);
 	}
 
-	// try to flush out all currently completing requests and events
+	/* Try to flush all currently completing requests and events. */
 	ssam_cplt_flush(&ctrl->cplt);
 
 	/*
@@ -1306,7 +1273,10 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
 	 */
 	ssam_notifier_unregister_all(ctrl);
 
-	// cancel rem. requests, ensure no new ones can be queued, stop threads
+	/*
+	 * Cancel remaining requests. Ensure no new ones can be queued and stop
+	 * threads.
+	 */
 	ssh_rtl_shutdown(&ctrl->rtl);
 
 	/*
@@ -1348,7 +1318,7 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
 	 * ensure that those remaining are being completed and freed.
 	 */
 
-	// actually free resources
+	/* Actually free resources. */
 	ssam_cplt_destroy(&ctrl->cplt);
 	ssh_rtl_destroy(&ctrl->rtl);
 
@@ -1472,7 +1442,6 @@ ssize_t ssam_request_write_data(struct ssam_span *buf,
 }
 EXPORT_SYMBOL_GPL(ssam_request_write_data);
 
-
 static void ssam_request_sync_complete(struct ssh_request *rqst,
 				       const struct ssh_command *cmd,
 				       const struct ssam_span *data, int status)
@@ -1491,7 +1460,7 @@ static void ssam_request_sync_complete(struct ssh_request *rqst,
 		return;
 	}
 
-	if (!data)	// handle requests without a response
+	if (!data)	/* Handle requests without a response. */
 		return;
 
 	if (!r->resp || !r->resp->pointer) {
@@ -1501,8 +1470,9 @@ static void ssam_request_sync_complete(struct ssh_request *rqst,
 	}
 
 	if (data->len > r->resp->capacity) {
-		rtl_err(rtl, "rsp: response buffer too small, capacity: %zu bytes,"
-			" got: %zu bytes\n", r->resp->capacity, data->len);
+		rtl_err(rtl,
+			"rsp: response buffer too small, capacity: %zu bytes, got: %zu bytes\n",
+			r->resp->capacity, data->len);
 		r->status = -ENOSPC;
 		return;
 	}
@@ -1520,7 +1490,6 @@ static const struct ssh_request_ops ssam_request_sync_ops = {
 	.release = ssam_request_sync_release,
 	.complete = ssam_request_sync_complete,
 };
-
 
 /**
  * ssam_request_sync_alloc() - Allocate a synchronous request.
@@ -1809,7 +1778,7 @@ static int __ssam_ssh_event_request(struct ssam_controller *ctrl,
 	u16 rqid = ssh_tc_to_rqid(id.target_category);
 	u8 buf = 0;
 
-	// only allow RQIDs that lie within event spectrum
+	/* Only allow RQIDs that lie within the event spectrum. */
 	if (!ssh_rqid_is_event(rqid))
 		return -EINVAL;
 
@@ -1862,16 +1831,15 @@ static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
 	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
 
 	if (status < 0 && status != -EINVAL) {
-		ssam_err(ctrl, "failed to enable event source (tc: 0x%02x, "
-			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
-			 id.instance, reg.target_category);
+		ssam_err(ctrl,
+			 "failed to enable event source (tc: %#04x, iid: %#04x, reg: %#04x)\n",
+			 id.target_category, id.instance, reg.target_category);
 	}
 
 	if (status > 0) {
-		ssam_err(ctrl, "unexpected result while enabling event source: "
-			 "0x%02x (tc: 0x%02x, iid: 0x%02x, reg: 0x%02x)\n",
-			 status, id.target_category, id.instance,
-			 reg.target_category);
+		ssam_err(ctrl,
+			 "unexpected result while enabling event source: %#04x (tc: %#04x, iid: %#04x, reg: %#04x)\n",
+			 status, id.target_category, id.instance, reg.target_category);
 		return -EPROTO;
 	}
 
@@ -1904,16 +1872,15 @@ static int ssam_ssh_event_disable(struct ssam_controller *ctrl,
 	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
 
 	if (status < 0 && status != -EINVAL) {
-		ssam_err(ctrl, "failed to disable event source (tc: 0x%02x, "
-			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
-			 id.instance, reg.target_category);
+		ssam_err(ctrl,
+			 "failed to disable event source (tc: %#04x, iid: %#04x, reg: %#04x)\n",
+			 id.target_category, id.instance, reg.target_category);
 	}
 
 	if (status > 0) {
-		ssam_err(ctrl, "unexpected result while disabling event source: "
-			 "0x%02x (tc: 0x%02x, iid: 0x%02x, reg: 0x%02x)\n",
-			 status, id.target_category, id.instance,
-			 reg.target_category);
+		ssam_err(ctrl,
+			 "unexpected result while disabling event source: %#04x (tc: %#04x, iid: %#04x, reg: %#04x)\n",
+			 status, id.target_category, id.instance, reg.target_category);
 		return -EPROTO;
 	}
 
@@ -1983,7 +1950,7 @@ int ssam_ctrl_notif_display_off(struct ssam_controller *ctrl)
 		return status;
 
 	if (response != 0) {
-		ssam_err(ctrl, "unexpected response from display-off notification: 0x%02x\n",
+		ssam_err(ctrl, "unexpected response from display-off notification: %#04x\n",
 			 response);
 		return -EPROTO;
 	}
@@ -2022,7 +1989,7 @@ int ssam_ctrl_notif_display_on(struct ssam_controller *ctrl)
 		return status;
 
 	if (response != 0) {
-		ssam_err(ctrl, "unexpected response from display-on notification: 0x%02x\n",
+		ssam_err(ctrl, "unexpected response from display-on notification: %#04x\n",
 			 response);
 		return -EPROTO;
 	}
@@ -2064,7 +2031,7 @@ int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl)
 		return status;
 
 	if (response != 0) {
-		ssam_err(ctrl, "unexpected response from D0-exit notification: 0x%02x\n",
+		ssam_err(ctrl, "unexpected response from D0-exit notification: %#04x\n",
 			 response);
 		return -EPROTO;
 	}
@@ -2106,7 +2073,7 @@ int ssam_ctrl_notif_d0_entry(struct ssam_controller *ctrl)
 		return status;
 
 	if (response != 0) {
-		ssam_err(ctrl, "unexpected response from D0-entry notification: 0x%02x\n",
+		ssam_err(ctrl, "unexpected response from D0-entry notification: %#04x\n",
 			 response);
 		return -EPROTO;
 	}
@@ -2156,11 +2123,11 @@ int ssam_notifier_register(struct ssam_controller *ctrl,
 		return PTR_ERR(entry);
 	}
 
-	ssam_dbg(ctrl, "enabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x, rc: %d)\n",
+	ssam_dbg(ctrl, "enabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
 		 n->event.reg.target_category, n->event.id.target_category,
 		 n->event.id.instance, entry->refcount);
 
-	status = __ssam_nfblk_insert(nf_head, &n->base);
+	status = ssam_nfblk_insert(nf_head, &n->base);
 	if (status) {
 		entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
 		if (entry->refcount == 0)
@@ -2174,7 +2141,7 @@ int ssam_notifier_register(struct ssam_controller *ctrl,
 		status = ssam_ssh_event_enable(ctrl, n->event.reg, n->event.id,
 					       n->event.flags);
 		if (status) {
-			__ssam_nfblk_remove(nf_head, &n->base);
+			ssam_nfblk_remove(&n->base);
 			kfree(ssam_nf_refcount_dec(nf, n->event.reg, n->event.id));
 			mutex_unlock(&nf->lock);
 			synchronize_srcu(&nf_head->srcu);
@@ -2184,15 +2151,14 @@ int ssam_notifier_register(struct ssam_controller *ctrl,
 		entry->flags = n->event.flags;
 
 	} else if (entry->flags != n->event.flags) {
-		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
-			  " expected 0x%02x (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x)",
+		ssam_warn(ctrl,
+			  "inconsistent flags when enabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
 			  n->event.flags, entry->flags, n->event.reg.target_category,
 			  n->event.id.target_category, n->event.id.instance);
 	}
 
 	mutex_unlock(&nf->lock);
 	return 0;
-
 }
 EXPORT_SYMBOL_GPL(ssam_notifier_register);
 
@@ -2214,7 +2180,6 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 			     struct ssam_event_notifier *n)
 {
 	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
-	struct ssam_notifier_block **link;
 	struct ssam_nf_refcount_entry *entry;
 	struct ssam_nf_head *nf_head;
 	struct ssam_nf *nf;
@@ -2228,25 +2193,30 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 
 	mutex_lock(&nf->lock);
 
-	link = __ssam_nfblk_find_link(nf_head, &n->base);
-	if (!link) {
+	if (!ssam_nfblk_find(nf_head, &n->base)) {
 		mutex_unlock(&nf->lock);
 		return -ENOENT;
 	}
 
 	entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
 	if (WARN_ON(!entry)) {
-		mutex_unlock(&nf->lock);
-		return -ENOENT;
+		/*
+		 * If this does not return an entry, there's a logic error
+		 * somewhere: The notifier block is registered, but the event
+		 * refcount entry is not there. Remove the notifier block
+		 * anyways.
+		 */
+		status = -ENOENT;
+		goto remove;
 	}
 
-	ssam_dbg(ctrl, "disabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x, rc: %d)\n",
+	ssam_dbg(ctrl, "disabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
 		 n->event.reg.target_category, n->event.id.target_category,
 		 n->event.id.instance, entry->refcount);
 
 	if (entry->flags != n->event.flags) {
-		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
-			  " expected 0x%02x (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x)",
+		ssam_warn(ctrl,
+			  "inconsistent flags when disabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
 			  n->event.flags, entry->flags, n->event.reg.target_category,
 			  n->event.id.target_category, n->event.id.instance);
 	}
@@ -2257,7 +2227,8 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl,
 		kfree(entry);
 	}
 
-	__ssam_nfblk_erase(link);
+remove:
+	ssam_nfblk_remove(&n->base);
 	mutex_unlock(&nf->lock);
 	synchronize_srcu(&nf_head->srcu);
 
@@ -2293,7 +2264,7 @@ int ssam_notifier_disable_registered(struct ssam_controller *ctrl)
 	int status;
 
 	mutex_lock(&nf->lock);
-	for (n = rb_first(&nf->refcount); n != NULL; n = rb_next(n)) {
+	for (n = rb_first(&nf->refcount); n; n = rb_next(n)) {
 		struct ssam_nf_refcount_entry *e;
 
 		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
@@ -2307,7 +2278,7 @@ int ssam_notifier_disable_registered(struct ssam_controller *ctrl)
 	return 0;
 
 err:
-	for (n = rb_prev(n); n != NULL; n = rb_prev(n)) {
+	for (n = rb_prev(n); n; n = rb_prev(n)) {
 		struct ssam_nf_refcount_entry *e;
 
 		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
@@ -2337,12 +2308,12 @@ void ssam_notifier_restore_registered(struct ssam_controller *ctrl)
 	struct rb_node *n;
 
 	mutex_lock(&nf->lock);
-	for (n = rb_first(&nf->refcount); n != NULL; n = rb_next(n)) {
+	for (n = rb_first(&nf->refcount); n; n = rb_next(n)) {
 		struct ssam_nf_refcount_entry *e;
 
 		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
 
-		// ignore errors, will get logged in call
+		/* Ignore errors, will get logged in call. */
 		ssam_ssh_event_enable(ctrl, e->key.reg, e->key.id, e->flags);
 	}
 	mutex_unlock(&nf->lock);
@@ -2383,7 +2354,7 @@ static void ssam_notifier_unregister_all(struct ssam_controller *ctrl)
 
 	mutex_lock(&nf->lock);
 	rbtree_postorder_for_each_entry_safe(e, n, &nf->refcount, node) {
-		// ignore errors, will get logged in call
+		/* Ignore errors, will get logged in call. */
 		ssam_ssh_event_disable(ctrl, e->key.reg, e->key.id, e->flags);
 		kfree(e);
 	}

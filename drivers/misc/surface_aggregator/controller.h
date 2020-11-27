@@ -49,12 +49,11 @@ struct ssh_rqid_counter {
 /**
  * struct ssam_nf_head - Notifier head for SSAM events.
  * @srcu: The SRCU struct for synchronization.
- * @head: Head-pointer for the single-linked list of notifier blocks registered
- *        under this head.
+ * @head: List-head for notifier blocks registered under this head.
  */
 struct ssam_nf_head {
 	struct srcu_struct srcu;
-	struct ssam_notifier_block __rcu *head;
+	struct list_head head;
 };
 
 /**
@@ -93,7 +92,7 @@ struct ssam_event_item {
 		void (*free)(struct ssam_event_item *event);
 	} ops;
 
-	struct ssam_event event;	// must be last
+	struct ssam_event event;	/* must be last */
 };
 
 /**
@@ -226,7 +225,6 @@ struct ssam_controller {
 #define ssam_warn(ctrl, fmt, ...) rtl_warn(&(ctrl)->rtl, fmt, ##__VA_ARGS__)
 #define ssam_err(ctrl, fmt, ...)  rtl_err(&(ctrl)->rtl, fmt, ##__VA_ARGS__)
 
-
 /**
  * ssam_controller_receive_buf() - Provide input-data to the controller.
  * @ctrl: The controller.
@@ -255,7 +253,6 @@ static inline void ssam_controller_write_wakeup(struct ssam_controller *ctrl)
 {
 	ssh_ptl_tx_wakeup_transfer(&ctrl->rtl.ptl);
 }
-
 
 int ssam_controller_init(struct ssam_controller *ctrl, struct serdev_device *s);
 int ssam_controller_start(struct ssam_controller *ctrl);

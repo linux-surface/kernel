@@ -2,9 +2,9 @@
 /*
  * Surface performance-mode driver.
  *
- * Proides a user-space interface for the performance mode control provided by
- * the Surface System Aggregator Module (SSAM), influencing cooling behavior
- * of the device and potentially managing power limits.
+ * Provides a user-space interface for the performance mode control provided
+ * by the Surface System Aggregator Module (SSAM), influencing cooling
+ * behavior of the device and potentially managing power limits.
  *
  * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
  */
