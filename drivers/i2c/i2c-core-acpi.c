@@ -497,6 +497,22 @@ struct i2c_client *i2c_acpi_new_device(struct device *dev, int index,
 }
 EXPORT_SYMBOL_GPL(i2c_acpi_new_device);
 
+/**
+ * i2c_acpi_dev_name - Construct i2c device name for devs sourced from ACPI
+ * @adev:     ACPI device to construct the name for
+ *
+ * Constructs the name of an i2c device matching the format used by
+ * i2c_dev_set_name() to allow users to refer to an i2c device by name even
+ * before they have been instantiated.
+ * 
+ * The caller is responsible for freeing the returned pointer.
+ */
+char *i2c_acpi_dev_name(struct acpi_device *adev)
+{
+	return kasprintf(GFP_KERNEL, I2C_DEV_NAME_FORMAT, acpi_dev_name(adev));
+}
+EXPORT_SYMBOL_GPL(i2c_acpi_dev_name);
+
 #ifdef CONFIG_ACPI_I2C_OPREGION
 static int acpi_gsb_i2c_read_bytes(struct i2c_client *client,
 		u8 cmd, u8 *data, u8 data_len)
