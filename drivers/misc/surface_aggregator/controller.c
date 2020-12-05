@@ -108,7 +108,7 @@ static u16 ssh_rqid_next(struct ssh_rqid_counter *c)
 
 /**
  * ssam_event_matches_notifier() - Test if an event matches a notifier.
- * @notif: The event notifier to test against.
+ * @n: The event notifier to test against.
  * @event: The event to test.
  *
  * Return: Returns %true iff the given event matches the given notifier

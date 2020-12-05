@@ -56,6 +56,7 @@ struct ssh_rtl_ops {
  * @tx:            Transmitter subsystem.
  * @tx.work:       Transmitter work item.
  * @rtx_timeout:   Retransmission timeout subsystem.
+ * @rtx_timeout.lock:    Lock for modifying the retransmission timeout reaper.
  * @rtx_timeout.timeout: Timeout interval for retransmission.
  * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
  * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
@@ -81,6 +82,7 @@ struct ssh_rtl {
 	} tx;
 
 	struct {
+		spinlock_t lock;
 		ktime_t timeout;
 		ktime_t expires;
 		struct delayed_work reaper;

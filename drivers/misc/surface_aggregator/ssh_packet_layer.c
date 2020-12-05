@@ -664,21 +664,16 @@ static void ssh_ptl_timeout_reaper_mod(struct ssh_ptl *ptl, ktime_t now,
 {
 	unsigned long delta = msecs_to_jiffies(ktime_ms_delta(expires, now));
 	ktime_t aexp = ktime_add(expires, SSH_PTL_PACKET_TIMEOUT_RESOLUTION);
-	ktime_t old_exp, old_act;
 
-	/* Re-adjust / schedule reaper if it is above resolution delta. */
-	old_act = READ_ONCE(ptl->rtx_timeout.expires);
-	if (ktime_after(aexp, old_act))
-		return;
+	spin_lock(&ptl->rtx_timeout.lock);
 
-	do {
-		old_exp = old_act;
-		old_act = cmpxchg64(&ptl->rtx_timeout.expires, old_exp, expires);
-	} while (old_exp != old_act && ktime_before(aexp, old_act));
-
-	/* If we updated the reaper expiration, modify work timeout. */
-	if (old_exp == old_act && old_act != expires)
+	/* Re-adjust / schedule reaper only if it is above resolution delta. */
+	if (ktime_before(aexp, ptl->rtx_timeout.expires)) {
+		ptl->rtx_timeout.expires = expires;
 		mod_delayed_work(system_wq, &ptl->rtx_timeout.reaper, delta);
+	}
+
+	spin_unlock(&ptl->rtx_timeout.lock);
 }
 
 /* Must be called with queue lock held. */
@@ -1508,14 +1503,9 @@ static void ssh_ptl_timeout_reap(struct work_struct *work)
 	 * Mark reaper as "not pending". This is done before checking any
 	 * packets to avoid lost-update type problems.
 	 */
-	WRITE_ONCE(ptl->rtx_timeout.expires, KTIME_MAX);
-	/*
-	 * Ensure that the reaper is marked as deactivated before we continue
-	 * checking packets to prevent lost-update problems when a packet is
-	 * added to the pending set and ssh_ptl_timeout_reaper_mod is called
-	 * during execution of the part below.
-	 */
-	smp_mb__after_atomic();
+	spin_lock(&ptl->rtx_timeout.lock);
+	ptl->rtx_timeout.expires = KTIME_MAX;
+	spin_unlock(&ptl->rtx_timeout.lock);
 
 	spin_lock(&ptl->pending.lock);
 
@@ -2017,6 +2007,7 @@ int ssh_ptl_init(struct ssh_ptl *ptl, struct serdev_device *serdev,
 	ptl->rx.thread = NULL;
 	init_waitqueue_head(&ptl->rx.wq);
 
+	spin_lock_init(&ptl->rtx_timeout.lock);
 	ptl->rtx_timeout.timeout = SSH_PTL_PACKET_TIMEOUT;
 	ptl->rtx_timeout.expires = KTIME_MAX;
 	INIT_DELAYED_WORK(&ptl->rtx_timeout.reaper, ssh_ptl_timeout_reap);
