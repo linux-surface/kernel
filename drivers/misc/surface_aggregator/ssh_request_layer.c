@@ -428,21 +428,16 @@ static void ssh_rtl_timeout_reaper_mod(struct ssh_rtl *rtl, ktime_t now,
 {
 	unsigned long delta = msecs_to_jiffies(ktime_ms_delta(expires, now));
 	ktime_t aexp = ktime_add(expires, SSH_RTL_REQUEST_TIMEOUT_RESOLUTION);
-	ktime_t old_exp, old_act;
 
-	/* Re-adjust/schedule reaper if it is above resolution delta. */
-	old_act = READ_ONCE(rtl->rtx_timeout.expires);
-	if (ktime_after(aexp, old_act))
-		return;
+	spin_lock(&rtl->rtx_timeout.lock);
 
-	do {
-		old_exp = old_act;
-		old_act = cmpxchg64(&rtl->rtx_timeout.expires, old_exp, expires);
-	} while (old_exp != old_act && ktime_before(aexp, old_act));
-
-	/* If we updated the reaper expiration, modify work timeout. */
-	if (old_exp == old_act && old_act != expires)
+	/* Re-adjust / schedule reaper only if it is above resolution delta. */
+	if (ktime_before(aexp, rtl->rtx_timeout.expires)) {
+		rtl->rtx_timeout.expires = expires;
 		mod_delayed_work(system_wq, &rtl->rtx_timeout.reaper, delta);
+	}
+
+	spin_unlock(&rtl->rtx_timeout.lock);
 }
 
 static void ssh_rtl_timeout_start(struct ssh_request *rqst)
@@ -837,14 +832,9 @@ static void ssh_rtl_timeout_reap(struct work_struct *work)
 	 * Mark reaper as "not pending". This is done before checking any
 	 * requests to avoid lost-update type problems.
 	 */
-	WRITE_ONCE(rtl->rtx_timeout.expires, KTIME_MAX);
-	/*
-	 * Ensure that the reaper is marked as deactivated before we continue
-	 * checking requests to prevent lost-update problems when a request is
-	 * added to the pending set and ssh_rtl_timeout_reaper_mod is called
-	 * during execution of the part below.
-	 */
-	smp_mb__after_atomic();
+	spin_lock(&rtl->rtx_timeout.lock);
+	rtl->rtx_timeout.expires = KTIME_MAX;
+	spin_unlock(&rtl->rtx_timeout.lock);
 
 	spin_lock(&rtl->pending.lock);
 	list_for_each_entry_safe(r, n, &rtl->pending.head, node) {
@@ -1033,6 +1023,7 @@ int ssh_rtl_init(struct ssh_rtl *rtl, struct serdev_device *serdev,
 
 	INIT_WORK(&rtl->tx.work, ssh_rtl_tx_work_fn);
 
+	spin_lock_init(&rtl->rtx_timeout.lock);
 	rtl->rtx_timeout.timeout = SSH_RTL_REQUEST_TIMEOUT;
 	rtl->rtx_timeout.expires = KTIME_MAX;
 	INIT_DELAYED_WORK(&rtl->rtx_timeout.reaper, ssh_rtl_timeout_reap);
