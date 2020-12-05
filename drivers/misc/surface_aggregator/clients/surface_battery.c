@@ -447,26 +447,16 @@ static int spwr_battery_recheck_status(struct spwr_battery_device *bat)
 
 static int spwr_battery_recheck_adapter(struct spwr_battery_device *bat)
 {
-	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
-	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
-
-	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
-		return 0;
-
-	if (remaining_cap == SPWR_BATTERY_VALUE_UNKNOWN)
-		return 0;
-
 	/*
-	 * Handle battery update quirk:
-	 * When the battery is fully charged and the adapter is plugged in or
-	 * removed, the EC does not send a separate event for the state
-	 * (charging/discharging) change. Furthermore it may take some time until
-	 * the state is updated on the battery. Schedule an update to solve this.
+	 * Handle battery update quirk: When the battery is fully charged (or
+	 * charged up to the limit imposed by the UEFI battery limit) and the
+	 * adapter is plugged in or removed, the EC does not send a separate
+	 * event for the state (charging/discharging) change. Furthermore it
+	 * may take some time until the state is updated on the battery.
+	 * Schedule an update to solve this.
 	 */
 
-	if (remaining_cap >= full_cap)
-		schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
-
+	schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
 	return 0;
 }
 
