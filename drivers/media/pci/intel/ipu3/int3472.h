@@ -105,4 +105,10 @@ static struct int3472_sensor_regulator_map int3472_sensor_regulator_maps[] = {
 	{ "MSHW0070", 2, surface_ov5693 },  /* Surface Book 1/Pro 4, front  */
 	{ "MSHW0071", 2, surface_ov8865 },  /* Surface Book 1/Pro 4, rear   */
 	{ "MSHW0072", 2, surface_ov7251 },  /* Surface Book 1/Pro 4, IR     */
+	{ "MSHW0140", 2, surface_ov5693 },  /* Surface Book 2 (13"), front  */
+	{ "MSHW0141", 2, surface_ov8865 },  /* Surface Book 2 (13"), rear   */
+	{ "MSHW0142", 2, surface_ov7251 },  /* Surface Book 2 (13"), IR     */
+	{ "MSHW0150", 2, surface_ov5693 },  /* Surface Book 2 (15"), front  */
+	{ "MSHW0151", 2, surface_ov8865 },  /* Surface Book 2 (15"), rear   */
+	{ "MSHW0152", 2, surface_ov7251 },  /* Surface Book 2 (15"), IR     */
 };
