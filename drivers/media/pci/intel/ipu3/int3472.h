@@ -84,13 +84,25 @@ static struct regulator_consumer_supply surface_go2_ov5693[] = {
 	{ "i2c-INT33BE:00", "dovdd" },
 };
 
-static struct regulator_consumer_supply surface_book_ov5693[] = {
+static struct regulator_consumer_supply surface_ov5693[] = {
 	{ "i2c-INT33BE:00", "avdd" },
 	{ "i2c-INT33BE:00", "dovdd" },
+};
+
+static struct regulator_consumer_supply surface_ov8865[] = {
+       { "i2c-INT347A:00", "avdd" },
+       { "i2c-INT347A:00", "dovdd" },
+};
+
+static struct regulator_consumer_supply surface_ov7251[] = {
+       { "i2c-INT347E:00", "avdd" },
+       { "i2c-INT347E:00", "dovdd" },
 };
 
 static struct int3472_sensor_regulator_map int3472_sensor_regulator_maps[] = {
 	{ "GNDF140809R", 2, miix_510_ov2680 },
 	{ "YHCU", 2, surface_go2_ov5693 },
-	{ "MSHW0070", 2, surface_book_ov5693 },
+	{ "MSHW0070", 2, surface_ov5693 },  /* Surface Book 1/Pro 4, front  */
+	{ "MSHW0071", 2, surface_ov8865 },  /* Surface Book 1/Pro 4, rear   */
+	{ "MSHW0072", 2, surface_ov7251 },  /* Surface Book 1/Pro 4, IR     */
 };
