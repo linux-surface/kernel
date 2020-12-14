@@ -910,6 +910,18 @@ config SURFACE_GPE
 	  accordingly. It is required on those devices to allow wake-ups from
 	  suspend by opening the lid.
 
+config SURFACE_HOTPLUG
+	tristate "Surface Hot-Plug System Driver"
+	depends on ACPI
+	default m
+	help
+	  Driver for the Surface discrete GPU (dGPU) hot-plug system.
+
+	  This driver provides support for out-of-band hot-plug event signaling
+	  on Surface Book 2 and 3 devices. This out-of-band signaling is
+	  required to notify the kernel of any hot-plug events when the dGPU is
+	  powered off, i.e. in D3cold.
+
 config SURFACE_BOOK1_DGPU_SWITCH
 	tristate "Surface Book 1 dGPU Switch Driver"
 	depends on ACPI && SYSFS
