@@ -184,7 +184,7 @@ extern const struct device_type ssam_device_type;
  * is_ssam_device() - Check if the given device is a SSAM client device.
  * @d: The device to test the type of.
  *
- * Return: Returns %true iff the specified device is of type &struct
+ * Return: Returns %true if the specified device is of type &struct
  * ssam_device, i.e. the device type points to %ssam_device_type, and %false
  * otherwise.
  */
