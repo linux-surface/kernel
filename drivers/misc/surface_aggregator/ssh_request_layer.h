@@ -137,7 +137,7 @@ int ssh_rtl_flush(struct ssh_rtl *rtl, unsigned long timeout);
 void ssh_rtl_shutdown(struct ssh_rtl *rtl);
 void ssh_rtl_destroy(struct ssh_rtl *rtl);
 
-void ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
-		      const struct ssh_request_ops *ops);
+int ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
+		     const struct ssh_request_ops *ops);
 
 #endif /* _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H */

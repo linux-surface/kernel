@@ -20,10 +20,10 @@
  *
  * Computes the CRC of the provided data span (@src), compares it to the CRC
  * stored at the given address (@crc), and returns the result of this
- * comparison, i.e. %true iff equal. This function is intended to run on raw
+ * comparison, i.e. %true if equal. This function is intended to run on raw
  * input/message data.
  *
- * Return: Returns %true iff the computed CRC matches the stored CRC, %false
+ * Return: Returns %true if the computed CRC matches the stored CRC, %false
  * otherwise.
  */
 static bool sshp_validate_crc(const struct ssam_span *src, const u8 *crc)
@@ -63,7 +63,7 @@ static bool sshp_starts_with_syn(const struct ssam_span *src)
  * source span, and return %false. This function should then be re-run once
  * more data is available.
  *
- * Return: Returns %true iff a complete SSH SYN sequence could be found,
+ * Return: Returns %true if a complete SSH SYN sequence could be found,
  * %false otherwise.
  */
 bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)

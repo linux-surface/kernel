@@ -15,6 +15,7 @@
 #include <linux/ktime.h>
 #include <linux/limits.h>
 #include <linux/list.h>
+#include <linux/lockdep.h>
 #include <linux/serdev.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -682,6 +683,8 @@ static void ssh_packet_next_try(struct ssh_packet *p)
 	u8 base = ssh_packet_priority_get_base(p->priority);
 	u8 try = ssh_packet_priority_get_try(p->priority);
 
+	lockdep_assert_held(&p->ptl->queue.lock);
+
 	/*
 	 * Ensure that we write the priority in one go via WRITE_ONCE() so we
 	 * can access it via READ_ONCE() for tracing. Note that other access
@@ -695,6 +698,8 @@ static struct list_head *__ssh_ptl_queue_find_entrypoint(struct ssh_packet *p)
 {
 	struct list_head *head;
 	struct ssh_packet *q;
+
+	lockdep_assert_held(&p->ptl->queue.lock);
 
 	/*
 	 * We generally assume that there are less control (ACK/NAK) packets
@@ -735,6 +740,8 @@ static int __ssh_ptl_queue_push(struct ssh_packet *packet)
 {
 	struct ssh_ptl *ptl = packet->ptl;
 	struct list_head *head;
+
+	lockdep_assert_held(&ptl->queue.lock);
 
 	if (test_bit(SSH_PTL_SF_SHUTDOWN_BIT, &ptl->state))
 		return -ESHUTDOWN;
@@ -1358,6 +1365,8 @@ static int __ssh_ptl_resubmit(struct ssh_packet *packet)
 	int status;
 	u8 try;
 
+	lockdep_assert_held(&packet->ptl->pending.lock);
+
 	trace_ssam_packet_resubmit(packet);
 
 	spin_lock(&packet->ptl->queue.lock);
@@ -1477,9 +1486,11 @@ void ssh_ptl_cancel(struct ssh_packet *p)
 	}
 }
 
-/* must be called with pending lock held */
+/* Must be called with pending lock held */
 static ktime_t ssh_packet_get_expiration(struct ssh_packet *p, ktime_t timeout)
 {
+	lockdep_assert_held(&p->ptl->pending.lock);
+
 	if (p->timestamp != KTIME_MAX)
 		return ktime_add(p->timestamp, timeout);
 	else
