@@ -13,6 +13,7 @@
 #include <linux/kref.h>
 #include <linux/limits.h>
 #include <linux/list.h>
+#include <linux/lockdep.h>
 #include <linux/mutex.h>
 #include <linux/rculist.h>
 #include <linux/rbtree.h>
@@ -111,7 +112,7 @@ static u16 ssh_rqid_next(struct ssh_rqid_counter *c)
  * @n: The event notifier to test against.
  * @event: The event to test.
  *
- * Return: Returns %true iff the given event matches the given notifier
+ * Return: Returns %true if the given event matches the given notifier
  * according to the rules set in the notifier's event mask, %false otherwise.
  */
 static bool ssam_event_matches_notifier(const struct ssam_event_notifier *n,
@@ -151,7 +152,8 @@ static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *eve
 
 	idx = srcu_read_lock(&nh->srcu);
 
-	list_for_each_entry_rcu(nf, &nh->head, base.node) {
+	list_for_each_entry_rcu(nf, &nh->head, base.node,
+				srcu_read_lock_held(&nh->srcu)) {
 		if (ssam_event_matches_notifier(nf, event)) {
 			ret = (ret & SSAM_NOTIF_STATE_MASK) | nf->base.fn(nf, event);
 			if (ret & SSAM_NOTIF_STOP)
@@ -170,7 +172,7 @@ static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *eve
  * @nb: The notifier block to add.
  *
  * Note: This function must be synchronized by the caller with respect to other
- * insert, find, and/or remove calls.
+ * insert, find, and/or remove calls by holding ``struct ssam_nf.lock``.
  *
  * Return: Returns zero on success, %-EEXIST if the notifier block has already
  * been registered.
@@ -205,7 +207,7 @@ static int ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block
  * @nb: The notifier block to search for.
  *
  * Note: This function must be synchronized by the caller with respect to other
- * insert, find, and/or remove calls.
+ * insert, find, and/or remove calls by holding ``struct ssam_nf.lock``.
  *
  * Return: Returns true if the given notifier block is registered on the given
  * notifier head, false otherwise.
@@ -228,10 +230,10 @@ static bool ssam_nfblk_find(struct ssam_nf_head *nh, struct ssam_notifier_block 
  * @nb: The notifier block to be removed.
  *
  * Note: This function must be synchronized by the caller with respect to
- * other insert, find and/or remove calls. The caller _must_ ensure SRCU
- * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
- * leaving the critical section, to ensure that the removed notifier block is
- * not in use any more.
+ * other insert, find, and/or remove calls by holding ``struct ssam_nf.lock``.
+ * Furthermore, the caller _must_ ensure SRCU synchronization by calling
+ * synchronize_srcu() with ``nh->srcu`` after leaving the critical section, to
+ * ensure that the removed notifier block is not in use any more.
  */
 static void ssam_nfblk_remove(struct ssam_notifier_block *nb)
 {
@@ -303,24 +305,23 @@ struct ssam_nf_refcount_entry {
  * event type/ID, allocating a new entry for this event ID if necessary. A
  * newly allocated entry will have a refcount of one.
  *
- * Note: Must be synchronized by the caller with regards to other
- * ssam_nf_refcount_inc() and ssam_nf_refcount_dec() calls, e.g. via
- * ``nf->lock``. Note that this lock should also be used to ensure the
- * corresponding EC requests are sent, if necessary.
+ * Note: ``nf->lock`` must be held when calling this function.
  *
  * Return: Returns the refcount entry on success. Returns an error pointer
  * with %-ENOSPC if there have already been %INT_MAX events of the specified
  * ID and type registered, or %-ENOMEM if the entry could not be allocated.
  */
-static struct ssam_nf_refcount_entry
-*ssam_nf_refcount_inc(struct ssam_nf *nf, struct ssam_event_registry reg,
-		      struct ssam_event_id id)
+static struct ssam_nf_refcount_entry *
+ssam_nf_refcount_inc(struct ssam_nf *nf, struct ssam_event_registry reg,
+		     struct ssam_event_id id)
 {
 	struct ssam_nf_refcount_entry *entry;
 	struct ssam_nf_refcount_key key;
 	struct rb_node **link = &nf->refcount.rb_node;
 	struct rb_node *parent = NULL;
 	int cmp;
+
+	lockdep_assert_held(&nf->lock);
 
 	key.reg = reg;
 	key.id = id;
@@ -338,6 +339,7 @@ static struct ssam_nf_refcount_entry
 			entry->refcount++;
 			return entry;
 		} else {
+			WARN_ON(1);
 			return ERR_PTR(-ENOSPC);
 		}
 	}
@@ -366,22 +368,21 @@ static struct ssam_nf_refcount_entry
  * returning its entry. If the returned entry has a refcount of zero, the
  * caller is responsible for freeing it using kfree().
  *
- * Note: Must be synchronized by the caller with regards to other
- * ssam_nf_refcount_inc() and ssam_nf_refcount_dec() calls, e.g. via
- * ``nf->lock``. Note that this lock should also be used to ensure the
- * corresponding EC requests are sent, if necessary.
+ * Note: ``nf->lock`` must be held when calling this function.
  *
  * Return: Returns the refcount entry on success or %NULL if the entry has not
  * been found.
  */
-static struct ssam_nf_refcount_entry
-*ssam_nf_refcount_dec(struct ssam_nf *nf, struct ssam_event_registry reg,
-		      struct ssam_event_id id)
+static struct ssam_nf_refcount_entry *
+ssam_nf_refcount_dec(struct ssam_nf *nf, struct ssam_event_registry reg,
+		     struct ssam_event_id id)
 {
 	struct ssam_nf_refcount_entry *entry;
 	struct ssam_nf_refcount_key key;
 	struct rb_node *node = nf->refcount.rb_node;
 	int cmp;
+
+	lockdep_assert_held(&nf->lock);
 
 	key.reg = reg;
 	key.id = id;
@@ -455,9 +456,7 @@ static void ssam_nf_call(struct ssam_nf *nf, struct device *dev, u16 rqid,
 			"event: error handling event: %d (tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 			status, event->target_category, event->target_id,
 			event->command_id, event->instance_id);
-	}
-
-	if (!(nf_ret & SSAM_NOTIF_HANDLED)) {
+	} else if (!(nf_ret & SSAM_NOTIF_HANDLED)) {
 		dev_warn(dev,
 			 "event: unhandled event (rqid: %#04x, tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 			 rqid, event->target_category, event->target_id,
@@ -859,7 +858,15 @@ static void __ssam_controller_release(struct kref *kref)
 {
 	struct ssam_controller *ctrl = to_ssam_controller(kref, kref);
 
+	/*
+	 * The lock-call here is to satisfy lockdep. At this point we really
+	 * expect this to be the last remaining reference to the controller.
+	 * Anything else is a bug.
+	 */
+	ssam_controller_lock(ctrl);
 	ssam_controller_destroy(ctrl);
+	ssam_controller_unlock(ctrl);
+
 	kfree(ctrl);
 }
 
@@ -1001,6 +1008,14 @@ static int ssam_dsm_get_functions(acpi_handle handle, u64 *funcs)
 
 	*funcs = 0;
 
+	/*
+	 * The _DSM function is only present on newer models. It is not
+	 * present on 5th and 6th generation devices (i.e. up to and including
+	 * Surface Pro 6, Surface Laptop 2, Surface Book 2).
+	 *
+	 * If the _DSM is not present, indicate that no function is supported.
+	 * This will result in default values being set.
+	 */
 	if (!acpi_has_method(handle, "_DSM"))
 		return 0;
 
@@ -1026,7 +1041,7 @@ static int ssam_dsm_load_u32(acpi_handle handle, u64 funcs, u64 func, u32 *ret)
 	u64 val;
 
 	if (!(funcs & BIT(func)))
-		return 0;
+		return 0; /* Not supported, leave *ret at its default value */
 
 	obj = acpi_evaluate_dsm_typed(handle, &SSAM_SSH_DSM_GUID,
 				      SSAM_SSH_DSM_REVISION, func, NULL,
@@ -1181,12 +1196,14 @@ int ssam_controller_init(struct ssam_controller *ctrl,
  * hooked up to the serdev core via &struct serdev_device_ops. Please refer
  * to ssam_controller_init() for more details on controller initialization.
  *
- * This function must be called from an exclusive context with regards to the
- * state, if necessary, by locking the controller via ssam_controller_lock().
+ * This function must be called with the main controller lock held (i.e. by
+ * calling ssam_controller_lock()).
  */
 int ssam_controller_start(struct ssam_controller *ctrl)
 {
 	int status;
+
+	lockdep_assert_held_write(&ctrl->lock);
 
 	if (ctrl->state != SSAM_CONTROLLER_INITIALIZED)
 		return -EINVAL;
@@ -1233,13 +1250,15 @@ int ssam_controller_start(struct ssam_controller *ctrl)
  * notifiers being unregistered, these events will be dropped when the
  * controller is subsequently destroyed via ssam_controller_destroy().
  *
- * This function must be called from an exclusive context with regards to the
- * state, if necessary, by locking the controller via ssam_controller_lock().
+ * This function must be called with the main controller lock held (i.e. by
+ * calling ssam_controller_lock()).
  */
 void ssam_controller_shutdown(struct ssam_controller *ctrl)
 {
 	enum ssam_controller_state s = ctrl->state;
 	int status;
+
+	lockdep_assert_held_write(&ctrl->lock);
 
 	if (s == SSAM_CONTROLLER_UNINITIALIZED || s == SSAM_CONTROLLER_STOPPED)
 		return;
@@ -1300,11 +1319,13 @@ void ssam_controller_shutdown(struct ssam_controller *ctrl)
  * to other processes. This function is called automatically when the
  * reference count of the controller reaches zero.
  *
- * Must be called from an exclusive context with regards to the controller
- * state.
+ * This function must be called with the main controller lock held (i.e. by
+ * calling ssam_controller_lock()).
  */
 void ssam_controller_destroy(struct ssam_controller *ctrl)
 {
+	lockdep_assert_held_write(&ctrl->lock);
+
 	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
 		return;
 
@@ -1558,14 +1579,23 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_free);
  * message data. This has to be done explicitly after this call via
  * ssam_request_sync_set_data() and the actual message data has to be written
  * via ssam_request_write_data().
+ *
+ * Return: Returns zero on success or %-EINVAL if the given flags are invalid.
  */
-void ssam_request_sync_init(struct ssam_request_sync *rqst,
-			    enum ssam_request_flags flags)
+int ssam_request_sync_init(struct ssam_request_sync *rqst,
+			   enum ssam_request_flags flags)
 {
-	ssh_request_init(&rqst->base, flags, &ssam_request_sync_ops);
+	int status;
+
+	status = ssh_request_init(&rqst->base, flags, &ssam_request_sync_ops);
+	if (status)
+		return status;
+
 	init_completion(&rqst->comp);
 	rqst->resp = NULL;
 	rqst->status = 0;
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(ssam_request_sync_init);
 
@@ -1644,7 +1674,10 @@ int ssam_request_sync(struct ssam_controller *ctrl,
 	if (status)
 		return status;
 
-	ssam_request_sync_init(rqst, spec->flags);
+	status = ssam_request_sync_init(rqst, spec->flags);
+	if (status)
+		return status;
+
 	ssam_request_sync_set_resp(rqst, rsp);
 
 	len = ssam_request_write_data(&buf, ctrl, spec);
@@ -1694,7 +1727,10 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 	ssize_t len;
 	int status;
 
-	ssam_request_sync_init(&rqst, spec->flags);
+	status = ssam_request_sync_init(&rqst, spec->flags);
+	if (status)
+		return status;
+
 	ssam_request_sync_set_resp(&rqst, rsp);
 
 	len = ssam_request_write_data(buf, ctrl, spec);

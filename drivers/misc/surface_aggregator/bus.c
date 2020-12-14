@@ -176,7 +176,7 @@ EXPORT_SYMBOL_GPL(ssam_device_remove);
  * the provided UID is compatible to the given ID following the match rules
  * described in its &ssam_device_id.match_flags member.
  *
- * Return: Returns %true iff the given UID is compatible to the match rule
+ * Return: Returns %true if the given UID is compatible to the match rule
  * described by the given ID, %false otherwise.
  */
 static bool ssam_device_id_compatible(const struct ssam_device_id *id,

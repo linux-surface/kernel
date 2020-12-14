@@ -644,6 +644,8 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		goto err_ctrl_init;
 
+	ssam_controller_lock(ctrl);
+
 	/* Set up serdev device. */
 	serdev_device_set_drvdata(serdev, ctrl);
 	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
@@ -661,6 +663,8 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	status = ssam_controller_start(ctrl);
 	if (status)
 		goto err_devinit;
+
+	ssam_controller_unlock(ctrl);
 
 	/*
 	 * Initial SAM requests: Log version and notify default/init power
@@ -712,11 +716,13 @@ err_mainref:
 err_irq:
 	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 err_initrq:
+	ssam_controller_lock(ctrl);
 	ssam_controller_shutdown(ctrl);
 err_devinit:
 	serdev_device_close(serdev);
 err_devopen:
 	ssam_controller_destroy(ctrl);
+	ssam_controller_unlock(ctrl);
 err_ctrl_init:
 	kfree(ctrl);
 	return status;

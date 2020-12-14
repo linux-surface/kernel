@@ -1005,26 +1005,16 @@ static void spwr_battery_unregister(struct spwr_battery_device *bat)
 
 /* -- Power management. ----------------------------------------------------- */
 
-#ifdef CONFIG_PM_SLEEP
-
-static int surface_battery_resume(struct device *dev)
+static int __maybe_unused surface_battery_resume(struct device *dev)
 {
 	return spwr_battery_recheck_full(dev_get_drvdata(dev));
 }
+SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 
-static int surface_ac_resume(struct device *dev)
+static int __maybe_unused surface_ac_resume(struct device *dev)
 {
 	return spwr_ac_recheck(dev_get_drvdata(dev));
 }
-
-#else /* CONFIG_PM_SLEEP */
-
-#define surface_battery_resume	NULL
-#define surface_ac_resume	NULL
-
-#endif /* CONFIG_PM_SLEEP */
-
-SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
 
 

@@ -721,7 +721,7 @@ static bool ssh_rtl_cancel_pending(struct ssh_request *r)
  * thread, which may happen during, but also some time after execution of the
  * cancel function.
  *
- * Return: Returns %true iff the given request has been canceled or completed,
+ * Return: Returns %true if the given request has been canceled or completed,
  * either by this function or prior to calling this function, %false
  * otherwise. If @pending is %true, this function will always return %true.
  */
@@ -966,11 +966,17 @@ static const struct ssh_packet_ops ssh_rtl_packet_ops = {
  * buffer pointer to %NULL and the message buffer length to zero. This buffer
  * has to be set separately via ssh_request_set_data() before submission and
  * must contain a valid SSH request message.
+ *
+ * Return: Returns zero on success or %-EINVAL if the given flags are invalid.
  */
-void ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
-		      const struct ssh_request_ops *ops)
+int ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
+		     const struct ssh_request_ops *ops)
 {
 	unsigned long type = BIT(SSH_PACKET_TY_BLOCKING_BIT);
+
+	/* Unsequenced requests cannot have a response. */
+	if (flags & SSAM_REQUEST_UNSEQUENCED && flags & SSAM_REQUEST_HAS_RESPONSE)
+		return -EINVAL;
 
 	if (!(flags & SSAM_REQUEST_UNSEQUENCED))
 		type |= BIT(SSH_PACKET_TY_SEQUENCED_BIT);
@@ -986,6 +992,8 @@ void ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
 
 	rqst->timestamp = KTIME_MAX;
 	rqst->ops = ops;
+
+	return 0;
 }
 
 /**

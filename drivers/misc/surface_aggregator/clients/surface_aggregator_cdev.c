@@ -85,9 +85,15 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 	spec.target_id = rqst.target_id;
 	spec.command_id = rqst.command_id;
 	spec.instance_id = rqst.instance_id;
-	spec.flags = rqst.flags;
+	spec.flags = 0;
 	spec.length = rqst.payload.length;
 	spec.payload = NULL;
+
+	if (rqst.flags & SSAM_CDEV_REQUEST_HAS_RESPONSE)
+		spec.flags |= SSAM_REQUEST_HAS_RESPONSE;
+
+	if (rqst.flags & SSAM_CDEV_REQUEST_UNSEQUENCED)
+		spec.flags |= SSAM_REQUEST_UNSEQUENCED;
 
 	rsp.capacity = rqst.response.length;
 	rsp.length = 0;
