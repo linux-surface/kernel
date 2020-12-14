@@ -708,6 +708,25 @@ config ACPI_WMI
 	  It is safe to enable this driver even if your DSDT doesn't define
 	  any ACPI-WMI devices.
 
+config SURFACE_HOTPLUG
+	tristate "Surface Hot-Plug Driver"
+	depends on GPIOLIB
+	help
+	  Driver for out-of-band hot-plug event signaling on Microsoft Surface
+	  devices with hot-pluggable PCIe cards.
+
+	  This driver is used on Surface Book (2 and 3) devices with a
+	  hot-pluggable discrete GPU (dGPU). When not in use, the dGPU on those
+	  devices can enter D3cold, which prevents in-band (standard) PCIe
+	  hot-plug signaling. Thus, without this driver, detaching the base
+	  containing the dGPU will not correctly update the state of the
+	  corresponding PCIe device if it is in D3cold. This driver adds support
+	  for out-of-band hot-plug notifications, ensuring that the device state
+	  is properly updated even when the device in question is in D3cold.
+
+	  Select M or Y here, if you want to (fully) support hot-plugging of
+	  dGPU devices on the Surface Book 2 and/or 3 during D3cold.
+
 config WMI_BMOF
 	tristate "WMI embedded Binary MOF driver"
 	depends on ACPI_WMI
