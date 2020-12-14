@@ -115,23 +115,6 @@ config SURFACE_HID
 	  some devices, specifically the Surface Book 3 and Surface Laptop 3,
 	  will not be supported.
 
-config SURFACE_HOTPLUG
-	tristate "Surface Hot-Plug System Driver"
-	depends on SURFACE_AGGREGATOR
-	depends on SURFACE_ACPI_NOTIFY
-	depends on GPIO_SYSFS
-	default m
-	help
-	  Driver for the Surface discrete GPU (dGPU) hot-plug system.
-
-	  This driver manages the dGPU power on the Surface Books, including
-	  when hot-plugging it by detaching the clipboard (display part
-	  containing the CPU) from the base (containing the keyboard and dGPU)
-	  of the device when it is running. This driver also provides a
-	  user-space interface via which the dGPU power-state (on/off) can be
-	  set, allowing users to turn off the dGPU in order to reduce power
-	  consumption.
-
 config SURFACE_PERFMODE
 	tristate "Surface Performance-Mode Driver"
 	depends on SURFACE_AGGREGATOR_BUS
