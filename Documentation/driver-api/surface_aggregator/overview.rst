@@ -29,7 +29,7 @@ restructured for 7th generation devices and on those, specifically Surface
 Laptop 3 and Surface Book 3, is responsible for all major HID input (i.e.
 keyboard and touchpad).
 
-While the features have not changed much on a coarse level since the 5th
+While features have not changed much on a coarse level since the 5th
 generation, internal interfaces have undergone some rather large changes. On
 5th and 6th generation devices, both battery and temperature information is
 exposed to ACPI via a shim driver (referred to as Surface ACPI Notify, or
@@ -50,9 +50,9 @@ generation of the Surface device. On 4th generation devices, host and EC
 communicate via HID, specifically using a HID-over-I2C device, whereas on
 5th and later generations, communication takes place via a USART serial
 device. In accordance to the drivers found on other operating systems, we
-refer to the serial device and its driver as Surface Serial Hub (SSH) and
-when needed to differentiate between both types of SAM as SAM-over-SSH, in
-contrast to SAM-over-HID for the former variant.
+refer to the serial device and its driver as Surface Serial Hub (SSH). When
+needed, we differentiate between both types of SAM by referring to them as
+SAM-over-SSH and SAM-over-HID.
 
 Currently, this subsystem only supports SAM-over-SSH. The SSH communication
 interface is described in more detail below. The HID interface has not been
@@ -71,6 +71,7 @@ response from the EC (explicitly associated with the request), and events
 (sometimes also referred to as notifications), sent from EC to host without
 being a direct response to a previous request. We may also refer to requests
 without response as commands. In general, events need to be enabled via one
-of multiple dedicated commands before they are sent by the EC.
+of multiple dedicated requests before they are sent by the EC.
 
-See :doc:`ssh` for a more technical protocol documentation.
+See :doc:`ssh` for a more technical protocol documentation and
+:doc:`internal` for an overview of the internal driver architecture.
