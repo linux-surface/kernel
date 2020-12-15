@@ -108,8 +108,7 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 
 		spec.payload = kzalloc(spec.length, GFP_KERNEL);
 		if (!spec.payload) {
-			status = -ENOMEM;
-			ret = -EFAULT;
+			ret = -ENOMEM;
 			goto out;
 		}
 
@@ -128,8 +127,7 @@ static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
 
 		rsp.pointer = kzalloc(rsp.capacity, GFP_KERNEL);
 		if (!rsp.pointer) {
-			status = -ENOMEM;
-			ret = -EFAULT;
+			ret = -ENOMEM;
 			goto out;
 		}
 	}
