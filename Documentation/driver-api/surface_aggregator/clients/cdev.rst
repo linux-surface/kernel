@@ -3,7 +3,7 @@
 .. |u8| replace:: :c:type:`u8 <u8>`
 .. |u16| replace:: :c:type:`u16 <u16>`
 .. |ssam_cdev_request| replace:: :c:type:`struct ssam_cdev_request <ssam_cdev_request>`
-.. |ssam_request_flags| replace:: :c:type:`enum ssam_request_flags <ssam_request_flags>`
+.. |ssam_cdev_request_flags| replace:: :c:type:`enum ssam_cdev_request_flags <ssam_cdev_request_flags>`
 
 ==============================
 User-Space EC Interface (cdev)
@@ -19,6 +19,9 @@ The provided interface is accessible through the ``/dev/surface/aggregator``
 device-file. All functionality of this interface is provided via IOCTLs.
 These IOCTLs and their respective input/output parameter structs are defined in
 ``include/uapi/linux/surface_aggregator/cdev.h``.
+
+A small python library and scripts for accessing this interface can be found
+at https://github.com/linux-surface/surface-aggregator-module/tree/master/scripts/ssam.
 
 
 Controller IOCTLs
@@ -61,17 +64,17 @@ completion of the request, the call will write the response to the response
 buffer (if its capacity allows it) and overwrite the length field with the
 actual size of the response, in bytes.
 
-Additionally, if the request has a response, this should be indicated via
-the request flags, as is done with in-kernel requests. Request flags can be
-set via the ``flags`` member and the values correspond to the values found
-in |ssam_request_flags|.
+Additionally, if the request has a response, this must be indicated via the
+request flags, as is done with in-kernel requests. Request flags can be set
+via the ``flags`` member and the values correspond to the values found in
+|ssam_cdev_request_flags|.
 
 Finally, the status of the request itself is returned in the ``status``
-member (a negative value indicating failure). Note that failure indication
-of the IOCTL is separated from failure indication of the request: The IOCTL
-returns a negative status code if anything failed during setup of the
-request (``-EFAULT``) or if the provided argument or any of its fields are
-invalid (``-EINVAL``). In this case, the status value of the request
+member (a negative errno value indicating failure). Note that failure
+indication of the IOCTL is separated from failure indication of the request:
+The IOCTL returns a negative status code if anything failed during setup of
+the request (``-EFAULT``) or if the provided argument or any of its fields
+are invalid (``-EINVAL``). In this case, the status value of the request
 argument may be set, providing more detail on what went wrong (e.g.
 ``-ENOMEM`` for out-of-memory), but this value may also be zero. The IOCTL
 will return with a zero status code in case the request has been set up,
@@ -82,4 +85,3 @@ case the actual execution of the request failed after it has been submitted.
 A full definition of the argument struct is provided below:
 
 .. kernel-doc:: include/uapi/linux/surface_aggregator/cdev.h
-   :functions: ssam_cdev_request

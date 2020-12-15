@@ -8,10 +8,10 @@ Surface System Aggregator Module (SSAM)
    :maxdepth: 2
 
    overview
-   ssh
    client
-   internal
    clients/index
+   ssh
+   internal
 
 .. only::  subproject and html
 
