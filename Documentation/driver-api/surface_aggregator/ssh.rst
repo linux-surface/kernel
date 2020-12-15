@@ -22,9 +22,9 @@ Surface Serial Hub Protocol
 ===========================
 
 The Surface Serial Hub (SSH) is the central communication interface for the
-embedded Surface Aggregator Module controller (SAM or EC) on newer Surface
-generations. We will refer to this protocol and interface as SAM-over-SSH,
-as opposed to SAM-over-HID for the older generations.
+embedded Surface Aggregator Module controller (SAM or EC), found on newer
+Surface generations. We will refer to this protocol and interface as
+SAM-over-SSH, as opposed to SAM-over-HID for the older generations.
 
 On Surface devices with SAM-over-SSH, SAM is connected to the host via UART
 and defined in ACPI as device with ID ``MSHW0084``. On these devices,
@@ -184,8 +184,9 @@ to zero. For |DATA_NSQ|-type frames, both exchanges are the same:
     rx: -------------------------------------------------------------------
 
 Here, an error can be detected, but not corrected or indicated to the
-sending party. These exchanges are symmetric, i.e. switching rx and tx
-results again in a valid exchange. Currently, no longer exchanges are known.
+sending party. These exchanges are symmetric, i.e. switching ``rx`` and
+``tx`` results again in a valid exchange. Currently, no longer exchanges are
+known.
 
 
 Commands: Requests, Responses, and Events
@@ -244,12 +245,12 @@ detection mechanism (e.g. CRCs), this is solely done on the frame level.
 Command-type payloads are used by the host to send commands and requests to
 the EC as well as by the EC to send responses and events back to the host.
 We differentiate between requests (sent by the host), responses (sent by the
-EC in response to a request), and events (sent by the EC without a
-preceeding request).
+EC in response to a request), and events (sent by the EC without a preceding
+request).
 
 Commands and events are uniquely identified by their target category
 (``TC``) and command ID (``CID``). The target category specifies a general
-category for the command (e.g. system in general, vs. battery and ac, vs.
+category for the command (e.g. system in general, vs. battery and AC, vs.
 temperature, and so on), while the command ID specifies the command inside
 that category. Only the combination of |TC| + |CID| is unique. Additionally,
 commands have an instance ID (``IID``), which is used to differentiate
@@ -295,7 +296,7 @@ field, as responses are generally sent from the EC to the host).
 
 Note that, even though requests and events should be uniquely identifiable
 by target category and command ID alone, the EC may require specific
-priority and instance ID values to accept a command. A command that is
+target ID and instance ID values to accept a command. A command that is
 accepted for ``TID=1``, for example, may not be accepted for ``TID=2``
 and vice versa.
 
@@ -306,7 +307,7 @@ Limitations and Observations
 The protocol can, in theory, handle up to ``U8_MAX`` frames in parallel,
 with up to ``U16_MAX`` pending requests (neglecting request IDs reserved for
 events). In practice, however, this is more limited. From our testing
-(altough via a python and thus a user-space program), it seems that the EC
+(although via a python and thus a user-space program), it seems that the EC
 can handle up to four requests (mostly) reliably in parallel at a certain
 time. With five or more requests in parallel, consistent discarding of
 commands (ACKed frame but no command response) has been observed. For five

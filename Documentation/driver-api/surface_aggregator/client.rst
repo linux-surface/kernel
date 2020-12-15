@@ -48,8 +48,8 @@ Non-SSAM Client Drivers
 =======================
 
 All communication with the SAM EC is handled via the |ssam_controller|
-representing that EC to the kernel. Drivers targetting a non-SSAM device
-(and thus not being a |ssam_device_driver|) need to explicitly establish a
+representing that EC to the kernel. Drivers targeting a non-SSAM device (and
+thus not being a |ssam_device_driver|) need to explicitly establish a
 connection/relation to that controller. This can be done via the
 |ssam_client_bind| function. Said function returns a reference to the SSAM
 controller, but, more importantly, also establishes a device link between
@@ -67,11 +67,10 @@ subsystem is not ready yet, for example:
    static int client_driver_probe(struct platform_device *pdev)
    {
            struct ssam_controller *ctrl;
-           int status;
 
-           status = ssam_client_bind(&pdev->dev, &ctrl);
-           if (status)
-                   return status == -ENXIO ? -EPROBE_DEFER : status;
+           ctrl = ssam_client_bind(&pdev->dev);
+           if (IS_ERR(ctrl))
+                   return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 
            // ...
 
@@ -133,7 +132,7 @@ be accessed via the Surface Serial Hub, and virtual ones
 (:c:type:`SSAM_DOMAIN_VIRTUAL <ssam_device_domain>`), such as client-device
 hubs, that have no real representation on the SAM EC and are solely used on
 the kernel/driver-side. For physical devices, ``category`` represents the
-target category, ``target`` the target ID, and ``instace`` the instance ID
+target category, ``target`` the target ID, and ``instance`` the instance ID
 used to access the physical SAM device. In addition, ``function`` references
 a specific device functionality, but has no meaning to the SAM EC. The
 (default) name of a client device is generated based on its UID.
@@ -149,7 +148,7 @@ guaranteed to be valid for at least as long as the client driver is bound,
 but should also be valid for as long as the client device exists. Note,
 however, that access outside of the bound client driver must ensure that the
 controller device is not suspended while making any requests or
-(un)registering event notifiers (and thus should generally be avoided). This
+(un-)registering event notifiers (and thus should generally be avoided). This
 is guaranteed when the controller is accessed from inside the bound client
 driver.
 
@@ -209,8 +208,6 @@ data received from it is converted from little-endian to host endianness.
             * above.
             */
            status = ssam_request_sync(ctrl, &rqst, &resp);
-           if (status)
-               return status;
 
            /*
             * Alternatively use
@@ -218,12 +215,13 @@ data received from it is converted from little-endian to host endianness.
             *   ssam_request_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
             *
             * to perform the request, allocating the message buffer directly
-            * on the stack as opposed to via kzalloc().
+            * on the stack as opposed to allocation via kzalloc().
             */
 
            /*
             * Convert request response back to native format. Note that in the
-            * error case, this value is not touched.
+            * error case, this value is not touched by the SSAM core, i.e.
+            * 'ret_le' will be zero as specified in its initialization.
             */
            *ret = le32_to_cpu(ret_le);
 
@@ -321,9 +319,10 @@ in case an event has been received, the registry specifying how the event
 should be enabled, an event ID specifying for which target category and,
 optionally and depending on the registry used, for which instance ID events
 should be enabled, and finally, flags describing how the EC will send these
-events. Additionally, a priority for the respective notifier may be
-specified, which determines its order in relation to any other notifier
-registered for the same target category.
+events. If the specific registry does not enable events by instance ID, the
+instance ID must be set to zero. Additionally, a priority for the respective
+notifier may be specified, which determines its order in relation to any
+other notifier registered for the same target category.
 
 By default, event notifiers will receive all events for the specific target
 category, regardless of the instance ID specified when registering the
