@@ -8,6 +8,7 @@
  * TODO: gesture + proximity calib offsets
  */
 
+#include <linux/acpi.h>
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -145,6 +146,9 @@ struct apds9960_data {
 
 	/* gesture buffer */
 	u8 buffer[4]; /* 4 8-bit channels */
+
+	/* proximity near level */
+	uint32_t near_level;
 };
 
 static const struct reg_default apds9960_reg_defaults[] = {
@@ -273,6 +277,15 @@ static const struct iio_event_spec apds9960_als_event_spec[] = {
 
 static const unsigned long apds9960_scan_masks[] = {0xf, 0};
 
+static const struct iio_chan_spec_ext_info adps9960_ext_info[] = {
+	{
+		.name = "near_level",
+		.shared = IIO_SEPARATE,
+		.read = adps9960_read_near_level,
+	},
+	{}
+};
+
 static const struct iio_chan_spec apds9960_channels[] = {
 	{
 		.type = IIO_PROXIMITY,
@@ -301,6 +314,7 @@ static const struct iio_chan_spec apds9960_channels[] = {
 		.address = APDS9960_REG_ALS_CHANNEL(CLEAR),
 		.modified = 1,
 		.scan_index = -1,
+		.ext_info = adps9960_ext_info,
 
 		.event_spec = apds9960_als_event_spec,
 		.num_event_specs = ARRAY_SIZE(apds9960_als_event_spec),
@@ -355,6 +369,13 @@ static const struct reg_field apds9960_reg_field_enable_ges =
 
 static const struct reg_field apds9960_reg_field_enable_pxs =
 				REG_FIELD(APDS9960_REG_ENABLE, 2, 2);
+
+static ssize_t adps9960_read_near_level(struct iio_dev *indio_dev, uintptr_t priv, const struct iio_chan_spec *chan, char *buf)
+{
+	struct apds9960_data *data = iio_priv(indio_dev);
+
+	return sprintf(buf, "%u\n", data->near_level);
+}
 
 static int apds9960_set_it_time(struct apds9960_data *data, int val2)
 {
@@ -1018,6 +1039,10 @@ static int apds9960_probe(struct i2c_client *client,
 		return PTR_ERR(data->regmap);
 	}
 
+	if (device_property_read_u32(&client->dev, "proximity-near-level", &data->near_level) < 0) {
+		data->near_level = 0;
+	}
+
 	data->client = client;
 	data->indio_dev = indio_dev;
 	mutex_init(&data->lock);
@@ -1113,6 +1138,12 @@ static const struct i2c_device_id apds9960_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, apds9960_id);
 
+static const struct acpi_device_id apds9960_acpi_match[] = {
+	{ "MSHW0184" },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, apds9960_acpi_match);
+
 static const struct of_device_id apds9960_of_match[] = {
 	{ .compatible = "avago,apds9960" },
 	{ }
@@ -1124,6 +1155,7 @@ static struct i2c_driver apds9960_driver = {
 		.name	= APDS9960_DRV_NAME,
 		.of_match_table = apds9960_of_match,
 		.pm	= &apds9960_pm_ops,
+		.acpi_match_table = apds9960_acpi_match,
 	},
 	.probe		= apds9960_probe,
 	.remove		= apds9960_remove,
