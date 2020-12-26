@@ -134,6 +134,12 @@ static const struct ssam_hub_cell ssam_devices_sl3[] = {
 	{ SSAM_DUID_HID_IID5     },
 };
 
+static const struct ssam_hub_cell ssam_devices_slg1[] = {
+	{ SSAM_DUID_TMP_PERF     },
+	{ SSAM_DUID_BAT_AC       },
+	{ SSAM_DUID_BAT_MAIN     },
+};
+
 static const struct ssam_hub_cell ssam_devices_sp5[] = {
 	{ SSAM_DUID_TMP_PERF },
 };
@@ -153,6 +159,7 @@ SSAM_DEFINE_PLATFORM_HUB_WITH_BASE(sb3);
 SSAM_DEFINE_PLATFORM_HUB(sl1);
 SSAM_DEFINE_PLATFORM_HUB(sl2);
 SSAM_DEFINE_PLATFORM_HUB(sl3);
+SSAM_DEFINE_PLATFORM_HUB(slg1);
 SSAM_DEFINE_PLATFORM_HUB(sp5);
 SSAM_DEFINE_PLATFORM_HUB(sp6);
 SSAM_DEFINE_PLATFORM_HUB(sp7);
@@ -518,6 +525,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
 
 	/* Surface Laptop 3 (15", AMD) */
 	{ "MSHW0110", (unsigned long)&ssam_platform_hub_sl3 },
+
+	/* Surface Laptop Go 1 */
+	{ "MSHW0118", (unsigned long)&ssam_platform_hub_slg1 },
 
 	{ },
 };
