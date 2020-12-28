@@ -136,6 +136,13 @@
 #define OV5693_MWB_BLUE_GAIN_H			0x3404
 #define OV5693_MWB_GAIN_MAX			0x0fff
 
+#define OV5693_TIMING_REG21             0x3821 /* horizontal flip */
+#define OV5693_TIMING_REG21_NORMAL      0x18
+#define OV5693_TIMING_REG21_FLIP        0x1E
+#define OV5693_TIMING_REG20             0x3820 /* vertical flip */
+#define OV5693_TIMING_REG20_NORMAL      0x10
+#define OV5693_TIMING_REG20_FLIP        0x16
+
 #define OV5693_START_STREAMING			0x01
 #define OV5693_STOP_STREAMING			0x00
 
@@ -260,6 +267,9 @@ struct ov5693_device {
 	u8 type;
 	bool vcm_update;
 	enum vcm_type vcm;
+
+	bool hflip;
+	bool vflip;
 
 	bool has_vcm;
 };
