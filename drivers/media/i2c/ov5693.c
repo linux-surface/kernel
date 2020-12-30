@@ -828,6 +828,29 @@ static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
 	return ov5693_t_focus_abs(sd, dev->focus + value);
 }
 
+static int ov5693_update_hflip(struct v4l2_subdev *sd)
+{
+	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+
+	u8 hflip = dev->hflip ? OV5693_TIMING_REG21_FLIP :
+				      OV5693_TIMING_REG21_NORMAL;
+
+	return ov5693_write_reg(client, OV5693_8BIT, OV5693_TIMING_REG21,
+				hflip);
+}
+
+static int ov5693_update_vflip(struct v4l2_subdev *sd)
+{
+	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+
+	u8 vflip = dev->vflip ? OV5693_TIMING_REG20_FLIP :
+				      OV5693_TIMING_REG20_NORMAL;
+	return ov5693_write_reg(client, OV5693_8BIT, OV5693_TIMING_REG20,
+				vflip);
+}
+
 #define DELAY_PER_STEP_NS	1000000
 #define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
 
@@ -848,6 +871,18 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 		dev_dbg(&client->dev, "%s: CID_FOCUS_RELATIVE:%d.\n",
 			__func__, ctrl->val);
 		ret = ov5693_t_focus_rel(&dev->sd, ctrl->val);
+		break;
+	case V4L2_CID_HFLIP:
+		dev_info(&client->dev, "%s: CID_HFLIP:%d.\n", __func__,
+			 ctrl->val);
+		dev->hflip = ctrl->val;
+		ret = ov5693_update_hflip(&dev->sd);
+		break;
+	case V4L2_CID_VFLIP:
+		dev_info(&client->dev, "%s: CID_VFLIP:%d.\n", __func__,
+			 ctrl->val);
+		dev->vflip = ctrl->val;
+		ret = ov5693_update_vflip(&dev->sd);
 		break;
 	default:
 		ret = -EINVAL;
@@ -913,6 +948,22 @@ static const struct v4l2_ctrl_config ov5693_controls[] = {
 		.step = 1,
 		.def = 0,
 		.flags = 0,
+	},
+	{
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_HFLIP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "sensor flipped horizontally",
+		.max = 1,
+		.step = 1,
+	},
+	{
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_VFLIP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "sensor flipped vertically",
+		.max = 1,
+		.step = 1,
 	},
 };
 
@@ -1141,6 +1192,18 @@ static int startup(struct v4l2_subdev *sd)
 	ret = ov5693_write_reg_array(client, ov5693_res[dev->fmt_idx].regs);
 	if (ret) {
 		dev_err(&client->dev, "ov5693 write register err.\n");
+		return ret;
+	}
+
+	ret = ov5693_update_hflip(sd);
+	if (ret) {
+		dev_err(&client->dev, "ov5693 hflip err.\n");
+		return ret;
+	}
+
+	ret = ov5693_update_vflip(sd);
+	if (ret) {
+		dev_err(&client->dev, "ov5693 vflip err.\n");
 		return ret;
 	}
 
