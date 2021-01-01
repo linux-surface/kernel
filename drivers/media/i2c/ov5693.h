@@ -100,9 +100,9 @@
 /*Bit[7:4] Group control, Bit[3:0] Group ID*/
 #define OV5693_GROUP_ACCESS			0x3208
 /*
-*Bit[3:0] Bit[19:16] of exposure,
-*remaining 16 bits lies in Reg0x3501&Reg0x3502
-*/
+ * Bit[3:0] Bit[19:16] of exposure,
+ * remaining 16 bits lies in Reg0x3501&Reg0x3502
+ */
 #define OV5693_EXPOSURE_H			0x3500
 #define OV5693_EXPOSURE_M			0x3501
 #define OV5693_EXPOSURE_L			0x3502
@@ -167,11 +167,11 @@
 #define VCM_PROTECTION_OFF     0xeca3
 #define VCM_PROTECTION_ON      0xdc51
 #define VCM_DEFAULT_S 0x0
-#define vcm_step_s(a) (u8)(a & 0xf)
-#define vcm_step_mclk(a) (u8)((a >> 4) & 0x3)
-#define vcm_dlc_mclk(dlc, mclk) (u16)((dlc << 3) | mclk | 0xa104)
-#define vcm_tsrc(tsrc) (u16)(tsrc << 3 | 0xf200)
-#define vcm_val(data, s) (u16)(data << 4 | s)
+#define vcm_step_s(a) ((u8)((a) & 0xf))
+#define vcm_step_mclk(a) ((u8)(((a) >> 4) & 0x3))
+#define vcm_dlc_mclk(dlc, mclk) ((u16)(((dlc) << 3) | (mclk) | 0xa104))
+#define vcm_tsrc(tsrc) ((u16)((tsrc) << 3 | 0xf200))
+#define vcm_val(data, s) ((u16)((data) << 4 | (s)))
 #define DIRECT_VCM vcm_dlc_mclk(0, 0)
 
 /* Defines for OTP Data Registers */
@@ -195,15 +195,15 @@
 /* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample
  * To avoid integer overflow, dividing by bits_per_sample first.
  */
-#define OV5693_PIXEL_RATE		(OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2
+#define OV5693_PIXEL_RATE		((OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2)
 static const s64 link_freq_menu_items[] = {
 	OV5693_LINK_FREQ_640MHZ
 };
 
-#define OV5693_NUM_SUPPLIES             2
-static const char * const ov5693_supply_names[] = {
-        "avdd",
-        "dovdd",
+#define OV5693_NUM_SUPPLIES 2
+static const char *const ov5693_supply_names[] = {
+	"avdd",
+	"dovdd",
 };
 
 struct regval_list {
@@ -243,16 +243,16 @@ enum vcm_type {
  * ov5693 device structure.
  */
 struct ov5693_device {
-        struct i2c_client *client;
+	struct i2c_client *client;
 	struct v4l2_subdev sd;
 	struct media_pad pad;
 	struct v4l2_mbus_framefmt format;
 	struct mutex input_lock;
 	struct v4l2_ctrl_handler ctrl_handler;
 
-        struct gpio_desc *reset;
-        struct gpio_desc *indicator_led;
-        struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
+	struct gpio_desc *reset;
+	struct gpio_desc *indicator_led;
+	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
 
 	struct camera_sensor_platform_data *platform_data;
 	ktime_t timestamp_t_focus_abs;
@@ -575,8 +575,8 @@ static struct ov5693_reg const ov5693_654x496[] = {
 
 /*
  * 1296x976 30fps 17ms VBlanking 2lane 10Bit (Scaling)
-*DS from 2592x1952
-*/
+ * DS from 2592x1952
+ */
 static struct ov5693_reg const ov5693_1296x976[] = {
 	{OV5693_8BIT, 0x3501, 0x7b},
 	{OV5693_8BIT, 0x3502, 0x00},

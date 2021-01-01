@@ -137,8 +137,8 @@ static int ov5693_read_reg(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	if (data_length != OV5693_8BIT && data_length != OV5693_16BIT
-	    && data_length != OV5693_32BIT) {
+	if (data_length != OV5693_8BIT && data_length != OV5693_16BIT &&
+	    data_length != OV5693_32BIT) {
 		dev_err(&client->dev, "%s error, invalid data length\n",
 			__func__);
 		return -EINVAL;
@@ -365,8 +365,8 @@ static int __ov5693_buf_reg_array(struct i2c_client *client,
 }
 
 static int __ov5693_write_reg_is_consecutive(struct i2c_client *client,
-	struct ov5693_write_ctrl *ctrl,
-	const struct ov5693_reg *next)
+					     struct ov5693_write_ctrl *ctrl,
+					     const struct ov5693_reg *next)
 {
 	if (ctrl->index == 0)
 		return 1;
@@ -583,13 +583,13 @@ static int ov5693_read_otp_reg_array(struct i2c_client *client, u16 size,
 {
 	u16 index;
 	int ret;
-	u16 *pVal = NULL;
+	u16 *p_val = NULL;
 
 	for (index = 0; index <= size; index++) {
-		pVal = (u16 *)(buf + index);
+		p_val = (u16 *)(buf + index);
 		ret =
 		    ov5693_read_reg(client, OV5693_8BIT, addr + index,
-				    pVal);
+				    p_val);
 		if (ret)
 			return ret;
 	}
@@ -638,8 +638,9 @@ static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 
 		//dev_dbg(&client->dev,
 		//	"BANK[%2d] %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-		//	i, *b, *(b+1), *(b+2), *(b+3), *(b+4), *(b+5), *(b+6), *(b+7),
-		//	*(b+8), *(b+9), *(b+10), *(b+11), *(b+12), *(b+13), *(b+14), *(b+15));
+		//	i, *b, *(b + 1), *(b + 2), *(b + 3), *(b + 4), *(b + 5),
+		//	*(b + 6), *(b + 7), *(b + 8), *(b + 9), *(b + 10),
+		//	*(b + 11), *(b + 12), *(b + 13), *(b + 14), *(b + 15));
 
 		//Intel OTP map, try to read 320byts first.
 		if (i == 21) {
@@ -650,8 +651,9 @@ static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 			/* (*b) != 0 */
 			b = buf;
 			continue;
-		} else if (i ==
-			   24) {		//if the first 320bytes data doesn't not exist, try to read the next 32bytes data.
+		} else if (i == 24) {
+			// if the first 320bytes data doesn't not exist,
+			// try to read the next 32bytes data.
 			if ((*b) == 0) {
 				dev->otp_size = 32;
 				break;
@@ -659,8 +661,9 @@ static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 			/* (*b) != 0 */
 			b = buf;
 			continue;
-		} else if (i ==
-			   27) {		//if the prvious 32bytes data doesn't exist, try to read the next 32bytes data again.
+		} else if (i == 27) {
+			// if the prvious 32bytes data doesn't exist,
+			// try to read the next 32bytes data again.
 			if ((*b) == 0) {
 				dev->otp_size = 32;
 				break;
@@ -814,9 +817,9 @@ static int ov5693_t_focus_abs(struct v4l2_subdev *sd, s32 value)
 		dev->number_of_steps = value - dev->focus;
 		dev->focus = value;
 		dev->timestamp_t_focus_abs = ktime_get();
-	} else
-		dev_err(&client->dev,
-			"%s: i2c failed. ret %d\n", __func__, ret);
+	} else {
+		dev_err(&client->dev, "%s: i2c failed. ret %d\n", __func__, ret);
+	}
 
 	return ret;
 }
@@ -1018,8 +1021,8 @@ static int __power_up(struct v4l2_subdev *sd)
 	struct ov5693_device *sensor = to_ov5693_sensor(sd);
 	int ret;
 
-        if (sensor->indicator_led)
-                gpiod_set_value_cansleep(sensor->indicator_led, 1);
+	if (sensor->indicator_led)
+		gpiod_set_value_cansleep(sensor->indicator_led, 1);
 
 	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES, sensor->supplies);
 	if (ret)
@@ -1030,8 +1033,8 @@ static int __power_up(struct v4l2_subdev *sd)
 	return 0;
 
 fail_power:
-        if (sensor->indicator_led)
-                gpiod_set_value_cansleep(sensor->indicator_led, 0);
+	if (sensor->indicator_led)
+		gpiod_set_value_cansleep(sensor->indicator_led, 0);
 	dev_err(&client->dev, "sensor power-up failed\n");
 
 	return ret;
@@ -1043,8 +1046,8 @@ static int power_down(struct v4l2_subdev *sd)
 
 	dev->focus = OV5693_INVALID_CONFIG;
 
-        if (dev->indicator_led)
-                gpiod_set_value_cansleep(dev->indicator_led, 0);
+	if (dev->indicator_led)
+		gpiod_set_value_cansleep(dev->indicator_led, 0);
 
 	return regulator_bulk_disable(OV5693_NUM_SUPPLIES, dev->supplies);
 }
@@ -1494,15 +1497,15 @@ static int ov5693_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-        unsigned int i = OV5693_NUM_SUPPLIES;
+	unsigned int i = OV5693_NUM_SUPPLIES;
 
 	dev_info(&client->dev, "%s...\n", __func__);
 
-        gpiod_put(ov5693->reset);
-        gpiod_put(ov5693->indicator_led);
+	gpiod_put(ov5693->reset);
+	gpiod_put(ov5693->indicator_led);
 
-        while (i--)
-                regulator_put(ov5693->supplies[i].consumer);
+	while (i--)
+		regulator_put(ov5693->supplies[i].consumer);
 
 	v4l2_async_unregister_subdev(sd);
 
@@ -1557,20 +1560,21 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 
 static int ov5693_configure_gpios(struct ov5693_device *ov5693)
 {
-        ov5693->reset = gpiod_get_index(&ov5693->client->dev, "reset", 0,
-                                        GPIOD_OUT_HIGH);
-        if (IS_ERR(ov5693->reset)) {
-                dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
-                return -EINVAL;
-        }
+	ov5693->reset = gpiod_get_index(&ov5693->client->dev, "reset", 0,
+					GPIOD_OUT_HIGH);
+	if (IS_ERR(ov5693->reset)) {
+		dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
+		return -EINVAL;
+	}
 
-        ov5693->indicator_led = gpiod_get_index_optional(&ov5693->client->dev, "indicator-led", 0,
-                                                         GPIOD_OUT_HIGH);
-        if (IS_ERR(ov5693->indicator_led)) {
-                dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
-                return -EINVAL;
-        }
-        return 0;
+	ov5693->indicator_led = gpiod_get_index_optional(&ov5693->client->dev,
+							 "indicator-led", 0, GPIOD_OUT_HIGH);
+
+	if (IS_ERR(ov5693->indicator_led)) {
+		dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int ov5693_get_regulators(struct ov5693_device *ov5693)
@@ -1582,7 +1586,7 @@ static int ov5693_get_regulators(struct ov5693_device *ov5693)
 
 	return regulator_bulk_get(&ov5693->client->dev,
 				       OV5693_NUM_SUPPLIES,
-				       ov5693->supplies); 
+				       ov5693->supplies);
 }
 
 static int ov5693_probe(struct i2c_client *client)
@@ -1596,7 +1600,7 @@ static int ov5693_probe(struct i2c_client *client)
 	if (!ov5693)
 		return -ENOMEM;
 
-        ov5693->client = client;
+	ov5693->client = client;
 
 	/* check if VCM device exists */
 	/* TODO: read from SSDB */
@@ -1606,13 +1610,13 @@ static int ov5693_probe(struct i2c_client *client)
 
 	v4l2_i2c_subdev_init(&ov5693->sd, client, &ov5693_ops);
 
-        ret = ov5693_configure_gpios(ov5693);
-        if (ret)
-                goto out_free;
+	ret = ov5693_configure_gpios(ov5693);
+	if (ret)
+		goto out_free;
 
-        ret = ov5693_get_regulators(ov5693);
-        if (ret)
-                goto out_put_reset;
+	ret = ov5693_get_regulators(ov5693);
+	if (ret)
+		goto out_put_reset;
 
 	ret = ov5693_s_config(&ov5693->sd, client->irq);
 	if (ret)
@@ -1642,7 +1646,7 @@ static int ov5693_probe(struct i2c_client *client)
 media_entity_cleanup:
 	media_entity_cleanup(&ov5693->sd.entity);
 out_put_reset:
-        gpiod_put(ov5693->reset);
+	gpiod_put(ov5693->reset);
 out_free:
 	v4l2_device_unregister_subdev(&ov5693->sd);
 	kfree(ov5693);
