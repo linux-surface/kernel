@@ -65,19 +65,10 @@ static int ipts_mei_probe(struct mei_cl_device *cldev,
 
 static int ipts_mei_remove(struct mei_cl_device *cldev)
 {
-	int i;
 	struct ipts_context *ipts = mei_cldev_get_drvdata(cldev);
 
-	ipts_control_stop(ipts);
-
-	for (i = 0; i < 20; i++) {
-		if (ipts->status == IPTS_HOST_STATUS_STOPPED)
-			break;
-
-		msleep(25);
-	}
-
 	mei_cldev_disable(cldev);
+	ipts_control_stop(ipts);
 	kfree(ipts);
 
 	return 0;

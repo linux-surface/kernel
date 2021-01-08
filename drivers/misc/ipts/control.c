@@ -59,6 +59,10 @@ int ipts_control_stop(struct ipts_context *ipts)
 
 	ipts_uapi_unlink();
 	ipts_resources_free(ipts);
+
+	if (!mei_cldev_enabled(ipts->cldev))
+		return 0;
+
 	return ipts_control_send(ipts, IPTS_CMD_CLEAR_MEM_WINDOW, NULL, 0);
 }
 
