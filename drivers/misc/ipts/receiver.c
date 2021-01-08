@@ -83,11 +83,18 @@ static int ipts_receiver_handle_set_mem_window(struct ipts_context *ipts)
 
 static int ipts_receiver_handle_clear_mem_window(struct ipts_context *ipts)
 {
+	ipts->status = IPTS_HOST_STATUS_STOPPED;
+
 	if (ipts->restart)
 		return ipts_control_start(ipts);
 
-	ipts->status = IPTS_HOST_STATUS_STOPPED;
 	return 0;
+}
+
+static bool ipts_receiver_sensor_was_reset(u32 status)
+{
+	return status == IPTS_STATUS_SENSOR_EXPECTED_RESET ||
+	       status == IPTS_STATUS_SENSOR_UNEXPECTED_RESET;
 }
 
 static bool ipts_receiver_handle_error(struct ipts_context *ipts,
@@ -117,7 +124,7 @@ static bool ipts_receiver_handle_error(struct ipts_context *ipts,
 	dev_err(ipts->dev, "Command 0x%08x failed: %d\n", rsp->code,
 		rsp->status);
 
-	if (rsp->code == IPTS_STATUS_SENSOR_UNEXPECTED_RESET) {
+	if (ipts_receiver_sensor_was_reset(rsp->status)) {
 		dev_err(ipts->dev, "Sensor was reset\n");
 
 		if (ipts_control_restart(ipts))

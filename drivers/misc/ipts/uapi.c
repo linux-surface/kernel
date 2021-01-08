@@ -113,6 +113,26 @@ static long ipts_uapi_ioctl_send_feedback(struct ipts_context *ipts,
 	return 0;
 }
 
+static long ipts_uapi_ioctl_send_reset(struct ipts_context *ipts)
+{
+	int ret;
+	struct ipts_reset_sensor_cmd cmd;
+
+	if (!ipts || ipts->status != IPTS_HOST_STATUS_STARTED)
+		return -ENODEV;
+
+	memset(&cmd, 0, sizeof(struct ipts_reset_sensor_cmd));
+	cmd.type = IPTS_RESET_TYPE_SOFT;
+
+	ret = ipts_control_send(ipts, IPTS_CMD_RESET_SENSOR, &cmd,
+				sizeof(struct ipts_reset_sensor_cmd));
+
+	if (ret)
+		return -EFAULT;
+
+	return 0;
+}
+
 static long ipts_uapi_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
@@ -127,6 +147,8 @@ static long ipts_uapi_ioctl(struct file *file, unsigned int cmd,
 		return ipts_uapi_ioctl_get_doorbell(ipts, arg);
 	case IPTS_IOCTL_SEND_FEEDBACK:
 		return ipts_uapi_ioctl_send_feedback(ipts, file);
+	case IPTS_IOCTL_SEND_RESET:
+		return ipts_uapi_ioctl_send_reset(ipts);
 	default:
 		return -ENOTTY;
 	}

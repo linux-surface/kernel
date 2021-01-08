@@ -74,6 +74,15 @@
 #define IPTS_CMD_CLEAR_MEM_WINDOW 0x00000007
 #define IPTS_RSP_CLEAR_MEM_WINDOW 0x80000007
 
+/*
+ * Instructs the ME to reset the touch sensor.
+ *
+ * The command must contain struct ipts_reset_sensor_cmd as payload.
+ * The response will not contain any payload.
+ */
+#define IPTS_CMD_RESET_SENSOR 0x0000000B
+#define IPTS_RSP_RESET_SENSOR 0x8000000B
+
 /**
  * enum ipts_status - Possible status codes returned by IPTS commands.
  * @IPTS_STATUS_SUCCESS:                 Operation completed successfully.
@@ -206,6 +215,25 @@ struct ipts_set_mem_window_cmd {
 struct ipts_feedback_cmd {
 	u32 buffer;
 	u8 reserved[12];
+} __packed;
+
+/**
+ * enum ipts_reset_type - Possible ways of resetting the touch sensor
+ * @IPTS_RESET_TYPE_HARD: Perform hardware reset using GPIO pin.
+ * @IPTS_RESET_TYPE_SOFT: Perform software reset using SPI interface.
+ */
+enum ipts_reset_type {
+	IPTS_RESET_TYPE_HARD = 0,
+	IPTS_RESET_TYPE_SOFT = 1,
+};
+
+/**
+ * struct ipts_reset_sensor_cmd - Payload for the RESET_SENSOR command.
+ * @type: What type of reset should be performed.
+ */
+struct ipts_reset_sensor_cmd {
+	enum ipts_reset_type type;
+	u8 reserved[4];
 } __packed;
 
 /**
