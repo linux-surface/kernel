@@ -20,8 +20,8 @@
 
 struct ipts_uapi uapi;
 
-static ssize_t ipts_uapi_read(struct file *file, char __user *buf,
-		size_t count, loff_t *offset)
+static ssize_t ipts_uapi_read(struct file *file, char __user *buf, size_t count,
+			      loff_t *offset)
 {
 	int buffer;
 	int maxbytes;
@@ -43,7 +43,7 @@ static ssize_t ipts_uapi_read(struct file *file, char __user *buf,
 }
 
 static long ipts_uapi_ioctl_get_device_ready(struct ipts_context *ipts,
-		unsigned long arg)
+					     unsigned long arg)
 {
 	void __user *buffer = (void __user *)arg;
 	u8 ready = 0;
@@ -58,7 +58,7 @@ static long ipts_uapi_ioctl_get_device_ready(struct ipts_context *ipts,
 }
 
 static long ipts_uapi_ioctl_get_device_info(struct ipts_context *ipts,
-		unsigned long arg)
+					    unsigned long arg)
 {
 	struct ipts_device_info info;
 	void __user *buffer = (void __user *)arg;
@@ -79,7 +79,7 @@ static long ipts_uapi_ioctl_get_device_info(struct ipts_context *ipts,
 }
 
 static long ipts_uapi_ioctl_get_doorbell(struct ipts_context *ipts,
-		unsigned long arg)
+					 unsigned long arg)
 {
 	void __user *buffer = (void __user *)arg;
 
@@ -93,7 +93,7 @@ static long ipts_uapi_ioctl_get_doorbell(struct ipts_context *ipts,
 }
 
 static long ipts_uapi_ioctl_send_feedback(struct ipts_context *ipts,
-		struct file *file)
+					  struct file *file)
 {
 	int ret;
 	struct ipts_feedback_cmd cmd;
@@ -104,8 +104,8 @@ static long ipts_uapi_ioctl_send_feedback(struct ipts_context *ipts,
 	memset(&cmd, 0, sizeof(struct ipts_feedback_cmd));
 	cmd.buffer = MINOR(file->f_path.dentry->d_inode->i_rdev);
 
-	ret = ipts_control_send(ipts, IPTS_CMD_FEEDBACK,
-				&cmd, sizeof(struct ipts_feedback_cmd));
+	ret = ipts_control_send(ipts, IPTS_CMD_FEEDBACK, &cmd,
+				sizeof(struct ipts_feedback_cmd));
 
 	if (ret)
 		return -EFAULT;
@@ -114,7 +114,7 @@ static long ipts_uapi_ioctl_send_feedback(struct ipts_context *ipts,
 }
 
 static long ipts_uapi_ioctl(struct file *file, unsigned int cmd,
-		unsigned long arg)
+			    unsigned long arg)
 {
 	struct ipts_context *ipts = uapi.ipts;
 
@@ -165,8 +165,8 @@ int ipts_uapi_init(void)
 	cdev_add(&uapi.cdev, MKDEV(major, 0), IPTS_BUFFERS);
 
 	for (i = 0; i < IPTS_BUFFERS; i++) {
-		device_create(uapi.class, NULL,
-				MKDEV(major, i), NULL, "ipts/%d", i);
+		device_create(uapi.class, NULL, MKDEV(major, i), NULL,
+			      "ipts/%d", i);
 	}
 
 	return 0;
@@ -187,4 +187,3 @@ void ipts_uapi_free(void)
 	unregister_chrdev_region(MKDEV(major, 0), MINORMASK);
 	class_destroy(uapi.class);
 }
-

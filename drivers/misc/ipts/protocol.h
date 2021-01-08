@@ -14,8 +14,9 @@
 /*
  * The MEI client ID for IPTS functionality.
  */
-#define IPTS_MEI_UUID UUID_LE(0x3e8d0870, 0x271a, 0x4208, \
-		0x8e, 0xb5, 0x9a, 0xcb, 0x94, 0x02, 0xae, 0x04)
+#define IPTS_MEI_UUID                                                          \
+	UUID_LE(0x3e8d0870, 0x271a, 0x4208, 0x8e, 0xb5, 0x9a, 0xcb, 0x94,      \
+		0x02, 0xae, 0x04)
 
 /*
  * Queries the device for vendor specific information.
@@ -153,7 +154,7 @@ struct ipts_set_mode_cmd {
 	u8 reserved[12];
 } __packed;
 
-#define IPTS_WORKQUEUE_SIZE      8192
+#define IPTS_WORKQUEUE_SIZE	 8192
 #define IPTS_WORKQUEUE_ITEM_SIZE 16
 
 /**

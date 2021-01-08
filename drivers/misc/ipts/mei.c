@@ -31,7 +31,7 @@ static int ipts_mei_set_dma_mask(struct mei_cl_device *cldev)
 }
 
 static int ipts_mei_probe(struct mei_cl_device *cldev,
-		const struct mei_cl_device_id *id)
+			  const struct mei_cl_device_id *id)
 {
 	int ret;
 	struct ipts_context *ipts;
@@ -47,7 +47,7 @@ static int ipts_mei_probe(struct mei_cl_device *cldev,
 		return ret;
 	}
 
-	ipts = kzalloc(sizeof(struct ipts_context), GFP_KERNEL);
+	ipts = kzalloc(sizeof(*ipts), GFP_KERNEL);
 	if (!ipts) {
 		mei_cldev_disable(cldev);
 		return -ENOMEM;
@@ -76,7 +76,7 @@ static int ipts_mei_remove(struct mei_cl_device *cldev)
 
 static struct mei_cl_device_id ipts_mei_device_id_table[] = {
 	{ "", IPTS_MEI_UUID, MEI_CL_VERSION_ANY },
-	{ },
+	{},
 };
 MODULE_DEVICE_TABLE(mei, ipts_mei_device_id_table);
 
@@ -116,4 +116,3 @@ MODULE_LICENSE("GPL");
 
 module_init(ipts_mei_init);
 module_exit(ipts_mei_exit);
-

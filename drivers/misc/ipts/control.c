@@ -13,8 +13,8 @@
 #include "resources.h"
 #include "uapi.h"
 
-int ipts_control_send(struct ipts_context *ipts,
-		u32 code, void *payload, size_t size)
+int ipts_control_send(struct ipts_context *ipts, u32 code, void *payload,
+		      size_t size)
 {
 	int ret;
 	struct ipts_command cmd;
@@ -74,4 +74,3 @@ int ipts_control_restart(struct ipts_context *ipts)
 	ipts->restart = true;
 	return ipts_control_stop(ipts);
 }
-
