@@ -79,6 +79,11 @@ obj-$(CONFIG_INTEL_HID_EVENT)		+= intel-hid.o
 obj-$(CONFIG_INTEL_INT0002_VGPIO)	+= intel_int0002_vgpio.o
 obj-$(CONFIG_INTEL_MENLOW)		+= intel_menlow.o
 obj-$(CONFIG_INTEL_OAKTRAIL)		+= intel_oaktrail.o
+obj-$(CONFIG_INTEL_SKL_INT3472)		+= intel_skl_int3472.o
+intel_skl_int3472-objs			:= intel_skl_int3472_common.o \
+                                           intel_skl_int3472_discrete.o \
+                                           intel_skl_int3472_tps68470.o
+
 obj-$(CONFIG_INTEL_VBTN)		+= intel-vbtn.o
 
 # Microsoft
