@@ -9045,6 +9045,11 @@ S:	Maintained
 F:	arch/x86/include/asm/intel_scu_ipc.h
 F:	drivers/platform/x86/intel_scu_*
 
+INTEL SKL INT3472 ACPI DEVICE DRIVER
+M:	Daniel Scally <djrscally@gmail.com>
+S:	Maintained
+F:	drivers/platform/x86/intel_skl_int3472_*
+
 INTEL SPEED SELECT TECHNOLOGY
 M:	Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>
 L:	platform-driver-x86@vger.kernel.org
