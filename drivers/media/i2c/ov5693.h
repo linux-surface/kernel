@@ -250,6 +250,8 @@ struct ov5693_device {
 	struct mutex input_lock;
 	struct v4l2_ctrl_handler ctrl_handler;
 
+	struct clk *clk;
+
 	struct gpio_desc *reset;
 	struct gpio_desc *indicator_led;
 	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];

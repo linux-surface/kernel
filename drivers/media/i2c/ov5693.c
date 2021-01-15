@@ -16,6 +16,7 @@
  *
  */
 
+#include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -1021,6 +1022,12 @@ static int __power_up(struct v4l2_subdev *sd)
 	struct ov5693_device *sensor = to_ov5693_sensor(sd);
 	int ret;
 
+	ret = clk_prepare_enable(sensor->clk);
+	if (ret) {
+		dev_err(&client->dev, "Error enabling clock\n");
+		return -EINVAL;
+	}
+
 	if (sensor->indicator_led)
 		gpiod_set_value_cansleep(sensor->indicator_led, 1);
 
@@ -1045,6 +1052,8 @@ static int power_down(struct v4l2_subdev *sd)
 	struct ov5693_device *dev = to_ov5693_sensor(sd);
 
 	dev->focus = OV5693_INVALID_CONFIG;
+
+	clk_disable_unprepare(dev->clk);
 
 	if (dev->indicator_led)
 		gpiod_set_value_cansleep(dev->indicator_led, 0);
@@ -1609,6 +1618,12 @@ static int ov5693_probe(struct i2c_client *client)
 	mutex_init(&ov5693->input_lock);
 
 	v4l2_i2c_subdev_init(&ov5693->sd, client, &ov5693_ops);
+
+	ov5693->clk = devm_clk_get(&client->dev, "xvclk");
+	if (IS_ERR(ov5693->clk)) {
+		dev_err(&client->dev, "Error getting clock\n");
+		return -EINVAL;
+	}
 
 	ret = ov5693_configure_gpios(ov5693);
 	if (ret)
