@@ -443,18 +443,14 @@ software_node_get_next_child(const struct fwnode_handle *fwnode,
 	struct swnode *c = to_swnode(child);
 
 	if (!p || list_empty(&p->children) ||
-	    (c && list_is_last(&c->entry, &p->children))) {
-		fwnode_handle_put(child);
+	    (c && list_is_last(&c->entry, &p->children)))
 		return NULL;
-	}
 
 	if (c)
 		c = list_next_entry(c, entry);
 	else
 		c = list_first_entry(&p->children, struct swnode, entry);
-
-	fwnode_handle_put(child);
-	return fwnode_handle_get(&c->fwnode);
+	return &c->fwnode;
 }
 
 static struct fwnode_handle *
@@ -540,110 +536,6 @@ software_node_get_reference_args(const struct fwnode_handle *fwnode,
 	return 0;
 }
 
-static struct fwnode_handle *
-swnode_graph_find_next_port(const struct fwnode_handle *parent,
-			    struct fwnode_handle *port)
-{
-	struct fwnode_handle *old = port;
-
-	while ((port = software_node_get_next_child(parent, old))) {
-		if (!strncmp(to_swnode(port)->node->name, "port", 4))
-			return port;
-		old = port;
-	}
-
-	return NULL;
-}
-
-static struct fwnode_handle *
-software_node_graph_get_next_endpoint(const struct fwnode_handle *fwnode,
-				      struct fwnode_handle *endpoint)
-{
-	struct swnode *swnode = to_swnode(fwnode);
-	struct fwnode_handle *old = endpoint;
-	struct fwnode_handle *parent;
-	struct fwnode_handle *port;
-
-	if (!swnode)
-		return NULL;
-
-	if (endpoint) {
-		port = software_node_get_parent(endpoint);
-		parent = software_node_get_parent(port);
-	} else {
-		parent = software_node_get_named_child_node(fwnode, "ports");
-		if (!parent)
-			parent = software_node_get(&swnode->fwnode);
-
-		port = swnode_graph_find_next_port(parent, NULL);
-	}
-
-	for (; port; port = swnode_graph_find_next_port(parent, port)) {
-		endpoint = software_node_get_next_child(port, old);
-		if (endpoint) {
-			fwnode_handle_put(port);
-			break;
-		}
-
-		/* No more endpoints for that port, so stop passing old */
-		old = NULL;
-	}
-
-	fwnode_handle_put(parent);
-
-	return endpoint;
-}
-
-static struct fwnode_handle *
-software_node_graph_get_remote_endpoint(const struct fwnode_handle *fwnode)
-{
-	struct swnode *swnode = to_swnode(fwnode);
-	const struct software_node_ref_args *ref;
-	const struct property_entry *prop;
-
-	if (!swnode)
-		return NULL;
-
-	prop = property_entry_get(swnode->node->properties, "remote-endpoint");
-	if (!prop || prop->type != DEV_PROP_REF || prop->is_inline)
-		return NULL;
-
-	ref = prop->pointer;
-
-	return software_node_get(software_node_fwnode(ref[0].node));
-}
-
-static struct fwnode_handle *
-software_node_graph_get_port_parent(struct fwnode_handle *fwnode)
-{
-	struct swnode *swnode = to_swnode(fwnode);
-	struct fwnode_handle *parent;
-
-	if (!strcmp(swnode->parent->node->name, "ports"))
-		parent = &swnode->parent->parent->fwnode;
-	else
-		parent = &swnode->parent->fwnode;
-
-	return software_node_get(parent);
-}
-
-static int
-software_node_graph_parse_endpoint(const struct fwnode_handle *fwnode,
-				   struct fwnode_endpoint *endpoint)
-{
-	struct swnode *swnode = to_swnode(fwnode);
-	int ret;
-
-	ret = kstrtou32(swnode->parent->node->name + 4, 10, &endpoint->port);
-	if (ret)
-		return ret;
-
-	endpoint->id = swnode->id;
-	endpoint->local_fwnode = fwnode;
-
-	return 0;
-}
-
 static const struct fwnode_operations software_node_ops = {
 	.get = software_node_get,
 	.put = software_node_put,
@@ -655,11 +547,7 @@ static const struct fwnode_operations software_node_ops = {
 	.get_parent = software_node_get_parent,
 	.get_next_child_node = software_node_get_next_child,
 	.get_named_child_node = software_node_get_named_child_node,
-	.get_reference_args = software_node_get_reference_args,
-	.graph_get_next_endpoint = software_node_graph_get_next_endpoint,
-	.graph_get_remote_endpoint = software_node_graph_get_remote_endpoint,
-	.graph_get_port_parent = software_node_graph_get_port_parent,
-	.graph_parse_endpoint = software_node_graph_parse_endpoint,
+	.get_reference_args = software_node_get_reference_args
 };
 
 /* -------------------------------------------------------------------------- */
@@ -808,45 +696,33 @@ int software_node_register_nodes(const struct software_node *nodes)
 	int i;
 
 	for (i = 0; nodes[i].name; i++) {
-		if (nodes[i].parent)
-			if (!software_node_to_swnode(nodes[i].parent)) {
-				ret = -EINVAL;
-				goto err_unregister_nodes;
-			}
-
 		ret = software_node_register(&nodes[i]);
-		if (ret)
-			goto err_unregister_nodes;
+		if (ret) {
+			software_node_unregister_nodes(nodes);
+			return ret;
+		}
 	}
 
 	return 0;
-err_unregister_nodes:
-	software_node_unregister_nodes(nodes);
-	return ret;
 }
 EXPORT_SYMBOL_GPL(software_node_register_nodes);
 
 /**
  * software_node_unregister_nodes - Unregister an array of software nodes
- * @nodes: Zero terminated array of software nodes to be unregistered. If
- * parent pointers are set up in any of the software nodes then the array
- * MUST be ordered such that parents come before their children.
+ * @nodes: Zero terminated array of software nodes to be unregistered
  *
  * Unregister multiple software nodes at once.
  *
- * NOTE: If you are uncertain whether the array is ordered such that
- * parents will be unregistered before their children, it is wiser to
- * remove the nodes individually, in the correct order (child before
- * parent).
+ * NOTE: Be careful using this call if the nodes had parent pointers set up in
+ * them before registering.  If so, it is wiser to remove the nodes
+ * individually, in the correct order (child before parent) instead of relying
+ * on the sequential order of the list of nodes in the array.
  */
 void software_node_unregister_nodes(const struct software_node *nodes)
 {
-	unsigned int i = 0;
+	int i;
 
-	while (nodes[i].name)
-		i++;
-
-	while (i--)
+	for (i = 0; nodes[i].name; i++)
 		software_node_unregister(&nodes[i]);
 }
 EXPORT_SYMBOL_GPL(software_node_unregister_nodes);
@@ -890,10 +766,7 @@ void software_node_unregister_node_group(const struct software_node **node_group
 	if (!node_group)
 		return;
 
-	while (node_group[i]->name)
-		i++;
-
-	while (i--)
+	for (i = 0; node_group[i]; i++)
 		software_node_unregister(node_group[i]);
 }
 EXPORT_SYMBOL_GPL(software_node_unregister_node_group);
