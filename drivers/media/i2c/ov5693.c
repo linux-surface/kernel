@@ -1035,6 +1035,8 @@ static int __power_up(struct v4l2_subdev *sd)
 	if (ret)
 		goto fail_power;
 
+	gpiod_set_value_cansleep(sensor->reset, 0);
+
 	__cci_delay(up_delay);
 
 	return 0;
@@ -1052,6 +1054,8 @@ static int power_down(struct v4l2_subdev *sd)
 	struct ov5693_device *dev = to_ov5693_sensor(sd);
 
 	dev->focus = OV5693_INVALID_CONFIG;
+
+	gpiod_set_value_cansleep(sensor->reset, 1);
 
 	clk_disable_unprepare(dev->clk);
 
