@@ -1105,7 +1105,7 @@ static int power_down(struct v4l2_subdev *sd)
 
 	dev->focus = OV5693_INVALID_CONFIG;
 
-	gpiod_set_value_cansleep(sensor->reset, 1);
+	gpiod_set_value_cansleep(dev->reset, 1);
 
 	clk_disable_unprepare(dev->clk);
 
