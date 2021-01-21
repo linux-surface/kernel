@@ -19,6 +19,7 @@
 #include <media/v4l2-fwnode.h>
 #include <media/v4l2-image-sizes.h>
 #include <media/v4l2-mediabus.h>
+#include <linux/acpi.h>
 
 /* Clock rate */
 
@@ -2798,6 +2799,8 @@ static int ov8865_probe(struct i2c_client *client)
 	/* Graph Endpoint */
 
 	handle = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
+	//TODO doesn't work
+	handle = fwnode_graph_get_next_endpoint(dev_fwnode(dev)->secondary, NULL);
 	if (!handle) {
 		dev_err(dev, "unable to find enpoint node\n");
 		return -EINVAL;
@@ -2955,10 +2958,17 @@ static const struct of_device_id ov8865_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, ov8865_of_match);
 
+static const struct acpi_device_id ov8865_acpi_match[] = {
+	{"INT347A"},
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, ov8865_acpi_match);
+
 static struct i2c_driver ov8865_driver = {
 	.driver = {
 		.name = "ov8865",
 		.of_match_table = ov8865_of_match,
+		.acpi_match_table = ov8865_acpi_match,
 		.pm = &ov8865_pm_ops,
 	},
 	.probe_new = ov8865_probe,
