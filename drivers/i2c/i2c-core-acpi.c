@@ -501,14 +501,15 @@ EXPORT_SYMBOL_GPL(i2c_acpi_new_device);
  * i2c_acpi_dev_name - Construct i2c device name for devs sourced from ACPI
  * @adev:     ACPI device to construct the name for
  *
- * Prefixes "i2c-" to the ACPI device name, for use in i2c_dev_set_name() and
- * also anywhere else in the kernel that needs to refer to an i2c device by
- * name but before they have been instantiated.
+ * Constructs the name of an i2c device matching the format used by
+ * i2c_dev_set_name() to allow users to refer to an i2c device by name even
+ * before they have been instantiated.
+ * 
+ * The caller is responsible for freeing the returned pointer.
  */
 char *i2c_acpi_dev_name(struct acpi_device *adev)
 {
-	return devm_kasprintf(&adev->dev, GFP_KERNEL, "i2c-%s",
-			      acpi_dev_name(adev));
+	return kasprintf(GFP_KERNEL, I2C_DEV_NAME_FORMAT, acpi_dev_name(adev));
 }
 EXPORT_SYMBOL_GPL(i2c_acpi_dev_name);
 

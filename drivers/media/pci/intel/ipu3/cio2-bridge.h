@@ -4,28 +4,39 @@
 #define __CIO2_BRIDGE_H
 
 #include <linux/property.h>
+#include <linux/types.h>
+
+#include "ipu3-cio2.h"
 
 #define CIO2_HID				"INT343E"
-#define CIO2_NUM_PORTS			  4
+#define CIO2_MAX_LANES				4
+#define MAX_NUM_LINK_FREQS			3
+
+#define CIO2_SENSOR_CONFIG(_HID, _NR, ...)	\
+	(const struct cio2_sensor_config) {	\
+		.hid = _HID,			\
+		.nr_link_freqs = _NR,		\
+		.link_freqs = { __VA_ARGS__ }	\
+	}
 
 #define NODE_SENSOR(_HID, _PROPS)		\
-	((const struct software_node) {		\
+	(const struct software_node) {		\
 		.name = _HID,			\
 		.properties = _PROPS,		\
-	})
+	}
 
 #define NODE_PORT(_PORT, _SENSOR_NODE)		\
-	((const struct software_node) {		\
-		_PORT,				\
-		_SENSOR_NODE,			\
-	})
+	(const struct software_node) {		\
+		.name = _PORT,			\
+		.parent = _SENSOR_NODE,		\
+	}
 
 #define NODE_ENDPOINT(_EP, _PORT, _PROPS)	\
-	((const struct software_node) {		\
-		_EP,				\
-		_PORT,				\
-		_PROPS,				\
-	})
+	(const struct software_node) {		\
+		.name = _EP,			\
+		.parent = _PORT,		\
+		.properties = _PROPS,		\
+	}
 
 enum cio2_sensor_swnodes {
 	SWNODE_SENSOR_HID,
@@ -33,7 +44,7 @@ enum cio2_sensor_swnodes {
 	SWNODE_SENSOR_ENDPOINT,
 	SWNODE_CIO2_PORT,
 	SWNODE_CIO2_ENDPOINT,
-	NR_OF_SENSOR_SWNODES
+	SWNODE_COUNT
 };
 
 /* Data representation as it is in ACPI SSDB buffer */
@@ -64,7 +75,7 @@ struct cio2_sensor_ssdb {
 	u8 reserved1[3];
 	u8 mclkport;
 	u8 reserved2[13];
-} __packed__;
+} __packed;
 
 struct cio2_property_names {
 	char clock_frequency[16];
@@ -72,12 +83,19 @@ struct cio2_property_names {
 	char bus_type[9];
 	char data_lanes[11];
 	char remote_endpoint[16];
+	char link_frequencies[17];
 };
 
 struct cio2_node_names {
-	char port[6];
-	char endpoint[10];
-	char remote_port[6];
+	char port[7];
+	char endpoint[11];
+	char remote_port[7];
+};
+
+struct cio2_sensor_config {
+	const char *hid;
+	const u8 nr_link_freqs;
+	const u64 link_freqs[MAX_NUM_LINK_FREQS];
 };
 
 struct cio2_sensor {
@@ -87,10 +105,9 @@ struct cio2_sensor {
 	struct software_node swnodes[6];
 	struct cio2_node_names node_names;
 
-	u32 data_lanes[4];
 	struct cio2_sensor_ssdb ssdb;
 	struct cio2_property_names prop_names;
-	struct property_entry ep_properties[4];
+	struct property_entry ep_properties[5];
 	struct property_entry dev_properties[3];
 	struct property_entry cio2_properties[3];
 	struct software_node_ref_args local_ref[1];
@@ -98,9 +115,9 @@ struct cio2_sensor {
 };
 
 struct cio2_bridge {
-	struct pci_dev *cio2;
 	char cio2_node_name[ACPI_ID_LEN];
 	struct software_node cio2_hid_node;
+	u32 data_lanes[4];
 	unsigned int n_sensors;
 	struct cio2_sensor sensors[CIO2_NUM_PORTS];
 };

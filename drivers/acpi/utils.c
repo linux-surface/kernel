@@ -807,49 +807,39 @@ static int acpi_dev_match_cb(struct device *dev, const void *data)
 	return hrv == match->hrv;
 }
 
+bool acpi_lpss_dep(struct acpi_device *adev, acpi_handle handle)
+{
+	struct acpi_handle_list dep_devices;
+	acpi_status status;
+	int i;
+
+	if (!acpi_has_method(adev->handle, "_DEP"))
+		return false;
+
+	status = acpi_evaluate_reference(adev->handle, "_DEP", NULL,
+					 &dep_devices);
+	if (ACPI_FAILURE(status)) {
+		dev_dbg(&adev->dev, "Failed to evaluate _DEP.\n");
+		return false;
+	}
+
+	for (i = 0; i < dep_devices.count; i++) {
+		if (dep_devices.handles[i] == handle)
+			return true;
+	}
+
+	return false;
+}
+
 static int acpi_dev_match_by_dep(struct device *dev, const void *data)
 {
 	struct acpi_device *adev = to_acpi_device(dev);
 	const struct acpi_device *dependee = data;
-	struct acpi_handle_list dep_handles;
-	struct acpi_device *candidate;
-	acpi_handle handle;
-	acpi_status status;
-	unsigned int i;
-	int ret;
+	acpi_handle handle = dependee->handle;
 
-	handle = adev->handle;
+	if (acpi_lpss_dep(adev, handle))
+		return 1;
 
-	if (!acpi_has_method(handle, "_DEP"))
-		return 0;
-
-	status = acpi_evaluate_reference(handle, "_DEP", NULL, &dep_handles);
-	if (ACPI_FAILURE(status))
-		return 0;
-
-	for (i = 0; i < dep_handles.count; i++) {
-		struct acpi_device_info *info;
-
-		status = acpi_get_object_info(dep_handles.handles[i], &info);
-		if (ACPI_FAILURE(status))
-			continue;
-
-		if (info->valid & ACPI_VALID_HID) {
-			ret = acpi_bus_get_device(dep_handles.handles[i], &candidate);
-			if (ret || !candidate) {
-				kfree(info);
-				continue;
-			}
-
-			if (candidate == dependee) {
-				acpi_dev_put(candidate);
-				kfree(info);
-				return 1;
-			}
-
-			kfree(info);
-		}
-	}
 	return 0;
 }
 
@@ -912,7 +902,7 @@ EXPORT_SYMBOL(acpi_dev_get_next_dep_dev);
 
 /**
  * acpi_dev_get_next_match_dev - Return the next match of ACPI device
- * @adev: Pointer to the previous acpi_device matching this hid, uid and hrv
+ * @adev: Pointer to the previous acpi_device matching this @hid, @uid and @hrv
  * @hid: Hardware ID of the device.
  * @uid: Unique ID of the device, pass NULL to not check _UID
  * @hrv: Hardware Revision of the device, pass -1 to not check _HRV

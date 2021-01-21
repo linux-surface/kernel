@@ -8761,13 +8761,6 @@ L:	linux-crypto@vger.kernel.org
 S:	Maintained
 F:	drivers/crypto/inside-secure/
 
-INT3472 ACPI DEVICE DRIVER
-M:	Daniel Scally <djrscally@gmail.com>
-L:	linux-media@vger.kernel.org
-S:	Maintained
-F:	drivers/media/pci/intel/ipu3/int3472.c
-F:	drivers/media/pci/intel/ipu3/int3472.h
-
 INTEGRITY MEASUREMENT ARCHITECTURE (IMA)
 M:	Mimi Zohar <zohar@linux.ibm.com>
 M:	Dmitry Kasatkin <dmitry.kasatkin@gmail.com>
@@ -9051,6 +9044,11 @@ M:	Mika Westerberg <mika.westerberg@linux.intel.com>
 S:	Maintained
 F:	arch/x86/include/asm/intel_scu_ipc.h
 F:	drivers/platform/x86/intel_scu_*
+
+INTEL SKL INT3472 ACPI DEVICE DRIVER
+M:	Daniel Scally <djrscally@gmail.com>
+S:	Maintained
+F:	drivers/platform/x86/intel_skl_int3472_*
 
 INTEL SPEED SELECT TECHNOLOGY
 M:	Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>

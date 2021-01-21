@@ -39,6 +39,9 @@ enum i2c_slave_event;
 typedef int (*i2c_slave_cb_t)(struct i2c_client *client,
 			      enum i2c_slave_event event, u8 *val);
 
+/* I2C Device Name Format - to maintain consistency outside the i2c layer */
+#define I2C_DEV_NAME_FORMAT		"i2c-%s"
+
 /* I2C Frequency Modes */
 #define I2C_MAX_STANDARD_MODE_FREQ	100000
 #define I2C_MAX_FAST_MODE_FREQ		400000

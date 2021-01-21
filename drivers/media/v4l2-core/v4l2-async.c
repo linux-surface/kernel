@@ -91,7 +91,7 @@ static bool match_fwnode(struct v4l2_async_notifier *notifier,
 	 * Check the same situation for any possible secondary assigned to the
 	 * subdev's fwnode
 	 */
-	if ((!IS_ERR_OR_NULL(sd->fwnode->secondary)) &&
+	if (!IS_ERR_OR_NULL(sd->fwnode->secondary) &&
 	    sd->fwnode->secondary == asd->match.fwnode)
 		return true;
 

@@ -547,7 +547,12 @@ swnode_graph_find_next_port(const struct fwnode_handle *parent,
 	struct fwnode_handle *old = port;
 
 	while ((port = software_node_get_next_child(parent, old))) {
-		if (!strncmp(to_swnode(port)->node->name, "port", 4))
+		/*
+		 * fwnode ports have naming style "port@", so we search for any
+		 * children that follow that convention.
+		 */
+		if (!strncmp(to_swnode(port)->node->name, "port@",
+			     strlen("port@")))
 			return port;
 		old = port;
 	}
@@ -560,7 +565,6 @@ software_node_graph_get_next_endpoint(const struct fwnode_handle *fwnode,
 				      struct fwnode_handle *endpoint)
 {
 	struct swnode *swnode = to_swnode(fwnode);
-	struct fwnode_handle *old = endpoint;
 	struct fwnode_handle *parent;
 	struct fwnode_handle *port;
 
@@ -579,14 +583,11 @@ software_node_graph_get_next_endpoint(const struct fwnode_handle *fwnode,
 	}
 
 	for (; port; port = swnode_graph_find_next_port(parent, port)) {
-		endpoint = software_node_get_next_child(port, old);
+		endpoint = software_node_get_next_child(port, endpoint);
 		if (endpoint) {
 			fwnode_handle_put(port);
 			break;
 		}
-
-		/* No more endpoints for that port, so stop passing old */
-		old = NULL;
 	}
 
 	fwnode_handle_put(parent);
@@ -617,14 +618,12 @@ static struct fwnode_handle *
 software_node_graph_get_port_parent(struct fwnode_handle *fwnode)
 {
 	struct swnode *swnode = to_swnode(fwnode);
-	struct fwnode_handle *parent;
 
-	if (!strcmp(swnode->parent->node->name, "ports"))
-		parent = &swnode->parent->parent->fwnode;
-	else
-		parent = &swnode->parent->fwnode;
+	swnode = swnode->parent;
+	if (swnode && !strcmp(swnode->node->name, "ports"))
+		swnode = swnode->parent;
 
-	return software_node_get(parent);
+	return swnode ? software_node_get(&swnode->fwnode) : NULL;
 }
 
 static int
@@ -632,9 +631,15 @@ software_node_graph_parse_endpoint(const struct fwnode_handle *fwnode,
 				   struct fwnode_endpoint *endpoint)
 {
 	struct swnode *swnode = to_swnode(fwnode);
+	const char *parent_name = swnode->parent->node->name;
 	int ret;
 
-	ret = kstrtou32(swnode->parent->node->name + 4, 10, &endpoint->port);
+	if (strlen("port@") >= strlen(parent_name) ||
+	    strncmp(parent_name, "port@", strlen("port@")))
+		return -EINVAL;
+
+	/* Ports have naming style "port@n", we need to select the n */
+	ret = kstrtou32(parent_name + strlen("port@"), 10, &endpoint->port);
 	if (ret)
 		return ret;
 
@@ -800,7 +805,11 @@ out_err:
  * software_node_register_nodes - Register an array of software nodes
  * @nodes: Zero terminated array of software nodes to be registered
  *
- * Register multiple software nodes at once.
+ * Register multiple software nodes at once. If any node in the array
+ * has its .parent pointer set (which can only be to another software_node),
+ * then its parent **must** have been registered before it is; either outside
+ * of this function or by ordering the array such that parent comes before
+ * child.
  */
 int software_node_register_nodes(const struct software_node *nodes)
 {
@@ -808,11 +817,12 @@ int software_node_register_nodes(const struct software_node *nodes)
 	int i;
 
 	for (i = 0; nodes[i].name; i++) {
-		if (nodes[i].parent)
-			if (!software_node_to_swnode(nodes[i].parent)) {
-				ret = -EINVAL;
-				goto err_unregister_nodes;
-			}
+		const struct software_node *parent = nodes[i].parent;
+
+		if (parent && !software_node_to_swnode(parent)) {
+			ret = -EINVAL;
+			goto err_unregister_nodes;
+		}
 
 		ret = software_node_register(&nodes[i]);
 		if (ret)
@@ -820,6 +830,7 @@ int software_node_register_nodes(const struct software_node *nodes)
 	}
 
 	return 0;
+
 err_unregister_nodes:
 	software_node_unregister_nodes(nodes);
 	return ret;
@@ -828,11 +839,11 @@ EXPORT_SYMBOL_GPL(software_node_register_nodes);
 
 /**
  * software_node_unregister_nodes - Unregister an array of software nodes
- * @nodes: Zero terminated array of software nodes to be unregistered. If
- * parent pointers are set up in any of the software nodes then the array
- * MUST be ordered such that parents come before their children.
+ * @nodes: Zero terminated array of software nodes to be unregistered
  *
- * Unregister multiple software nodes at once.
+ * Unregister multiple software nodes at once. If parent pointers are set up
+ * in any of the software nodes then the array **must** be ordered such that
+ * parents come before their children.
  *
  * NOTE: If you are uncertain whether the array is ordered such that
  * parents will be unregistered before their children, it is wiser to
@@ -881,16 +892,20 @@ EXPORT_SYMBOL_GPL(software_node_register_node_group);
  * software_node_unregister_node_group - Unregister a group of software nodes
  * @node_group: NULL terminated array of software node pointers to be unregistered
  *
- * Unregister multiple software nodes at once.
+ * Unregister multiple software nodes at once. The array will be unwound in
+ * reverse order (i.e. last entry first) and thus if any members of the array are
+ * children of another member then the children must appear later in the list such
+ * that they are unregistered first.
  */
-void software_node_unregister_node_group(const struct software_node **node_group)
+void software_node_unregister_node_group(
+		const struct software_node **node_group)
 {
-	unsigned int i;
+	unsigned int i = 0;
 
 	if (!node_group)
 		return;
 
-	while (node_group[i]->name)
+	while (node_group[i])
 		i++;
 
 	while (i--)

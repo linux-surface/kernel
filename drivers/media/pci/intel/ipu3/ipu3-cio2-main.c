@@ -1712,17 +1712,17 @@ static void cio2_queues_exit(struct cio2_device *cio2)
 		cio2_queue_exit(cio2, &cio2->queue[i]);
 }
 
-static bool cio2_check_fwnode_graph(struct fwnode_handle *fwnode)
+static int cio2_check_fwnode_graph(struct fwnode_handle *fwnode)
 {
 	struct fwnode_handle *endpoint;
 
 	if (IS_ERR_OR_NULL(fwnode))
-		return false;
+		return -EINVAL;
 
 	endpoint = fwnode_graph_get_next_endpoint(fwnode, NULL);
 	if (endpoint) {
 		fwnode_handle_put(endpoint);
-		return true;
+		return 0;
 	}
 
 	return cio2_check_fwnode_graph(fwnode->secondary);
@@ -1733,6 +1733,7 @@ static bool cio2_check_fwnode_graph(struct fwnode_handle *fwnode)
 static int cio2_pci_probe(struct pci_dev *pci_dev,
 			  const struct pci_device_id *id)
 {
+	struct fwnode_handle *fwnode = dev_fwnode(&pci_dev->dev);
 	struct cio2_device *cio2;
 	int r;
 
@@ -1746,7 +1747,13 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
 	 * if the device has no endpoints then we can try to build those as
 	 * software_nodes parsed from SSDB.
 	 */
-	if (!cio2_check_fwnode_graph(dev_fwnode(&pci_dev->dev))) {
+	r = cio2_check_fwnode_graph(fwnode);
+	if (r) {
+		if (fwnode && !IS_ERR_OR_NULL(fwnode->secondary)) {
+			dev_err(&pci_dev->dev, "fwnode graph has no endpoints connected\n");
+			return -EINVAL;
+		}
+
 		r = cio2_bridge_init(pci_dev);
 		if (r)
 			return r;
