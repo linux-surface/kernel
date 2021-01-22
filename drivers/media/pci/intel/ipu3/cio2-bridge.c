@@ -29,6 +29,7 @@ static const struct cio2_sensor_config cio2_supported_sensors[] = {
 static const struct cio2_property_names prop_names = {
 	.clock_frequency = "clock-frequency",
 	.rotation = "rotation",
+	.orientation = "orientation",
 	.bus_type = "bus-type",
 	.data_lanes = "data-lanes",
 	.remote_endpoint = "remote-endpoint",
@@ -72,11 +73,36 @@ out_free_buff:
 	return ret;
 }
 
+static u32 cio2_bridge_parse_rotation(u8 rotation)
+{
+	if (rotation == 1)
+		return 180;
+	return 0;
+}
+
+static enum v4l2_fwnode_orientation cio2_bridge_parse_orientation(u8 panel)
+{
+	switch (panel) {
+	case 4:
+		return V4L2_FWNODE_ORIENTATION_FRONT;
+	case 5:
+		return V4L2_FWNODE_ORIENTATION_BACK;
+	default:
+		return V4L2_FWNODE_ORIENTATION_EXTERNAL;
+	}
+}
+
 static void cio2_bridge_create_fwnode_properties(
 	struct cio2_sensor *sensor,
 	struct cio2_bridge *bridge,
 	const struct cio2_sensor_config *cfg)
 {
+	u32 rotation;
+	enum v4l2_fwnode_orientation orientation;
+
+	rotation = cio2_bridge_parse_rotation(sensor->ssdb.degree);
+	orientation = cio2_bridge_parse_orientation(sensor->pld->panel);
+
 	sensor->prop_names = prop_names;
 
 	sensor->local_ref[0].node = &sensor->swnodes[SWNODE_CIO2_ENDPOINT];
@@ -85,9 +111,12 @@ static void cio2_bridge_create_fwnode_properties(
 	sensor->dev_properties[0] = PROPERTY_ENTRY_U32(
 					sensor->prop_names.clock_frequency,
 					sensor->ssdb.mclkspeed);
-	sensor->dev_properties[1] = PROPERTY_ENTRY_U8(
+	sensor->dev_properties[1] = PROPERTY_ENTRY_U32(
 					sensor->prop_names.rotation,
-					sensor->ssdb.degree);
+					rotation);
+	sensor->dev_properties[2] = PROPERTY_ENTRY_U32(
+					sensor->prop_names.orientation,
+					orientation);
 
 	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
 					sensor->prop_names.bus_type,
@@ -159,6 +188,7 @@ static void cio2_bridge_unregister_sensors(struct cio2_bridge *bridge)
 	for (i = 0; i < bridge->n_sensors; i++) {
 		sensor = &bridge->sensors[i];
 		software_node_unregister_nodes(sensor->swnodes);
+		ACPI_FREE(sensor->pld);
 		acpi_dev_put(sensor->adev);
 	}
 }
@@ -170,6 +200,7 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
 	struct fwnode_handle *fwnode;
 	struct cio2_sensor *sensor;
 	struct acpi_device *adev;
+	acpi_status status;
 	int ret;
 
 	for_each_acpi_dev_match(adev, cfg->hid, NULL, -1) {
@@ -193,11 +224,15 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
 		if (ret)
 			goto err_put_adev;
 
+		status = acpi_get_physical_device_location(adev->handle, &sensor->pld);
+		if (ACPI_FAILURE(status))
+			goto err_put_adev;
+
 		if (sensor->ssdb.lanes > CIO2_MAX_LANES) {
 			dev_err(&adev->dev,
 				"Number of lanes in SSDB is invalid\n");
 			ret = -EINVAL;
-			goto err_put_adev;
+			goto err_free_pld;
 		}
 
 		cio2_bridge_create_fwnode_properties(sensor, bridge, cfg);
@@ -205,7 +240,7 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
 
 		ret = software_node_register_nodes(sensor->swnodes);
 		if (ret)
-			goto err_put_adev;
+			goto err_free_pld;
 
 		fwnode = software_node_fwnode(&sensor->swnodes[SWNODE_SENSOR_HID]);
 		if (!fwnode) {
@@ -225,6 +260,8 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
 
 err_free_swnodes:
 	software_node_unregister_nodes(sensor->swnodes);
+err_free_pld:
+	ACPI_FREE(sensor->pld);
 err_put_adev:
 	acpi_dev_put(sensor->adev);
 err_out:
