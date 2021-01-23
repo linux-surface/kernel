@@ -7,41 +7,52 @@
 
 #include "intel_skl_int3472_common.h"
 
-int skl_int3472_get_cldb_buffer(struct acpi_device *adev,
-				struct int3472_cldb *cldb)
+union acpi_object *skl_int3472_get_acpi_buffer(struct acpi_device *adev,
+					       char *id)
 {
 	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
 	acpi_handle handle = adev->handle;
 	union acpi_object *obj;
 	acpi_status status;
-	int ret = 0;
 
-	status = acpi_evaluate_object(handle, "CLDB", NULL, &buffer);
+	status = acpi_evaluate_object(handle, id, NULL, &buffer);
 	if (ACPI_FAILURE(status))
-		return -ENODEV;
+		return ERR_PTR(-ENODEV);
 
 	obj = buffer.pointer;
 	if (!obj) {
-		dev_err(&adev->dev, "ACPI device has no CLDB object\n");
-		return -ENODEV;
+		dev_err(&adev->dev, "ACPI device has no %s object\n", id);
+		return ERR_PTR(-ENODEV);
 	}
 
 	if (obj->type != ACPI_TYPE_BUFFER) {
-		dev_err(&adev->dev, "CLDB object is not an ACPI buffer\n");
-		ret = -EINVAL;
-		goto out_free_buff;
+		dev_err(&adev->dev, "%s object is not an ACPI buffer\n", id);
+		kfree(obj);
+		return ERR_PTR(-EINVAL);
 	}
+
+	return obj;
+}
+
+int skl_int3472_fill_cldb(struct acpi_device *adev, struct int3472_cldb *cldb)
+{
+	union acpi_object *obj;
+	int ret = 0;
+
+	obj = skl_int3472_get_acpi_buffer(adev, "CLDB");
+	if (IS_ERR(obj))
+		return PTR_ERR(obj);
 
 	if (obj->buffer.length > sizeof(*cldb)) {
 		dev_err(&adev->dev, "The CLDB buffer is too large\n");
 		ret = -EINVAL;
-		goto out_free_buff;
+		goto out_free_obj;
 	}
 
 	memcpy(cldb, obj->buffer.pointer, obj->buffer.length);
 
-out_free_buff:
-	kfree(buffer.pointer);
+out_free_obj:
+	kfree(obj);
 	return ret;
 }
 

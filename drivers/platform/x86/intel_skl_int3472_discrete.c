@@ -12,12 +12,12 @@
 
 #include "intel_skl_int3472_common.h"
 
-/* 79234640-9e10-4fea-a5c1b5aa8b19756f */
+/* 79234640-9e10-4fea-a5c1-b5aa8b19756f */
 static const guid_t int3472_gpio_guid =
 	GUID_INIT(0x79234640, 0x9e10, 0x4fea,
 		  0xa5, 0xc1, 0xb5, 0xaa, 0x8b, 0x19, 0x75, 0x6f);
 
-/* 822ace8f-2814-4174-a56b5f029fe079ee */
+/* 822ace8f-2814-4174-a56b-5f029fe079ee */
 static const guid_t cio2_sensor_module_guid =
 	GUID_INIT(0x822ace8f, 0x2814, 0x4174,
 		  0xa5, 0x6b, 0x5f, 0x02, 0x9f, 0xe0, 0x79, 0xee);
@@ -94,7 +94,7 @@ static const struct clk_ops skl_int3472_clock_ops = {
 };
 
 static struct int3472_sensor_config *
-int3472_get_sensor_module_config(struct int3472_device *int3472)
+skl_int3472_get_sensor_module_config(struct int3472_device *int3472)
 {
 	unsigned int i = ARRAY_SIZE(int3472_sensor_configs);
 	struct int3472_sensor_config *ret;
@@ -131,9 +131,9 @@ out_free_obj:
 	return ret;
 }
 
-static int int3472_map_gpio_to_sensor(struct int3472_device *int3472,
-				      struct acpi_resource *ares,
-				      char *func, u32 polarity)
+static int skl_int3472_map_gpio_to_sensor(struct int3472_device *int3472,
+					  struct acpi_resource *ares,
+					  char *func, u32 polarity)
 {
 	char *path = ares->data.gpio.resource_source.string_ptr;
 	struct int3472_sensor_config *sensor_config;
@@ -143,7 +143,7 @@ static int int3472_map_gpio_to_sensor(struct int3472_device *int3472,
 	acpi_status status;
 	int ret;
 
-	sensor_config = int3472_get_sensor_module_config(int3472);
+	sensor_config = skl_int3472_get_sensor_module_config(int3472);
 	if (!IS_ERR(sensor_config) && sensor_config->function_maps) {
 		unsigned int i = 0;
 
@@ -186,17 +186,19 @@ static int int3472_map_gpio_to_sensor(struct int3472_device *int3472,
 	return 0;
 }
 
-static int int3472_register_clock(struct int3472_device *int3472,
-				  struct acpi_resource *ares)
+static int skl_int3472_register_clock(struct int3472_device *int3472,
+				      struct acpi_resource *ares)
 {
 	char *path = ares->data.gpio.resource_source.string_ptr;
-	struct clk_init_data init = { };
+	struct clk_init_data init = { 0 };
 	int ret = 0;
 
-	init.name = kasprintf(GFP_KERNEL, "%s-clk", acpi_dev_name(int3472->adev));
+	init.name = kasprintf(GFP_KERNEL, "%s-clk",
+			      acpi_dev_name(int3472->adev));
 	init.ops = &skl_int3472_clock_ops;
 
-	int3472->clock.gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0]);
+	int3472->clock.gpio = acpi_get_gpiod(path,
+					     ares->data.gpio.pin_table[0]);
 	if (IS_ERR(int3472->clock.gpio)) {
 		ret = PTR_ERR(int3472->clock.gpio);
 		goto out_free_init_name;
@@ -226,17 +228,16 @@ out_free_init_name:
 	return ret;
 }
 
-static int int3472_register_regulator(struct int3472_device *int3472,
-				      struct acpi_resource *ares)
+static int skl_int3472_register_regulator(struct int3472_device *int3472,
+					  struct acpi_resource *ares)
 {
 	char *path = ares->data.gpio.resource_source.string_ptr;
 	struct int3472_sensor_config *sensor_config;
 	struct regulator_init_data init_data = { };
-	struct int3472_gpio_regulator *regulator;
 	struct regulator_config cfg = { };
 	int ret;
 
-	sensor_config = int3472_get_sensor_module_config(int3472);
+	sensor_config = skl_int3472_get_sensor_module_config(int3472);
 	if (IS_ERR_OR_NULL(sensor_config)) {
 		dev_err(&int3472->pdev->dev, "No sensor module config\n");
 		return PTR_ERR(sensor_config);
@@ -252,26 +253,29 @@ static int int3472_register_regulator(struct int3472_device *int3472,
 	init_data.num_consumer_supplies = 1;
 	init_data.consumer_supplies = &sensor_config->supply_map;
 
-	snprintf(int3472->regulator.regulator_name, GPIO_REGULATOR_NAME_LENGTH,
-		 "int3472-discrete-regulator");
-	snprintf(int3472->regulator.supply_name, GPIO_REGULATOR_SUPPLY_NAME_LENGTH,
-		 "supply-0");
+	snprintf(int3472->regulator.regulator_name,
+		 GPIO_REGULATOR_NAME_LENGTH, "int3472-discrete-regulator");
+	snprintf(int3472->regulator.supply_name,
+		 GPIO_REGULATOR_SUPPLY_NAME_LENGTH, "supply-0");
 
-	int3472->regulator.rdesc = INT3472_REGULATOR(int3472->regulator.regulator_name,
-						     int3472->regulator.supply_name,
-						     &int3472_gpio_regulator_ops);
+	int3472->regulator.rdesc = INT3472_REGULATOR(
+						int3472->regulator.regulator_name,
+						int3472->regulator.supply_name,
+						&int3472_gpio_regulator_ops);
 
-	int3472->regulator.gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0]);
+	int3472->regulator.gpio = acpi_get_gpiod(path,
+						 ares->data.gpio.pin_table[0]);
 	if (IS_ERR(int3472->regulator.gpio)) {
-		ret = PTR_ERR(int3472->regulator.gpio);
-		goto err_free_regulator;
+		dev_err(&int3472->pdev->dev, "Failed to get GPIO line\n");
+		return PTR_ERR(int3472->regulator.gpio);
 	}
 
 	cfg.dev = &int3472->adev->dev;
 	cfg.init_data = &init_data;
 	cfg.ena_gpiod = int3472->regulator.gpio;
 
-	int3472->regulator.rdev = regulator_register(&int3472->regulator.rdesc, &cfg);
+	int3472->regulator.rdev = regulator_register(&int3472->regulator.rdesc,
+						     &cfg);
 	if (IS_ERR(int3472->regulator.rdev)) {
 		ret = PTR_ERR(int3472->regulator.rdev);
 		goto err_free_gpio;
@@ -280,15 +284,13 @@ static int int3472_register_regulator(struct int3472_device *int3472,
 	return 0;
 
 err_free_gpio:
-	gpiod_put(regulator->gpio);
-err_free_regulator:
-	kfree(regulator);
+	gpiod_put(int3472->regulator.gpio);
 
 	return ret;
 }
 
 /**
- * int3472_handle_gpio_resources: maps PMIC resources to consuming sensor
+ * skl_int3472_handle_gpio_resources: maps PMIC resources to consuming sensor
  * @ares: A pointer to a &struct acpi_resource
  * @data: A pointer to a &struct int3472_device
  *
@@ -305,8 +307,9 @@ err_free_regulator:
  *
  * There are some known platform specific quirks where that does not quite
  * hold up; for example where a pin with type 0x01 (Power down) is mapped to
- * a sensor pin that performs a reset function. These will be handled by the
- * mapping sub-functions.
+ * a sensor pin that performs a reset function or entries in _CRS and _DSM that
+ * do not actually correspond to a physical connection. These will be handled by
+ * the mapping sub-functions.
  *
  * GPIOs will either be mapped directly to the sensor device or else used
  * to create clocks and regulators via the usual frameworks.
@@ -317,8 +320,8 @@ err_free_regulator:
  * * -ENODEV	- If the resource has no corresponding _DSM entry
  * * -Other	- Errors propagated from one of the sub-functions.
  */
-static int int3472_handle_gpio_resources(struct acpi_resource *ares,
-					 void *data)
+static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+					     void *data)
 {
 	struct int3472_device *int3472 = data;
 	union acpi_object *obj;
@@ -345,30 +348,30 @@ static int int3472_handle_gpio_resources(struct acpi_resource *ares,
 
 	switch (obj->integer.value & 0xff) {
 	case INT3472_GPIO_TYPE_RESET:
-		ret = int3472_map_gpio_to_sensor(int3472, ares, "reset",
-						 GPIO_ACTIVE_LOW);
+		ret = skl_int3472_map_gpio_to_sensor(int3472, ares, "reset",
+						     GPIO_ACTIVE_LOW);
 		if (ret)
 			dev_err(&int3472->pdev->dev,
 				"Failed to map reset pin to sensor\n");
 
 		break;
 	case INT3472_GPIO_TYPE_POWERDOWN:
-		ret = int3472_map_gpio_to_sensor(int3472, ares, "powerdown",
-						 GPIO_ACTIVE_LOW);
+		ret = skl_int3472_map_gpio_to_sensor(int3472, ares, "powerdown",
+						     GPIO_ACTIVE_LOW);
 		if (ret)
 			dev_err(&int3472->pdev->dev,
 				"Failed to map powerdown pin to sensor\n");
 
 		break;
 	case INT3472_GPIO_TYPE_CLK_ENABLE:
-		ret = int3472_register_clock(int3472, ares);
+		ret = skl_int3472_register_clock(int3472, ares);
 		if (ret)
 			dev_err(&int3472->pdev->dev,
 				"Failed to map clock to sensor\n");
 
 		break;
 	case INT3472_GPIO_TYPE_POWER_ENABLE:
-		ret = int3472_register_regulator(int3472, ares);
+		ret = skl_int3472_register_regulator(int3472, ares);
 		if (ret) {
 			dev_err(&int3472->pdev->dev,
 				"Failed to map regulator to sensor\n");
@@ -376,8 +379,9 @@ static int int3472_handle_gpio_resources(struct acpi_resource *ares,
 
 		break;
 	case INT3472_GPIO_TYPE_PRIVACY_LED:
-		ret = int3472_map_gpio_to_sensor(int3472, ares, "indicator-led",
-						 GPIO_ACTIVE_HIGH);
+		ret = skl_int3472_map_gpio_to_sensor(int3472, ares,
+						     "indicator-led",
+						     GPIO_ACTIVE_HIGH);
 		if (ret)
 			dev_err(&int3472->pdev->dev,
 				"Failed to map indicator led to sensor\n");
@@ -396,7 +400,7 @@ static int int3472_handle_gpio_resources(struct acpi_resource *ares,
 	return ret;
 }
 
-static int int3472_parse_crs(struct int3472_device *int3472)
+static int skl_int3472_parse_crs(struct int3472_device *int3472)
 {
 	struct list_head resource_list;
 	int ret = 0;
@@ -404,7 +408,8 @@ static int int3472_parse_crs(struct int3472_device *int3472)
 	INIT_LIST_HEAD(&resource_list);
 
 	ret = acpi_dev_get_resources(int3472->adev, &resource_list,
-				     int3472_handle_gpio_resources, int3472);
+				     skl_int3472_handle_gpio_resources,
+				     int3472);
 
 	if (!ret) {
 		gpiod_add_lookup_table(&int3472->gpios);
@@ -423,7 +428,7 @@ int skl_int3472_discrete_probe(struct platform_device *pdev)
 	struct int3472_cldb cldb;
 	int ret = 0;
 
-	ret = skl_int3472_get_cldb_buffer(adev, &cldb);
+	ret = skl_int3472_fill_cldb(adev, &cldb);
 	if (ret || cldb.control_logic_type != 1)
 		return -EINVAL;
 
@@ -444,10 +449,10 @@ int skl_int3472_discrete_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto err_free_int3472;
 	}
-	int3472->sensor_name = i2c_acpi_dev_name(int3472->sensor);
+	int3472->sensor_name = kasprintf(GFP_KERNEL, I2C_DEV_NAME_FORMAT, acpi_dev_name(int3472->sensor));
 	int3472->gpios.dev_id = int3472->sensor_name;
 
-	ret = int3472_parse_crs(int3472);
+	ret = skl_int3472_parse_crs(int3472);
 	if (ret) {
 		skl_int3472_discrete_remove(pdev);
 		goto err_return_ret;
