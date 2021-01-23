@@ -87,20 +87,20 @@ int skl_int3472_tps68470_probe(struct i2c_client *client)
 
 	/*
 	 * Check CLDB buffer against the PMIC's adev. If present, then we check
-	 * the value of control_logic_type field and follow one of the following
-	 * scenarios:
+	 * the value of control_logic_type field and follow one of the
+	 * following scenarios:
 	 *
-	 *	1. No CLDB - likely ACPI tables designed for ChromeOS. We create
-	 *	platform devices for the GPIOs and OpRegion drivers.
+	 *	1. No CLDB - likely ACPI tables designed for ChromeOS. We
+	 *	create platform devices for the GPIOs and OpRegion drivers.
 	 *
-	 *	2. CLDB, with control_logic_type = 2 - probably ACPI tables made
-	 *	for Windows 2-in-1 platforms. Register pdevs for GPIO, Clock and
-	 *	Regulator drivers to bind to.
+	 *	2. CLDB, with control_logic_type = 2 - probably ACPI tables
+	 *	made for Windows 2-in-1 platforms. Register pdevs for GPIO,
+	 *	Clock and Regulator drivers to bind to.
 	 *
 	 *	3. Any other value in control_logic_type, we should never have
 	 *	gotten to this point; crash and burn.
 	 */
-	ret = skl_int3472_get_cldb_buffer(adev, &cldb);
+	ret = skl_int3472_fill_cldb(adev, &cldb);
 	if (!ret && cldb.control_logic_type != 2)
 		return -EINVAL;
 
