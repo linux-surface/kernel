@@ -29,7 +29,7 @@
 
 #define INT3472_GPIO_FUNCTION_REMAP(_PIN, _FUNCTION)		\
 	(const struct int3472_gpio_function_remap) {		\
-		.documented = _PIN,					\
+		.documented = _PIN,				\
 		.actual = _FUNCTION				\
 	}
 
@@ -95,5 +95,6 @@ struct int3472_sensor_config {
 int skl_int3472_discrete_probe(struct platform_device *pdev);
 int skl_int3472_discrete_remove(struct platform_device *pdev);
 int skl_int3472_tps68470_probe(struct i2c_client *client);
-int skl_int3472_get_cldb_buffer(struct acpi_device *adev,
-				struct int3472_cldb *cldb);
+union acpi_object *skl_int3472_get_acpi_buffer(struct acpi_device *adev,
+					       char *id);
+int skl_int3472_fill_cldb(struct acpi_device *adev, struct int3472_cldb *cldb);
