@@ -86,11 +86,41 @@ static void skl_int3472_clk_unprepare(struct clk_hw *hw)
 	/* Likewise, nothing to do here... */
 }
 
+static unsigned int skl_int3472_get_clk_frequency(struct int3472_device *int3472)
+{
+	union acpi_object *obj;
+	unsigned int ret = 0;
+
+	obj = skl_int3472_get_acpi_buffer(int3472->sensor, "SSDB");
+	if (IS_ERR(obj))
+		goto out_free_buff; /* report rate as 0 on error */
+
+	if (obj->buffer.length < CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET + sizeof(u32)) {
+		dev_err(&int3472->pdev->dev, "The buffer is too small\n");
+		goto out_free_buff;
+	}
+
+	ret = *(u32*)(obj->buffer.pointer + CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET);
+
+out_free_buff:
+	kfree(obj);
+	return ret;
+}
+
+static unsigned long skl_int3472_clk_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
+{
+	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
+	struct int3472_device *int3472 = to_int3472_device(clk);
+
+	return skl_int3472_get_clk_frequency(int3472);
+}
+
 static const struct clk_ops skl_int3472_clock_ops = {
 	.prepare = skl_int3472_clk_prepare,
 	.unprepare = skl_int3472_clk_unprepare,
 	.enable = skl_int3472_clk_enable,
 	.disable = skl_int3472_clk_disable,
+	.recalc_rate = skl_int3472_clk_recalc_rate,
 };
 
 static struct int3472_sensor_config *
@@ -196,6 +226,7 @@ static int skl_int3472_register_clock(struct int3472_device *int3472,
 	init.name = kasprintf(GFP_KERNEL, "%s-clk",
 			      acpi_dev_name(int3472->adev));
 	init.ops = &skl_int3472_clock_ops;
+	init.flags |= CLK_GET_RATE_NOCACHE;
 
 	int3472->clock.gpio = acpi_get_gpiod(path,
 					     ares->data.gpio.pin_table[0]);
@@ -212,8 +243,9 @@ static int skl_int3472_register_clock(struct int3472_device *int3472,
 		goto err_put_gpio;
 	}
 
-	ret = clk_register_clkdev(int3472->clock.clk, "xvclk", int3472->sensor_name);
-	if (ret)
+	int3472->clock.cl = clkdev_create(int3472->clock.clk, "xvclk",
+					  int3472->sensor_name);
+	if (IS_ERR_OR_NULL(int3472->clock.cl))
 		goto err_unregister_clk;
 
 	goto out_free_init_name;
@@ -483,6 +515,7 @@ int skl_int3472_discrete_remove(struct platform_device *pdev)
 	if (!IS_ERR_OR_NULL(int3472->clock.clk)) {
 		gpiod_put(int3472->clock.gpio);
 		clk_unregister(int3472->clock.clk);
+		clkdev_drop(int3472->clock.cl);
 	}
 
 	acpi_dev_put(int3472->sensor);
