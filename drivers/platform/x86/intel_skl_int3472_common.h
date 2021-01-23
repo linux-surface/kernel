@@ -17,6 +17,8 @@
 #define GPIO_REGULATOR_NAME_LENGTH				27
 #define GPIO_REGULATOR_SUPPLY_NAME_LENGTH			9
 
+#define CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET			86
+
 #define INT3472_REGULATOR(_NAME, _SUPPLY, _OPS)			\
 	(const struct regulator_desc) {				\
 		.name = _NAME,					\
@@ -35,6 +37,9 @@
 
 #define to_int3472_clk(hw)					\
 	container_of(hw, struct int3472_gpio_clock, clk_hw)
+
+#define to_int3472_device(clk)					\
+	container_of(clk, struct int3472_device, clock)
 
 struct int3472_cldb {
 	u8 version;
@@ -62,6 +67,7 @@ struct int3472_gpio_regulator {
 struct int3472_gpio_clock {
 	struct clk *clk;
 	struct clk_hw clk_hw;
+	struct clk_lookup *cl;
 	struct gpio_desc *gpio;
 };
 
