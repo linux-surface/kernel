@@ -73,21 +73,36 @@ out_free_buff:
 	return ret;
 }
 
-static u32 cio2_bridge_parse_rotation(u8 rotation)
+static u32 cio2_bridge_parse_rotation(struct cio2_sensor *sensor)
 {
-	if (rotation == 1)
+	switch (sensor->ssdb.degree) {
+	case CIO2_SENSOR_ROTATION_NORMAL:
+		return 0;
+	case CIO2_SENSOR_ROTATION_INVERTED:
 		return 180;
-	return 0;
+	default:
+		dev_warn(&sensor->adev->dev,
+			 "Unknown rotation %d. Assume 0 degree rotation\n",
+			 sensor->ssdb.degree);
+		return 0;
+	}
 }
 
-static enum v4l2_fwnode_orientation cio2_bridge_parse_orientation(u8 panel)
+static enum v4l2_fwnode_orientation cio2_bridge_parse_orientation(struct cio2_sensor *sensor)
 {
-	switch (panel) {
-	case 4:
+	switch (sensor->pld->panel) {
+	case CIO2_PLD_PANEL_FRONT:
 		return V4L2_FWNODE_ORIENTATION_FRONT;
-	case 5:
+	case CIO2_PLD_PANEL_BACK:
 		return V4L2_FWNODE_ORIENTATION_BACK;
+	case CIO2_PLD_PANEL_TOP:
+	case CIO2_PLD_PANEL_LEFT:
+	case CIO2_PLD_PANEL_RIGHT:
+	case CIO2_PLD_PANEL_UNKNOWN:
+		return V4L2_FWNODE_ORIENTATION_EXTERNAL;
 	default:
+		dev_warn(&sensor->adev->dev, "Unknown _PLD panel value %d\n",
+			 sensor->pld->panel);
 		return V4L2_FWNODE_ORIENTATION_EXTERNAL;
 	}
 }
@@ -100,8 +115,8 @@ static void cio2_bridge_create_fwnode_properties(
 	u32 rotation;
 	enum v4l2_fwnode_orientation orientation;
 
-	rotation = cio2_bridge_parse_rotation(sensor->ssdb.degree);
-	orientation = cio2_bridge_parse_orientation(sensor->pld->panel);
+	rotation = cio2_bridge_parse_rotation(sensor);
+	orientation = cio2_bridge_parse_orientation(sensor);
 
 	sensor->prop_names = prop_names;
 
