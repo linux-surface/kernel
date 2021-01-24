@@ -12,6 +12,19 @@
 #define CIO2_MAX_LANES				4
 #define MAX_NUM_LINK_FREQS			3
 
+/* Values are estimated guesses as we don't have a spec */
+#define CIO2_SENSOR_ROTATION_NORMAL		0
+#define CIO2_SENSOR_ROTATION_INVERTED		1
+
+/* Panel position defined in _PLD section of ACPI Specification 6.3 */
+#define CIO2_PLD_PANEL_TOP			0
+#define CIO2_PLD_PANEL_BOTTOM			1
+#define CIO2_PLD_PANEL_LEFT			2
+#define CIO2_PLD_PANEL_RIGHT			3
+#define CIO2_PLD_PANEL_FRONT			4
+#define CIO2_PLD_PANEL_BACK			5
+#define CIO2_PLD_PANEL_UNKNOWN			6
+
 #define CIO2_SENSOR_CONFIG(_HID, _NR, ...)	\
 	(const struct cio2_sensor_config) {	\
 		.hid = _HID,			\
