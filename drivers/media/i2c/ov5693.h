@@ -241,14 +241,15 @@ enum vcm_type {
  * ov5693 device structure.
  */
 struct ov5693_device {
-	struct i2c_client *i2c_client;
+	struct i2c_client *client;
 	struct v4l2_subdev sd;
 	struct media_pad pad;
 	struct v4l2_mbus_framefmt format;
-	struct mutex input_lock;
+	struct mutex lock;
 	struct v4l2_ctrl_handler ctrl_handler;
 
         struct gpio_desc *reset;
+	struct gpio_desc *powerdown;
         struct gpio_desc *indicator_led;
         struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
 	struct clk *clk;
