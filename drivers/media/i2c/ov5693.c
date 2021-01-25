@@ -31,6 +31,7 @@
 #include <linux/i2c.h>
 #include <linux/moduleparam.h>
 #include <media/v4l2-device.h>
+#include <media/v4l2-fwnode.h>
 #include <linux/io.h>
 #include <linux/acpi.h>
 #include <linux/regulator/consumer.h>
@@ -1608,6 +1609,7 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&ov5693->sd);
 	const struct v4l2_ctrl_ops *ops = &ov5693_ctrl_ops;
+	struct v4l2_fwnode_device_properties props;
 	struct v4l2_ctrl *ctrl;
 	unsigned int i;
 	int ret;
@@ -1662,6 +1664,15 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 					   1, hblank);
 	if (ov5693->hblank)
 		ov5693->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	/* set properties from fwnode (e.g. rotation, orientation) */
+	ret = v4l2_fwnode_device_parse(&client->dev, &props);
+	if (ret)
+		return ret;
+
+	ret = v4l2_ctrl_new_fwnode_properties(&ov5693->ctrl_handler, ops, &props);
+	if (ret)
+		return ret;
 
 	/* Use same lock for controls as for everything else. */
 	ov5693->ctrl_handler.lock = &ov5693->input_lock;
