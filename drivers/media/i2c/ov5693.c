@@ -16,25 +16,25 @@
  *
  */
 
+#include <linux/acpi.h>
 #include <linux/clk.h>
-#include <linux/module.h>
-#include <linux/types.h>
-#include <linux/kernel.h>
-#include <linux/mm.h>
-#include <linux/string.h>
-#include <linux/errno.h>
-#include <linux/init.h>
-#include <linux/kmod.h>
-#include <linux/device.h>
 #include <linux/delay.h>
-#include <linux/slab.h>
+#include <linux/device.h>
+#include <linux/errno.h>
 #include <linux/i2c.h>
+#include <linux/init.h>
+#include <linux/io.h>
+#include <linux/kernel.h>
+#include <linux/kmod.h>
+#include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/mm.h>
+#include <linux/regulator/consumer.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/types.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-fwnode.h>
-#include <linux/io.h>
-#include <linux/acpi.h>
-#include <linux/regulator/consumer.h>
 
 #include "ov5693.h"
 #include "ad5823.h"
@@ -485,12 +485,12 @@ static int ov5693_read_otp_reg_array(struct i2c_client *client, u16 size,
 static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	int ret;
 	int i;
 	u8 *b = buf;
 
-	dev->otp_size = 0;
+	ov5693->otp_size = 0;
 	for (i = 1; i < OV5693_OTP_BANK_MAX; i++) {
 		/*set bank NO and OTP read mode. */
 		ret = ov5693_write_reg(client, OV5693_8BIT, OV5693_OTP_BANK_REG,
@@ -529,7 +529,7 @@ static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 		//Intel OTP map, try to read 320byts first.
 		if (i == 21) {
 			if ((*b) == 0) {
-				dev->otp_size = 320;
+				ov5693->otp_size = 320;
 				break;
 			}
 			/* (*b) != 0 */
@@ -538,7 +538,7 @@ static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 		} else if (i ==
 			   24) {		//if the first 320bytes data doesn't not exist, try to read the next 32bytes data.
 			if ((*b) == 0) {
-				dev->otp_size = 32;
+				ov5693->otp_size = 32;
 				break;
 			}
 			/* (*b) != 0 */
@@ -547,11 +547,11 @@ static int __ov5693_otp_read(struct v4l2_subdev *sd, u8 *buf)
 		} else if (i ==
 			   27) {		//if the prvious 32bytes data doesn't exist, try to read the next 32bytes data again.
 			if ((*b) == 0) {
-				dev->otp_size = 32;
+				ov5693->otp_size = 32;
 				break;
 			}
 			/* (*b) != 0 */
-			dev->otp_size = 0;	// no OTP data.
+			ov5693->otp_size = 0;	// no OTP data.
 			break;
 		}
 
@@ -598,20 +598,20 @@ static void *ov5693_otp_read(struct v4l2_subdev *sd)
 	return buf;
 }
 
-static int ov5693_update_bits(struct ov5693_device *sensor, u16 address,
+static int ov5693_update_bits(struct ov5693_device *ov5693, u16 address,
 			      u16 mask, u16 bits)
 {
 	u16 value = 0;
 	int ret;
 
-	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT, address, &value);
+	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT, address, &value);
 	if (ret)
 		return ret;
 
 	value &= ~mask;
 	value |= bits;
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT, address, value);
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT, address, value);
 	if (ret)
 		return ret;
 
@@ -620,13 +620,13 @@ static int ov5693_update_bits(struct ov5693_device *sensor, u16 address,
 
 /* Flip */
 
-static int ov5693_flip_vert_configure(struct ov5693_device *sensor, bool enable)
+static int ov5693_flip_vert_configure(struct ov5693_device *ov5693, bool enable)
 {
 	u8 bits = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
 	int ret;
 
-	ret = ov5693_update_bits(sensor, OV5693_FORMAT1_REG, bits,
+	ret = ov5693_update_bits(ov5693, OV5693_FORMAT1_REG, bits,
 				 enable ? bits : 0);
 	if (ret)
 		return ret;
@@ -634,13 +634,13 @@ static int ov5693_flip_vert_configure(struct ov5693_device *sensor, bool enable)
 	return 0;
 }
 
-static int ov5693_flip_horz_configure(struct ov5693_device *sensor, bool enable)
+static int ov5693_flip_horz_configure(struct ov5693_device *ov5693, bool enable)
 {
 	u8 bits = OV5693_FORMAT2_FLIP_HORZ_ISP_EN |
 		  OV5693_FORMAT2_FLIP_HORZ_SENSOR_EN;
 	int ret;
 
-	ret = ov5693_update_bits(sensor, OV5693_FORMAT2_REG, bits,
+	ret = ov5693_update_bits(ov5693, OV5693_FORMAT2_REG, bits,
 				 enable ? bits : 0);
 	if (ret)
 		return ret;
@@ -721,14 +721,14 @@ static int ad5823_t_focus_abs(struct v4l2_subdev *sd, s32 value)
 
 static int ov5693_t_focus_abs(struct v4l2_subdev *sd, s32 value)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
 	dev_dbg(&client->dev, "%s: FOCUS_POS: 0x%x\n", __func__, value);
 	value = clamp(value, 0, OV5693_VCM_MAX_FOCUS_POS);
-	if (dev->vcm == VCM_DW9714) {
-		if (dev->vcm_update) {
+	if (ov5693->vcm == VCM_DW9714) {
+		if (ov5693->vcm_update) {
 			ret = vcm_dw_i2c_write(client, VCM_PROTECTION_OFF);
 			if (ret)
 				return ret;
@@ -738,17 +738,17 @@ static int ov5693_t_focus_abs(struct v4l2_subdev *sd, s32 value)
 			ret = vcm_dw_i2c_write(client, VCM_PROTECTION_ON);
 			if (ret)
 				return ret;
-			dev->vcm_update = false;
+			ov5693->vcm_update = false;
 		}
 		ret = vcm_dw_i2c_write(client,
 				       vcm_val(value, VCM_DEFAULT_S));
-	} else if (dev->vcm == VCM_AD5823) {
+	} else if (ov5693->vcm == VCM_AD5823) {
 		ad5823_t_focus_abs(sd, value);
 	}
 	if (ret == 0) {
-		dev->number_of_steps = value - dev->focus;
-		dev->focus = value;
-		dev->timestamp_t_focus_abs = ktime_get();
+		ov5693->number_of_steps = value - ov5693->focus;
+		ov5693->focus = value;
+		ov5693->timestamp_t_focus_abs = ktime_get();
 	} else
 		dev_err(&client->dev,
 			"%s: i2c failed. ret %d\n", __func__, ret);
@@ -758,9 +758,9 @@ static int ov5693_t_focus_abs(struct v4l2_subdev *sd, s32 value)
 
 static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 
-	return ov5693_t_focus_abs(sd, dev->focus + value);
+	return ov5693_t_focus_abs(sd, ov5693->focus + value);
 }
 
 #define DELAY_PER_STEP_NS	1000000
@@ -768,14 +768,14 @@ static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
 
 /* Exposure */
 
-static int ov5693_get_exposure(struct ov5693_device *sensor)
+static int ov5693_get_exposure(struct ov5693_device *ov5693)
 {
 	u32 exposure = 0;
 	u16 tmp;
 	int ret = 0;
 
 	/* get exposure */
-	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
 			      OV5693_EXPOSURE_L,
 			      &tmp);
 	if (ret)
@@ -783,14 +783,14 @@ static int ov5693_get_exposure(struct ov5693_device *sensor)
 
 	exposure |= ((tmp >> 4) & 0b1111);
 
-	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
 			      OV5693_EXPOSURE_M,
 			      &tmp);
 	if (ret)
 		return ret;
 
 	exposure |= (tmp << 4);
-	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
 			      OV5693_EXPOSURE_H,
 			      &tmp);
 	if (ret)
@@ -802,7 +802,7 @@ static int ov5693_get_exposure(struct ov5693_device *sensor)
 	return ret;
 }
 
-static int ov5693_exposure_configure(struct ov5693_device *sensor, u32 exposure)
+static int ov5693_exposure_configure(struct ov5693_device *ov5693, u32 exposure)
 {
 	int ret;
 
@@ -812,40 +812,40 @@ static int ov5693_exposure_configure(struct ov5693_device *sensor, u32 exposure)
 	 */
 	exposure = exposure * 16;
 
-	ov5693_get_exposure(sensor);
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
+	ov5693_get_exposure(ov5693);
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 			OV5693_EXPOSURE_CTRL_HH_REG, OV5693_EXPOSURE_CTRL_HH(exposure));
 	if (ret)
 		return ret;
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 			OV5693_EXPOSURE_CTRL_H_REG, OV5693_EXPOSURE_CTRL_H(exposure));
 	if (ret)
 		return ret;
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 			OV5693_EXPOSURE_CTRL_L_REG, OV5693_EXPOSURE_CTRL_L(exposure));
 	if (ret)
 		return ret;
-	ov5693_get_exposure(sensor);
+	ov5693_get_exposure(ov5693);
 
 	return 0;
 }
 
 /* Gain */
 
-static int ov5693_get_gain(struct ov5693_device *sensor, u32 *gain)
+static int ov5693_get_gain(struct ov5693_device *ov5693, u32 *gain)
 {
 	u16 gain_l, gain_h;
 	int ret = 0;
 
-	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
 			      OV5693_GAIN_CTRL_L_REG,
 			      &gain_l);
 	if (ret)
 		return ret;
 
-	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
 			      OV5693_GAIN_CTRL_H_REG,
 			      &gain_h);
 	if (ret)
@@ -856,33 +856,33 @@ static int ov5693_get_gain(struct ov5693_device *sensor, u32 *gain)
 
 	return ret;
 }
-static int ov5693_gain_configure(struct ov5693_device *sensor, u32 gain)
+static int ov5693_gain_configure(struct ov5693_device *ov5693, u32 gain)
 {
 	int ret;
 
 	/* A 1.0 gain is 0x400 */
 	gain = (gain * 1024)/1000;
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_16BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_16BIT,
 			OV5693_MWB_RED_GAIN_H, gain);
 	if (ret) {
-		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
+		dev_err(&ov5693->client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_MWB_RED_GAIN_H);
 		return ret;
 	}
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_16BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_16BIT,
 			OV5693_MWB_GREEN_GAIN_H, gain);
 	if (ret) {
-		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
+		dev_err(&ov5693->client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_MWB_RED_GAIN_H);
 		return ret;
 	}
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_16BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_16BIT,
 			OV5693_MWB_BLUE_GAIN_H, gain);
 	if (ret) {
-		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
+		dev_err(&ov5693->client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_MWB_RED_GAIN_H);
 		return ret;
 	}
@@ -890,7 +890,7 @@ static int ov5693_gain_configure(struct ov5693_device *sensor, u32 gain)
 	return 0;
 }
 
-static int ov5693_analog_gain_configure(struct ov5693_device *sensor, u32 gain)
+static int ov5693_analog_gain_configure(struct ov5693_device *ov5693, u32 gain)
 {
 	int ret;
 
@@ -899,18 +899,18 @@ static int ov5693_analog_gain_configure(struct ov5693_device *sensor, u32 gain)
 	 * those is not supported, so we have a tiny bit of bit shifting to
 	 * do.
 	 */
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 				OV5693_AGC_L, OV5693_GAIN_CTRL_L(gain));
 	if (ret) {
-		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
+		dev_err(&ov5693->client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_AGC_L);
 		return ret;
 	}
 
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 				OV5693_AGC_H, OV5693_GAIN_CTRL_H(gain));
 	if (ret) {
-		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
+		dev_err(&ov5693->client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_AGC_H);
 		return ret;
 	}
@@ -920,60 +920,60 @@ static int ov5693_analog_gain_configure(struct ov5693_device *sensor, u32 gain)
 
 static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 {
-	struct ov5693_device *dev =
+	struct ov5693_device *ov5693 =
 	    container_of(ctrl->handler, struct ov5693_device, ctrl_handler);
-	struct i2c_client *client = v4l2_get_subdevdata(&dev->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&ov5693->sd);
 	int ret = 0;
 
 	/* If VBLANK is altered we need to update exposure to compensate */
 	if (ctrl->id == V4L2_CID_VBLANK) {
 		int exposure_max;
-		exposure_max = dev->mode->lines_per_frame - 8;
-		__v4l2_ctrl_modify_range(dev->ctrls.exposure, dev->ctrls.exposure->minimum,
-					 exposure_max, dev->ctrls.exposure->step,
-					 dev->ctrls.exposure->val < exposure_max ?
-					 dev->ctrls.exposure->val : exposure_max);
+		exposure_max = ov5693->mode->lines_per_frame - 8;
+		__v4l2_ctrl_modify_range(ov5693->ctrls.exposure, ov5693->ctrls.exposure->minimum,
+					 exposure_max, ov5693->ctrls.exposure->step,
+					 ov5693->ctrls.exposure->val < exposure_max ?
+					 ov5693->ctrls.exposure->val : exposure_max);
 	}
 
 	switch (ctrl->id) {
 	case V4L2_CID_FOCUS_ABSOLUTE:
 		dev_dbg(&client->dev, "%s: CID_FOCUS_ABSOLUTE:%d.\n",
 			__func__, ctrl->val);
-		ret = ov5693_t_focus_abs(&dev->sd, ctrl->val);
+		ret = ov5693_t_focus_abs(&ov5693->sd, ctrl->val);
 		break;
 	case V4L2_CID_FOCUS_RELATIVE:
 		dev_dbg(&client->dev, "%s: CID_FOCUS_RELATIVE:%d.\n",
 			__func__, ctrl->val);
-		ret = ov5693_t_focus_rel(&dev->sd, ctrl->val);
+		ret = ov5693_t_focus_rel(&ov5693->sd, ctrl->val);
 		break;
 	case V4L2_CID_EXPOSURE:
 		dev_dbg(&client->dev, "%s: CID_EXPOSURE:%d.\n",
 			__func__, ctrl->val);
-		ret = ov5693_exposure_configure(dev, ctrl->val);
+		ret = ov5693_exposure_configure(ov5693, ctrl->val);
 		if (ret)
 			return ret;
 		break;
 	case V4L2_CID_ANALOGUE_GAIN:
 		dev_dbg(&client->dev, "%s: CID_ANALOGUE_GAIN:%d.\n",
 			__func__, ctrl->val);
-		ret = ov5693_analog_gain_configure(dev, ctrl->val);
+		ret = ov5693_analog_gain_configure(ov5693, ctrl->val);
 		if (ret)
 			return ret;
 		break;
 	case V4L2_CID_DIGITAL_GAIN:
 		dev_dbg(&client->dev, "%s: CID_DIGITAL_GAIN:%d.\n",
 			__func__, ctrl->val);
-		ret = ov5693_gain_configure(dev, ctrl->val);
+		ret = ov5693_gain_configure(ov5693, ctrl->val);
 		if (ret)
 			return ret;
 		break;
 	case V4L2_CID_HFLIP:
-		return ov5693_flip_horz_configure(dev, !!ctrl->val);
+		return ov5693_flip_horz_configure(ov5693, !!ctrl->val);
 	case V4L2_CID_VFLIP:
-		return ov5693_flip_vert_configure(dev, !!ctrl->val);
+		return ov5693_flip_vert_configure(ov5693, !!ctrl->val);
 	case V4L2_CID_VBLANK:
 		ret = ov5693_write_reg(client, OV5693_16BIT, OV5693_TIMING_VTS_H,
-				       dev->mode->height + ctrl->val);
+				       ov5693->mode->height + ctrl->val);
 		break;
 	default:
 		ret = -EINVAL;
@@ -983,16 +983,16 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 
 static int ov5693_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 {
-	struct ov5693_device *dev =
+	struct ov5693_device *ov5693 =
 	    container_of(ctrl->handler, struct ov5693_device, ctrl_handler);
 	int ret = 0;
 
 	switch (ctrl->id) {
 	case V4L2_CID_EXPOSURE_ABSOLUTE:
-		ret = ov5693_q_exposure(&dev->sd, &ctrl->val);
+		ret = ov5693_q_exposure(&ov5693->sd, &ctrl->val);
 		break;
 	case V4L2_CID_AUTOGAIN:
-		ret = ov5693_get_gain(dev, &ctrl->val);
+		ret = ov5693_get_gain(ov5693, &ctrl->val);
 		break;
 	case V4L2_CID_FOCUS_ABSOLUTE:
 		/* NOTE: there was atomisp-specific function ov5693_q_focus_abs() */
@@ -1034,12 +1034,12 @@ static const struct v4l2_ctrl_config ov5693_controls[] = {
 	},
 };
 
-static int ov5693_isp_configure(struct ov5693_device *sensor)
+static int ov5693_isp_configure(struct ov5693_device *ov5693)
 {
 	int ret;
 
 	/* Enable lens correction. */
-	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
+	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 			   OV5693_ISP_CTRL0_REG, 0x86);
 	if (ret)
 		return ret;
@@ -1049,18 +1049,18 @@ static int ov5693_isp_configure(struct ov5693_device *sensor)
 
 static int ov5693_init(struct v4l2_subdev *sd)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret;
 
-	if (!dev->has_vcm)
+	if (!ov5693->has_vcm)
 		return 0;
 
 	dev_info(&client->dev, "%s\n", __func__);
-	mutex_lock(&dev->input_lock);
-	dev->vcm_update = false;
+	mutex_lock(&ov5693->lock);
+	ov5693->vcm_update = false;
 
-	if (dev->vcm == VCM_AD5823) {
+	if (ov5693->vcm == VCM_AD5823) {
 		ret = vcm_ad_i2c_wr8(client, 0x01, 0x01); /* vcm init test */
 		if (ret)
 			dev_err(&client->dev,
@@ -1079,16 +1079,16 @@ static int ov5693_init(struct v4l2_subdev *sd)
 	}
 
 	/*change initial focus value for ad5823*/
-	if (dev->vcm == VCM_AD5823) {
-		dev->focus = AD5823_INIT_FOCUS_POS;
+	if (ov5693->vcm == VCM_AD5823) {
+		ov5693->focus = AD5823_INIT_FOCUS_POS;
 		ov5693_t_focus_abs(sd, AD5823_INIT_FOCUS_POS);
 	} else {
-		dev->focus = 0;
+		ov5693->focus = 0;
 		ov5693_t_focus_abs(sd, 0);
 	}
 
-	ov5693_isp_configure(dev);
-	mutex_unlock(&dev->input_lock);
+	ov5693_isp_configure(ov5693);
+	mutex_unlock(&ov5693->lock);
 
 	return 0;
 }
@@ -1096,32 +1096,32 @@ static int ov5693_init(struct v4l2_subdev *sd)
 static int __power_up(struct v4l2_subdev *sd)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	struct ov5693_device *sensor = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	int ret;
 
-	ret = clk_prepare_enable(sensor->clk);
+	ret = clk_prepare_enable(ov5693->clk);
 	if (ret) {
 		dev_err(&client->dev, "Error enabling clock\n");
 		return -EINVAL;
 	}
 
-	if (sensor->indicator_led)
-		gpiod_set_value_cansleep(sensor->indicator_led, 1);
+	if (ov5693->indicator_led)
+		gpiod_set_value_cansleep(ov5693->indicator_led, 1);
 
 	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES,
-			sensor->supplies);
+			ov5693->supplies);
 	if (ret)
 		goto fail_power;
 
-	gpiod_set_value_cansleep(sensor->reset, 0);
+	gpiod_set_value_cansleep(ov5693->reset, 0);
 
 	__cci_delay(up_delay);
 
 	return 0;
 
 fail_power:
-	if (sensor->indicator_led)
-		gpiod_set_value_cansleep(sensor->indicator_led, 0);
+	if (ov5693->indicator_led)
+		gpiod_set_value_cansleep(ov5693->indicator_led, 0);
 	dev_err(&client->dev, "sensor power-up failed\n");
 
 	return ret;
@@ -1129,17 +1129,17 @@ fail_power:
 
 static int power_down(struct v4l2_subdev *sd)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 
-	dev->focus = OV5693_INVALID_CONFIG;
+	ov5693->focus = OV5693_INVALID_CONFIG;
 
-	gpiod_set_value_cansleep(dev->reset, 1);
+	gpiod_set_value_cansleep(ov5693->reset, 1);
 
-	clk_disable_unprepare(dev->clk);
+	clk_disable_unprepare(ov5693->clk);
 
-	if (dev->indicator_led)
-		gpiod_set_value_cansleep(dev->indicator_led, 0);
-	return regulator_bulk_disable(OV5693_NUM_SUPPLIES, dev->supplies);
+	if (ov5693->indicator_led)
+		gpiod_set_value_cansleep(ov5693->indicator_led, 0);
+	return regulator_bulk_disable(OV5693_NUM_SUPPLIES, ov5693->supplies);
 }
 
 static int power_up(struct v4l2_subdev *sd)
@@ -1265,7 +1265,7 @@ static int get_resolution_index(int w, int h)
 /* TODO: remove it. */
 static int startup(struct v4l2_subdev *sd)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
@@ -1282,7 +1282,7 @@ static int startup(struct v4l2_subdev *sd)
 		return ret;
 	}
 
-	ret = ov5693_write_reg_array(client, ov5693_res[dev->fmt_idx].regs);
+	ret = ov5693_write_reg_array(client, ov5693_res[ov5693->fmt_idx].regs);
 	if (ret) {
 		dev_err(&client->dev, "ov5693 write register err.\n");
 		return ret;
@@ -1296,7 +1296,7 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *fmt = &format->format;
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 	int idx;
@@ -1307,7 +1307,7 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 	if (!fmt)
 		return -EINVAL;
 
-	mutex_lock(&dev->input_lock);
+	mutex_lock(&ov5693->lock);
 	idx = nearest_resolution_index(fmt->width, fmt->height);
 	if (idx == -1) {
 		/* return the largest resolution */
@@ -1325,8 +1325,8 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 		goto mutex_unlock;
 	}
 
-	dev->fmt_idx = get_resolution_index(fmt->width, fmt->height);
-	if (dev->fmt_idx == -1) {
+	ov5693->fmt_idx = get_resolution_index(fmt->width, fmt->height);
+	if (ov5693->fmt_idx == -1) {
 		dev_err(&client->dev, "get resolution fail\n");
 		ret = -EINVAL;
 		goto mutex_unlock;
@@ -1339,9 +1339,9 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 			continue;
 		}
 
-		mutex_unlock(&dev->input_lock);
+		mutex_unlock(&ov5693->lock);
 		ov5693_init(sd);
-		mutex_lock(&dev->input_lock);
+		mutex_lock(&ov5693->lock);
 		ret = startup(sd);
 		if (ret)
 			dev_err(&client->dev, " startup() FAILED!\n");
@@ -1352,8 +1352,6 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 		dev_err(&client->dev, "power up failed, gave up\n");
 		goto mutex_unlock;
 	}
-
-
 
 	/*
 	 * After sensor settings are set to HW, sometimes stream is started.
@@ -1366,19 +1364,19 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 		dev_warn(&client->dev, "ov5693 stream off err\n");
 
 mutex_unlock:
-	mutex_unlock(&dev->input_lock);
+	mutex_unlock(&ov5693->lock);
 	return ret;
 }
 
 static const struct v4l2_rect *
-__ov5693_get_pad_crop(struct ov5693_device *dev, struct v4l2_subdev_pad_config *cfg,
+__ov5693_get_pad_crop(struct ov5693_device *ov5693, struct v4l2_subdev_pad_config *cfg,
 		      unsigned int pad, enum v4l2_subdev_format_whence which)
 {
 	switch (which) {
 	case V4L2_SUBDEV_FORMAT_TRY:
-		return v4l2_subdev_get_try_crop(&dev->sd, cfg, pad);
+		return v4l2_subdev_get_try_crop(&ov5693->sd, cfg, pad);
 	case V4L2_SUBDEV_FORMAT_ACTIVE:
-		return &dev->mode->crop;
+		return &ov5693->mode->crop;
 	}
 
 	return NULL;
@@ -1389,12 +1387,12 @@ static int ov5693_get_selection(struct v4l2_subdev *sd,
 {
 	switch (sel->target) {
 	case V4L2_SEL_TGT_CROP: {
-		struct ov5693_device *dev = to_ov5693_sensor(sd);
+		struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 
-		mutex_lock(&dev->input_lock);
-		sel->r = *__ov5693_get_pad_crop(dev, cfg, sel->pad,
+		mutex_lock(&ov5693->lock);
+		sel->r = *__ov5693_get_pad_crop(ov5693, cfg, sel->pad,
 						sel->which);
-		mutex_unlock(&dev->input_lock);
+		mutex_unlock(&ov5693->lock);
 
 		return 0;
 	}
@@ -1424,7 +1422,7 @@ static int ov5693_get_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *fmt = &format->format;
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 
 	if (format->pad)
 		return -EINVAL;
@@ -1432,8 +1430,8 @@ static int ov5693_get_fmt(struct v4l2_subdev *sd,
 	if (!fmt)
 		return -EINVAL;
 
-	fmt->width = ov5693_res[dev->fmt_idx].width;
-	fmt->height = ov5693_res[dev->fmt_idx].height;
+	fmt->width = ov5693_res[ov5693->fmt_idx].width;
+	fmt->height = ov5693_res[ov5693->fmt_idx].height;
 	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
 
 	return 0;
@@ -1481,7 +1479,7 @@ static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret;
 
-	mutex_lock(&dev->input_lock);
+	mutex_lock(&dev->lock);
 
 	/* power_on() here before streaming for regular PCs. */
 	if (enable) {
@@ -1507,26 +1505,26 @@ static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
 		power_down(sd);
 
 out:
-	mutex_unlock(&dev->input_lock);
+	mutex_unlock(&dev->lock);
 
 	return ret;
 }
 
 static int ov5693_s_config(struct v4l2_subdev *sd, int irq)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
-	mutex_lock(&dev->input_lock);
+	mutex_lock(&ov5693->lock);
 	ret = power_up(sd);
 	if (ret) {
 		dev_err(&client->dev, "ov5693 power-up err.\n");
 		goto fail_power_on;
 	}
 
-	if (!dev->vcm)
-		dev->vcm = vcm_detect(client);
+	if (!ov5693->vcm)
+		ov5693->vcm = vcm_detect(client);
 
 	/* config & detect sensor */
 	ret = ov5693_detect(client);
@@ -1535,7 +1533,7 @@ static int ov5693_s_config(struct v4l2_subdev *sd, int irq)
 		goto fail_power_on;
 	}
 
-	dev->otp_data = ov5693_otp_read(sd);
+	ov5693->otp_data = ov5693_otp_read(sd);
 
 	/* turn off sensor, after probed */
 	ret = power_down(sd);
@@ -1543,24 +1541,24 @@ static int ov5693_s_config(struct v4l2_subdev *sd, int irq)
 		dev_err(&client->dev, "ov5693 power-off err.\n");
 		goto fail_power_on;
 	}
-	mutex_unlock(&dev->input_lock);
+	mutex_unlock(&ov5693->lock);
 
 	return ret;
 
 fail_power_on:
 	power_down(sd);
 	dev_err(&client->dev, "sensor power-gating failed\n");
-	mutex_unlock(&dev->input_lock);
+	mutex_unlock(&ov5693->lock);
 	return ret;
 }
 
 static int ov5693_g_frame_interval(struct v4l2_subdev *sd,
 				   struct v4l2_subdev_frame_interval *interval)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 
 	interval->interval.numerator = 1;
-	interval->interval.denominator = ov5693_res[dev->fmt_idx].fps;
+	interval->interval.denominator = ov5693_res[ov5693->fmt_idx].fps;
 
 	return 0;
 }
@@ -1725,7 +1723,7 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 		return ret;
 
 	/* Use same lock for controls as for everything else. */
-	ov5693->ctrl_handler.lock = &ov5693->input_lock;
+	ov5693->ctrl_handler.lock = &ov5693->lock;
 	ov5693->sd.ctrl_handler = &ov5693->ctrl_handler;
 
 	return 0;
@@ -1733,21 +1731,38 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 
 static int ov5693_configure_gpios(struct ov5693_device *ov5693)
 {
-	ov5693->reset = gpiod_get_index(&ov5693->i2c_client->dev, "reset", 0,
+	int ret;
+
+	ov5693->reset = gpiod_get_optional(&ov5693->client->dev, "reset",
                                         GPIOD_OUT_HIGH);
         if (IS_ERR(ov5693->reset)) {
-                dev_err(&ov5693->i2c_client->dev, "Couldn't find reset GPIO\n");
-                return -EINVAL;
+                dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
+                return PTR_ERR(ov5693->reset);
         }
 
-        ov5693->indicator_led = gpiod_get_index_optional(&ov5693->i2c_client->dev, "indicator-led", 0,
+	ov5693->powerdown = gpiod_get_optional(&ov5693->client->dev, "powerdown",
+                                        GPIOD_OUT_HIGH);
+        if (IS_ERR(ov5693->powerdown)) {
+                dev_err(&ov5693->client->dev, "Couldn't find powerdown GPIO\n");
+                ret = PTR_ERR(ov5693->powerdown);
+		goto err_put_reset;
+        }
+
+        ov5693->indicator_led = gpiod_get_optional(&ov5693->client->dev, "indicator-led",
                                         GPIOD_OUT_HIGH);
         if (IS_ERR(ov5693->indicator_led)) {
-                dev_err(&ov5693->i2c_client->dev, "Couldn't find indicator-led GPIO\n");
-                return -EINVAL;
+                dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
+                ret = PTR_ERR(ov5693->indicator_led);
+		goto err_put_powerdown;
         }
 
         return 0;
+err_put_reset:
+	gpiod_put(ov5693->reset);
+err_put_powerdown:
+	gpiod_put(ov5693->powerdown);
+
+	return ret;
 }
 
 static int ov5693_get_regulators(struct ov5693_device *ov5693)
@@ -1757,7 +1772,7 @@ static int ov5693_get_regulators(struct ov5693_device *ov5693)
 	for (i = 0; i < OV5693_NUM_SUPPLIES; i++)
 		ov5693->supplies[i].supply = ov5693_supply_names[i];
 
-	return regulator_bulk_get(&ov5693->i2c_client->dev,
+	return regulator_bulk_get(&ov5693->client->dev,
 				       OV5693_NUM_SUPPLIES,
 				       ov5693->supplies);
 }
@@ -1773,13 +1788,13 @@ static int ov5693_probe(struct i2c_client *client)
 	if (!ov5693)
 		return -ENOMEM;
 
-	ov5693->i2c_client = client;
+	ov5693->client = client;
 
 	/* check if VCM device exists */
 	/* TODO: read from SSDB */
 	ov5693->has_vcm = false;
 
-	mutex_init(&ov5693->input_lock);
+	mutex_init(&ov5693->lock);
 
 	v4l2_i2c_subdev_init(&ov5693->sd, client, &ov5693_ops);
 
