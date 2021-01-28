@@ -27,7 +27,6 @@
 #include <linux/kernel.h>
 #include <linux/kmod.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/mm.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
@@ -39,27 +38,6 @@
 
 #include "ov5693.h"
 #include "ad5823.h"
-
-#define __cci_delay(t) \
-	do { \
-		if ((t) < 10) { \
-			usleep_range((t) * 1000, ((t) + 1) * 1000); \
-		} else { \
-			msleep((t)); \
-		} \
-	} while (0)
-
-/* Value 30ms reached through experimentation on byt ecs.
- * The DS specifies a much lower value but when using a smaller value
- * the I2C bus sometimes locks up permanently when starting the camera.
- * This issue could not be reproduced on cht, so we can reduce the
- * delay value to a lower value when insmod.
- */
-static uint up_delay = 30;
-module_param(up_delay, uint, 0644);
-MODULE_PARM_DESC(up_delay,
-		 "Delay prior to the first CCI transaction for ov5693");
-
 
 /* Exposure/gain */
 
@@ -1197,93 +1175,6 @@ out_unlock:
 	return ret;
 }
 
-static int __power_up(struct v4l2_subdev *sd)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-	int ret;
-
-	ret = clk_prepare_enable(ov5693->clk);
-	if (ret) {
-		dev_err(&client->dev, "Error enabling clock\n");
-		return -EINVAL;
-	}
-
-	if (ov5693->indicator_led)
-		gpiod_set_value_cansleep(ov5693->indicator_led, 1);
-
-	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES,
-			ov5693->supplies);
-	if (ret)
-		goto fail_power;
-
-	gpiod_set_value_cansleep(ov5693->reset, 0);
-
-	__cci_delay(up_delay);
-
-	return 0;
-
-fail_power:
-	if (ov5693->indicator_led)
-		gpiod_set_value_cansleep(ov5693->indicator_led, 0);
-	dev_err(&client->dev, "sensor power-up failed\n");
-
-	return ret;
-}
-
-static int power_down(struct v4l2_subdev *sd)
-{
-	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-
-	ov5693->focus = OV5693_INVALID_CONFIG;
-
-	gpiod_set_value_cansleep(ov5693->reset, 1);
-	gpiod_set_value_cansleep(ov5693->powerdown, 1);
-
-	clk_disable_unprepare(ov5693->clk);
-
-	if (ov5693->indicator_led)
-		gpiod_set_value_cansleep(ov5693->indicator_led, 0);
-	return regulator_bulk_disable(OV5693_NUM_SUPPLIES, ov5693->supplies);
-}
-
-static int power_up(struct v4l2_subdev *sd)
-{
-	static const int retry_count = 4;
-	int i, ret;
-
-	for (i = 0; i < retry_count; i++) {
-		ret = __power_up(sd);
-		if (!ret)
-			return 0;
-
-		power_down(sd);
-	}
-	return ret;
-}
-
-static int ov5693_s_power(struct v4l2_subdev *sd, int on)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int ret;
-
-	dev_info(&client->dev, "%s: on %d\n", __func__, on);
-
-	if (on == 0)
-		return power_down(sd);
-
-	/* on == 1 */
-	ret = power_up(sd);
-	if (!ret) {
-		ret = ov5693_init(sd);
-		/* restore settings */
-		ov5693_res = ov5693_res_video;
-		N_RES = N_RES_VIDEO;
-	}
-
-	return ret;
-}
-
 /*
  * distance - calculate the distance
  * @res: resolution
@@ -1694,10 +1585,6 @@ static const struct v4l2_subdev_video_ops ov5693_video_ops = {
 	.g_frame_interval = ov5693_g_frame_interval,
 };
 
-static const struct v4l2_subdev_core_ops ov5693_core_ops = {
-	.s_power = ov5693_s_power,
-};
-
 static const struct v4l2_subdev_pad_ops ov5693_pad_ops = {
 	.enum_mbus_code = ov5693_enum_mbus_code,
 	.enum_frame_size = ov5693_enum_frame_size,
@@ -1707,7 +1594,6 @@ static const struct v4l2_subdev_pad_ops ov5693_pad_ops = {
 };
 
 static const struct v4l2_subdev_ops ov5693_ops = {
-	.core = &ov5693_core_ops,
 	.video = &ov5693_video_ops,
 	.pad = &ov5693_pad_ops,
 };
