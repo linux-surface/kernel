@@ -256,6 +256,7 @@ struct ov5693_device {
 
 	/* Current mode */
 	const struct ov5693_resolution *mode;
+	bool streaming;
 
 	struct camera_sensor_platform_data *platform_data;
 	ktime_t timestamp_t_focus_abs;

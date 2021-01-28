@@ -29,6 +29,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/mm.h>
+#include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -935,6 +936,10 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 					 ov5693->ctrls.exposure->val : exposure_max);
 	}
 
+	/* Only apply changes to the controls if the device is powered up */
+	if (!pm_runtime_get_if_in_use(&ov5693->client->dev))
+		return 0;
+
 	switch (ctrl->id) {
 	case V4L2_CID_FOCUS_ABSOLUTE:
 		dev_dbg(&client->dev, "%s: CID_FOCUS_ABSOLUTE:%d.\n",
@@ -950,27 +955,23 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 		dev_dbg(&client->dev, "%s: CID_EXPOSURE:%d.\n",
 			__func__, ctrl->val);
 		ret = ov5693_exposure_configure(ov5693, ctrl->val);
-		if (ret)
-			return ret;
 		break;
 	case V4L2_CID_ANALOGUE_GAIN:
 		dev_dbg(&client->dev, "%s: CID_ANALOGUE_GAIN:%d.\n",
 			__func__, ctrl->val);
 		ret = ov5693_analog_gain_configure(ov5693, ctrl->val);
-		if (ret)
-			return ret;
 		break;
 	case V4L2_CID_DIGITAL_GAIN:
 		dev_dbg(&client->dev, "%s: CID_DIGITAL_GAIN:%d.\n",
 			__func__, ctrl->val);
 		ret = ov5693_gain_configure(ov5693, ctrl->val);
-		if (ret)
-			return ret;
 		break;
 	case V4L2_CID_HFLIP:
-		return ov5693_flip_horz_configure(ov5693, !!ctrl->val);
+		ret = ov5693_flip_horz_configure(ov5693, !!ctrl->val);
+		break;
 	case V4L2_CID_VFLIP:
-		return ov5693_flip_vert_configure(ov5693, !!ctrl->val);
+		ret = ov5693_flip_vert_configure(ov5693, !!ctrl->val);
+		break;
 	case V4L2_CID_VBLANK:
 		ret = ov5693_write_reg(client, OV5693_16BIT, OV5693_TIMING_VTS_H,
 				       ov5693->mode->height + ctrl->val);
@@ -978,6 +979,9 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 	default:
 		ret = -EINVAL;
 	}
+
+	pm_runtime_put(&ov5693->client->dev);
+
 	return ret;
 }
 
@@ -1093,6 +1097,106 @@ static int ov5693_init(struct v4l2_subdev *sd)
 	return 0;
 }
 
+static int ov5693_sw_standby(struct ov5693_device *ov5693, bool standby)
+{
+	return ov5693_write_reg(ov5693->client, OV5693_8BIT, OV5693_SW_STREAM,
+			       standby ? OV5693_STOP_STREAMING : OV5693_START_STREAMING);
+}
+
+static void ov5693_sensor_powerdown(struct ov5693_device *ov5693)
+{
+	gpiod_set_value_cansleep(ov5693->reset, 1);
+	gpiod_set_value_cansleep(ov5693->powerdown, 1);
+
+	regulator_bulk_disable(OV5693_NUM_SUPPLIES, ov5693->supplies);
+
+	clk_disable_unprepare(ov5693->clk);
+	gpiod_set_value_cansleep(ov5693->indicator_led, 0);
+}
+
+
+static int ov5693_sensor_powerup(struct ov5693_device *ov5693)
+{
+	int ret = 0;
+
+	gpiod_set_value_cansleep(ov5693->reset, 1);
+	gpiod_set_value_cansleep(ov5693->powerdown, 1);
+
+	ret = clk_prepare_enable(ov5693->clk);
+	if (ret) {
+		dev_err(&ov5693->client->dev, "Failed to enable clk\n");
+		goto fail_power;
+	}
+
+	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES, ov5693->supplies);
+	if (ret) {
+		dev_err(&ov5693->client->dev, "Failed to enable regulators\n");
+		goto fail_power;
+	}
+
+	gpiod_set_value_cansleep(ov5693->reset, 0);
+	gpiod_set_value_cansleep(ov5693->powerdown, 0);
+	gpiod_set_value_cansleep(ov5693->indicator_led, 1);
+
+	usleep_range(20000, 25000);
+
+	return 0;
+
+fail_power:
+	ov5693_sensor_powerdown(ov5693);
+	return ret;
+}
+
+static int __maybe_unused ov5693_sensor_suspend(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
+	int ret;
+
+	mutex_lock(&ov5693->lock);
+
+	if (ov5693->streaming) {
+		ret = ov5693_sw_standby(ov5693, true);
+		if (ret)
+			goto out_unlock;
+	}
+
+	ov5693_sensor_powerdown(ov5693);
+
+out_unlock:
+	mutex_unlock(&ov5693->lock);
+	return ret;
+}
+
+static int __maybe_unused ov5693_sensor_resume(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
+	int ret;
+
+	mutex_lock(&ov5693->lock);
+
+	ret = ov5693_sensor_powerup(ov5693);
+	if (ret)
+		goto out_unlock;
+
+	if (ov5693->streaming) {
+		ret = ov5693_sw_standby(ov5693, false);
+		if (ret)
+			goto err_power;
+	}
+
+	goto out_unlock;
+
+err_power:
+	ov5693_sensor_powerdown(ov5693);
+out_unlock:
+	mutex_unlock(&ov5693->lock);
+	return ret;
+}
+
 static int __power_up(struct v4l2_subdev *sd)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -1134,6 +1238,7 @@ static int power_down(struct v4l2_subdev *sd)
 	ov5693->focus = OV5693_INVALID_CONFIG;
 
 	gpiod_set_value_cansleep(ov5693->reset, 1);
+	gpiod_set_value_cansleep(ov5693->powerdown, 1);
 
 	clk_disable_unprepare(ov5693->clk);
 
@@ -1333,7 +1438,7 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 	}
 
 	for (cnt = 0; cnt < OV5693_POWER_UP_RETRY_NUM; cnt++) {
-		ret = power_up(sd);
+		ret = ov5693_sensor_powerup(ov5693);
 		if (ret) {
 			dev_err(&client->dev, "power up failed\n");
 			continue;
@@ -1475,38 +1580,34 @@ static int ov5693_detect(struct i2c_client *client)
 
 static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
 {
-	struct ov5693_device *dev = to_ov5693_sensor(sd);
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	int ret;
 
-	mutex_lock(&dev->lock);
-
-	/* power_on() here before streaming for regular PCs. */
 	if (enable) {
-		ret = power_up(sd);
-		if (ret) {
-			dev_err(&client->dev, "sensor power-up error\n");
-			goto out;
-		}
+		ret = pm_runtime_get_sync(&ov5693->client->dev);
+		if (ret < 0)
+			goto err_power_down;
 	}
 
-	ret = __v4l2_ctrl_handler_setup(&dev->ctrl_handler);
-	if (ret) {
-		power_down(sd);
-		return ret;
-	}
+	ret = __v4l2_ctrl_handler_setup(&ov5693->ctrl_handler);
+	if (ret)
+		goto err_power_down;
 
-	ret = ov5693_write_reg(client, OV5693_8BIT, OV5693_SW_STREAM,
-			       enable ? OV5693_START_STREAMING :
-			       OV5693_STOP_STREAMING);
+	mutex_lock(&ov5693->lock);
+	ret = ov5693_sw_standby(ov5693, !enable);
+	mutex_unlock(&ov5693->lock);
+
+	if (ret)
+		goto err_power_down;
+	ov5693->streaming = !!enable;
 
 	/* power_off() here after streaming for regular PCs. */
 	if (!enable)
-		power_down(sd);
+		pm_runtime_put(&ov5693->client->dev);
 
-out:
-	mutex_unlock(&dev->lock);
-
+	return 0;
+err_power_down:
+	pm_runtime_put_noidle(&ov5693->client->dev);
 	return ret;
 }
 
@@ -1517,7 +1618,7 @@ static int ov5693_s_config(struct v4l2_subdev *sd, int irq)
 	int ret = 0;
 
 	mutex_lock(&ov5693->lock);
-	ret = power_up(sd);
+	ret = ov5693_sensor_powerup(ov5693);
 	if (ret) {
 		dev_err(&client->dev, "ov5693 power-up err.\n");
 		goto fail_power_on;
@@ -1536,17 +1637,14 @@ static int ov5693_s_config(struct v4l2_subdev *sd, int irq)
 	ov5693->otp_data = ov5693_otp_read(sd);
 
 	/* turn off sensor, after probed */
-	ret = power_down(sd);
-	if (ret) {
-		dev_err(&client->dev, "ov5693 power-off err.\n");
-		goto fail_power_on;
-	}
+	ov5693_sensor_powerdown(ov5693);
+
 	mutex_unlock(&ov5693->lock);
 
 	return ret;
 
 fail_power_on:
-	power_down(sd);
+	ov5693_sensor_powerdown(ov5693);
 	dev_err(&client->dev, "sensor power-gating failed\n");
 	mutex_unlock(&ov5693->lock);
 	return ret;
@@ -1830,6 +1928,9 @@ static int ov5693_probe(struct i2c_client *client)
 	if (ret)
 		ov5693_remove(client);
 
+	pm_runtime_enable(&client->dev);
+	pm_runtime_set_suspended(&client->dev);
+
 	ret = v4l2_async_register_subdev_sensor_common(&ov5693->sd);
 	if (ret) {
 		dev_err(&client->dev, "failed to register V4L2 subdev: %d", ret);
@@ -1839,6 +1940,7 @@ static int ov5693_probe(struct i2c_client *client)
 	return ret;
 
 media_entity_cleanup:
+	pm_runtime_disable(&client->dev);
 	media_entity_cleanup(&ov5693->sd.entity);
 out_put_reset:
         gpiod_put(ov5693->reset);
@@ -1847,6 +1949,10 @@ out_free:
 	kfree(ov5693);
 	return ret;
 }
+
+static const struct dev_pm_ops ov5693_pm_ops = {
+	SET_RUNTIME_PM_OPS(ov5693_sensor_suspend, ov5693_sensor_resume, NULL)
+};
 
 static const struct acpi_device_id ov5693_acpi_match[] = {
 	{"INT33BE"},
@@ -1858,6 +1964,7 @@ static struct i2c_driver ov5693_driver = {
 	.driver = {
 		.name = "ov5693",
 		.acpi_match_table = ov5693_acpi_match,
+		.pm = &ov5693_pm_ops,
 	},
 	.probe_new = ov5693_probe,
 	.remove = ov5693_remove,
