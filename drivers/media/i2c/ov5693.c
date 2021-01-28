@@ -1678,7 +1678,7 @@ static int ov5693_configure_gpios(struct ov5693_device *ov5693)
         }
 
         ov5693->indicator_led = gpiod_get_optional(&ov5693->client->dev, "indicator-led",
-                                        GPIOD_OUT_HIGH);
+                                        GPIOD_OUT_LOW);
         if (IS_ERR(ov5693->indicator_led)) {
                 dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
                 ret = PTR_ERR(ov5693->indicator_led);
