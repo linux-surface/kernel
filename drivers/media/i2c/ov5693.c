@@ -20,19 +20,11 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
-#include <linux/errno.h>
 #include <linux/i2c.h>
-#include <linux/init.h>
-#include <linux/io.h>
-#include <linux/kernel.h>
-#include <linux/kmod.h>
 #include <linux/module.h>
-#include <linux/mm.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
-#include <linux/string.h>
-#include <linux/types.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-fwnode.h>
 
