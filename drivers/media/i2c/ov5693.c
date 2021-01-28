@@ -1577,6 +1577,8 @@ static int ov5693_remove(struct i2c_client *client)
 
 	media_entity_cleanup(&ov5693->sd.entity);
 	v4l2_ctrl_handler_free(&ov5693->ctrl_handler);
+	if (ov5693->otp_size)
+		kfree(ov5693->otp_data);
 	kfree(ov5693);
 
 	return 0;
