@@ -3,6 +3,7 @@
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/acpi_iort.h>
 #include <linux/adreno-smmu-priv.h>
 #include <linux/of_device.h>
 #include <linux/qcom_scm.h>
@@ -339,9 +340,41 @@ static const struct of_device_id __maybe_unused qcom_smmu_impl_of_match[] = {
 	{ }
 };
 
+#ifdef CONFIG_ACPI
+static bool is_qcom_iort(struct arm_smmu_device *smmu)
+{
+	struct acpi_table_header *iort;
+	acpi_status status;
+	bool ret = false;
+
+	status = acpi_get_table(ACPI_SIG_IORT, 0, &iort);
+	if (ACPI_FAILURE(status)) {
+		dev_err(smmu->dev, "failed to get IORT\n");
+		goto done;
+	}
+
+	if (strncmp(iort->asl_compiler_id, "QCOM", 4) == 0) {
+		ret = true;
+		goto done;
+	}
+
+done:
+	acpi_put_table(iort);
+	return ret;
+}
+#else
+static bool is_qcom_iort(struct arm_smmu_device *smmu)
+{
+	return false;
+}
+#endif
+
 struct arm_smmu_device *qcom_smmu_impl_init(struct arm_smmu_device *smmu)
 {
 	const struct device_node *np = smmu->dev->of_node;
+
+	if (!np && is_qcom_iort(smmu))
+		return qcom_smmu_create(smmu, &qcom_smmu_impl);
 
 	if (of_match_node(qcom_smmu_impl_of_match, np))
 		return qcom_smmu_create(smmu, &qcom_smmu_impl);
