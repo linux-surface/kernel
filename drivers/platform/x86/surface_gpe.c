@@ -129,7 +129,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 		.ident = "Surface Laptop 3 (Intel 13\")",
 		.matches = {
 			/*
-			 * We match for SKU here due to different vairants: The
+			 * We match for SKU here due to different variants: The
 			 * AMD (15") version does not rely on GPEs.
 			 */
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
@@ -141,7 +141,7 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
 		.ident = "Surface Laptop 3 (Intel 15\")",
 		.matches = {
 			/*
-			 * We match for SKU here due to different vairants: The
+			 * We match for SKU here due to different variants: The
 			 * AMD (15") version does not rely on GPEs.
 			 */
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
@@ -169,8 +169,7 @@ static int surface_lid_enable_wakeup(struct device *dev,
 	return 0;
 }
 
-
-static int surface_gpe_suspend(struct device *dev)
+static int __maybe_unused surface_gpe_suspend(struct device *dev)
 {
 	const struct surface_lid_device *lid;
 
@@ -178,7 +177,7 @@ static int surface_gpe_suspend(struct device *dev)
 	return surface_lid_enable_wakeup(dev, lid, true);
 }
 
-static int surface_gpe_resume(struct device *dev)
+static int __maybe_unused surface_gpe_resume(struct device *dev)
 {
 	const struct surface_lid_device *lid;
 
