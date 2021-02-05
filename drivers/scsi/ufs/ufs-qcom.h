@@ -269,4 +269,15 @@ static inline int ufs_qcom_ice_resume(struct ufs_qcom_host *host)
 #define ufs_qcom_ice_program_key NULL
 #endif /* !CONFIG_SCSI_UFS_CRYPTO */
 
+/* ufs-qcom-phy.c */
+
+#ifdef CONFIG_ACPI
+int ufs_qcom_phy_init(struct ufs_hba *hba);
+#else
+static inline int ufs_qcom_phy_init(struct ufs_hba *hba)
+{
+	return 0;
+}
+#endif
+
 #endif /* UFS_QCOM_H_ */

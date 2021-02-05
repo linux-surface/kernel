@@ -302,6 +302,10 @@ static int ufs_qcom_power_up_sequence(struct ufs_hba *hba)
 	bool is_rate_B = (UFS_QCOM_LIMIT_HS_RATE == PA_HS_MODE_B)
 							? true : false;
 
+	if (has_acpi_companion(hba->dev) &&
+	    hba->ufs_version == UFSHCI_VERSION_30)
+		return ufs_qcom_phy_init(hba);
+
 	/* Reset UFS Host Controller and PHY */
 	ret = ufs_qcom_host_reset(hba);
 	if (ret)
