@@ -1610,7 +1610,6 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 	struct i2c_client *client = v4l2_get_subdevdata(&ov5693->sd);
 	const struct v4l2_ctrl_ops *ops = &ov5693_ctrl_ops;
 	struct v4l2_fwnode_device_properties props;
-	struct v4l2_ctrl *ctrl;
 	unsigned int i;
 	int ret;
 	int hblank;
@@ -1628,15 +1627,17 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 				     NULL);
 
 	/* link freq */
-	ctrl = v4l2_ctrl_new_int_menu(&ov5693->ctrl_handler, NULL,
-				      V4L2_CID_LINK_FREQ,
-				      0, 0, link_freq_menu_items);
-	if (ctrl)
-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	ov5693->ctrls.link_freq = v4l2_ctrl_new_int_menu(&ov5693->ctrl_handler,
+							 NULL, V4L2_CID_LINK_FREQ,
+							 0, 0, link_freq_menu_items);
+	if (ov5693->ctrls.link_freq)
+		ov5693->ctrls.link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* pixel rate */
-	v4l2_ctrl_new_std(&ov5693->ctrl_handler, NULL, V4L2_CID_PIXEL_RATE,
-			  0, OV5693_PIXEL_RATE, 1, OV5693_PIXEL_RATE);
+	ov5693->ctrls.pixel_rate = v4l2_ctrl_new_std(&ov5693->ctrl_handler, NULL,
+						     V4L2_CID_PIXEL_RATE, 0,
+						     OV5693_PIXEL_RATE, 1,
+						     OV5693_PIXEL_RATE);
 
 	if (ov5693->ctrl_handler.error) {
 		ov5693_remove(client);
@@ -1645,25 +1646,32 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 
 	/* Exposure */
 
-	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_EXPOSURE, 16, 1048575, 16,
-			  512);
+	ov5693->ctrls.exposure = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
+						   V4L2_CID_EXPOSURE, 16,
+						   1048575, 16, 512);
 
 	/* Gain */
 
-	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_ANALOGUE_GAIN, 1, 1023, 1, 128);
-	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_DIGITAL_GAIN, 1, 3999, 1, 1000);
+	ov5693->ctrls.analogue_gain = v4l2_ctrl_new_std(&ov5693->ctrl_handler,
+							ops, V4L2_CID_ANALOGUE_GAIN,
+							1, 1023, 1, 128);
+	ov5693->ctrls.digital_gain = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
+						       V4L2_CID_DIGITAL_GAIN, 1,
+						       3999, 1, 1000);
 
 	/* Flip */
 
-	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_HFLIP, 0, 1, 1, 0);
-	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_VFLIP, 0, 1, 1, 0);
+	ov5693->ctrls.hflip = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
+						V4L2_CID_HFLIP, 0, 1, 1, 0);
+	ov5693->ctrls.vflip = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
+						V4L2_CID_VFLIP, 0, 1, 1, 0);
 
 	hblank = OV5693_PPL_DEFAULT - ov5693->mode->width;
-	ov5693->hblank = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
-					   V4L2_CID_HBLANK, hblank, hblank,
-					   1, hblank);
-	if (ov5693->hblank)
-		ov5693->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	ov5693->ctrls.hblank = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
+						 V4L2_CID_HBLANK, hblank, hblank,
+						 1, hblank);
+	if (ov5693->ctrls.hblank)
+		ov5693->ctrls.hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/* set properties from fwnode (e.g. rotation, orientation) */
 	ret = v4l2_fwnode_device_parse(&client->dev, &props);
