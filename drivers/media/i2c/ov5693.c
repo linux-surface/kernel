@@ -946,6 +946,10 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 		return ov5693_flip_horz_configure(dev, !!ctrl->val);
 	case V4L2_CID_VFLIP:
 		return ov5693_flip_vert_configure(dev, !!ctrl->val);
+	case V4L2_CID_VBLANK:
+		ret = ov5693_write_reg(client, OV5693_16BIT, OV5693_TIMING_VTS_H,
+				       dev->mode->height + ctrl->val);
+		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -1611,6 +1615,7 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 	unsigned int i;
 	int ret;
 	int hblank;
+	int vblank_max, vblank_min, vblank_def;
 
 	ret = v4l2_ctrl_handler_init(&ov5693->ctrl_handler,
 				     ARRAY_SIZE(ov5693_controls));
@@ -1670,6 +1675,13 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 						 1, hblank);
 	if (ov5693->ctrls.hblank)
 		ov5693->ctrls.hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	vblank_max = OV5693_TIMING_MAX_VTS - ov5693->mode->height;
+	vblank_def = ov5693->mode->lines_per_frame - ov5693->mode->height;
+	vblank_min = ov5693->mode->lines_per_frame - ov5693->mode->height;
+	ov5693->ctrls.vblank = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
+						 V4L2_CID_VBLANK, vblank_min,
+						 vblank_max, 1, vblank_def);
 
 	/* set properties from fwnode (e.g. rotation, orientation) */
 	ret = v4l2_fwnode_device_parse(&client->dev, &props);
