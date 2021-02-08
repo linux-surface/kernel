@@ -105,8 +105,6 @@ MODULE_PARM_DESC(up_delay,
 #define OV5693_PIXEL_ARRAY_WIDTH	2592U
 #define OV5693_PIXEL_ARRAY_HEIGHT	1944U
 
-#define	OV5693_PPL_DEFAULT		2800
-
 static int vcm_ad_i2c_wr8(struct i2c_client *client, u8 reg, u8 val)
 {
 	int err;
@@ -1666,7 +1664,7 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 	ov5693->ctrls.vflip = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
 						V4L2_CID_VFLIP, 0, 1, 1, 0);
 
-	hblank = OV5693_PPL_DEFAULT - ov5693->mode->width;
+	hblank = ov5693->mode->pixels_per_line - ov5693->mode->width;
 	ov5693->ctrls.hblank = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
 						 V4L2_CID_HBLANK, hblank, hblank,
 						 1, hblank);
