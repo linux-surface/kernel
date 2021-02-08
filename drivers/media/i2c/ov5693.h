@@ -270,7 +270,17 @@ struct ov5693_device {
 
 	bool has_vcm;
 
-	struct v4l2_ctrl *hblank;
+	struct ov5693_v4l2_ctrls {
+		struct v4l2_ctrl *link_freq;
+		struct v4l2_ctrl *pixel_rate;
+		struct v4l2_ctrl *exposure;
+		struct v4l2_ctrl *analogue_gain;
+		struct v4l2_ctrl *digital_gain;
+		struct v4l2_ctrl *hflip;
+		struct v4l2_ctrl *vflip;
+		struct v4l2_ctrl *hblank;
+	} ctrls;
+
 };
 
 enum ov5693_tok_type {
