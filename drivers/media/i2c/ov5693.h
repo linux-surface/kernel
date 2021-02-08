@@ -131,6 +131,8 @@
 /*High 8-bit, and low 8-bit HTS address is 0x380f*/
 #define OV5693_TIMING_VTS_L			0x380f
 
+#define OV5693_TIMING_MAX_VTS			0xffff
+
 #define OV5693_MWB_RED_GAIN_H			0x3400
 #define OV5693_MWB_GREEN_GAIN_H			0x3402
 #define OV5693_MWB_BLUE_GAIN_H			0x3404
@@ -279,6 +281,7 @@ struct ov5693_device {
 		struct v4l2_ctrl *hflip;
 		struct v4l2_ctrl *vflip;
 		struct v4l2_ctrl *hblank;
+		struct v4l2_ctrl *vblank;
 	} ctrls;
 
 };
