@@ -63,11 +63,11 @@ MODULE_PARM_DESC(up_delay,
 /* Exposure/gain */
 
 #define OV5693_EXPOSURE_CTRL_HH_REG		0x3500
-#define OV5693_EXPOSURE_CTRL_HH(v)		(((v) & GENMASK(18, 16)) >> 16)
+#define OV5693_EXPOSURE_CTRL_HH(v)		(((v) & GENMASK(14, 12)) >> 12)
 #define OV5693_EXPOSURE_CTRL_H_REG		0x3501
-#define OV5693_EXPOSURE_CTRL_H(v)		(((v) & GENMASK(15, 8)) >> 8)
+#define OV5693_EXPOSURE_CTRL_H(v)		(((v) & GENMASK(11, 4)) >> 4)
 #define OV5693_EXPOSURE_CTRL_L_REG		0x3502
-#define OV5693_EXPOSURE_CTRL_L(v)		((v) & GENMASK(7, 0))
+#define OV5693_EXPOSURE_CTRL_L(v)		(((v) & GENMASK(3, 0)) << 4)
 #define OV5693_EXPOSURE_GAIN_MANUAL_REG		0x3509
 
 #define OV5693_GAIN_CTRL_H_REG			0x3504
