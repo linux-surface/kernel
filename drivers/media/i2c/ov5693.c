@@ -71,9 +71,9 @@ MODULE_PARM_DESC(up_delay,
 #define OV5693_EXPOSURE_GAIN_MANUAL_REG		0x3509
 
 #define OV5693_GAIN_CTRL_H_REG			0x3504
-#define OV5693_GAIN_CTRL_H(v)			(((v) & GENMASK(9, 8)) >> 8)
+#define OV5693_GAIN_CTRL_H(v)			((v >> 4) & GENMASK(2, 0))
 #define OV5693_GAIN_CTRL_L_REG			0x3505
-#define OV5693_GAIN_CTRL_L(v)			((v) & GENMASK(7, 0))
+#define OV5693_GAIN_CTRL_L(v)			((v << 4) & GENMASK(7, 4))
 
 #define OV5693_FORMAT1_REG			0x3820
 #define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
@@ -889,9 +889,13 @@ static int ov5693_analog_gain_configure(struct ov5693_device *sensor, u32 gain)
 {
 	int ret;
 
-	/* Analog gain */
+	/*
+	 * As with exposure, the lowest 4 bits are fractional bits. Setting
+	 * those is not supported, so we have a tiny bit of bit shifting to
+	 * do.
+	 */
 	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
-				OV5693_AGC_L, gain & 0xff);
+				OV5693_AGC_L, OV5693_GAIN_CTRL_L(gain));
 	if (ret) {
 		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_AGC_L);
@@ -899,7 +903,7 @@ static int ov5693_analog_gain_configure(struct ov5693_device *sensor, u32 gain)
 	}
 
 	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
-				OV5693_AGC_H, (gain >> 8) & 0xff);
+				OV5693_AGC_H, OV5693_GAIN_CTRL_H(gain));
 	if (ret) {
 		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
 			__func__, OV5693_AGC_H);
@@ -1674,10 +1678,10 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 
 	ov5693->ctrls.analogue_gain = v4l2_ctrl_new_std(&ov5693->ctrl_handler,
 							ops, V4L2_CID_ANALOGUE_GAIN,
-							1, 1023, 1, 128);
+							1, 127, 1, 8);
 	ov5693->ctrls.digital_gain = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
 						       V4L2_CID_DIGITAL_GAIN, 1,
-						       3999, 1, 1000);
+						       4095, 1, 1024);
 
 	/* Flip */
 
