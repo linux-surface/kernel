@@ -801,6 +801,12 @@ static int ov5693_exposure_configure(struct ov5693_device *sensor, u32 exposure)
 {
 	int ret;
 
+	/*
+	 * The control for exposure seems to be in units of lines, but the chip
+	 * datasheet specifies exposure is in units of 1/16th of a line.
+	 */
+	exposure = exposure * 16;
+
 	ov5693_get_exposure(sensor);
 	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
 			OV5693_EXPOSURE_CTRL_HH_REG, OV5693_EXPOSURE_CTRL_HH(exposure));
@@ -909,6 +915,16 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 	    container_of(ctrl->handler, struct ov5693_device, ctrl_handler);
 	struct i2c_client *client = v4l2_get_subdevdata(&dev->sd);
 	int ret = 0;
+
+	/* If VBLANK is altered we need to update exposure to compensate */
+	if (ctrl->id == V4L2_CID_VBLANK) {
+		int exposure_max;
+		exposure_max = dev->mode->lines_per_frame - 8;
+		__v4l2_ctrl_modify_range(dev->ctrls.exposure, dev->ctrls.exposure->minimum,
+					 exposure_max, dev->ctrls.exposure->step,
+					 dev->ctrls.exposure->val < exposure_max ?
+					 dev->ctrls.exposure->val : exposure_max);
+	}
 
 	switch (ctrl->id) {
 	case V4L2_CID_FOCUS_ABSOLUTE:
@@ -1616,6 +1632,7 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 	int ret;
 	int hblank;
 	int vblank_max, vblank_min, vblank_def;
+	int exposure_max;
 
 	ret = v4l2_ctrl_handler_init(&ov5693->ctrl_handler,
 				     ARRAY_SIZE(ov5693_controls));
@@ -1648,10 +1665,10 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 	}
 
 	/* Exposure */
-
+	exposure_max = ov5693->mode->lines_per_frame - 8;
 	ov5693->ctrls.exposure = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
-						   V4L2_CID_EXPOSURE, 16,
-						   1048575, 16, 512);
+						   V4L2_CID_EXPOSURE, 1,
+						   exposure_max, 1, 123);
 
 	/* Gain */
 
