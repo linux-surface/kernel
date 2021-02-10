@@ -770,30 +770,35 @@ static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
 
 static int ov5693_get_exposure(struct ov5693_device *sensor)
 {
-	u16 reg_v, reg_v2;
+	u32 exposure = 0;
+	u16 tmp;
 	int ret = 0;
 
 	/* get exposure */
 	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
 			      OV5693_EXPOSURE_L,
-			      &reg_v);
+			      &tmp);
 	if (ret)
 		return ret;
+
+	exposure |= ((tmp >> 4) & 0b1111);
 
 	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
 			      OV5693_EXPOSURE_M,
-			      &reg_v2);
+			      &tmp);
 	if (ret)
 		return ret;
 
-	reg_v += reg_v2 << 8;
+	exposure |= (tmp << 4);
 	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
 			      OV5693_EXPOSURE_H,
-			      &reg_v2);
+			      &tmp);
 	if (ret)
 		return ret;
 
-	printk("exposure set to: %u\n", reg_v + (((u32)reg_v2 << 16)));
+	exposure |= (tmp << 12);
+
+	printk("exposure set to: %u\n", exposure);
 	return ret;
 }
 
