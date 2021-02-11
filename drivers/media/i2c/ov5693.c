@@ -1492,6 +1492,12 @@ static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
 		}
 	}
 
+	ret = __v4l2_ctrl_handler_setup(&dev->ctrl_handler);
+	if (ret) {
+		power_down(sd);
+		return ret;
+	}
+
 	ret = ov5693_write_reg(client, OV5693_8BIT, OV5693_SW_STREAM,
 			       enable ? OV5693_START_STREAMING :
 			       OV5693_STOP_STREAMING);
