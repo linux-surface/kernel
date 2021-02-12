@@ -1421,6 +1421,7 @@ static int ov5693_get_regulators(struct ov5693_device *ov5693)
 static int ov5693_probe(struct i2c_client *client)
 {
 	struct ov5693_device *ov5693;
+	u32 clk_rate;
 	int ret = 0;
 
 	dev_info(&client->dev, "%s() called", __func__);
@@ -1438,6 +1439,13 @@ static int ov5693_probe(struct i2c_client *client)
 	ov5693->clk = devm_clk_get(&client->dev, "xvclk");
 	if (IS_ERR(ov5693->clk)) {
 		dev_err(&client->dev, "Error getting clock\n");
+		return -EINVAL;
+	}
+
+	clk_rate = clk_get_rate(ov5693->clk);
+	if (clk_rate != OV5693_XVCLK_FREQ) {
+		dev_err(&client->dev, "Unsupported clk freq %u, expected %u\n",
+			clk_rate, OV5693_XVCLK_FREQ);
 		return -EINVAL;
 	}
 
