@@ -100,6 +100,8 @@
 #define OV5693_OTP_READ_ONETIME		16
 #define OV5693_OTP_MODE_READ		1
 
+#define OV5693_XVCLK_FREQ		19200000
+
 /* link freq and pixel rate required for IPU3 */
 #define OV5693_LINK_FREQ_400MHZ		400000000
 /* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample
