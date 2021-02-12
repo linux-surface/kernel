@@ -37,68 +37,23 @@
  */
 #define ENABLE_NON_PREVIEW	1
 
-#define OV5693_POWER_UP_RETRY_NUM 5
-
 /* Defines for register writes and register array processing */
-#define I2C_MSG_LENGTH		0x2
-#define I2C_RETRY_COUNT		5
-
-#define OV5693_FOCAL_LENGTH_NUM	334	/*3.34mm*/
-#define OV5693_FOCAL_LENGTH_DEM	100
-#define OV5693_F_NUMBER_DEFAULT_NUM	24
-#define OV5693_F_NUMBER_DEM	10
+#define I2C_MSG_LENGTH         0x2
 
 #define MAX_FMTS		1
 
-/* sensor_mode_data read_mode adaptation */
-#define OV5693_READ_MODE_BINNING_ON	0x0400
-#define OV5693_READ_MODE_BINNING_OFF	0x00
-#define OV5693_INTEGRATION_TIME_MARGIN	8
-
-#define OV5693_MAX_EXPOSURE_VALUE	0xFFF1
-#define OV5693_MAX_GAIN_VALUE		0xFF
-
-/*
- * focal length bits definition:
- * bits 31-16: numerator, bits 15-0: denominator
- */
-#define OV5693_FOCAL_LENGTH_DEFAULT 0x1B70064
-
-/*
- * current f-number bits definition:
- * bits 31-16: numerator, bits 15-0: denominator
- */
-#define OV5693_F_NUMBER_DEFAULT 0x18000a
-
-/*
- * f-number range bits definition:
- * bits 31-24: max f-number numerator
- * bits 23-16: max f-number denominator
- * bits 15-8: min f-number numerator
- * bits 7-0: min f-number denominator
- */
-#define OV5693_F_NUMBER_RANGE 0x180a180a
 #define OV5693_ID	0x5690
 
-#define OV5693_FINE_INTG_TIME_MIN 0
-#define OV5693_FINE_INTG_TIME_MAX_MARGIN 0
-#define OV5693_COARSE_INTG_TIME_MIN 1
-#define OV5693_COARSE_INTG_TIME_MAX_MARGIN 6
-
-#define OV5693_BIN_FACTOR_MAX 4
 /*
  * OV5693 System control registers
  */
-#define OV5693_SW_SLEEP				0x0100
 #define OV5693_SW_RESET				0x0103
 #define OV5693_SW_STREAM			0x0100
 
 #define OV5693_SC_CMMN_CHIP_ID_H		0x300A
 #define OV5693_SC_CMMN_CHIP_ID_L		0x300B
-#define OV5693_SC_CMMN_SCCB_ID			0x300C
 #define OV5693_SC_CMMN_SUB_ID			0x302A /* process, version*/
-/*Bit[7:4] Group control, Bit[3:0] Group ID*/
-#define OV5693_GROUP_ACCESS			0x3208
+
 /*
 *Bit[3:0] Bit[19:16] of exposure,
 *remaining 16 bits lies in Reg0x3501&Reg0x3502
@@ -110,18 +65,6 @@
 #define OV5693_AGC_H				0x350A
 #define OV5693_AGC_L				0x350B /*Bit[7:0] of gain*/
 
-#define OV5693_HORIZONTAL_START_H		0x3800 /*Bit[11:8]*/
-#define OV5693_HORIZONTAL_START_L		0x3801 /*Bit[7:0]*/
-#define OV5693_VERTICAL_START_H			0x3802 /*Bit[11:8]*/
-#define OV5693_VERTICAL_START_L			0x3803 /*Bit[7:0]*/
-#define OV5693_HORIZONTAL_END_H			0x3804 /*Bit[11:8]*/
-#define OV5693_HORIZONTAL_END_L			0x3805 /*Bit[7:0]*/
-#define OV5693_VERTICAL_END_H			0x3806 /*Bit[11:8]*/
-#define OV5693_VERTICAL_END_L			0x3807 /*Bit[7:0]*/
-#define OV5693_HORIZONTAL_OUTPUT_SIZE_H		0x3808 /*Bit[3:0]*/
-#define OV5693_HORIZONTAL_OUTPUT_SIZE_L		0x3809 /*Bit[7:0]*/
-#define OV5693_VERTICAL_OUTPUT_SIZE_H		0x380a /*Bit[3:0]*/
-#define OV5693_VERTICAL_OUTPUT_SIZE_L		0x380b /*Bit[7:0]*/
 /*High 8-bit, and low 8-bit HTS address is 0x380d*/
 #define OV5693_TIMING_HTS_H			0x380C
 /*High 8-bit, and low 8-bit HTS address is 0x380d*/
@@ -140,34 +83,6 @@
 
 #define OV5693_START_STREAMING			0x01
 #define OV5693_STOP_STREAMING			0x00
-
-#define VCM_ADDR           0x0c
-#define VCM_CODE_MSB       0x04
-
-#define OV5693_INVALID_CONFIG	0xffffffff
-
-#define OV5693_VCM_SLEW_STEP			0x30F0
-#define OV5693_VCM_SLEW_STEP_MAX		0x7
-#define OV5693_VCM_SLEW_STEP_MASK		0x7
-#define OV5693_VCM_CODE				0x30F2
-#define OV5693_VCM_SLEW_TIME			0x30F4
-#define OV5693_VCM_SLEW_TIME_MAX		0xffff
-#define OV5693_VCM_ENABLE			0x8000
-
-#define OV5693_VCM_MAX_FOCUS_NEG       -1023
-#define OV5693_VCM_MAX_FOCUS_POS       1023
-
-#define DLC_ENABLE 1
-#define DLC_DISABLE 0
-#define VCM_PROTECTION_OFF     0xeca3
-#define VCM_PROTECTION_ON      0xdc51
-#define VCM_DEFAULT_S 0x0
-#define vcm_step_s(a) (u8)(a & 0xf)
-#define vcm_step_mclk(a) (u8)((a >> 4) & 0x3)
-#define vcm_dlc_mclk(dlc, mclk) (u16)((dlc << 3) | mclk | 0xa104)
-#define vcm_tsrc(tsrc) (u16)(tsrc << 3 | 0xf200)
-#define vcm_val(data, s) (u16)(data << 4 | s)
-#define DIRECT_VCM vcm_dlc_mclk(0, 0)
 
 /* Defines for OTP Data Registers */
 #define OV5693_FRAME_OFF_NUM		0x4202
