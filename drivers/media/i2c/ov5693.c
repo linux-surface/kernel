@@ -1270,8 +1270,6 @@ static int ov5693_remove(struct i2c_client *client)
 
 	dev_info(&client->dev, "%s...\n", __func__);
 
-	gpiod_put(ov5693->reset);
-	gpiod_put(ov5693->indicator_led);
 	while (i--)
 		regulator_put(ov5693->supplies[i].consumer);
 
@@ -1372,38 +1370,28 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 
 static int ov5693_configure_gpios(struct ov5693_device *ov5693)
 {
-	int ret;
-
-	ov5693->reset = gpiod_get_optional(&ov5693->client->dev, "reset",
+	ov5693->reset = devm_gpiod_get_optional(&ov5693->client->dev, "reset",
                                         GPIOD_OUT_HIGH);
         if (IS_ERR(ov5693->reset)) {
                 dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
                 return PTR_ERR(ov5693->reset);
         }
 
-	ov5693->powerdown = gpiod_get_optional(&ov5693->client->dev, "powerdown",
+	ov5693->powerdown = devm_gpiod_get_optional(&ov5693->client->dev, "powerdown",
                                         GPIOD_OUT_HIGH);
         if (IS_ERR(ov5693->powerdown)) {
                 dev_err(&ov5693->client->dev, "Couldn't find powerdown GPIO\n");
-                ret = PTR_ERR(ov5693->powerdown);
-		goto err_put_reset;
+                return PTR_ERR(ov5693->powerdown);
         }
 
-        ov5693->indicator_led = gpiod_get_optional(&ov5693->client->dev, "indicator-led",
+        ov5693->indicator_led = devm_gpiod_get_optional(&ov5693->client->dev, "indicator-led",
                                         GPIOD_OUT_HIGH);
         if (IS_ERR(ov5693->indicator_led)) {
                 dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
-                ret = PTR_ERR(ov5693->indicator_led);
-		goto err_put_powerdown;
+                return PTR_ERR(ov5693->indicator_led);
         }
 
         return 0;
-err_put_reset:
-	gpiod_put(ov5693->reset);
-err_put_powerdown:
-	gpiod_put(ov5693->powerdown);
-
-	return ret;
 }
 
 static int ov5693_get_regulators(struct ov5693_device *ov5693)
