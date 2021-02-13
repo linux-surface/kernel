@@ -106,6 +106,13 @@ config SURFACE_AGGREGATOR_REGISTRY
 	  the respective client devices. Drivers for these devices still need to
 	  be selected via the other options.
 
+config SURFACE_BOOK1_DGPU_SWITCH
+	tristate "Surface Book 1 dGPU Switch Driver"
+	depends on SYSFS
+	help
+	  This driver provides a sysfs switch to set the power-state of the
+	  discrete GPU found on the Microsoft Surface Book 1.
+
 config SURFACE_DTX
 	tristate "Surface DTX (Detachment System) Driver"
 	depends on SURFACE_AGGREGATOR
