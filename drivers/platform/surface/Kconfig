@@ -41,6 +41,13 @@ config SURFACE_3_POWER_OPREGION
 	  This driver provides support for ACPI operation
 	  region of the Surface 3 battery platform driver.
 
+config SURFACE_BOOK1_DGPU_SWITCH
+	tristate "Surface Book 1 dGPU Switch Driver"
+	depends on SYSFS
+	help
+	  This driver provides a sysfs switch to set the power-state of the
+	  discrete GPU found on the Microsoft Surface Book 1.
+
 config SURFACE_GPE
 	tristate "Surface GPE/Lid Support Driver"
 	depends on DMI
