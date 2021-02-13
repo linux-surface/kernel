@@ -77,6 +77,13 @@ config SURFACE_AGGREGATOR_CDEV
 	  The provided interface is intended for debugging and development only,
 	  and should not be used otherwise.
 
+config SURFACE_BOOK1_DGPU_SWITCH
+	tristate "Surface Book 1 dGPU Switch Driver"
+	depends on SYSFS
+	help
+	  This driver provides a sysfs switch to set the power-state of the
+	  discrete GPU found on the Microsoft Surface Book 1.
+
 config SURFACE_GPE
 	tristate "Surface GPE/Lid Support Driver"
 	depends on DMI
