@@ -767,6 +767,42 @@ static int ov5693_sw_standby(struct ov5693_device *ov5693, bool standby)
 			       standby ? OV5693_STOP_STREAMING : OV5693_START_STREAMING);
 }
 
+static int ov5693_sw_reset(struct ov5693_device *ov5693)
+{
+	return ov5693_write_reg(ov5693->client, OV5693_8BIT, OV5693_SW_RESET,
+				0x01);
+}
+
+static int ov5693_sensor_init(struct ov5693_device *ov5693)
+{
+	struct i2c_client *client = ov5693->client;
+	int ret = 0;
+
+	ret = ov5693_sw_reset(ov5693);
+	if (ret) {
+		dev_err(&client->dev, "ov5693 reset err.\n");
+		return ret;
+	}
+
+	ret = ov5693_write_reg_array(client, ov5693_global_setting);
+	if (ret) {
+		dev_err(&client->dev, "ov5693 write register err.\n");
+		return ret;
+	}
+
+	ret = ov5693_write_reg_array(client, ov5693_res[ov5693->fmt_idx].regs);
+	if (ret) {
+		dev_err(&client->dev, "ov5693 write register err.\n");
+		return ret;
+	}
+
+	ret = ov5693_sw_standby(ov5693, true);
+	if (ret)
+		dev_err(&client->dev, "ov5693 stream off error\n");
+
+	return ret;
+}
+
 static void ov5693_sensor_powerdown(struct ov5693_device *ov5693)
 {
 	gpiod_set_value_cansleep(ov5693->reset, 1);
@@ -845,6 +881,12 @@ static int __maybe_unused ov5693_sensor_resume(struct device *dev)
 	ret = ov5693_sensor_powerup(ov5693);
 	if (ret)
 		goto out_unlock;
+
+	ret = ov5693_sensor_init(ov5693);
+	if (ret) {
+		dev_err(&client->dev, "ov5693 sensor init failure\n");
+		goto err_power;
+	}
 
 	if (ov5693->streaming) {
 		ret = ov5693_sw_standby(ov5693, false);
@@ -944,35 +986,6 @@ static int get_resolution_index(int w, int h)
 	return -1;
 }
 
-/* TODO: remove it. */
-static int startup(struct v4l2_subdev *sd)
-{
-	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int ret = 0;
-
-	ret = ov5693_write_reg(client, OV5693_8BIT,
-			       OV5693_SW_RESET, 0x01);
-	if (ret) {
-		dev_err(&client->dev, "ov5693 reset err.\n");
-		return ret;
-	}
-
-	ret = ov5693_write_reg_array(client, ov5693_global_setting);
-	if (ret) {
-		dev_err(&client->dev, "ov5693 write register err.\n");
-		return ret;
-	}
-
-	ret = ov5693_write_reg_array(client, ov5693_res[ov5693->fmt_idx].regs);
-	if (ret) {
-		dev_err(&client->dev, "ov5693 write register err.\n");
-		return ret;
-	}
-
-	return ret;
-}
-
 static int ov5693_set_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *format)
@@ -982,7 +995,6 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 	int idx;
-	int cnt;
 
 	if (format->pad)
 		return -EINVAL;
@@ -1013,34 +1025,6 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 		ret = -EINVAL;
 		goto mutex_unlock;
 	}
-
-	for (cnt = 0; cnt < OV5693_POWER_UP_RETRY_NUM; cnt++) {
-		ret = ov5693_sensor_powerup(ov5693);
-		if (ret) {
-			dev_err(&client->dev, "power up failed\n");
-			continue;
-		}
-
-		ret = startup(sd);
-		if (ret)
-			dev_err(&client->dev, " startup() FAILED!\n");
-		else
-			break;
-	}
-	if (cnt == OV5693_POWER_UP_RETRY_NUM) {
-		dev_err(&client->dev, "power up failed, gave up\n");
-		goto mutex_unlock;
-	}
-
-	/*
-	 * After sensor settings are set to HW, sometimes stream is started.
-	 * This would cause ISP timeout because ISP is not ready to receive
-	 * data yet. So add stop streaming here.
-	 */
-	ret = ov5693_write_reg(client, OV5693_8BIT, OV5693_SW_STREAM,
-			       OV5693_STOP_STREAMING);
-	if (ret)
-		dev_warn(&client->dev, "ov5693 stream off err\n");
 
 mutex_unlock:
 	mutex_unlock(&ov5693->lock);
