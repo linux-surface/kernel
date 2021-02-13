@@ -1266,12 +1266,8 @@ static int ov5693_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-	unsigned int i = OV5693_NUM_SUPPLIES;
 
 	dev_info(&client->dev, "%s...\n", __func__);
-
-	while (i--)
-		regulator_put(ov5693->supplies[i].consumer);
 
 	v4l2_async_unregister_subdev(sd);
 
@@ -1401,7 +1397,7 @@ static int ov5693_get_regulators(struct ov5693_device *ov5693)
 	for (i = 0; i < OV5693_NUM_SUPPLIES; i++)
 		ov5693->supplies[i].supply = ov5693_supply_names[i];
 
-	return regulator_bulk_get(&ov5693->client->dev,
+	return devm_regulator_bulk_get(&ov5693->client->dev,
 				       OV5693_NUM_SUPPLIES,
 				       ov5693->supplies);
 }
