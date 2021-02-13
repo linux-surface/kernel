@@ -76,72 +76,6 @@
 #define OV5693_PIXEL_ARRAY_WIDTH	2592U
 #define OV5693_PIXEL_ARRAY_HEIGHT	1944U
 
-static int vcm_ad_i2c_wr8(struct i2c_client *client, u8 reg, u8 val)
-{
-	int err;
-	struct i2c_msg msg;
-	u8 buf[2];
-
-	buf[0] = reg;
-	buf[1] = val;
-
-	msg.addr = VCM_ADDR;
-	msg.flags = 0;
-	msg.len = 2;
-	msg.buf = &buf[0];
-
-	err = i2c_transfer(client->adapter, &msg, 1);
-	if (err != 1) {
-		dev_err(&client->dev, "%s: vcm i2c fail, err code = %d\n",
-			__func__, err);
-		return -EIO;
-	}
-	return 0;
-}
-
-static int ad5823_i2c_write(struct i2c_client *client, u8 reg, u8 val)
-{
-	struct i2c_msg msg;
-	u8 buf[2];
-
-	buf[0] = reg;
-	buf[1] = val;
-	msg.addr = AD5823_VCM_ADDR;
-	msg.flags = 0;
-	msg.len = 0x02;
-	msg.buf = &buf[0];
-
-	if (i2c_transfer(client->adapter, &msg, 1) != 1)
-		return -EIO;
-	return 0;
-}
-
-static int ad5823_i2c_read(struct i2c_client *client, u8 reg, u8 *val)
-{
-	struct i2c_msg msg[2];
-	u8 buf[2];
-
-	buf[0] = reg;
-	buf[1] = 0;
-
-	msg[0].addr = AD5823_VCM_ADDR;
-	msg[0].flags = 0;
-	msg[0].len = 0x01;
-	msg[0].buf = &buf[0];
-
-	msg[1].addr = 0x0c;
-	msg[1].flags = I2C_M_RD;
-	msg[1].len = 0x01;
-	msg[1].buf = &buf[1];
-	*val = 0;
-	if (i2c_transfer(client->adapter, msg, 2) != 2)
-		return -EIO;
-	*val = buf[1];
-	return 0;
-}
-
-static const u32 ov5693_embedded_effective_size = 28;
-
 /* i2c read/write stuff */
 static int ov5693_read_reg(struct i2c_client *client,
 			   u16 data_length, u16 reg, u16 *val)
@@ -213,69 +147,6 @@ static int ov5693_i2c_write(struct i2c_client *client, u16 len, u8 *data)
 	ret = i2c_transfer(client->adapter, &msg, 1);
 
 	return ret == num_msg ? 0 : -EIO;
-}
-
-static int vcm_dw_i2c_write(struct i2c_client *client, u16 data)
-{
-	struct i2c_msg msg;
-	const int num_msg = 1;
-	int ret;
-	__be16 val;
-
-	val = cpu_to_be16(data);
-	msg.addr = VCM_ADDR;
-	msg.flags = 0;
-	msg.len = OV5693_16BIT;
-	msg.buf = (void *)&val;
-
-	ret = i2c_transfer(client->adapter, &msg, 1);
-
-	return ret == num_msg ? 0 : -EIO;
-}
-
-/*
- * Theory: per datasheet, the two VCMs both allow for a 2-byte read.
- * The DW9714 doesn't actually specify what this does (it has a
- * two-byte write-only protocol, but specifies the read sequence as
- * legal), but it returns the same data (zeroes) always, after an
- * undocumented initial NAK.  The AD5823 has a one-byte address
- * register to which all writes go, and subsequent reads will cycle
- * through the 8 bytes of registers.  Notably, the default values (the
- * device is always power-cycled affirmatively, so we can rely on
- * these) in AD5823 are not pairwise repetitions of the same 16 bit
- * word.  So all we have to do is sequentially read two bytes at a
- * time and see if we detect a difference in any of the first four
- * pairs.
- */
-static int vcm_detect(struct i2c_client *client)
-{
-	int i, ret;
-	struct i2c_msg msg;
-	u16 data0 = 0, data;
-
-	for (i = 0; i < 4; i++) {
-		msg.addr = VCM_ADDR;
-		msg.flags = I2C_M_RD;
-		msg.len = sizeof(data);
-		msg.buf = (u8 *)&data;
-		ret = i2c_transfer(client->adapter, &msg, 1);
-
-		/*
-		 * DW9714 always fails the first read and returns
-		 * zeroes for subsequent ones
-		 */
-		if (i == 0 && ret == -EREMOTEIO) {
-			data0 = 0;
-			continue;
-		}
-
-		if (i == 0)
-			data0 = data;
-
-		if (data != data0)
-			return VCM_AD5823;
-	}
-	return ret == 1 ? VCM_DW9714 : ret;
 }
 
 static int ov5693_write_reg(struct i2c_client *client, u16 data_length,
@@ -654,89 +525,6 @@ err:
 	return ret;
 }
 
-static int ad5823_t_focus_vcm(struct v4l2_subdev *sd, u16 val)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int ret = -EINVAL;
-	u8 vcm_code;
-
-	ret = ad5823_i2c_read(client, AD5823_REG_VCM_CODE_MSB, &vcm_code);
-	if (ret)
-		return ret;
-
-	/* set reg VCM_CODE_MSB Bit[1:0] */
-	vcm_code = (vcm_code & VCM_CODE_MSB_MASK) |
-		   ((val >> 8) & ~VCM_CODE_MSB_MASK);
-	ret = ad5823_i2c_write(client, AD5823_REG_VCM_CODE_MSB, vcm_code);
-	if (ret)
-		return ret;
-
-	/* set reg VCM_CODE_LSB Bit[7:0] */
-	ret = ad5823_i2c_write(client, AD5823_REG_VCM_CODE_LSB, (val & 0xff));
-	if (ret)
-		return ret;
-
-	/* set required vcm move time */
-	vcm_code = AD5823_RESONANCE_PERIOD / AD5823_RESONANCE_COEF
-		   - AD5823_HIGH_FREQ_RANGE;
-	ret = ad5823_i2c_write(client, AD5823_REG_VCM_MOVE_TIME, vcm_code);
-
-	return ret;
-}
-
-static int ad5823_t_focus_abs(struct v4l2_subdev *sd, s32 value)
-{
-	value = min(value, AD5823_MAX_FOCUS_POS);
-	return ad5823_t_focus_vcm(sd, value);
-}
-
-static int ov5693_t_focus_abs(struct v4l2_subdev *sd, s32 value)
-{
-	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int ret = 0;
-
-	dev_dbg(&client->dev, "%s: FOCUS_POS: 0x%x\n", __func__, value);
-	value = clamp(value, 0, OV5693_VCM_MAX_FOCUS_POS);
-	if (ov5693->vcm == VCM_DW9714) {
-		if (ov5693->vcm_update) {
-			ret = vcm_dw_i2c_write(client, VCM_PROTECTION_OFF);
-			if (ret)
-				return ret;
-			ret = vcm_dw_i2c_write(client, DIRECT_VCM);
-			if (ret)
-				return ret;
-			ret = vcm_dw_i2c_write(client, VCM_PROTECTION_ON);
-			if (ret)
-				return ret;
-			ov5693->vcm_update = false;
-		}
-		ret = vcm_dw_i2c_write(client,
-				       vcm_val(value, VCM_DEFAULT_S));
-	} else if (ov5693->vcm == VCM_AD5823) {
-		ad5823_t_focus_abs(sd, value);
-	}
-	if (ret == 0) {
-		ov5693->number_of_steps = value - ov5693->focus;
-		ov5693->focus = value;
-		ov5693->timestamp_t_focus_abs = ktime_get();
-	} else
-		dev_err(&client->dev,
-			"%s: i2c failed. ret %d\n", __func__, ret);
-
-	return ret;
-}
-
-static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
-{
-	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-
-	return ov5693_t_focus_abs(sd, ov5693->focus + value);
-}
-
-#define DELAY_PER_STEP_NS	1000000
-#define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
-
 /* Exposure */
 
 static int ov5693_get_exposure(struct ov5693_device *ov5693)
@@ -911,16 +699,6 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 		return 0;
 
 	switch (ctrl->id) {
-	case V4L2_CID_FOCUS_ABSOLUTE:
-		dev_dbg(&client->dev, "%s: CID_FOCUS_ABSOLUTE:%d.\n",
-			__func__, ctrl->val);
-		ret = ov5693_t_focus_abs(&ov5693->sd, ctrl->val);
-		break;
-	case V4L2_CID_FOCUS_RELATIVE:
-		dev_dbg(&client->dev, "%s: CID_FOCUS_RELATIVE:%d.\n",
-			__func__, ctrl->val);
-		ret = ov5693_t_focus_rel(&ov5693->sd, ctrl->val);
-		break;
 	case V4L2_CID_EXPOSURE:
 		dev_dbg(&client->dev, "%s: CID_EXPOSURE:%d.\n",
 			__func__, ctrl->val);
@@ -982,90 +760,6 @@ static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
 	.s_ctrl = ov5693_s_ctrl,
 	.g_volatile_ctrl = ov5693_g_volatile_ctrl
 };
-
-static const struct v4l2_ctrl_config ov5693_controls[] = {
-	{
-		.ops = &ov5693_ctrl_ops,
-		.id = V4L2_CID_FOCUS_ABSOLUTE,
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.name = "focus move absolute",
-		.min = 0,
-		.max = OV5693_VCM_MAX_FOCUS_POS,
-		.step = 1,
-		.def = 0,
-		.flags = 0,
-	},
-	{
-		.ops = &ov5693_ctrl_ops,
-		.id = V4L2_CID_FOCUS_RELATIVE,
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.name = "focus move relative",
-		.min = OV5693_VCM_MAX_FOCUS_NEG,
-		.max = OV5693_VCM_MAX_FOCUS_POS,
-		.step = 1,
-		.def = 0,
-		.flags = 0,
-	},
-};
-
-static int ov5693_isp_configure(struct ov5693_device *ov5693)
-{
-	int ret;
-
-	/* Enable lens correction. */
-	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
-			   OV5693_ISP_CTRL0_REG, 0x86);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int ov5693_init(struct v4l2_subdev *sd)
-{
-	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int ret;
-
-	if (!ov5693->has_vcm)
-		return 0;
-
-	dev_info(&client->dev, "%s\n", __func__);
-	mutex_lock(&ov5693->lock);
-	ov5693->vcm_update = false;
-
-	if (ov5693->vcm == VCM_AD5823) {
-		ret = vcm_ad_i2c_wr8(client, 0x01, 0x01); /* vcm init test */
-		if (ret)
-			dev_err(&client->dev,
-				"vcm reset failed\n");
-		/*change the mode*/
-		ret = ad5823_i2c_write(client, AD5823_REG_VCM_CODE_MSB,
-				       AD5823_RING_CTRL_ENABLE);
-		if (ret)
-			dev_err(&client->dev,
-				"vcm enable ringing failed\n");
-		ret = ad5823_i2c_write(client, AD5823_REG_MODE,
-				       AD5823_ARC_RES1);
-		if (ret)
-			dev_err(&client->dev,
-				"vcm change mode failed\n");
-	}
-
-	/*change initial focus value for ad5823*/
-	if (ov5693->vcm == VCM_AD5823) {
-		ov5693->focus = AD5823_INIT_FOCUS_POS;
-		ov5693_t_focus_abs(sd, AD5823_INIT_FOCUS_POS);
-	} else {
-		ov5693->focus = 0;
-		ov5693_t_focus_abs(sd, 0);
-	}
-
-	ov5693_isp_configure(ov5693);
-	mutex_unlock(&ov5693->lock);
-
-	return 0;
-}
 
 static int ov5693_sw_standby(struct ov5693_device *ov5693, bool standby)
 {
@@ -1327,9 +1021,6 @@ static int ov5693_set_fmt(struct v4l2_subdev *sd,
 			continue;
 		}
 
-		mutex_unlock(&ov5693->lock);
-		ov5693_init(sd);
-		mutex_lock(&ov5693->lock);
 		ret = startup(sd);
 		if (ret)
 			dev_err(&client->dev, " startup() FAILED!\n");
@@ -1507,9 +1198,6 @@ static int ov5693_s_config(struct v4l2_subdev *sd, int irq)
 		goto fail_power_on;
 	}
 
-	if (!ov5693->vcm)
-		ov5693->vcm = vcm_detect(client);
-
 	/* config & detect sensor */
 	ret = ov5693_detect(client);
 	if (ret) {
@@ -1617,23 +1305,16 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 	struct i2c_client *client = v4l2_get_subdevdata(&ov5693->sd);
 	const struct v4l2_ctrl_ops *ops = &ov5693_ctrl_ops;
 	struct v4l2_fwnode_device_properties props;
-	unsigned int i;
 	int ret;
 	int hblank;
 	int vblank_max, vblank_min, vblank_def;
 	int exposure_max;
 
-	ret = v4l2_ctrl_handler_init(&ov5693->ctrl_handler,
-				     ARRAY_SIZE(ov5693_controls));
+	ret = v4l2_ctrl_handler_init(&ov5693->ctrl_handler, 8);
 	if (ret) {
 		ov5693_remove(client);
 		return ret;
 	}
-
-	for (i = 0; i < ARRAY_SIZE(ov5693_controls); i++)
-		v4l2_ctrl_new_custom(&ov5693->ctrl_handler,
-				     &ov5693_controls[i],
-				     NULL);
 
 	/* link freq */
 	ov5693->ctrls.link_freq = v4l2_ctrl_new_int_menu(&ov5693->ctrl_handler,
@@ -1765,10 +1446,6 @@ static int ov5693_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	ov5693->client = client;
-
-	/* check if VCM device exists */
-	/* TODO: read from SSDB */
-	ov5693->has_vcm = false;
 
 	mutex_init(&ov5693->lock);
 
