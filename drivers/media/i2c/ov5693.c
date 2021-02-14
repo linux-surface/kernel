@@ -526,41 +526,6 @@ err:
 }
 
 /* Exposure */
-
-static int ov5693_get_exposure(struct ov5693_device *ov5693)
-{
-	u32 exposure = 0;
-	u16 tmp;
-	int ret = 0;
-
-	/* get exposure */
-	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
-			      OV5693_EXPOSURE_L,
-			      &tmp);
-	if (ret)
-		return ret;
-
-	exposure |= ((tmp >> 4) & 0b1111);
-
-	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
-			      OV5693_EXPOSURE_M,
-			      &tmp);
-	if (ret)
-		return ret;
-
-	exposure |= (tmp << 4);
-	ret = ov5693_read_reg(ov5693->client, OV5693_8BIT,
-			      OV5693_EXPOSURE_H,
-			      &tmp);
-	if (ret)
-		return ret;
-
-	exposure |= (tmp << 12);
-
-	printk("exposure set to: %u\n", exposure);
-	return ret;
-}
-
 static int ov5693_exposure_configure(struct ov5693_device *ov5693, u32 exposure)
 {
 	int ret;
@@ -571,7 +536,6 @@ static int ov5693_exposure_configure(struct ov5693_device *ov5693, u32 exposure)
 	 */
 	exposure = exposure * 16;
 
-	ov5693_get_exposure(ov5693);
 	ret = ov5693_write_reg(ov5693->client, OV5693_8BIT,
 			OV5693_EXPOSURE_CTRL_HH_REG, OV5693_EXPOSURE_CTRL_HH(exposure));
 	if (ret)
@@ -586,7 +550,6 @@ static int ov5693_exposure_configure(struct ov5693_device *ov5693, u32 exposure)
 			OV5693_EXPOSURE_CTRL_L_REG, OV5693_EXPOSURE_CTRL_L(exposure));
 	if (ret)
 		return ret;
-	ov5693_get_exposure(ov5693);
 
 	return 0;
 }
