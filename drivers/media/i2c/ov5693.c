@@ -753,7 +753,7 @@ static int ov5693_sensor_init(struct ov5693_device *ov5693)
 		return ret;
 	}
 
-	ret = ov5693_write_reg_array(client, ov5693_res[ov5693->fmt_idx].regs);
+	ret = ov5693_write_reg_array(client, ov5693->mode->regs);
 	if (ret) {
 		dev_err(&client->dev, "ov5693 write register err.\n");
 		return ret;
@@ -866,128 +866,56 @@ out_unlock:
 	return ret;
 }
 
-/*
- * distance - calculate the distance
- * @res: resolution
- * @w: width
- * @h: height
- *
- * Get the gap between res_w/res_h and w/h.
- * distance = (res_w/res_h - w/h) / (w/h) * 8192
- * res->width/height smaller than w/h wouldn't be considered.
- * The gap of ratio larger than 1/8 wouldn't be considered.
- * Returns the value of gap or -1 if fail.
- */
-#define LARGEST_ALLOWED_RATIO_MISMATCH 1024
-static int distance(struct ov5693_resolution *res, u32 w, u32 h)
-{
-	int ratio;
-	int distance;
-
-	if (w == 0 || h == 0 ||
-	    res->width < w || res->height < h)
-		return -1;
-
-	ratio = res->width << 13;
-	ratio /= w;
-	ratio *= h;
-	ratio /= res->height;
-
-	distance = abs(ratio - 8192);
-
-	if (distance > LARGEST_ALLOWED_RATIO_MISMATCH)
-		return -1;
-
-	return distance;
-}
-
-/* Return the nearest higher resolution index
- * Firstly try to find the approximate aspect ratio resolution
- * If we find multiple same AR resolutions, choose the
- * minimal size.
- */
-static int nearest_resolution_index(int w, int h)
-{
-	int i;
-	int idx = -1;
-	int dist;
-	int min_dist = INT_MAX;
-	int min_res_w = INT_MAX;
-	struct ov5693_resolution *tmp_res = NULL;
-
-	for (i = 0; i < N_RES; i++) {
-		tmp_res = &ov5693_res[i];
-		dist = distance(tmp_res, w, h);
-		if (dist == -1)
-			continue;
-		if (dist < min_dist) {
-			min_dist = dist;
-			idx = i;
-			min_res_w = ov5693_res[i].width;
-			continue;
-		}
-		if (dist == min_dist && ov5693_res[i].width < min_res_w)
-			idx = i;
-	}
-
-	return idx;
-}
-
-static int get_resolution_index(int w, int h)
-{
-	int i;
-
-	for (i = 0; i < N_RES; i++) {
-		if (w != ov5693_res[i].width)
-			continue;
-		if (h != ov5693_res[i].height)
-			continue;
-
-		return i;
-	}
-
-	return -1;
-}
-
 static int ov5693_set_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *format)
 {
-	struct v4l2_mbus_framefmt *fmt = &format->format;
 	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	const struct ov5693_resolution *mode;
+	int exposure_max;
 	int ret = 0;
-	int idx;
+	int hblank;
 
 	if (format->pad)
 		return -EINVAL;
-	if (!fmt)
-		return -EINVAL;
 
 	mutex_lock(&ov5693->lock);
-	idx = nearest_resolution_index(fmt->width, fmt->height);
-	if (idx == -1) {
-		/* return the largest resolution */
-		fmt->width = ov5693_res[N_RES - 1].width;
-		fmt->height = ov5693_res[N_RES - 1].height;
-	} else {
-		fmt->width = ov5693_res[idx].width;
-		fmt->height = ov5693_res[idx].height;
-	}
 
-	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
+	mode = v4l2_find_nearest_size(ov5693_res_video, ARRAY_SIZE(ov5693_res_video),
+				      width, height, format->format.width,
+				      format->format.height);
+
+	if (!mode)
+		return -EINVAL;
+
+	format->format.width = mode->width;
+	format->format.height = mode->height;
+	format->format.code = MEDIA_BUS_FMT_SBGGR10_1X10;
+
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
-		cfg->try_fmt = *fmt;
-		ret = 0;
+		*v4l2_subdev_get_try_format(sd, cfg, format->pad) = format->format;
 		goto mutex_unlock;
 	}
 
-	ov5693->fmt_idx = get_resolution_index(fmt->width, fmt->height);
-	if (ov5693->fmt_idx == -1) {
-		dev_err(&client->dev, "get resolution fail\n");
-		ret = -EINVAL;
-		goto mutex_unlock;
-	}
+	ov5693->mode = mode;
+
+	/* Update limits and set FPS to default */
+	__v4l2_ctrl_modify_range(ov5693->ctrls.vblank,
+				 mode->lines_per_frame - mode->height,
+				 OV5693_TIMING_MAX_VTS - mode->height,
+				 1, mode->lines_per_frame - mode->height);
+	__v4l2_ctrl_s_ctrl(ov5693->ctrls.vblank,
+			   mode->lines_per_frame - mode->height);
+
+	hblank = mode->pixels_per_line - mode->width;
+	__v4l2_ctrl_modify_range(ov5693->ctrls.hblank, hblank, hblank, 1, hblank);
+
+	exposure_max = mode->lines_per_frame - 8;
+	__v4l2_ctrl_modify_range(ov5693->ctrls.exposure,
+				 ov5693->ctrls.exposure->minimum, exposure_max,
+				 ov5693->ctrls.exposure->step,
+				 ov5693->ctrls.exposure->val < exposure_max ?
+				 ov5693->ctrls.exposure->val : exposure_max);
 
 mutex_unlock:
 	mutex_unlock(&ov5693->lock);
@@ -1056,8 +984,8 @@ static int ov5693_get_fmt(struct v4l2_subdev *sd,
 	if (!fmt)
 		return -EINVAL;
 
-	fmt->width = ov5693_res[ov5693->fmt_idx].width;
-	fmt->height = ov5693_res[ov5693->fmt_idx].height;
+	fmt->width = ov5693->mode->width;
+	fmt->height = ov5693->mode->height;
 	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
 
 	return 0;
@@ -1174,7 +1102,7 @@ static int ov5693_g_frame_interval(struct v4l2_subdev *sd,
 	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 
 	interval->interval.numerator = 1;
-	interval->interval.denominator = ov5693_res[ov5693->fmt_idx].fps;
+	interval->interval.denominator = ov5693->mode->fps;
 
 	return 0;
 }
