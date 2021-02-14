@@ -127,8 +127,8 @@ struct ov5693_resolution {
 	u8 *desc;
 	const struct ov5693_reg *regs;
 	int res;
-	int width;
-	int height;
+	u32 width;
+	u32 height;
 	int fps;
 	int pix_clk_freq;
 	u16 pixels_per_line;
@@ -178,7 +178,6 @@ struct ov5693_device {
 	struct camera_sensor_platform_data *platform_data;
 	ktime_t timestamp_t_focus_abs;
 	int vt_pix_clk_freq_mhz;
-	int fmt_idx;
 	int run_mode;
 	int otp_size;
 	u8 *otp_data;
