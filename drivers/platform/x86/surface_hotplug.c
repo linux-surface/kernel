@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * Surface Book (gen. 2 and later) hot-plug driver.
+ * Surface Book (2 and later) hot-plug driver.
  *
  * Surface Book devices (can) have a hot-pluggable discrete GPU (dGPU). This
  * driver is responsible for out-of-band hot-plug event signaling on these
@@ -10,7 +10,7 @@
  * Event signaling is handled via ACPI, which will generate the appropriate
  * device-check notifications to be picked up by the PCIe hot-plug driver.
  *
- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
@@ -40,8 +40,7 @@ static const struct acpi_gpio_mapping shps_acpi_gpios[] = {
 
 /* 5515a847-ed55-4b27-8352-cd320e10360a */
 static const guid_t shps_dsm_guid =
-	GUID_INIT(0x5515a847, 0xed55, 0x4b27, 0x83, 0x52, 0xcd,
-		  0x32, 0x0e, 0x10, 0x36, 0x0a);
+	GUID_INIT(0x5515a847, 0xed55, 0x4b27, 0x83, 0x52, 0xcd, 0x32, 0x0e, 0x10, 0x36, 0x0a);
 
 #define SHPS_DSM_REVISION		1
 
@@ -54,11 +53,10 @@ enum shps_dsm_fn {
 };
 
 enum shps_irq_type {
-	/* NOTE: Must be in order of DSM function */
+	/* NOTE: Must be in order of enum shps_dsm_fn above. */
 	SHPS_IRQ_TYPE_BASE_PRESENCE	= 0,
 	SHPS_IRQ_TYPE_DEVICE_POWER	= 1,
 	SHPS_IRQ_TYPE_DEVICE_PRESENCE	= 2,
-
 	SHPS_NUM_IRQS,
 };
 
@@ -69,15 +67,19 @@ static const char *const shps_gpio_names[] = {
 };
 
 struct shps_device {
-	struct mutex lock[SHPS_NUM_IRQS];
+	struct mutex lock[SHPS_NUM_IRQS];  /* Protects update in shps_dsm_notify_irq() */
 	struct gpio_desc *gpio[SHPS_NUM_IRQS];
 	unsigned int irq[SHPS_NUM_IRQS];
 };
 
 #define SHPS_IRQ_NOT_PRESENT		((unsigned int)-1)
 
-static void shps_dsm_notify_irq(struct platform_device *pdev,
-				enum shps_irq_type type)
+static enum shps_dsm_fn shps_dsm_fn_for_irq(enum shps_irq_type type)
+{
+	return SHPS_DSM_FN_IRQ_BASE_PRESENCE + type;
+}
+
+static void shps_dsm_notify_irq(struct platform_device *pdev, enum shps_irq_type type)
 {
 	struct shps_device *sdev = platform_get_drvdata(pdev);
 	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
@@ -90,42 +92,37 @@ static void shps_dsm_notify_irq(struct platform_device *pdev,
 	value = gpiod_get_value_cansleep(sdev->gpio[type]);
 	if (value < 0) {
 		mutex_unlock(&sdev->lock[type]);
-		dev_err(&pdev->dev, "failed to get gpio: %d (irq=%d)\n",
-			type, value);
+		dev_err(&pdev->dev, "failed to get gpio: %d (irq=%d)\n", type, value);
 		return;
 	}
 
-	dev_dbg(&pdev->dev, "IRQ notification via DSM (irq=%d, value=%d)\n",
-		type, value);
+	dev_dbg(&pdev->dev, "IRQ notification via DSM (irq=%d, value=%d)\n", type, value);
 
 	param.type = ACPI_TYPE_INTEGER;
 	param.integer.value = value;
 
 	result = acpi_evaluate_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION,
-				   SHPS_DSM_FN_IRQ_BASE_PRESENCE + type, &param);
+				   shps_dsm_fn_for_irq(type), &param);
 
 	if (!result) {
-		mutex_unlock(&sdev->lock[type]);
-		dev_err(&pdev->dev,
-			"IRQ notification via DSM failed (irq=%d, gpio=%d)\n",
+		dev_err(&pdev->dev, "IRQ notification via DSM failed (irq=%d, gpio=%d)\n",
 			type, value);
-		return;
-	}
 
-	if (result->type != ACPI_TYPE_BUFFER) {
+	} else if (result->type != ACPI_TYPE_BUFFER) {
 		dev_err(&pdev->dev,
 			"IRQ notification via DSM failed: unexpected result type (irq=%d, gpio=%d)\n",
 			type, value);
-	}
 
-	if (result->buffer.length != 1 || result->buffer.pointer[0] != 0) {
+	} else if (result->buffer.length != 1 || result->buffer.pointer[0] != 0) {
 		dev_err(&pdev->dev,
 			"IRQ notification via DSM failed: unexpected result value (irq=%d, gpio=%d)\n",
 			type, value);
 	}
 
 	mutex_unlock(&sdev->lock[type]);
-	ACPI_FREE(result);
+
+	if (result)
+		ACPI_FREE(result);
 }
 
 static irqreturn_t shps_handle_irq(int irq, void *data)
@@ -155,17 +152,16 @@ static int shps_setup_irq(struct platform_device *pdev, enum shps_irq_type type)
 	struct gpio_desc *gpiod;
 	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
 	const char *irq_name;
-	const int dsm = SHPS_DSM_FN_IRQ_BASE_PRESENCE + type;
+	const int dsm = shps_dsm_fn_for_irq(type);
 	int status, irq;
 
-	/* Initialize as "not present". */
-	sdev->gpio[type] = NULL;
-	sdev->irq[type] = SHPS_IRQ_NOT_PRESENT;
-
-	/* Only set up interrupts that we actually need. */
+	/*
+	 * Only set up interrupts that we actually need: The Surface Book 3
+	 * does not have a DSM for base presence, so don't set up an interrupt
+	 * for that.
+	 */
 	if (!acpi_check_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION, BIT(dsm))) {
-		dev_dbg(&pdev->dev, "IRQ notification via DSM not present (irq=%d)\n",
-			type);
+		dev_dbg(&pdev->dev, "IRQ notification via DSM not present (irq=%d)\n", type);
 		return 0;
 	}
 
@@ -194,11 +190,33 @@ static int shps_setup_irq(struct platform_device *pdev, enum shps_irq_type type)
 	return 0;
 }
 
+static int surface_hotplug_remove(struct platform_device *pdev)
+{
+	struct shps_device *sdev = platform_get_drvdata(pdev);
+	int i;
+
+	/* Ensure that IRQs have been fully handled and won't trigger any more. */
+	for (i = 0; i < SHPS_NUM_IRQS; i++) {
+		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
+			disable_irq(sdev->irq[i]);
+
+		mutex_destroy(&sdev->lock[i]);
+	}
+
+	return 0;
+}
+
 static int surface_hotplug_probe(struct platform_device *pdev)
 {
 	struct shps_device *sdev;
 	int status, i;
 
+	/*
+	 * The MSHW0153 device is also present on the Surface Laptop 3,
+	 * however that doesn't have a hot-pluggable PCIe device. It also
+	 * doesn't have any GPIO interrupts/pins under the MSHW0153, so filter
+	 * it out here.
+	 */
 	if (gpiod_count(&pdev->dev, NULL) < 0)
 		return -ENODEV;
 
@@ -212,15 +230,21 @@ static int surface_hotplug_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, sdev);
 
+	/*
+	 * Initialize IRQs so that we can safely call surface_hotplug_remove()
+	 * on errors.
+	 */
+	for (i = 0; i < SHPS_NUM_IRQS; i++)
+		sdev->irq[i] = SHPS_IRQ_NOT_PRESENT;
+
 	/* Set up IRQs. */
 	for (i = 0; i < SHPS_NUM_IRQS; i++) {
 		mutex_init(&sdev->lock[i]);
 
 		status = shps_setup_irq(pdev, i);
 		if (status) {
-			dev_err(&pdev->dev, "failed to set up IRQ %d: %d\n",
-				i, status);
-			return status;
+			dev_err(&pdev->dev, "failed to set up IRQ %d: %d\n", i, status);
+			goto err;
 		}
 	}
 
@@ -230,19 +254,10 @@ static int surface_hotplug_probe(struct platform_device *pdev)
 			shps_dsm_notify_irq(pdev, i);
 
 	return 0;
-}
 
-static int surface_hotplug_remove(struct platform_device *pdev)
-{
-	struct shps_device *sdev = platform_get_drvdata(pdev);
-	int i;
-
-	/* Ensure that IRQs have been fully handled and won't trigger any more. */
-	for (i = 0; i < SHPS_NUM_IRQS; i++)
-		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
-			disable_irq(sdev->irq[i]);
-
-	return 0;
+err:
+	surface_hotplug_remove(pdev);
+	return status;
 }
 
 static const struct acpi_device_id surface_hotplug_acpi_match[] = {
