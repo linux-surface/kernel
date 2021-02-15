@@ -57,6 +57,11 @@
 #define OV7251_PLL2_SYS_DIVIDER_REG	0x309a
 #define OV7251_PLL2_ADC_DIVIDER_REG	0x309b
 
+#define OV7251_VBLANK_MIN		0x04
+#define OV7251_VBLANK_MAX		0xffff
+#define OV7251_VTS_REG_HIGH		0x380e
+#define OV7251_VTS_REG_LOW		0x380f
+
 struct reg_value {
 	u16 reg;
 	u8 val;
@@ -65,6 +70,8 @@ struct reg_value {
 struct ov7251_mode_info {
 	u32 width;
 	u32 height;
+	u32 hts;
+	u32 vts;
 	const struct reg_value *data;
 	u32 data_size;
 	u32 pixel_clock;
@@ -98,6 +105,8 @@ struct ov7251 {
 	struct v4l2_ctrl *link_freq;
 	struct v4l2_ctrl *exposure;
 	struct v4l2_ctrl *gain;
+	struct v4l2_ctrl *hblank;
+	struct v4l2_ctrl *vblank;
 
 	/* Cached register values */
 	u8 aec_pk_manual;
@@ -594,6 +603,8 @@ static const struct ov7251_mode_info ov7251_mode_info_data[] = {
 	{
 		.width = 640,
 		.height = 480,
+		.hts = 928,
+		.vts = 1724,
 		.data = ov7251_setting_vga_30fps,
 		.data_size = ARRAY_SIZE(ov7251_setting_vga_30fps),
 		.pixel_clock = 48000000,
@@ -608,6 +619,8 @@ static const struct ov7251_mode_info ov7251_mode_info_data[] = {
 	{
 		.width = 640,
 		.height = 480,
+		.hts = 928,
+		.vts = 860,
 		.data = ov7251_setting_vga_60fps,
 		.data_size = ARRAY_SIZE(ov7251_setting_vga_60fps),
 		.pixel_clock = 48000000,
@@ -622,6 +635,8 @@ static const struct ov7251_mode_info ov7251_mode_info_data[] = {
 	{
 		.width = 640,
 		.height = 480,
+		.hts = 928,
+		.vts = 572,
 		.data = ov7251_setting_vga_90fps,
 		.data_size = ARRAY_SIZE(ov7251_setting_vga_90fps),
 		.pixel_clock = 48000000,
@@ -1024,6 +1039,22 @@ static int ov7251_set_test_pattern(struct ov7251 *ov7251, s32 value)
 	return ret;
 }
 
+static int ov7251_set_vblank(struct ov7251 *ov7251, s32 value)
+{
+	u16 val = ov7251->current_mode->height + value;
+	int ret;
+
+	ret = ov7251_write_reg(ov7251, OV7251_VTS_REG_HIGH, val >> 8);
+	if (ret)
+		return ret;
+
+	ret = ov7251_write_reg(ov7251, OV7251_VTS_REG_LOW, val & 0xff);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 static const char * const ov7251_test_pattern_menu[] = {
 	"Disabled",
 	"Vertical Pattern Bars",
@@ -1055,6 +1086,9 @@ static int ov7251_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_VFLIP:
 		ret = ov7251_set_vflip(ov7251, ctrl->val);
+		break;
+	case V4L2_CID_VBLANK:
+		ret = ov7251_set_vblank(ov7251, ctrl->val);
 		break;
 	default:
 		ret = -EINVAL;
@@ -1244,6 +1278,10 @@ static int ov7251_set_format(struct v4l2_subdev *sd,
 		ret = __v4l2_ctrl_s_ctrl(ov7251->gain, 16);
 		if (ret < 0)
 			goto exit;
+
+		ret = __v4l2_ctrl_modify_range(ov7251->vblank, OV7251_VBLANK_MIN,
+					       OV7251_VBLANK_MAX - ov7251->current_mode->height,
+					       1, ov7251->current_mode->vts - ov7251->current_mode->height);
 
 		ov7251->current_mode = new_mode;
 	}
@@ -1451,6 +1489,9 @@ static int ov7251_configure_regulators(struct ov7251 *ov7251)
 
 static int ov7251_init_controls(struct ov7251 *ov7251)
 {
+	int vblank_max, vblank_def;
+	int hblank;
+
 	v4l2_ctrl_handler_init(&ov7251->ctrls, 7);
 	ov7251->ctrls.lock = &ov7251->lock;
 
@@ -1477,6 +1518,20 @@ static int ov7251_init_controls(struct ov7251 *ov7251)
 						   0, link_freq);
 	if (ov7251->link_freq)
 		ov7251->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	hblank = ov7251->current_mode->hts - ov7251->current_mode->width;
+	ov7251->hblank = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+					   V4L2_CID_HBLANK, hblank, hblank, 1,
+					   hblank);
+
+	if (ov7251->hblank)
+		ov7251->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	vblank_max = OV7251_VBLANK_MAX - ov7251->current_mode->height;
+	vblank_def = ov7251->current_mode->vts - ov7251->current_mode->height;
+	ov7251->vblank = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+					   V4L2_CID_VBLANK, OV7251_VBLANK_MIN,
+					   vblank_max, 1, vblank_def);
 
 	ov7251->sd.ctrl_handler = &ov7251->ctrls;
 
@@ -1570,6 +1625,9 @@ static int ov7251_probe(struct i2c_client *client)
 	}
 
 	mutex_init(&ov7251->lock);
+
+	/* set highest resolution as initial mode */
+	ov7251->current_mode = &ov7251_mode_info_data[0];
 
 	ret = ov7251_init_controls(ov7251);
 	if (ret)
