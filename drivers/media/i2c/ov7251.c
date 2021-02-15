@@ -1275,6 +1275,47 @@ static int ov7251_configure_regulators(struct ov7251 *ov7251)
 	return 0;
 }
 
+static int ov7251_init_controls(struct ov7251 *ov7251)
+{
+	v4l2_ctrl_handler_init(&ov7251->ctrls, 7);
+	ov7251->ctrls.lock = &ov7251->lock;
+
+	v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+			  V4L2_CID_HFLIP, 0, 1, 1, 0);
+	v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+			  V4L2_CID_VFLIP, 0, 1, 1, 0);
+	ov7251->exposure = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+					     V4L2_CID_EXPOSURE, 1, 32, 1, 32);
+	ov7251->gain = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+					 V4L2_CID_GAIN, 16, 1023, 1, 16);
+	v4l2_ctrl_new_std_menu_items(&ov7251->ctrls, &ov7251_ctrl_ops,
+				     V4L2_CID_TEST_PATTERN,
+				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
+				     0, 0, ov7251_test_pattern_menu);
+	ov7251->pixel_clock = v4l2_ctrl_new_std(&ov7251->ctrls,
+						&ov7251_ctrl_ops,
+						V4L2_CID_PIXEL_RATE,
+						1, INT_MAX, 1, 1);
+	ov7251->link_freq = v4l2_ctrl_new_int_menu(&ov7251->ctrls,
+						   &ov7251_ctrl_ops,
+						   V4L2_CID_LINK_FREQ,
+						   ARRAY_SIZE(link_freq) - 1,
+						   0, link_freq);
+	if (ov7251->link_freq)
+		ov7251->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	ov7251->sd.ctrl_handler = &ov7251->ctrls;
+
+	if (ov7251->ctrls.error) {
+		dev_err(ov7251->dev, "%s: control initialization error %d\n",
+			__func__, ov7251->ctrls.error);
+		v4l2_ctrl_handler_free(&ov7251->ctrls);
+		return ov7251->ctrls.error;
+	}
+
+	return 0;
+}
+
 static int ov7251_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
@@ -1348,41 +1389,9 @@ static int ov7251_probe(struct i2c_client *client)
 
 	mutex_init(&ov7251->lock);
 
-	v4l2_ctrl_handler_init(&ov7251->ctrls, 7);
-	ov7251->ctrls.lock = &ov7251->lock;
-
-	v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
-			  V4L2_CID_HFLIP, 0, 1, 1, 0);
-	v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
-			  V4L2_CID_VFLIP, 0, 1, 1, 0);
-	ov7251->exposure = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
-					     V4L2_CID_EXPOSURE, 1, 32, 1, 32);
-	ov7251->gain = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
-					 V4L2_CID_GAIN, 16, 1023, 1, 16);
-	v4l2_ctrl_new_std_menu_items(&ov7251->ctrls, &ov7251_ctrl_ops,
-				     V4L2_CID_TEST_PATTERN,
-				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
-				     0, 0, ov7251_test_pattern_menu);
-	ov7251->pixel_clock = v4l2_ctrl_new_std(&ov7251->ctrls,
-						&ov7251_ctrl_ops,
-						V4L2_CID_PIXEL_RATE,
-						1, INT_MAX, 1, 1);
-	ov7251->link_freq = v4l2_ctrl_new_int_menu(&ov7251->ctrls,
-						   &ov7251_ctrl_ops,
-						   V4L2_CID_LINK_FREQ,
-						   ARRAY_SIZE(link_freq) - 1,
-						   0, link_freq);
-	if (ov7251->link_freq)
-		ov7251->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	ov7251->sd.ctrl_handler = &ov7251->ctrls;
-
-	if (ov7251->ctrls.error) {
-		dev_err(dev, "%s: control initialization error %d\n",
-			__func__, ov7251->ctrls.error);
-		ret = ov7251->ctrls.error;
-		goto free_ctrl;
-	}
+	ret = ov7251_init_controls(ov7251);
+	if (ret)
+		return ret;
 
 	v4l2_i2c_subdev_init(&ov7251->sd, client, &ov7251_subdev_ops);
 	ov7251->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
@@ -1393,7 +1402,7 @@ static int ov7251_probe(struct i2c_client *client)
 	ret = media_entity_pads_init(&ov7251->sd.entity, 1, &ov7251->pad);
 	if (ret < 0) {
 		dev_err(dev, "could not register media entity\n");
-		goto free_ctrl;
+		goto out_unlock;
 	}
 
 	ret = ov7251_s_power(&ov7251->sd, true);
@@ -1471,8 +1480,7 @@ power_down:
 	ov7251_s_power(&ov7251->sd, false);
 free_entity:
 	media_entity_cleanup(&ov7251->sd.entity);
-free_ctrl:
-	v4l2_ctrl_handler_free(&ov7251->ctrls);
+out_unlock:
 	mutex_destroy(&ov7251->lock);
 
 	return ret;
