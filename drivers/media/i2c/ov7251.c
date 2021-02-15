@@ -15,6 +15,7 @@
 #include <linux/i2c.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -76,6 +77,7 @@ struct ov7251 {
 	struct regulator *analog_regulator;
 
 	const struct ov7251_mode_info *current_mode;
+	bool streaming;
 
 	struct v4l2_ctrl_handler ctrls;
 	struct v4l2_ctrl *pixel_clock;
@@ -803,6 +805,68 @@ exit:
 	return ret;
 }
 
+static int ov7251_sensor_resume(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov7251 *ov7251 = to_ov7251(sd);
+	int ret;
+
+	mutex_lock(&ov7251->lock);
+
+	ret = ov7251_set_power_on(ov7251);
+	if (ret < 0)
+		goto out_unlock;
+
+	ret = ov7251_set_register_array(ov7251,
+					ov7251_global_init_setting,
+					ARRAY_SIZE(ov7251_global_init_setting));
+	if (ret < 0) {
+		dev_err(dev, "could not set init registers\n");
+		goto err_power;
+	}
+
+	ov7251->power_on = true;
+
+	if (ov7251->streaming) {
+		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
+				       OV7251_SC_MODE_SELECT_STREAMING);
+		if (ret) {
+			dev_err(dev, "could not re-start streaming\n");
+			goto err_power;
+		}
+	}
+
+err_power:
+	ov7251_set_power_off(ov7251);
+out_unlock:
+	mutex_unlock(&ov7251->lock);
+	return ret;
+}
+
+static int ov7251_sensor_suspend(struct device *dev)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov7251 *ov7251 = to_ov7251(sd);
+	int ret;
+
+	mutex_lock(&ov7251->lock);
+
+	if (ov7251->streaming) {
+		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
+				       OV7251_SC_MODE_SELECT_SW_STANDBY);
+		if (ret)
+			goto out_unlock;
+	}
+
+	ov7251_set_power_off(ov7251);
+
+out_unlock:
+	mutex_unlock(&ov7251->lock);
+	return ret;
+}
+
 static int ov7251_set_hflip(struct ov7251 *ov7251, s32 value)
 {
 	u8 val = ov7251->timing_format2;
@@ -1140,6 +1204,13 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
 	mutex_lock(&ov7251->lock);
 
 	if (enable) {
+
+		ret = pm_runtime_get_sync(ov7251->dev);
+		if (ret < 0) {
+			pm_runtime_put_noidle(ov7251->dev);
+			return ret;
+		}
+
 		ret = ov7251_set_register_array(ov7251,
 					ov7251->current_mode->data,
 					ov7251->current_mode->data_size);
@@ -1159,6 +1230,8 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
 	} else {
 		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
 				       OV7251_SC_MODE_SELECT_SW_STANDBY);
+
+		pm_runtime_put(ov7251->dev);
 	}
 
 exit:
@@ -1407,7 +1480,7 @@ static int ov7251_probe(struct i2c_client *client)
 		goto out_unlock;
 	}
 
-	ret = ov7251_s_power(&ov7251->sd, true);
+	ret = ov7251_set_power_on(ov7251);
 	if (ret < 0) {
 		dev_err(dev, "could not power up OV7251\n");
 		goto free_entity;
@@ -1466,7 +1539,7 @@ static int ov7251_probe(struct i2c_client *client)
 		goto power_down;
 	}
 
-	ov7251_s_power(&ov7251->sd, false);
+	ov7251_set_power_off(ov7251);
 
 	ret = v4l2_async_register_subdev(&ov7251->sd);
 	if (ret < 0) {
@@ -1476,10 +1549,13 @@ static int ov7251_probe(struct i2c_client *client)
 
 	ov7251_entity_init_cfg(&ov7251->sd, NULL);
 
+	pm_runtime_enable(dev);
+	pm_runtime_set_suspended(dev);
+
 	return 0;
 
 power_down:
-	ov7251_s_power(&ov7251->sd, false);
+	ov7251_set_power_off(ov7251);
 free_entity:
 	media_entity_cleanup(&ov7251->sd.entity);
 out_unlock:
@@ -1501,6 +1577,10 @@ static int ov7251_remove(struct i2c_client *client)
 	return 0;
 }
 
+static const struct dev_pm_ops ov7251_pm_ops = {
+	SET_RUNTIME_PM_OPS(ov7251_sensor_suspend, ov7251_sensor_resume, NULL)
+};
+
 static const struct of_device_id ov7251_of_match[] = {
 	{ .compatible = "ovti,ov7251" },
 	{ /* sentinel */ }
@@ -1518,6 +1598,7 @@ static struct i2c_driver ov7251_i2c_driver = {
 		.of_match_table = ov7251_of_match,
 		.acpi_match_table = ov7251_acpi_match,
 		.name  = "ov7251",
+		.pm = &ov7251_pm_ops,
 	},
 	.probe_new  = ov7251_probe,
 	.remove = ov7251_remove,
