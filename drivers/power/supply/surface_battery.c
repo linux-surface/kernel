@@ -1,35 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * Surface battery and AC device driver.
+ * Battery driver for 7th-generation Microsoft Surface devices via Surface
+ * System Aggregator Module (SSAM).
  *
- * Provides support for battery and AC devices connected via the Surface
- * System Aggregator Module.
- *
- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <asm/unaligned.h>
-#include <linux/delay.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/power_supply.h>
+#include <linux/sysfs.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
 #include <linux/surface_aggregator/device.h>
 
-#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
 
-
-/* -- Module parameters. ---------------------------------------------------- */
-
-static unsigned int cache_time = 1000;
-module_param(cache_time, uint, 0644);
-MODULE_PARM_DESC(cache_time, "battery state caching time in milliseconds [default: 1000]");
-
-
-/* -- SAM Interface. -------------------------------------------------------- */
+/* -- SAM interface. -------------------------------------------------------- */
 
 enum sam_event_cid_bat {
 	SAM_EVENT_CID_BAT_BIX         = 0x15,
@@ -55,7 +45,7 @@ enum sam_battery_power_unit {
 	SAM_BATTERY_POWER_UNIT_mA     = 1,
 };
 
-/* Equivalent to data returned in ACPI _BIX method, revision 0 */
+/* Equivalent to data returned in ACPI _BIX method, revision 0. */
 struct spwr_bix {
 	u8  revision;
 	__le32 power_unit;
@@ -79,9 +69,7 @@ struct spwr_bix {
 	__u8 oem_info[21];
 } __packed;
 
-#define SPWR_BIX_REVISION		0
-
-/* Equivalent to data returned in ACPI _BST method */
+/* Equivalent to data returned in ACPI _BST method. */
 struct spwr_bst {
 	__le32 state;
 	__le32 present_rate;
@@ -89,6 +77,7 @@ struct spwr_bst {
 	__le32 present_voltage;
 } __packed;
 
+#define SPWR_BIX_REVISION		0
 #define SPWR_BATTERY_VALUE_UNKNOWN	0xffffffff
 
 /* Get battery status (_STA) */
@@ -97,65 +86,26 @@ static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
 	.command_id      = 0x01,
 });
 
-/* Get battery static information (_BIX) */
+/* Get battery static information (_BIX). */
 static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bix, struct spwr_bix, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x02,
 });
 
-/* Get battery dynamic information (_BST) */
+/* Get battery dynamic information (_BST). */
 static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x03,
 });
 
-/* Set battery trip point (_BTP) */
+/* Set battery trip point (_BTP). */
 static SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x04,
 });
 
-/* Get platform power source for battery (DPTF PSRC). */
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
-	.target_category = SSAM_SSH_TC_BAT,
-	.command_id      = 0x0d,
-});
 
-/*
- * The following requests are currently unused. They are nevertheless included
- * for documentation of the SAM interface.
- */
-
-/* Get maximum platform power for battery (DPTF PMAX) */
-__always_unused
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_pmax, __le32, {
-	.target_category = SSAM_SSH_TC_BAT,
-	.command_id      = 0x0b,
-});
-
-/* Get adapter rating (DPTF ARTG) */
-__always_unused
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_artg, __le32, {
-	.target_category = SSAM_SSH_TC_BAT,
-	.command_id      = 0x0f,
-});
-
-/* Unknown (DPTF PSOC) */
-__always_unused
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psoc, __le32, {
-	.target_category = SSAM_SSH_TC_BAT,
-	.command_id      = 0x0c,
-});
-
-/* Unknown (DPTF CHGI/ INT3403 SPPC) */
-__always_unused
-static SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_chgi, __le32, {
-	.target_category = SSAM_SSH_TC_BAT,
-	.command_id      = 0x0e,
-});
-
-
-/* -- Common power-subsystem interface. ------------------------------------- */
+/* -- Device structures. ---------------------------------------------------- */
 
 struct spwr_psy_properties {
 	const char *name;
@@ -173,7 +123,7 @@ struct spwr_battery_device {
 
 	struct ssam_event_notifier notif;
 
-	struct mutex lock;
+	struct mutex lock;  /* Guards access to state data below. */
 	unsigned long timestamp;
 
 	__le32 sta;
@@ -182,73 +132,41 @@ struct spwr_battery_device {
 	u32 alarm;
 };
 
-struct spwr_ac_device {
-	struct ssam_device *sdev;
 
-	char name[32];
-	struct power_supply *psy;
-	struct power_supply_desc psy_desc;
+/* -- Module parameters. ---------------------------------------------------- */
 
-	struct ssam_event_notifier notif;
+static unsigned int cache_time = 1000;
+module_param(cache_time, uint, 0644);
+MODULE_PARM_DESC(cache_time, "battery state caching time in milliseconds [default: 1000]");
 
-	struct mutex lock;
 
-	__le32 state;
-};
+/* -- State management. ----------------------------------------------------- */
 
-static enum power_supply_property spwr_ac_props[] = {
-	POWER_SUPPLY_PROP_ONLINE,
-};
-
-static enum power_supply_property spwr_battery_props_chg[] = {
-	POWER_SUPPLY_PROP_STATUS,
-	POWER_SUPPLY_PROP_PRESENT,
-	POWER_SUPPLY_PROP_TECHNOLOGY,
-	POWER_SUPPLY_PROP_CYCLE_COUNT,
-	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
-	POWER_SUPPLY_PROP_VOLTAGE_NOW,
-	POWER_SUPPLY_PROP_CURRENT_NOW,
-	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
-	POWER_SUPPLY_PROP_CHARGE_FULL,
-	POWER_SUPPLY_PROP_CHARGE_NOW,
-	POWER_SUPPLY_PROP_CAPACITY,
-	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
-	POWER_SUPPLY_PROP_MODEL_NAME,
-	POWER_SUPPLY_PROP_MANUFACTURER,
-	POWER_SUPPLY_PROP_SERIAL_NUMBER,
-};
-
-static enum power_supply_property spwr_battery_props_eng[] = {
-	POWER_SUPPLY_PROP_STATUS,
-	POWER_SUPPLY_PROP_PRESENT,
-	POWER_SUPPLY_PROP_TECHNOLOGY,
-	POWER_SUPPLY_PROP_CYCLE_COUNT,
-	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
-	POWER_SUPPLY_PROP_VOLTAGE_NOW,
-	POWER_SUPPLY_PROP_POWER_NOW,
-	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
-	POWER_SUPPLY_PROP_ENERGY_FULL,
-	POWER_SUPPLY_PROP_ENERGY_NOW,
-	POWER_SUPPLY_PROP_CAPACITY,
-	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
-	POWER_SUPPLY_PROP_MODEL_NAME,
-	POWER_SUPPLY_PROP_MANUFACTURER,
-	POWER_SUPPLY_PROP_SERIAL_NUMBER,
-};
+/*
+ * Delay for battery update quirk. See spwr_battery_recheck_adapter() below
+ * for more details.
+ */
+#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
 
 static bool spwr_battery_present(struct spwr_battery_device *bat)
 {
+	lockdep_assert_held(&bat->lock);
+
 	return le32_to_cpu(bat->sta) & SAM_BATTERY_STA_PRESENT;
 }
 
 static int spwr_battery_load_sta(struct spwr_battery_device *bat)
 {
+	lockdep_assert_held(&bat->lock);
+
 	return ssam_retry(ssam_bat_get_sta, bat->sdev, &bat->sta);
 }
 
 static int spwr_battery_load_bix(struct spwr_battery_device *bat)
 {
 	int status;
+
+	lockdep_assert_held(&bat->lock);
 
 	if (!spwr_battery_present(bat))
 		return 0;
@@ -266,39 +184,31 @@ static int spwr_battery_load_bix(struct spwr_battery_device *bat)
 
 static int spwr_battery_load_bst(struct spwr_battery_device *bat)
 {
+	lockdep_assert_held(&bat->lock);
+
 	if (!spwr_battery_present(bat))
 		return 0;
 
 	return ssam_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
 }
 
-static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat,
-					   u32 value)
+static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
 {
 	__le32 value_le = cpu_to_le32(value);
+
+	lockdep_assert_held(&bat->lock);
 
 	bat->alarm = value;
 	return ssam_retry(ssam_bat_set_btp, bat->sdev, &value_le);
 }
 
-static int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
+static int spwr_battery_update_bst_unlocked(struct spwr_battery_device *bat, bool cached)
 {
+	unsigned long cache_deadline = bat->timestamp + msecs_to_jiffies(cache_time);
 	int status;
 
-	mutex_lock(&bat->lock);
-	status = spwr_battery_set_alarm_unlocked(bat, value);
-	mutex_unlock(&bat->lock);
+	lockdep_assert_held(&bat->lock);
 
-	return status;
-}
-
-static int spwr_battery_update_bst_unlocked(struct spwr_battery_device *bat,
-					    bool cached)
-{
-	unsigned long cache_deadline;
-	int status;
-
-	cache_deadline = bat->timestamp + msecs_to_jiffies(cache_time);
 	if (cached && bat->timestamp && time_is_after_jiffies(cache_deadline))
 		return 0;
 
@@ -329,6 +239,8 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
 {
 	int status;
 
+	lockdep_assert_held(&bat->lock);
+
 	status = spwr_battery_load_sta(bat);
 	if (status)
 		return status;
@@ -341,41 +253,18 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
 	if (status)
 		return status;
 
-	if (bat->bix.revision != SPWR_BIX_REVISION) {
-		dev_warn(&bat->sdev->dev, "unsupported battery revision: %u\n",
-			 bat->bix.revision);
-	}
+	if (bat->bix.revision != SPWR_BIX_REVISION)
+		dev_warn(&bat->sdev->dev, "unsupported battery revision: %u\n", bat->bix.revision);
 
 	bat->timestamp = jiffies;
 	return 0;
 }
 
-static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
-{
-	int status;
-	u32 old = ac->state;
-
-	status = ssam_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
-	if (status < 0)
-		return status;
-
-	return old != ac->state;
-}
-
-static int spwr_ac_update(struct spwr_ac_device *ac)
-{
-	int status;
-
-	mutex_lock(&ac->lock);
-	status = spwr_ac_update_unlocked(ac);
-	mutex_unlock(&ac->lock);
-
-	return status;
-}
-
 static u32 sprw_battery_get_full_cap_safe(struct spwr_battery_device *bat)
 {
 	u32 full_cap = get_unaligned_le32(&bat->bix.last_full_charge_cap);
+
+	lockdep_assert_held(&bat->lock);
 
 	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
 		full_cap = get_unaligned_le32(&bat->bix.design_cap);
@@ -388,6 +277,8 @@ static bool spwr_battery_is_full(struct spwr_battery_device *bat)
 	u32 state = get_unaligned_le32(&bat->bst.state);
 	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
 	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
+
+	lockdep_assert_held(&bat->lock);
 
 	return full_cap != SPWR_BATTERY_VALUE_UNKNOWN && full_cap != 0 &&
 		remaining_cap != SPWR_BATTERY_VALUE_UNKNOWN &&
@@ -460,24 +351,10 @@ static int spwr_battery_recheck_adapter(struct spwr_battery_device *bat)
 	return 0;
 }
 
-static int spwr_ac_recheck(struct spwr_ac_device *ac)
+static u32 spwr_notify_bat(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
+	struct spwr_battery_device *bat = container_of(nf, struct spwr_battery_device, notif);
 	int status;
-
-	status = spwr_ac_update(ac);
-	if (status > 0)
-		power_supply_changed(ac->psy);
-
-	return status >= 0 ? 0 : status;
-}
-
-static u32 spwr_notify_bat(struct ssam_event_notifier *nf,
-			   const struct ssam_event *event)
-{
-	struct spwr_battery_device *bat;
-	int status;
-
-	bat = container_of(nf, struct spwr_battery_device, notif);
 
 	dev_dbg(&bat->sdev->dev, "power event (cid = %#04x, iid = %#04x, tid = %#04x)\n",
 		event->command_id, event->instance_id, event->target_id);
@@ -525,36 +402,6 @@ static u32 spwr_notify_bat(struct ssam_event_notifier *nf,
 	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 }
 
-static u32 spwr_notify_ac(struct ssam_event_notifier *nf,
-			  const struct ssam_event *event)
-{
-	struct spwr_ac_device *ac;
-	int status;
-
-	ac = container_of(nf, struct spwr_ac_device, notif);
-
-	dev_dbg(&ac->sdev->dev, "power event (cid = %#04x, iid = %#04x, tid = %#04x)\n",
-		event->command_id, event->instance_id, event->target_id);
-
-	/*
-	 * Allow events of all targets/instances here. Global adapter status
-	 * seems to be handled via target=1 and instance=1, but events are
-	 * reported on all targets/instances in use.
-	 *
-	 * While it should be enough to just listen on 1/1, listen everywhere to
-	 * make sure we don't miss anything.
-	 */
-
-	switch (event->command_id) {
-	case SAM_EVENT_CID_BAT_ADP:
-		status = spwr_ac_recheck(ac);
-		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
-
-	default:
-		return 0;
-	}
-}
-
 static void spwr_battery_update_bst_workfn(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
@@ -567,16 +414,55 @@ static void spwr_battery_update_bst_workfn(struct work_struct *work)
 	if (!status)
 		power_supply_changed(bat->psy);
 
-	if (status) {
-		dev_err(&bat->sdev->dev, "failed to update battery state: %d\n",
-			status);
-	}
+	if (status)
+		dev_err(&bat->sdev->dev, "failed to update battery state: %d\n", status);
 }
+
+
+/* -- Properties. ----------------------------------------------------------- */
+
+static enum power_supply_property spwr_battery_props_chg[] = {
+	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_TECHNOLOGY,
+	POWER_SUPPLY_PROP_CYCLE_COUNT,
+	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
+	POWER_SUPPLY_PROP_CHARGE_FULL,
+	POWER_SUPPLY_PROP_CHARGE_NOW,
+	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+	POWER_SUPPLY_PROP_MODEL_NAME,
+	POWER_SUPPLY_PROP_MANUFACTURER,
+	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+};
+
+static enum power_supply_property spwr_battery_props_eng[] = {
+	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_TECHNOLOGY,
+	POWER_SUPPLY_PROP_CYCLE_COUNT,
+	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_POWER_NOW,
+	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
+	POWER_SUPPLY_PROP_ENERGY_FULL,
+	POWER_SUPPLY_PROP_ENERGY_NOW,
+	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+	POWER_SUPPLY_PROP_MODEL_NAME,
+	POWER_SUPPLY_PROP_MANUFACTURER,
+	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+};
 
 static int spwr_battery_prop_status(struct spwr_battery_device *bat)
 {
 	u32 state = get_unaligned_le32(&bat->bst.state);
 	u32 present_rate = get_unaligned_le32(&bat->bst.present_rate);
+
+	lockdep_assert_held(&bat->lock);
 
 	if (state & SAM_BATTERY_STATE_DISCHARGING)
 		return POWER_SUPPLY_STATUS_DISCHARGING;
@@ -595,6 +481,8 @@ static int spwr_battery_prop_status(struct spwr_battery_device *bat)
 
 static int spwr_battery_prop_technology(struct spwr_battery_device *bat)
 {
+	lockdep_assert_held(&bat->lock);
+
 	if (!strcasecmp("NiCd", bat->bix.type))
 		return POWER_SUPPLY_TECHNOLOGY_NiCd;
 
@@ -618,6 +506,8 @@ static int spwr_battery_prop_capacity(struct spwr_battery_device *bat)
 	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
 	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
 
+	lockdep_assert_held(&bat->lock);
+
 	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
 		return -ENODEV;
 
@@ -632,6 +522,8 @@ static int spwr_battery_prop_capacity_level(struct spwr_battery_device *bat)
 	u32 state = get_unaligned_le32(&bat->bst.state);
 	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
 
+	lockdep_assert_held(&bat->lock);
+
 	if (state & SAM_BATTERY_STATE_CRITICAL)
 		return POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
 
@@ -644,36 +536,7 @@ static int spwr_battery_prop_capacity_level(struct spwr_battery_device *bat)
 	return POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
 }
 
-static int spwr_ac_get_property(struct power_supply *psy,
-				enum power_supply_property psp,
-				union power_supply_propval *val)
-{
-	struct spwr_ac_device *ac = power_supply_get_drvdata(psy);
-	int status;
-
-	mutex_lock(&ac->lock);
-
-	status = spwr_ac_update_unlocked(ac);
-	if (status)
-		goto out;
-
-	switch (psp) {
-	case POWER_SUPPLY_PROP_ONLINE:
-		val->intval = !!le32_to_cpu(ac->state);
-		break;
-
-	default:
-		status = -EINVAL;
-		goto out;
-	}
-
-out:
-	mutex_unlock(&ac->lock);
-	return status;
-}
-
-static int spwr_battery_get_property(struct power_supply *psy,
-				     enum power_supply_property psp,
+static int spwr_battery_get_property(struct power_supply *psy, enum power_supply_property psp,
 				     union power_supply_propval *val)
 {
 	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
@@ -795,18 +658,23 @@ out:
 	return status;
 }
 
-static ssize_t spwr_battery_alarm_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
+
+/* -- Alarm attribute. ------------------------------------------------------ */
+
+static ssize_t spwr_battery_alarm_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = dev_get_drvdata(dev);
 	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
+	int status;
 
-	return sprintf(buf, "%d\n", bat->alarm * 1000);
+	mutex_lock(&bat->lock);
+	status = scnprintf(buf, PAGE_SIZE, "%d\n", bat->alarm * 1000);
+	mutex_unlock(&bat->lock);
+
+	return status;
 }
 
-static ssize_t spwr_battery_alarm_store(struct device *dev,
-					struct device_attribute *attr,
+static ssize_t spwr_battery_alarm_store(struct device *dev, struct device_attribute *attr,
 					const char *buf, size_t count)
 {
 	struct power_supply *psy = dev_get_drvdata(dev);
@@ -818,13 +686,20 @@ static ssize_t spwr_battery_alarm_store(struct device *dev,
 	if (status)
 		return status;
 
-	if (!spwr_battery_present(bat))
+	mutex_lock(&bat->lock);
+
+	if (!spwr_battery_present(bat)) {
+		mutex_unlock(&bat->lock);
 		return -ENODEV;
+	}
 
-	status = spwr_battery_set_alarm(bat, value / 1000);
-	if (status)
+	status = spwr_battery_set_alarm_unlocked(bat, value / 1000);
+	if (status) {
+		mutex_unlock(&bat->lock);
 		return status;
+	}
 
+	mutex_unlock(&bat->lock);
 	return count;
 }
 
@@ -834,71 +709,11 @@ static const struct device_attribute alarm_attr = {
 	.store = spwr_battery_alarm_store,
 };
 
-static void spwr_ac_init(struct spwr_ac_device *ac, struct ssam_device *sdev,
-			 struct ssam_event_registry registry, const char *name)
-{
-	mutex_init(&ac->lock);
-	strncpy(ac->name, name, ARRAY_SIZE(ac->name) - 1);
 
-	ac->sdev = sdev;
+/* -- Device setup. --------------------------------------------------------- */
 
-	ac->notif.base.priority = 1;
-	ac->notif.base.fn = spwr_notify_ac;
-	ac->notif.event.reg = registry;
-	ac->notif.event.id.target_category = sdev->uid.category;
-	ac->notif.event.id.instance = 0;
-	ac->notif.event.mask = SSAM_EVENT_MASK_NONE;
-	ac->notif.event.flags = SSAM_EVENT_SEQUENCED;
-
-	ac->psy_desc.name = ac->name;
-	ac->psy_desc.type = POWER_SUPPLY_TYPE_MAINS;
-	ac->psy_desc.properties = spwr_ac_props;
-	ac->psy_desc.num_properties = ARRAY_SIZE(spwr_ac_props);
-	ac->psy_desc.get_property = spwr_ac_get_property;
-}
-
-static void spwr_ac_destroy(struct spwr_ac_device *ac)
-{
-	mutex_destroy(&ac->lock);
-}
-
-static int spwr_ac_register(struct spwr_ac_device *ac)
-{
-	struct power_supply_config psy_cfg = {};
-	__le32 sta;
-	int status;
-
-	/* Make sure the device is there and functioning properly. */
-	status = ssam_retry(ssam_bat_get_sta, ac->sdev, &sta);
-	if (status)
-		return status;
-
-	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
-		return -ENODEV;
-
-	psy_cfg.drv_data = ac;
-	ac->psy = power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
-	if (IS_ERR(ac->psy))
-		return PTR_ERR(ac->psy);
-
-	status = ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
-	if (status)
-		power_supply_unregister(ac->psy);
-
-	return status;
-}
-
-static int spwr_ac_unregister(struct spwr_ac_device *ac)
-{
-	ssam_notifier_unregister(ac->sdev->ctrl, &ac->notif);
-	power_supply_unregister(ac->psy);
-	return 0;
-}
-
-static void spwr_battery_init(struct spwr_battery_device *bat,
-			      struct ssam_device *sdev,
-			      struct ssam_event_registry registry,
-			      const char *name)
+static void spwr_battery_init(struct spwr_battery_device *bat, struct ssam_device *sdev,
+			      struct ssam_event_registry registry, const char *name)
 {
 	mutex_init(&bat->lock);
 	strncpy(bat->name, name, ARRAY_SIZE(bat->name) - 1);
@@ -939,17 +754,26 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
 		return -ENODEV;
 
+	/* Satisfy lockdep although we are in an exclusive context here. */
+	mutex_lock(&bat->lock);
+
 	status = spwr_battery_update_bix_unlocked(bat);
-	if (status)
+	if (status) {
+		mutex_unlock(&bat->lock);
 		return status;
+	}
 
 	if (spwr_battery_present(bat)) {
 		u32 cap_warn = get_unaligned_le32(&bat->bix.design_cap_warn);
 
 		status = spwr_battery_set_alarm_unlocked(bat, cap_warn);
-		if (status)
+		if (status) {
+			mutex_unlock(&bat->lock);
 			return status;
+		}
 	}
+
+	mutex_unlock(&bat->lock);
 
 	switch (get_unaligned_le32(&bat->bix.power_unit)) {
 	case SAM_BATTERY_POWER_UNIT_mW:
@@ -965,7 +789,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	default:
 		dev_err(&bat->sdev->dev, "unsupported battery power unit: %u\n",
 			get_unaligned_le32(&bat->bix.power_unit));
-		return -ENOTSUPP;
+		return -EINVAL;
 	}
 
 	psy_cfg.drv_data = bat;
@@ -999,22 +823,13 @@ static void spwr_battery_unregister(struct spwr_battery_device *bat)
 }
 
 
-/* -- Power management. ----------------------------------------------------- */
+/* -- Driver setup. --------------------------------------------------------- */
 
 static int __maybe_unused surface_battery_resume(struct device *dev)
 {
 	return spwr_battery_recheck_full(dev_get_drvdata(dev));
 }
 SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
-
-static int __maybe_unused surface_ac_resume(struct device *dev)
-{
-	return spwr_ac_recheck(dev_get_drvdata(dev));
-}
-SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
-
-
-/* -- Battery driver. ------------------------------------------------------- */
 
 static int surface_battery_probe(struct ssam_device *sdev)
 {
@@ -1075,90 +890,8 @@ static struct ssam_device_driver surface_battery_driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
-
-
-/* -- AC driver. ------------------------------------------------------------ */
-
-static int surface_ac_probe(struct ssam_device *sdev)
-{
-	const struct spwr_psy_properties *p;
-	struct spwr_ac_device *ac;
-	int status;
-
-	p = ssam_device_get_match_data(sdev);
-	if (!p)
-		return -ENODEV;
-
-	ac = devm_kzalloc(&sdev->dev, sizeof(*ac), GFP_KERNEL);
-	if (!ac)
-		return -ENOMEM;
-
-	spwr_ac_init(ac, sdev, p->registry, p->name);
-	ssam_device_set_drvdata(sdev, ac);
-
-	status = spwr_ac_register(ac);
-	if (status)
-		spwr_ac_destroy(ac);
-
-	return status;
-}
-
-static void surface_ac_remove(struct ssam_device *sdev)
-{
-	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
-
-	spwr_ac_unregister(ac);
-	spwr_ac_destroy(ac);
-}
-
-static const struct spwr_psy_properties spwr_psy_props_adp1 = {
-	.name = "ADP1",
-	.registry = SSAM_EVENT_REGISTRY_SAM,
-};
-
-static const struct ssam_device_id surface_ac_match[] = {
-	{ SSAM_SDEV(BAT, 0x01, 0x01, 0x01), (unsigned long)&spwr_psy_props_adp1 },
-	{ },
-};
-MODULE_DEVICE_TABLE(ssam, surface_ac_match);
-
-static struct ssam_device_driver surface_ac_driver = {
-	.probe = surface_ac_probe,
-	.remove = surface_ac_remove,
-	.match_table = surface_ac_match,
-	.driver = {
-		.name = "surface_ac",
-		.pm = &surface_ac_pm_ops,
-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-	},
-};
-
-
-/* -- Module setup. --------------------------------------------------------- */
-
-static int __init surface_battery_init(void)
-{
-	int status;
-
-	status = ssam_device_driver_register(&surface_battery_driver);
-	if (status)
-		return status;
-
-	status = ssam_device_driver_register(&surface_ac_driver);
-	if (status)
-		ssam_device_driver_unregister(&surface_battery_driver);
-
-	return status;
-}
-module_init(surface_battery_init);
-
-static void __exit surface_battery_exit(void)
-{
-	ssam_device_driver_unregister(&surface_battery_driver);
-	ssam_device_driver_unregister(&surface_ac_driver);
-}
-module_exit(surface_battery_exit);
+module_ssam_device_driver(surface_battery_driver);
 
 MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
-MODULE_DESCRIPTION("Battery/AC driver for Surface System Aggregator Module");
+MODULE_DESCRIPTION("Battery driver for Surface System Aggregator Module");
 MODULE_LICENSE("GPL");

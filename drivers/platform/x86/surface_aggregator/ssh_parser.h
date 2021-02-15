@@ -15,7 +15,6 @@
 
 #include <linux/surface_aggregator/serial_hub.h>
 
-
 /**
  * struct sshp_buf - Parser buffer for SSH messages.
  * @ptr: Pointer to the beginning of the buffer.
