@@ -1319,7 +1319,7 @@ static int ov7251_init_controls(struct ov7251 *ov7251)
 static int ov7251_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
-	struct fwnode_handle *endpoint;
+	struct fwnode_handle *endpoint, *fwnode;
 	struct ov7251 *ov7251;
 	u8 chip_id_high, chip_id_low, chip_rev;
 	int ret;
@@ -1331,11 +1331,13 @@ static int ov7251_probe(struct i2c_client *client)
 	ov7251->i2c_client = client;
 	ov7251->dev = dev;
 
-	endpoint = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
-	if (!endpoint) {
-		dev_err(dev, "endpoint node not found\n");
-		return -EINVAL;
-	}
+	fwnode = dev_fwnode(dev);
+	endpoint = fwnode_graph_get_next_endpoint(fwnode, NULL);
+	if (!endpoint)
+		endpoint = fwnode_graph_get_next_endpoint(fwnode->secondary,
+							  NULL);
+	if (!endpoint)
+		return -EPROBE_DEFER;
 
 	ret = v4l2_fwnode_endpoint_parse(endpoint, &ov7251->ep);
 	fwnode_handle_put(endpoint);
