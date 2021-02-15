@@ -1252,6 +1252,29 @@ static const struct v4l2_subdev_ops ov7251_subdev_ops = {
 	.pad = &ov7251_subdev_pad_ops,
 };
 
+static int ov7251_configure_regulators(struct ov7251 *ov7251)
+{
+	ov7251->io_regulator = devm_regulator_get(ov7251->dev, "vdddo");
+	if (IS_ERR(ov7251->io_regulator)) {
+		dev_err(ov7251->dev, "cannot get io regulator\n");
+		return PTR_ERR(ov7251->io_regulator);
+	}
+
+	ov7251->core_regulator = devm_regulator_get(ov7251->dev, "vddd");
+	if (IS_ERR(ov7251->core_regulator)) {
+		dev_err(ov7251->dev, "cannot get core regulator\n");
+		return PTR_ERR(ov7251->core_regulator);
+	}
+
+	ov7251->analog_regulator = devm_regulator_get(ov7251->dev, "vdda");
+	if (IS_ERR(ov7251->analog_regulator)) {
+		dev_err(ov7251->dev, "cannot get analog regulator\n");
+		return PTR_ERR(ov7251->analog_regulator);
+	}
+
+	return 0;
+}
+
 static int ov7251_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
@@ -1313,23 +1336,9 @@ static int ov7251_probe(struct i2c_client *client)
 		return ret;
 	}
 
-	ov7251->io_regulator = devm_regulator_get(dev, "vdddo");
-	if (IS_ERR(ov7251->io_regulator)) {
-		dev_err(dev, "cannot get io regulator\n");
-		return PTR_ERR(ov7251->io_regulator);
-	}
-
-	ov7251->core_regulator = devm_regulator_get(dev, "vddd");
-	if (IS_ERR(ov7251->core_regulator)) {
-		dev_err(dev, "cannot get core regulator\n");
-		return PTR_ERR(ov7251->core_regulator);
-	}
-
-	ov7251->analog_regulator = devm_regulator_get(dev, "vdda");
-	if (IS_ERR(ov7251->analog_regulator)) {
-		dev_err(dev, "cannot get analog regulator\n");
-		return PTR_ERR(ov7251->analog_regulator);
-	}
+	ret = ov7251_configure_regulators(ov7251);
+	if (ret)
+		return ret;
 
 	ov7251->enable_gpio = devm_gpiod_get(dev, "enable", GPIOD_OUT_HIGH);
 	if (IS_ERR(ov7251->enable_gpio)) {
