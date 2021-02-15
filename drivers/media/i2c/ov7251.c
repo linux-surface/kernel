@@ -6,6 +6,7 @@
  * Copyright (c) 2017-2018, Linaro Ltd.
  */
 
+#include <linux/acpi.h>
 #include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -1487,9 +1488,16 @@ static const struct of_device_id ov7251_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, ov7251_of_match);
 
+static const struct acpi_device_id ov7251_acpi_match[] = {
+	{ "INT347E" },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, ov7251_acpi_match);
+
 static struct i2c_driver ov7251_i2c_driver = {
 	.driver = {
 		.of_match_table = ov7251_of_match,
+		.acpi_match_table = ov7251_acpi_match,
 		.name  = "ov7251",
 	},
 	.probe_new  = ov7251_probe,
