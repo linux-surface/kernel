@@ -8,11 +8,9 @@
  * acknowledge (to speed things up), abort (e.g. in case the dGPU is still in
  * use), or request detachment via user-space.
  *
- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
-#include <linux/acpi.h>
-#include <linux/delay.h>
 #include <linux/fs.h>
 #include <linux/input.h>
 #include <linux/ioctl.h>
@@ -21,11 +19,12 @@
 #include <linux/kref.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/poll.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
-#include <linux/spinlock.h>
+#include <linux/workqueue.h>
 
 #include <linux/surface_aggregator/controller.h>
 #include <linux/surface_aggregator/device.h>
@@ -145,7 +144,7 @@ enum sdtx_device_state {
 
 struct sdtx_device {
 	struct kref kref;
-	struct rw_semaphore lock;
+	struct rw_semaphore lock;         /* Guards device and controller reference. */
 
 	struct device *dev;
 	struct ssam_controller *ctrl;
@@ -153,8 +152,8 @@ struct sdtx_device {
 
 	struct miscdevice mdev;
 	wait_queue_head_t waitq;
-	struct mutex write_lock;
-	struct rw_semaphore client_lock;
+	struct mutex write_lock;          /* Guards order of events/notifications. */
+	struct rw_semaphore client_lock;  /* Guards client list.                   */
 	struct list_head client_list;
 
 	struct delayed_work state_work;
@@ -181,7 +180,7 @@ struct sdtx_client {
 
 	struct fasync_struct *fasync;
 
-	struct mutex read_lock;
+	struct mutex read_lock;           /* Guards FIFO buffer read access. */
 	DECLARE_KFIFO(buffer, u8, 512);
 };
 
@@ -286,6 +285,8 @@ static int sdtx_ioctl_get_base_info(struct sdtx_device *ddev,
 	struct sdtx_base_info info;
 	int status;
 
+	lockdep_assert_held_read(&ddev->lock);
+
 	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &raw);
 	if (status < 0)
 		return status;
@@ -304,6 +305,8 @@ static int sdtx_ioctl_get_device_mode(struct sdtx_device *ddev, u16 __user *buf)
 	u8 mode;
 	int status;
 
+	lockdep_assert_held_read(&ddev->lock);
+
 	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 	if (status < 0)
 		return status;
@@ -316,6 +319,8 @@ static int sdtx_ioctl_get_latch_status(struct sdtx_device *ddev, u16 __user *buf
 	u8 latch;
 	int status;
 
+	lockdep_assert_held_read(&ddev->lock);
+
 	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl, &latch);
 	if (status < 0)
 		return status;
@@ -323,10 +328,11 @@ static int sdtx_ioctl_get_latch_status(struct sdtx_device *ddev, u16 __user *buf
 	return put_user(sdtx_translate_latch_status(ddev, latch), buf);
 }
 
-static long __surface_dtx_ioctl(struct sdtx_client *client, unsigned int cmd,
-				unsigned long arg)
+static long __surface_dtx_ioctl(struct sdtx_client *client, unsigned int cmd, unsigned long arg)
 {
 	struct sdtx_device *ddev = client->ddev;
+
+	lockdep_assert_held_read(&ddev->lock);
 
 	switch (cmd) {
 	case SDTX_IOCTL_EVENTS_ENABLE:
@@ -356,8 +362,7 @@ static long __surface_dtx_ioctl(struct sdtx_client *client, unsigned int cmd,
 		return ssam_retry(ssam_bas_latch_cancel, ddev->ctrl);
 
 	case SDTX_IOCTL_GET_BASE_INFO:
-		return sdtx_ioctl_get_base_info(ddev,
-				(struct sdtx_base_info __user *)arg);
+		return sdtx_ioctl_get_base_info(ddev, (struct sdtx_base_info __user *)arg);
 
 	case SDTX_IOCTL_GET_DEVICE_MODE:
 		return sdtx_ioctl_get_device_mode(ddev, (u16 __user *)arg);
@@ -370,8 +375,7 @@ static long __surface_dtx_ioctl(struct sdtx_client *client, unsigned int cmd,
 	}
 }
 
-static long surface_dtx_ioctl(struct file *file, unsigned int cmd,
-			      unsigned long arg)
+static long surface_dtx_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct sdtx_client *client = file->private_data;
 	long status;
@@ -395,10 +399,8 @@ static long surface_dtx_ioctl(struct file *file, unsigned int cmd,
 
 static int surface_dtx_open(struct inode *inode, struct file *file)
 {
-	struct sdtx_device *ddev;
+	struct sdtx_device *ddev = container_of(file->private_data, struct sdtx_device, mdev);
 	struct sdtx_client *client;
-
-	ddev = container_of(file->private_data, struct sdtx_device, mdev);
 
 	/* Initialize client. */
 	client = kzalloc(sizeof(*client), GFP_KERNEL);
@@ -417,7 +419,12 @@ static int surface_dtx_open(struct inode *inode, struct file *file)
 	/* Attach client. */
 	down_write(&ddev->client_lock);
 
-	/* Do not add a new client if the device has been shut down. */
+	/*
+	 * Do not add a new client if the device has been shut down. Note that
+	 * it's enough to hold the client_lock here as, during shutdown, we
+	 * only acquire that lock and remove clients after marking the device
+	 * as shut down.
+	 */
 	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 		up_write(&ddev->client_lock);
 		sdtx_device_put(client->ddev);
@@ -441,6 +448,7 @@ static int surface_dtx_release(struct inode *inode, struct file *file)
 	list_del(&client->node);
 	up_write(&client->ddev->client_lock);
 
+	/* Free client. */
 	sdtx_device_put(client->ddev);
 	mutex_destroy(&client->read_lock);
 	kfree(client);
@@ -448,8 +456,7 @@ static int surface_dtx_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static ssize_t surface_dtx_read(struct file *file, char __user *buf,
-				size_t count, loff_t *offs)
+static ssize_t surface_dtx_read(struct file *file, char __user *buf, size_t count, loff_t *offs)
 {
 	struct sdtx_client *client = file->private_data;
 	struct sdtx_device *ddev = client->ddev;
@@ -474,9 +481,9 @@ static ssize_t surface_dtx_read(struct file *file, char __user *buf,
 				return -EAGAIN;
 
 			status = wait_event_interruptible(ddev->waitq,
-					!kfifo_is_empty(&client->buffer) ||
-					test_bit(SDTX_DEVICE_SHUTDOWN_BIT,
-						 &ddev->flags));
+							  !kfifo_is_empty(&client->buffer) ||
+							  test_bit(SDTX_DEVICE_SHUTDOWN_BIT,
+								   &ddev->flags));
 			if (status < 0)
 				return status;
 
@@ -573,8 +580,6 @@ static const struct file_operations surface_dtx_fops = {
 #define SDTX_DEVICE_MODE_DELAY_CONNECT	msecs_to_jiffies(100)
 #define SDTX_DEVICE_MODE_DELAY_RECHECK	msecs_to_jiffies(100)
 
-static void sdtx_update_device_mode(struct sdtx_device *ddev, unsigned long delay);
-
 struct sdtx_status_event {
 	struct sdtx_event e;
 	__u16 v;
@@ -591,11 +596,15 @@ union sdtx_generic_event {
 	struct sdtx_base_info_event base;
 };
 
+static void sdtx_update_device_mode(struct sdtx_device *ddev, unsigned long delay);
+
 /* Must be executed with ddev->write_lock held. */
 static void sdtx_push_event(struct sdtx_device *ddev, struct sdtx_event *evt)
 {
 	const size_t len = sizeof(struct sdtx_event) + evt->length;
 	struct sdtx_client *client;
+
+	lockdep_assert_held(&ddev->write_lock);
 
 	down_read(&ddev->client_lock);
 	list_for_each_entry(client, &ddev->client_list, node) {
@@ -614,8 +623,7 @@ static void sdtx_push_event(struct sdtx_device *ddev, struct sdtx_event *evt)
 	wake_up_interruptible(&ddev->waitq);
 }
 
-static u32 sdtx_notifier(struct ssam_event_notifier *nf,
-			 const struct ssam_event *in)
+static u32 sdtx_notifier(struct ssam_event_notifier *nf, const struct ssam_event *in)
 {
 	struct sdtx_device *ddev = container_of(nf, struct sdtx_device, notif);
 	union sdtx_generic_event event;
@@ -624,7 +632,7 @@ static u32 sdtx_notifier(struct ssam_event_notifier *nf,
 	/* Validate event payload length. */
 	switch (in->command_id) {
 	case SAM_EVENT_CID_DTX_CONNECTION:
-		len = 2;
+		len = 2 * sizeof(u8);
 		break;
 
 	case SAM_EVENT_CID_DTX_REQUEST:
@@ -632,11 +640,11 @@ static u32 sdtx_notifier(struct ssam_event_notifier *nf,
 		break;
 
 	case SAM_EVENT_CID_DTX_CANCEL:
-		len = 1;
+		len = sizeof(u8);
 		break;
 
 	case SAM_EVENT_CID_DTX_LATCH_STATUS:
-		len = 1;
+		len = sizeof(u8);
 		break;
 
 	default:
@@ -725,13 +733,11 @@ static bool sdtx_device_mode_invalid(u8 mode, u8 base_state)
 
 static void sdtx_device_mode_workfn(struct work_struct *work)
 {
-	struct sdtx_device *ddev;
+	struct sdtx_device *ddev = container_of(work, struct sdtx_device, mode_work.work);
 	struct sdtx_status_event event;
 	struct ssam_bas_base_info base;
 	int status, tablet;
 	u8 mode;
-
-	ddev = container_of(work, struct sdtx_device, mode_work.work);
 
 	/* Get operation mode. */
 	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
@@ -789,10 +795,13 @@ static void sdtx_update_device_mode(struct sdtx_device *ddev, unsigned long dela
 	schedule_delayed_work(&ddev->mode_work, delay);
 }
 
+/* Must be executed with ddev->write_lock held. */
 static void __sdtx_device_state_update_base(struct sdtx_device *ddev,
 					    struct ssam_bas_base_info info)
 {
 	struct sdtx_base_info_event event;
+
+	lockdep_assert_held(&ddev->write_lock);
 
 	/* Prevent duplicate events. */
 	if (ddev->state.base.state == info.state &&
@@ -809,6 +818,7 @@ static void __sdtx_device_state_update_base(struct sdtx_device *ddev,
 	sdtx_push_event(ddev, &event.e);
 }
 
+/* Must be executed with ddev->write_lock held. */
 static void __sdtx_device_state_update_mode(struct sdtx_device *ddev, u8 mode)
 {
 	struct sdtx_status_event event;
@@ -819,6 +829,8 @@ static void __sdtx_device_state_update_mode(struct sdtx_device *ddev, u8 mode)
 	 * via __sdtx_device_state_update_base(), as we rely on the updated
 	 * base state value in the validity check below.
 	 */
+
+	lockdep_assert_held(&ddev->write_lock);
 
 	if (sdtx_device_mode_invalid(mode, ddev->state.base.state)) {
 		dev_dbg(ddev->dev, "device mode is invalid, trying again\n");
@@ -845,9 +857,12 @@ static void __sdtx_device_state_update_mode(struct sdtx_device *ddev, u8 mode)
 	input_sync(ddev->mode_switch);
 }
 
+/* Must be executed with ddev->write_lock held. */
 static void __sdtx_device_state_update_latch(struct sdtx_device *ddev, u8 status)
 {
 	struct sdtx_status_event event;
+
+	lockdep_assert_held(&ddev->write_lock);
 
 	/* Prevent duplicate events. */
 	if (ddev->state.latch_status == status)
@@ -864,12 +879,10 @@ static void __sdtx_device_state_update_latch(struct sdtx_device *ddev, u8 status
 
 static void sdtx_device_state_workfn(struct work_struct *work)
 {
-	struct sdtx_device *ddev;
+	struct sdtx_device *ddev = container_of(work, struct sdtx_device, state_work.work);
 	struct ssam_bas_base_info base;
 	u8 mode, latch;
 	int status;
-
-	ddev = container_of(work, struct sdtx_device, state_work.work);
 
 	/* Mark everything as dirty. */
 	set_bit(SDTX_DEVICE_DIRTY_BASE_BIT, &ddev->flags);
@@ -939,6 +952,7 @@ static int sdtx_device_init(struct sdtx_device *ddev, struct device *dev,
 
 	/* Basic initialization. */
 	kref_init(&ddev->kref);
+	init_rwsem(&ddev->lock);
 	ddev->dev = dev;
 	ddev->ctrl = ctrl;
 
@@ -978,13 +992,11 @@ static int sdtx_device_init(struct sdtx_device *ddev, struct device *dev,
 	if (status)
 		return status;
 
-	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl,
-			    &ddev->state.device_mode);
+	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &ddev->state.device_mode);
 	if (status)
 		return status;
 
-	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl,
-			    &ddev->state.latch_status);
+	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl, &ddev->state.latch_status);
 	if (status)
 		return status;
 
@@ -1033,8 +1045,7 @@ err_mdev:
 	return status;
 }
 
-static struct sdtx_device *sdtx_device_setup(struct device *dev,
-					     struct ssam_controller *ctrl)
+static struct sdtx_device *sdtx_device_create(struct device *dev, struct ssam_controller *ctrl)
 {
 	struct sdtx_device *ddev;
 	int status;
@@ -1045,7 +1056,7 @@ static struct sdtx_device *sdtx_device_setup(struct device *dev,
 
 	status = sdtx_device_init(ddev, dev, ctrl);
 	if (status) {
-		kfree(ddev);
+		sdtx_device_put(ddev);
 		return ERR_PTR(status);
 	}
 
@@ -1055,6 +1066,12 @@ static struct sdtx_device *sdtx_device_setup(struct device *dev,
 static void sdtx_device_destroy(struct sdtx_device *ddev)
 {
 	struct sdtx_client *client;
+
+	/*
+	 * Mark device as shut-down. Prevent new clients from being added and
+	 * new operations from being executed.
+	 */
+	set_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags);
 
 	/* Disable notifiers, prevent new events from arriving. */
 	ssam_notifier_unregister(ddev->ctrl, &ddev->notif);
@@ -1067,12 +1084,6 @@ static void sdtx_device_destroy(struct sdtx_device *ddev)
 
 	/* With mode_work canceled, we can unregister the mode_switch. */
 	input_unregister_device(ddev->mode_switch);
-
-	/*
-	 * Mark device as shut-down. Prevent new clients from being added and
-	 * new operations from being executed.
-	 */
-	set_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags);
 
 	/* Wake up async clients. */
 	down_write(&ddev->client_lock);
@@ -1154,7 +1165,7 @@ static int surface_dtx_platform_probe(struct platform_device *pdev)
 	if (IS_ERR(ctrl))
 		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 
-	ddev = sdtx_device_setup(&pdev->dev, ctrl);
+	ddev = sdtx_device_create(&pdev->dev, ctrl);
 	if (IS_ERR(ddev))
 		return PTR_ERR(ddev);
 
@@ -1194,7 +1205,7 @@ static int surface_dtx_ssam_probe(struct ssam_device *sdev)
 {
 	struct sdtx_device *ddev;
 
-	ddev = sdtx_device_setup(&sdev->dev, sdev->ctrl);
+	ddev = sdtx_device_create(&sdev->dev, sdev->ctrl);
 	if (IS_ERR(ddev))
 		return PTR_ERR(ddev);
 
@@ -1219,6 +1230,7 @@ static struct ssam_device_driver surface_dtx_ssam_driver = {
 	.match_table = surface_dtx_ssam_match,
 	.driver = {
 		.name = "surface_dtx",
+		.pm = &surface_dtx_pm_ops,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };

@@ -3,17 +3,19 @@
  * Surface System Aggregator Module (SSAM) client device registry.
  *
  * Registry for non-platform/non-ACPI SSAM client devices, i.e. devices that
- * cannot be auto-detected. Provides device-hubs for these devices.
+ * cannot be auto-detected. Provides device-hubs and performs instantiation
+ * for these devices.
  *
- * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
 #include <linux/kernel.h>
+#include <linux/limits.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#include <linux/notifier.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/types.h>
 
 #include <linux/surface_aggregator/controller.h>
@@ -22,158 +24,179 @@
 
 /* -- Device registry. ------------------------------------------------------ */
 
+/*
+ * SSAM device names follow the SSAM module alias, meaning they are prefixed
+ * with 'ssam:', followed by domain, category, target ID, instance ID, and
+ * function, each encoded as two-digit hexadecimal, separated by ':'. In other
+ * words, it follows the scheme
+ *
+ *      ssam:dd:cc:tt:ii:ff
+ *
+ * Where, 'dd', 'cc', 'tt', 'ii', and 'ff' are the two-digit hexadecimal
+ * values mentioned above, respectively.
+ */
+
+/* Root node. */
 static const struct software_node ssam_node_root = {
 	.name = "ssam_platform_hub",
 };
 
-static const struct software_node ssam_node_hub_main = {
-	.name = "ssam:00:00:01:00:00",
-	.parent = &ssam_node_root,
-};
-
+/* Base device hub (devices attached to Surface Book 3 base). */
 static const struct software_node ssam_node_hub_base = {
 	.name = "ssam:00:00:02:00:00",
 	.parent = &ssam_node_root,
 };
 
+/* AC adapter. */
 static const struct software_node ssam_node_bat_ac = {
 	.name = "ssam:01:02:01:01:01",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* Primary battery. */
 static const struct software_node ssam_node_bat_main = {
 	.name = "ssam:01:02:01:01:00",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* Secondary battery (Surface Book 3). */
 static const struct software_node ssam_node_bat_sb3base = {
 	.name = "ssam:01:02:02:01:00",
 	.parent = &ssam_node_hub_base,
 };
 
-static const struct software_node ssam_node_tmp_perf = {
+/* Platform profile / performance-mode device. */
+static const struct software_node ssam_node_tmp_pprof = {
 	.name = "ssam:01:03:01:00:01",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* DTX / detachment-system device (Surface Book 3). */
 static const struct software_node ssam_node_bas_dtx = {
 	.name = "ssam:01:11:01:00:00",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* HID keyboard. */
 static const struct software_node ssam_node_hid_main_keyboard = {
 	.name = "ssam:01:15:02:01:00",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* HID touchpad. */
 static const struct software_node ssam_node_hid_main_touchpad = {
 	.name = "ssam:01:15:02:03:00",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* HID device instance 5 (unknown HID device). */
 static const struct software_node ssam_node_hid_main_iid5 = {
 	.name = "ssam:01:15:02:05:00",
-	.parent = &ssam_node_hub_main,
+	.parent = &ssam_node_root,
 };
 
+/* HID keyboard (base hub). */
 static const struct software_node ssam_node_hid_base_keyboard = {
 	.name = "ssam:01:15:02:01:00",
 	.parent = &ssam_node_hub_base,
 };
 
+/* HID touchpad (base hub). */
 static const struct software_node ssam_node_hid_base_touchpad = {
 	.name = "ssam:01:15:02:03:00",
 	.parent = &ssam_node_hub_base,
 };
 
+/* HID device instance 5 (unknown HID device, base hub). */
 static const struct software_node ssam_node_hid_base_iid5 = {
 	.name = "ssam:01:15:02:05:00",
 	.parent = &ssam_node_hub_base,
 };
 
+/* HID device instance 6 (unknown HID device, base hub). */
 static const struct software_node ssam_node_hid_base_iid6 = {
 	.name = "ssam:01:15:02:06:00",
 	.parent = &ssam_node_hub_base,
 };
 
+/* Devices for Surface Book 2. */
 static const struct software_node *ssam_node_group_sb2[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
+/* Devices for Surface Book 3. */
 static const struct software_node *ssam_node_group_sb3[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
 	&ssam_node_hub_base,
-	&ssam_node_tmp_perf,
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
 	&ssam_node_bat_sb3base,
+	&ssam_node_tmp_pprof,
+	&ssam_node_bas_dtx,
 	&ssam_node_hid_base_keyboard,
 	&ssam_node_hid_base_touchpad,
 	&ssam_node_hid_base_iid5,
 	&ssam_node_hid_base_iid6,
-	&ssam_node_bas_dtx,
 	NULL,
 };
 
+/* Devices for Surface Laptop 1. */
 static const struct software_node *ssam_node_group_sl1[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
+/* Devices for Surface Laptop 2. */
 static const struct software_node *ssam_node_group_sl2[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
+/* Devices for Surface Laptop 3. */
 static const struct software_node *ssam_node_group_sl3[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
+	&ssam_node_tmp_pprof,
 	&ssam_node_hid_main_keyboard,
 	&ssam_node_hid_main_touchpad,
 	&ssam_node_hid_main_iid5,
 	NULL,
 };
 
+/* Devices for Surface Laptop Go. */
 static const struct software_node *ssam_node_group_slg1[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
+/* Devices for Surface Pro 5. */
 static const struct software_node *ssam_node_group_sp5[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
+/* Devices for Surface Pro 6. */
 static const struct software_node *ssam_node_group_sp6[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
+/* Devices for Surface Pro 7. */
 static const struct software_node *ssam_node_group_sp7[] = {
 	&ssam_node_root,
-	&ssam_node_hub_main,
-	&ssam_node_tmp_perf,
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
+	&ssam_node_tmp_pprof,
 	NULL,
 };
 
@@ -212,8 +235,7 @@ static void ssam_hub_remove_devices(struct device *parent)
 	device_for_each_child_reverse(parent, NULL, ssam_hub_remove_devices_fn);
 }
 
-static int ssam_hub_add_device(struct device *parent,
-			       struct ssam_controller *ctrl,
+static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ctrl,
 			       struct fwnode_handle *node)
 {
 	struct ssam_device_uid uid;
@@ -222,7 +244,7 @@ static int ssam_hub_add_device(struct device *parent,
 
 	status = ssam_uid_from_string(fwnode_get_name(node), &uid);
 	if (status)
-		return -ENODEV;
+		return status;
 
 	sdev = ssam_device_alloc(ctrl, uid);
 	if (!sdev)
@@ -238,16 +260,21 @@ static int ssam_hub_add_device(struct device *parent,
 	return status;
 }
 
-static int ssam_hub_add_devices(struct device *parent,
-				struct ssam_controller *ctrl,
+static int ssam_hub_add_devices(struct device *parent, struct ssam_controller *ctrl,
 				struct fwnode_handle *node)
 {
 	struct fwnode_handle *child;
 	int status;
 
 	fwnode_for_each_child_node(node, child) {
+		/*
+		 * Try to add the device specified in the firmware node. If
+		 * this fails with -EINVAL, the node does not specify any SSAM
+		 * device, so ignore it and continue with the next one.
+		 */
+
 		status = ssam_hub_add_device(parent, ctrl, child);
-		if (status && status != -ENODEV)
+		if (status && status != -EINVAL)
 			goto err;
 	}
 
@@ -256,39 +283,6 @@ err:
 	ssam_hub_remove_devices(parent);
 	return status;
 }
-
-
-/* -- SSAM main-hub driver. ------------------------------------------------- */
-
-static int ssam_hub_probe(struct ssam_device *sdev)
-{
-	struct fwnode_handle *node = dev_fwnode(&sdev->dev);
-
-	if (!node)
-		return -ENODEV;
-
-	return ssam_hub_add_devices(&sdev->dev, sdev->ctrl, node);
-}
-
-static void ssam_hub_remove(struct ssam_device *sdev)
-{
-	ssam_hub_remove_devices(&sdev->dev);
-}
-
-static const struct ssam_device_id ssam_hub_match[] = {
-	{ SSAM_VDEV(HUB, 0x01, 0x00, 0x00) },
-	{ },
-};
-
-static struct ssam_device_driver ssam_hub_driver = {
-	.probe = ssam_hub_probe,
-	.remove = ssam_hub_remove,
-	.match_table = ssam_hub_match,
-	.driver = {
-		.name = "surface_aggregator_device_hub",
-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-	},
-};
 
 
 /* -- SSAM base-hub driver. ------------------------------------------------- */
@@ -302,7 +296,7 @@ enum ssam_base_hub_state {
 struct ssam_base_hub {
 	struct ssam_device *sdev;
 
-	struct mutex lock;
+	struct mutex lock;  /* Guards state update checks and transitions. */
 	enum ssam_base_hub_state state;
 
 	struct ssam_event_notifier notif;
@@ -318,15 +312,14 @@ static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
 #define SSAM_BAS_OPMODE_TABLET		0x00
 #define SSAM_EVENT_BAS_CID_CONNECTION	0x0c
 
-static int ssam_base_hub_query_state(struct ssam_device *sdev,
-				     enum ssam_base_hub_state *state)
+static int ssam_base_hub_query_state(struct ssam_base_hub *hub, enum ssam_base_hub_state *state)
 {
 	u8 opmode;
 	int status;
 
-	status = ssam_retry(ssam_bas_query_opmode, sdev->ctrl, &opmode);
+	status = ssam_retry(ssam_bas_query_opmode, hub->sdev->ctrl, &opmode);
 	if (status < 0) {
-		dev_err(&sdev->dev, "failed to query base state: %d\n", status);
+		dev_err(&hub->sdev->dev, "failed to query base state: %d\n", status);
 		return status;
 	}
 
@@ -338,12 +331,10 @@ static int ssam_base_hub_query_state(struct ssam_device *sdev,
 	return 0;
 }
 
-static ssize_t ssam_base_hub_state_show(struct device *dev,
-					struct device_attribute *attr,
+static ssize_t ssam_base_hub_state_show(struct device *dev, struct device_attribute *attr,
 					char *buf)
 {
-	struct ssam_device *sdev = to_ssam_device(dev);
-	struct ssam_base_hub *hub = ssam_device_get_drvdata(sdev);
+	struct ssam_base_hub *hub = dev_get_drvdata(dev);
 	bool connected;
 
 	mutex_lock(&hub->lock);
@@ -365,38 +356,44 @@ const struct attribute_group ssam_base_hub_group = {
 	.attrs = ssam_base_hub_attrs,
 };
 
-static int ssam_base_hub_update(struct ssam_device *sdev,
-				enum ssam_base_hub_state new)
+static int __ssam_base_hub_update(struct ssam_base_hub *hub, enum ssam_base_hub_state new)
 {
-	struct ssam_base_hub *hub = ssam_device_get_drvdata(sdev);
-	struct fwnode_handle *node = dev_fwnode(&sdev->dev);
+	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
 	int status = 0;
 
-	mutex_lock(&hub->lock);
-	if (hub->state == new) {
-		mutex_unlock(&hub->lock);
+	lockdep_assert_held(&hub->lock);
+
+	if (hub->state == new)
 		return 0;
-	}
 	hub->state = new;
 
 	if (hub->state == SSAM_BASE_HUB_CONNECTED)
-		status = ssam_hub_add_devices(&sdev->dev, sdev->ctrl, node);
+		status = ssam_hub_add_devices(&hub->sdev->dev, hub->sdev->ctrl, node);
+	else
+		ssam_hub_remove_devices(&hub->sdev->dev);
 
-	if (hub->state != SSAM_BASE_HUB_CONNECTED || status)
-		ssam_hub_remove_devices(&sdev->dev);
-
-	mutex_unlock(&hub->lock);
-
-	if (status) {
-		dev_err(&sdev->dev, "failed to update base-hub devices: %d\n",
-			status);
-	}
+	if (status)
+		dev_err(&hub->sdev->dev, "failed to update base-hub devices: %d\n", status);
 
 	return status;
 }
 
-static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf,
-			       const struct ssam_event *event)
+static int ssam_base_hub_update(struct ssam_base_hub *hub)
+{
+	enum ssam_base_hub_state state;
+	int status;
+
+	mutex_lock(&hub->lock);
+
+	status = ssam_base_hub_query_state(hub, &state);
+	if (!status)
+		status = __ssam_base_hub_update(hub, state);
+
+	mutex_unlock(&hub->lock);
+	return status;
+}
+
+static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
 	struct ssam_base_hub *hub;
 	struct ssam_device *sdev;
@@ -419,7 +416,9 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf,
 	else
 		new = SSAM_BASE_HUB_DISCONNECTED;
 
-	ssam_base_hub_update(sdev, new);
+	mutex_lock(&hub->lock);
+	__ssam_base_hub_update(hub, new);
+	mutex_unlock(&hub->lock);
 
 	/*
 	 * Do not return SSAM_NOTIF_HANDLED: The event should be picked up and
@@ -431,21 +430,12 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf,
 
 static int __maybe_unused ssam_base_hub_resume(struct device *dev)
 {
-	struct ssam_device *sdev = to_ssam_device(dev);
-	enum ssam_base_hub_state state;
-	int status;
-
-	status = ssam_base_hub_query_state(sdev, &state);
-	if (status)
-		return status;
-
-	return ssam_base_hub_update(sdev, state);
+	return ssam_base_hub_update(dev_get_drvdata(dev));
 }
 static SIMPLE_DEV_PM_OPS(ssam_base_hub_pm_ops, NULL, ssam_base_hub_resume);
 
 static int ssam_base_hub_probe(struct ssam_device *sdev)
 {
-	enum ssam_base_hub_state state;
 	struct ssam_base_hub *hub;
 	int status;
 
@@ -458,7 +448,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 	hub->sdev = sdev;
 	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
 
-	hub->notif.base.priority = 1000;  /* This notifier should run first. */
+	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
 	hub->notif.base.fn = ssam_base_hub_notif;
 	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
 	hub->notif.event.id.target_category = SSAM_SSH_TC_BAS,
@@ -466,30 +456,27 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 	hub->notif.event.mask = SSAM_EVENT_MASK_NONE;
 	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
 
-	status = ssam_notifier_register(sdev->ctrl, &hub->notif);
-	if (status)
-		return status;
-
 	ssam_device_set_drvdata(sdev, hub);
 
-	status = ssam_base_hub_query_state(sdev, &state);
-	if (status) {
-		ssam_notifier_unregister(sdev->ctrl, &hub->notif);
-		return status;
-	}
+	status = ssam_notifier_register(sdev->ctrl, &hub->notif);
+	if (status)
+		goto err_register;
 
-	status = ssam_base_hub_update(sdev, state);
-	if (status) {
-		ssam_notifier_unregister(sdev->ctrl, &hub->notif);
-		return status;
-	}
+	status = ssam_base_hub_update(hub);
+	if (status)
+		goto err_update;
 
 	status = sysfs_create_group(&sdev->dev.kobj, &ssam_base_hub_group);
-	if (status) {
-		ssam_notifier_unregister(sdev->ctrl, &hub->notif);
-		ssam_hub_remove_devices(&sdev->dev);
-	}
+	if (status)
+		goto err_update;
 
+	return 0;
+
+err_update:
+	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
+	ssam_hub_remove_devices(&sdev->dev);
+err_register:
+	mutex_destroy(&hub->lock);
 	return status;
 }
 
@@ -506,7 +493,7 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
 }
 
 static const struct ssam_device_id ssam_base_hub_match[] = {
-	{ SSAM_VDEV(HUB, 0x02, 0x00, 0x00) },
+	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00) },
 	{ },
 };
 
@@ -525,7 +512,7 @@ static struct ssam_device_driver ssam_base_hub_driver = {
 /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
 
 static const struct acpi_device_id ssam_platform_hub_match[] = {
-	/* Surface Pro 4, 5, and 6 */
+	/* Surface Pro 4, 5, and 6 (OMBR < 0x10) */
 	{ "MSHW0081", (unsigned long)ssam_node_group_sp5 },
 
 	/* Surface Pro 6 (OMBR >= 0x10) */
@@ -586,19 +573,21 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
 		return status;
 
 	root = software_node_fwnode(&ssam_node_root);
-	if (!root)
+	if (!root) {
+		software_node_unregister_node_group(nodes);
 		return -ENOENT;
+	}
 
 	set_secondary_fwnode(&pdev->dev, root);
 
 	status = ssam_hub_add_devices(&pdev->dev, ctrl, root);
 	if (status) {
+		set_secondary_fwnode(&pdev->dev, NULL);
 		software_node_unregister_node_group(nodes);
-		return status;
 	}
 
 	platform_set_drvdata(pdev, nodes);
-	return 0;
+	return status;
 }
 
 static int ssam_platform_hub_remove(struct platform_device *pdev)
@@ -630,23 +619,12 @@ static int __init ssam_device_hub_init(void)
 
 	status = platform_driver_register(&ssam_platform_hub_driver);
 	if (status)
-		goto err_platform;
-
-	status = ssam_device_driver_register(&ssam_hub_driver);
-	if (status)
-		goto err_main;
+		return status;
 
 	status = ssam_device_driver_register(&ssam_base_hub_driver);
 	if (status)
-		goto err_base;
+		platform_driver_unregister(&ssam_platform_hub_driver);
 
-	return 0;
-
-err_base:
-	ssam_device_driver_unregister(&ssam_hub_driver);
-err_main:
-	platform_driver_unregister(&ssam_platform_hub_driver);
-err_platform:
 	return status;
 }
 module_init(ssam_device_hub_init);
@@ -654,7 +632,6 @@ module_init(ssam_device_hub_init);
 static void __exit ssam_device_hub_exit(void)
 {
 	ssam_device_driver_unregister(&ssam_base_hub_driver);
-	ssam_device_driver_unregister(&ssam_hub_driver);
 	platform_driver_unregister(&ssam_platform_hub_driver);
 }
 module_exit(ssam_device_hub_exit);

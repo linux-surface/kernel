@@ -28,7 +28,7 @@ menuconfig SURFACE_AGGREGATOR
 	  drivers, i.e. allowing them to make requests to the EC and receive
 	  events from it. Selecting this option alone will not provide any
 	  client drivers and therefore no functionality beyond the in-kernel
-	  interface. Said functionality is the repsonsibility of the respective
+	  interface. Said functionality is the responsibility of the respective
 	  client drivers.
 
 	  Note: While 4th-generation Surface devices also make use of a SAM EC,
@@ -37,6 +37,10 @@ menuconfig SURFACE_AGGREGATOR
 	  devices using SAM-over-SSH are supported, whereas devices using
 	  SAM-over-HID, which is used on the 4th generation, are currently not
 	  supported.
+
+	  Choose m if you want to build the SAM subsystem core and SSH driver as
+	  module, y if you want to build it into the kernel and n if you don't
+	  want it at all.
 
 config SURFACE_AGGREGATOR_BUS
 	bool "Surface System Aggregator Module Bus"
@@ -63,5 +67,3 @@ config SURFACE_AGGREGATOR_ERROR_INJECTION
 	  transport and communication problems, such as invalid data sent to or
 	  received from the EC, dropped data, and communication timeouts.
 	  Intended for development and debugging.
-
-source "drivers/misc/surface_aggregator/clients/Kconfig"

@@ -6,7 +6,7 @@
  * by the Surface System Aggregator Module (SSAM), influencing cooling
  * behavior of the device and potentially managing power limits.
  *
- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <asm/unaligned.h>
