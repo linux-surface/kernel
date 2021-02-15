@@ -118,6 +118,7 @@ struct ov7251 {
 	bool power_on;
 
 	struct gpio_desc *enable_gpio;
+	struct gpio_desc *reset;
 };
 
 /*
@@ -898,6 +899,7 @@ static int ov7251_set_power_on(struct ov7251 *ov7251)
 	}
 
 	gpiod_set_value_cansleep(ov7251->enable_gpio, 1);
+	gpiod_set_value_cansleep(ov7251->reset, 0);
 
 	/* wait at least 65536 external clock cycles */
 	wait_us = DIV_ROUND_UP(65536 * 1000,
@@ -911,6 +913,7 @@ static void ov7251_set_power_off(struct ov7251 *ov7251)
 {
 	clk_disable_unprepare(ov7251->xclk);
 	gpiod_set_value_cansleep(ov7251->enable_gpio, 0);
+	gpiod_set_value_cansleep(ov7251->reset, 1);
 	ov7251_regulators_disable(ov7251);
 }
 
@@ -1545,6 +1548,25 @@ static int ov7251_init_controls(struct ov7251 *ov7251)
 	return 0;
 }
 
+static int ov7251_configure_gpios(struct ov7251 *ov7251)
+{
+	ov7251->enable_gpio = devm_gpiod_get_optional(ov7251->dev, "enable",
+						      GPIOD_OUT_HIGH);
+	if (IS_ERR(ov7251->enable_gpio)) {
+		dev_err(ov7251->dev, "Error fetching enable GPIO\n");
+		return PTR_ERR(ov7251->enable_gpio);
+	}
+
+	ov7251->reset = devm_gpiod_get_optional(ov7251->dev, "reset",
+						GPIOD_OUT_HIGH);
+	if (IS_ERR(ov7251->reset)) {
+		dev_err(ov7251->dev, "Error fetching reset GPIO\n");
+		return PTR_ERR(ov7251->reset);
+	}
+
+	return 0;
+}
+
 static int ov7251_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
@@ -1618,11 +1640,9 @@ static int ov7251_probe(struct i2c_client *client)
 	if (ret)
 		return ret;
 
-	ov7251->enable_gpio = devm_gpiod_get(dev, "enable", GPIOD_OUT_HIGH);
-	if (IS_ERR(ov7251->enable_gpio)) {
-		dev_err(dev, "cannot get enable gpio\n");
-		return PTR_ERR(ov7251->enable_gpio);
-	}
+	ov7251_configure_gpios(ov7251);
+	if (ret)
+		return ret;
 
 	mutex_init(&ov7251->lock);
 
