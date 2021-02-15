@@ -1237,8 +1237,9 @@ config SURFACE_3_POWER_OPREGION
 	  region of the Surface 3 battery platform driver.
 
 config SURFACE_GPE
-	tristate "Surface GPE/Lid Driver"
+	tristate "Surface GPE/Lid Support Driver"
 	depends on ACPI
+	depends on DMI
 	help
 	  This driver marks the GPEs related to the ACPI lid device found on
 	  Microsoft Surface devices as wakeup sources and prepares them
