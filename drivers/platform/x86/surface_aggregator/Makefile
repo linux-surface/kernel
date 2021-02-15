@@ -5,7 +5,6 @@
 CFLAGS_core.o = -I$(src)
 
 obj-$(CONFIG_SURFACE_AGGREGATOR) += surface_aggregator.o
-obj-$(CONFIG_SURFACE_AGGREGATOR) += clients/
 
 surface_aggregator-objs := core.o
 surface_aggregator-objs += ssh_parser.o
