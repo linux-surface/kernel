@@ -37,68 +37,23 @@
  */
 #define ENABLE_NON_PREVIEW	1
 
-#define OV5693_POWER_UP_RETRY_NUM 5
-
 /* Defines for register writes and register array processing */
-#define I2C_MSG_LENGTH		0x2
-#define I2C_RETRY_COUNT		5
-
-#define OV5693_FOCAL_LENGTH_NUM	334	/*3.34mm*/
-#define OV5693_FOCAL_LENGTH_DEM	100
-#define OV5693_F_NUMBER_DEFAULT_NUM	24
-#define OV5693_F_NUMBER_DEM	10
+#define I2C_MSG_LENGTH         0x2
 
 #define MAX_FMTS		1
 
-/* sensor_mode_data read_mode adaptation */
-#define OV5693_READ_MODE_BINNING_ON	0x0400
-#define OV5693_READ_MODE_BINNING_OFF	0x00
-#define OV5693_INTEGRATION_TIME_MARGIN	8
-
-#define OV5693_MAX_EXPOSURE_VALUE	0xFFF1
-#define OV5693_MAX_GAIN_VALUE		0xFF
-
-/*
- * focal length bits definition:
- * bits 31-16: numerator, bits 15-0: denominator
- */
-#define OV5693_FOCAL_LENGTH_DEFAULT 0x1B70064
-
-/*
- * current f-number bits definition:
- * bits 31-16: numerator, bits 15-0: denominator
- */
-#define OV5693_F_NUMBER_DEFAULT 0x18000a
-
-/*
- * f-number range bits definition:
- * bits 31-24: max f-number numerator
- * bits 23-16: max f-number denominator
- * bits 15-8: min f-number numerator
- * bits 7-0: min f-number denominator
- */
-#define OV5693_F_NUMBER_RANGE 0x180a180a
 #define OV5693_ID	0x5690
 
-#define OV5693_FINE_INTG_TIME_MIN 0
-#define OV5693_FINE_INTG_TIME_MAX_MARGIN 0
-#define OV5693_COARSE_INTG_TIME_MIN 1
-#define OV5693_COARSE_INTG_TIME_MAX_MARGIN 6
-
-#define OV5693_BIN_FACTOR_MAX 4
 /*
  * OV5693 System control registers
  */
-#define OV5693_SW_SLEEP				0x0100
 #define OV5693_SW_RESET				0x0103
 #define OV5693_SW_STREAM			0x0100
 
 #define OV5693_SC_CMMN_CHIP_ID_H		0x300A
 #define OV5693_SC_CMMN_CHIP_ID_L		0x300B
-#define OV5693_SC_CMMN_SCCB_ID			0x300C
 #define OV5693_SC_CMMN_SUB_ID			0x302A /* process, version*/
-/*Bit[7:4] Group control, Bit[3:0] Group ID*/
-#define OV5693_GROUP_ACCESS			0x3208
+
 /*
 *Bit[3:0] Bit[19:16] of exposure,
 *remaining 16 bits lies in Reg0x3501&Reg0x3502
@@ -110,18 +65,6 @@
 #define OV5693_AGC_H				0x350A
 #define OV5693_AGC_L				0x350B /*Bit[7:0] of gain*/
 
-#define OV5693_HORIZONTAL_START_H		0x3800 /*Bit[11:8]*/
-#define OV5693_HORIZONTAL_START_L		0x3801 /*Bit[7:0]*/
-#define OV5693_VERTICAL_START_H			0x3802 /*Bit[11:8]*/
-#define OV5693_VERTICAL_START_L			0x3803 /*Bit[7:0]*/
-#define OV5693_HORIZONTAL_END_H			0x3804 /*Bit[11:8]*/
-#define OV5693_HORIZONTAL_END_L			0x3805 /*Bit[7:0]*/
-#define OV5693_VERTICAL_END_H			0x3806 /*Bit[11:8]*/
-#define OV5693_VERTICAL_END_L			0x3807 /*Bit[7:0]*/
-#define OV5693_HORIZONTAL_OUTPUT_SIZE_H		0x3808 /*Bit[3:0]*/
-#define OV5693_HORIZONTAL_OUTPUT_SIZE_L		0x3809 /*Bit[7:0]*/
-#define OV5693_VERTICAL_OUTPUT_SIZE_H		0x380a /*Bit[3:0]*/
-#define OV5693_VERTICAL_OUTPUT_SIZE_L		0x380b /*Bit[7:0]*/
 /*High 8-bit, and low 8-bit HTS address is 0x380d*/
 #define OV5693_TIMING_HTS_H			0x380C
 /*High 8-bit, and low 8-bit HTS address is 0x380d*/
@@ -131,6 +74,8 @@
 /*High 8-bit, and low 8-bit HTS address is 0x380f*/
 #define OV5693_TIMING_VTS_L			0x380f
 
+#define OV5693_TIMING_MAX_VTS			0xffff
+
 #define OV5693_MWB_RED_GAIN_H			0x3400
 #define OV5693_MWB_GREEN_GAIN_H			0x3402
 #define OV5693_MWB_BLUE_GAIN_H			0x3404
@@ -138,34 +83,6 @@
 
 #define OV5693_START_STREAMING			0x01
 #define OV5693_STOP_STREAMING			0x00
-
-#define VCM_ADDR           0x0c
-#define VCM_CODE_MSB       0x04
-
-#define OV5693_INVALID_CONFIG	0xffffffff
-
-#define OV5693_VCM_SLEW_STEP			0x30F0
-#define OV5693_VCM_SLEW_STEP_MAX		0x7
-#define OV5693_VCM_SLEW_STEP_MASK		0x7
-#define OV5693_VCM_CODE				0x30F2
-#define OV5693_VCM_SLEW_TIME			0x30F4
-#define OV5693_VCM_SLEW_TIME_MAX		0xffff
-#define OV5693_VCM_ENABLE			0x8000
-
-#define OV5693_VCM_MAX_FOCUS_NEG       -1023
-#define OV5693_VCM_MAX_FOCUS_POS       1023
-
-#define DLC_ENABLE 1
-#define DLC_DISABLE 0
-#define VCM_PROTECTION_OFF     0xeca3
-#define VCM_PROTECTION_ON      0xdc51
-#define VCM_DEFAULT_S 0x0
-#define vcm_step_s(a) (u8)(a & 0xf)
-#define vcm_step_mclk(a) (u8)((a >> 4) & 0x3)
-#define vcm_dlc_mclk(dlc, mclk) (u16)((dlc << 3) | mclk | 0xa104)
-#define vcm_tsrc(tsrc) (u16)(tsrc << 3 | 0xf200)
-#define vcm_val(data, s) (u16)(data << 4 | s)
-#define DIRECT_VCM vcm_dlc_mclk(0, 0)
 
 /* Defines for OTP Data Registers */
 #define OV5693_FRAME_OFF_NUM		0x4202
@@ -183,14 +100,16 @@
 #define OV5693_OTP_READ_ONETIME		16
 #define OV5693_OTP_MODE_READ		1
 
+#define OV5693_XVCLK_FREQ		19200000
+
 /* link freq and pixel rate required for IPU3 */
-#define OV5693_LINK_FREQ_640MHZ		640000000
+#define OV5693_LINK_FREQ_400MHZ		400000000
 /* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample
  * To avoid integer overflow, dividing by bits_per_sample first.
  */
-#define OV5693_PIXEL_RATE		(OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2
+#define OV5693_PIXEL_RATE		(OV5693_LINK_FREQ_400MHZ / 10) * 2 * 2
 static const s64 link_freq_menu_items[] = {
-	OV5693_LINK_FREQ_640MHZ
+	OV5693_LINK_FREQ_400MHZ
 };
 
 #define OV5693_NUM_SUPPLIES             2
@@ -208,8 +127,8 @@ struct ov5693_resolution {
 	u8 *desc;
 	const struct ov5693_reg *regs;
 	int res;
-	int width;
-	int height;
+	u32 width;
+	u32 height;
 	int fps;
 	int pix_clk_freq;
 	u16 pixels_per_line;
@@ -239,25 +158,26 @@ enum vcm_type {
  * ov5693 device structure.
  */
 struct ov5693_device {
-	struct i2c_client *i2c_client;
+	struct i2c_client *client;
 	struct v4l2_subdev sd;
 	struct media_pad pad;
 	struct v4l2_mbus_framefmt format;
-	struct mutex input_lock;
+	struct mutex lock;
 	struct v4l2_ctrl_handler ctrl_handler;
 
         struct gpio_desc *reset;
+	struct gpio_desc *powerdown;
         struct gpio_desc *indicator_led;
         struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
 	struct clk *clk;
 
 	/* Current mode */
 	const struct ov5693_resolution *mode;
+	bool streaming;
 
 	struct camera_sensor_platform_data *platform_data;
 	ktime_t timestamp_t_focus_abs;
 	int vt_pix_clk_freq_mhz;
-	int fmt_idx;
 	int run_mode;
 	int otp_size;
 	u8 *otp_data;
@@ -270,7 +190,18 @@ struct ov5693_device {
 
 	bool has_vcm;
 
-	struct v4l2_ctrl *hblank;
+	struct ov5693_v4l2_ctrls {
+		struct v4l2_ctrl *link_freq;
+		struct v4l2_ctrl *pixel_rate;
+		struct v4l2_ctrl *exposure;
+		struct v4l2_ctrl *analogue_gain;
+		struct v4l2_ctrl *digital_gain;
+		struct v4l2_ctrl *hflip;
+		struct v4l2_ctrl *vflip;
+		struct v4l2_ctrl *hblank;
+		struct v4l2_ctrl *vblank;
+	} ctrls;
+
 };
 
 enum ov5693_tok_type {
@@ -542,35 +473,7 @@ static struct ov5693_reg const ov5693_global_setting[] = {
 };
 
 #if ENABLE_NON_PREVIEW
-/*
- * 654x496 30fps 17ms VBlanking 2lane 10Bit (Scaling)
- */
-static struct ov5693_reg const ov5693_654x496[] = {
-	{OV5693_8BIT, 0x3501, 0x3d},
-	{OV5693_8BIT, 0x3502, 0x00},
-	{OV5693_8BIT, 0x3708, 0xe6},
-	{OV5693_8BIT, 0x3709, 0xc7},
-	{OV5693_8BIT, 0x3803, 0x00},
-	{OV5693_8BIT, 0x3806, 0x07},
-	{OV5693_8BIT, 0x3807, 0xa3},
-	{OV5693_8BIT, 0x3808, 0x02},
-	{OV5693_8BIT, 0x3809, 0x90},
-	{OV5693_8BIT, 0x380a, 0x01},
-	{OV5693_8BIT, 0x380b, 0xf0},
-	{OV5693_8BIT, 0x380c, 0x0a},
-	{OV5693_8BIT, 0x380d, 0x80},
-	{OV5693_8BIT, 0x380e, 0x07},
-	{OV5693_8BIT, 0x380f, 0xc0},
-	{OV5693_8BIT, 0x3811, 0x08},
-	{OV5693_8BIT, 0x3813, 0x02},
-	{OV5693_8BIT, 0x3814, 0x31},
-	{OV5693_8BIT, 0x3815, 0x31},
-	{OV5693_8BIT, 0x3820, 0x04},
-	{OV5693_8BIT, 0x3821, 0x1f},
-	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
-	{OV5693_TOK_TERM, 0, 0}
-};
+
 
 /*
  * 1296x976 30fps 17ms VBlanking 2lane 10Bit (Scaling)
@@ -613,7 +516,6 @@ static struct ov5693_reg const ov5693_1296x976[] = {
 	{OV5693_8BIT, 0x3821, 0x1e},
 	{OV5693_8BIT, 0x5002, 0x00},
 	{OV5693_8BIT, 0x5041, 0x84}, /* scale is auto enabled */
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 
 };
@@ -643,7 +545,6 @@ static struct ov5693_reg const ov5693_336x256[] = {
 	{OV5693_8BIT, 0x3820, 0x04},
 	{OV5693_8BIT, 0x3821, 0x1f},
 	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 
@@ -670,7 +571,6 @@ static struct ov5693_reg const ov5693_368x304[] = {
 	{OV5693_8BIT, 0x3820, 0x04},
 	{OV5693_8BIT, 0x3821, 0x1f},
 	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 
@@ -702,7 +602,6 @@ static struct ov5693_reg const ov5693_192x160[] = {
 	{OV5693_8BIT, 0x3820, 0x04},
 	{OV5693_8BIT, 0x3821, 0x1f},
 	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 
@@ -729,69 +628,14 @@ static struct ov5693_reg const ov5693_736x496[] = {
 	{OV5693_8BIT, 0x3820, 0x04},
 	{OV5693_8BIT, 0x3821, 0x1f},
 	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 #endif
 
 /*
-static struct ov5693_reg const ov5693_736x496[] = {
-	{OV5693_8BIT, 0x3501, 0x7b},
-	{OV5693_8BIT, 0x3502, 0x00},
-	{OV5693_8BIT, 0x3708, 0xe6},
-	{OV5693_8BIT, 0x3709, 0xc3},
-	{OV5693_8BIT, 0x3803, 0x00},
-	{OV5693_8BIT, 0x3806, 0x07},
-	{OV5693_8BIT, 0x3807, 0xa3},
-	{OV5693_8BIT, 0x3808, 0x02},
-	{OV5693_8BIT, 0x3809, 0xe0},
-	{OV5693_8BIT, 0x380a, 0x01},
-	{OV5693_8BIT, 0x380b, 0xf0},
-	{OV5693_8BIT, 0x380c, 0x0d},
-	{OV5693_8BIT, 0x380d, 0xb0},
-	{OV5693_8BIT, 0x380e, 0x05},
-	{OV5693_8BIT, 0x380f, 0xf2},
-	{OV5693_8BIT, 0x3811, 0x08},
-	{OV5693_8BIT, 0x3813, 0x02},
-	{OV5693_8BIT, 0x3814, 0x31},
-	{OV5693_8BIT, 0x3815, 0x31},
-	{OV5693_8BIT, 0x3820, 0x01},
-	{OV5693_8BIT, 0x3821, 0x1f},
-	{OV5693_8BIT, 0x5002, 0x00},
-	{OV5693_8BIT, 0x0100, 0x01},
-	{OV5693_TOK_TERM, 0, 0}
-};
-*/
-/*
  * 976x556 30fps 8.8ms VBlanking 2lane 10Bit (Scaling)
  */
 #if ENABLE_NON_PREVIEW
-static struct ov5693_reg const ov5693_976x556[] = {
-	{OV5693_8BIT, 0x3501, 0x7b},
-	{OV5693_8BIT, 0x3502, 0x00},
-	{OV5693_8BIT, 0x3708, 0xe2},
-	{OV5693_8BIT, 0x3709, 0xc3},
-	{OV5693_8BIT, 0x3803, 0xf0},
-	{OV5693_8BIT, 0x3806, 0x06},
-	{OV5693_8BIT, 0x3807, 0xa7},
-	{OV5693_8BIT, 0x3808, 0x03},
-	{OV5693_8BIT, 0x3809, 0xd0},
-	{OV5693_8BIT, 0x380a, 0x02},
-	{OV5693_8BIT, 0x380b, 0x2C},
-	{OV5693_8BIT, 0x380c, 0x0a},
-	{OV5693_8BIT, 0x380d, 0x80},
-	{OV5693_8BIT, 0x380e, 0x07},
-	{OV5693_8BIT, 0x380f, 0xc0},
-	{OV5693_8BIT, 0x3811, 0x10},
-	{OV5693_8BIT, 0x3813, 0x02},
-	{OV5693_8BIT, 0x3814, 0x11},
-	{OV5693_8BIT, 0x3815, 0x11},
-	{OV5693_8BIT, 0x3820, 0x00},
-	{OV5693_8BIT, 0x3821, 0x1e},
-	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
-	{OV5693_TOK_TERM, 0, 0}
-};
 
 /*DS from 2624x1492*/
 static struct ov5693_reg const ov5693_1296x736[] = {
@@ -828,7 +672,6 @@ static struct ov5693_reg const ov5693_1296x736[] = {
 	{OV5693_8BIT, 0x3821, 0x1e},
 	{OV5693_8BIT, 0x5002, 0x00},
 	{OV5693_8BIT, 0x5041, 0x84}, /* scale is auto enabled */
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 
@@ -855,45 +698,9 @@ static struct ov5693_reg const ov5693_1636p_30fps[] = {
 	{OV5693_8BIT, 0x3820, 0x00},
 	{OV5693_8BIT, 0x3821, 0x1e},
 	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 #endif
-
-static struct ov5693_reg const ov5693_1616x1216_30fps[] = {
-	{OV5693_8BIT, 0x3501, 0x7b},
-	{OV5693_8BIT, 0x3502, 0x80},
-	{OV5693_8BIT, 0x3708, 0xe2},
-	{OV5693_8BIT, 0x3709, 0xc3},
-	{OV5693_8BIT, 0x3800, 0x00},	/*{3800,3801} Array X start*/
-	{OV5693_8BIT, 0x3801, 0x08},	/* 04 //{3800,3801} Array X start*/
-	{OV5693_8BIT, 0x3802, 0x00},	/*{3802,3803} Array Y start*/
-	{OV5693_8BIT, 0x3803, 0x04},	/* 00  //{3802,3803} Array Y start*/
-	{OV5693_8BIT, 0x3804, 0x0a},	/*{3804,3805} Array X end*/
-	{OV5693_8BIT, 0x3805, 0x37},	/* 3b  //{3804,3805} Array X end*/
-	{OV5693_8BIT, 0x3806, 0x07},	/*{3806,3807} Array Y end*/
-	{OV5693_8BIT, 0x3807, 0x9f},	/* a3  //{3806,3807} Array Y end*/
-	{OV5693_8BIT, 0x3808, 0x06},	/*{3808,3809} Final output H size*/
-	{OV5693_8BIT, 0x3809, 0x50},	/*{3808,3809} Final output H size*/
-	{OV5693_8BIT, 0x380a, 0x04},	/*{380a,380b} Final output V size*/
-	{OV5693_8BIT, 0x380b, 0xc0},	/*{380a,380b} Final output V size*/
-	{OV5693_8BIT, 0x380c, 0x0a},	/*{380c,380d} HTS*/
-	{OV5693_8BIT, 0x380d, 0x80},	/*{380c,380d} HTS*/
-	{OV5693_8BIT, 0x380e, 0x07},	/*{380e,380f} VTS*/
-	{OV5693_8BIT, 0x380f, 0xc0},	/* bc	//{380e,380f} VTS*/
-	{OV5693_8BIT, 0x3810, 0x00},	/*{3810,3811} windowing X offset*/
-	{OV5693_8BIT, 0x3811, 0x10},	/*{3810,3811} windowing X offset*/
-	{OV5693_8BIT, 0x3812, 0x00},	/*{3812,3813} windowing Y offset*/
-	{OV5693_8BIT, 0x3813, 0x06},	/*{3812,3813} windowing Y offset*/
-	{OV5693_8BIT, 0x3814, 0x11},	/*X subsample control*/
-	{OV5693_8BIT, 0x3815, 0x11},	/*Y subsample control*/
-	{OV5693_8BIT, 0x3820, 0x00},	/*FLIP/Binnning control*/
-	{OV5693_8BIT, 0x3821, 0x1e},	/*MIRROR control*/
-	{OV5693_8BIT, 0x5002, 0x00},
-	{OV5693_8BIT, 0x5041, 0x84},
-	{OV5693_8BIT, 0x0100, 0x01},
-	{OV5693_TOK_TERM, 0, 0}
-};
 
 /*
  * 1940x1096 30fps 8.8ms VBlanking 2lane 10bit (Scaling)
@@ -922,7 +729,6 @@ static struct ov5693_reg const ov5693_1940x1096[] = {
 	{OV5693_8BIT, 0x3820, 0x00},
 	{OV5693_8BIT, 0x3821, 0x1e},
 	{OV5693_8BIT, 0x5002, 0x80},
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 
@@ -958,37 +764,6 @@ static struct ov5693_reg const ov5693_2592x1456_30fps[] = {
 };
 #endif
 
-static struct ov5693_reg const ov5693_2576x1456_30fps[] = {
-	{OV5693_8BIT, 0x3501, 0x7b},
-	{OV5693_8BIT, 0x3502, 0x00},
-	{OV5693_8BIT, 0x3708, 0xe2},
-	{OV5693_8BIT, 0x3709, 0xc3},
-	{OV5693_8BIT, 0x3800, 0x00},
-	{OV5693_8BIT, 0x3801, 0x00},
-	{OV5693_8BIT, 0x3802, 0x00},
-	{OV5693_8BIT, 0x3803, 0xf0},
-	{OV5693_8BIT, 0x3804, 0x0a},
-	{OV5693_8BIT, 0x3805, 0x3f},
-	{OV5693_8BIT, 0x3806, 0x06},
-	{OV5693_8BIT, 0x3807, 0xa4},
-	{OV5693_8BIT, 0x3808, 0x0a},
-	{OV5693_8BIT, 0x3809, 0x10},
-	{OV5693_8BIT, 0x380a, 0x05},
-	{OV5693_8BIT, 0x380b, 0xb0},
-	{OV5693_8BIT, 0x380c, 0x0a},
-	{OV5693_8BIT, 0x380d, 0x80},
-	{OV5693_8BIT, 0x380e, 0x07},
-	{OV5693_8BIT, 0x380f, 0xc0},
-	{OV5693_8BIT, 0x3811, 0x18},
-	{OV5693_8BIT, 0x3813, 0x00},
-	{OV5693_8BIT, 0x3814, 0x11},
-	{OV5693_8BIT, 0x3815, 0x11},
-	{OV5693_8BIT, 0x3820, 0x00},
-	{OV5693_8BIT, 0x3821, 0x1e},
-	{OV5693_8BIT, 0x5002, 0x00},
-	{OV5693_TOK_TERM, 0, 0}
-};
-
 /*
  * 2592x1944 30fps 0.6ms VBlanking 2lane 10Bit
  */
@@ -1016,51 +791,6 @@ static struct ov5693_reg const ov5693_2592x1944_30fps[] = {
 	{OV5693_8BIT, 0x3820, 0x00},
 	{OV5693_8BIT, 0x3821, 0x1e},
 	{OV5693_8BIT, 0x5002, 0x00},
-	{OV5693_8BIT, 0x0100, 0x01},
-	{OV5693_TOK_TERM, 0, 0}
-};
-#endif
-
-/*
- * 11:9 Full FOV Output, expected FOV Res: 2346x1920
- * ISP Effect Res: 1408x1152
- * Sensor out: 1424x1168, DS From: 2380x1952
- *
- * WA: Left Offset: 8, Hor scal: 64
- */
-#if ENABLE_NON_PREVIEW
-static struct ov5693_reg const ov5693_1424x1168_30fps[] = {
-	{OV5693_8BIT, 0x3501, 0x3b}, /* long exposure[15:8] */
-	{OV5693_8BIT, 0x3502, 0x80}, /* long exposure[7:0] */
-	{OV5693_8BIT, 0x3708, 0xe2},
-	{OV5693_8BIT, 0x3709, 0xc3},
-	{OV5693_8BIT, 0x3800, 0x00}, /* TIMING_X_ADDR_START */
-	{OV5693_8BIT, 0x3801, 0x50}, /* 80 */
-	{OV5693_8BIT, 0x3802, 0x00}, /* TIMING_Y_ADDR_START */
-	{OV5693_8BIT, 0x3803, 0x02}, /* 2 */
-	{OV5693_8BIT, 0x3804, 0x09}, /* TIMING_X_ADDR_END */
-	{OV5693_8BIT, 0x3805, 0xdd}, /* 2525 */
-	{OV5693_8BIT, 0x3806, 0x07}, /* TIMING_Y_ADDR_END */
-	{OV5693_8BIT, 0x3807, 0xa1}, /* 1953 */
-	{OV5693_8BIT, 0x3808, 0x05}, /* TIMING_X_OUTPUT_SIZE */
-	{OV5693_8BIT, 0x3809, 0x90}, /* 1424 */
-	{OV5693_8BIT, 0x380a, 0x04}, /* TIMING_Y_OUTPUT_SIZE */
-	{OV5693_8BIT, 0x380b, 0x90}, /* 1168 */
-	{OV5693_8BIT, 0x380c, 0x0a}, /* TIMING_HTS */
-	{OV5693_8BIT, 0x380d, 0x80},
-	{OV5693_8BIT, 0x380e, 0x07}, /* TIMING_VTS */
-	{OV5693_8BIT, 0x380f, 0xc0},
-	{OV5693_8BIT, 0x3810, 0x00}, /* TIMING_ISP_X_WIN */
-	{OV5693_8BIT, 0x3811, 0x02}, /* 2 */
-	{OV5693_8BIT, 0x3812, 0x00}, /* TIMING_ISP_Y_WIN */
-	{OV5693_8BIT, 0x3813, 0x00}, /* 0 */
-	{OV5693_8BIT, 0x3814, 0x11}, /* TIME_X_INC */
-	{OV5693_8BIT, 0x3815, 0x11}, /* TIME_Y_INC */
-	{OV5693_8BIT, 0x3820, 0x00},
-	{OV5693_8BIT, 0x3821, 0x1e},
-	{OV5693_8BIT, 0x5002, 0x00},
-	{OV5693_8BIT, 0x5041, 0x84}, /* scale is auto enabled */
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
 #endif
@@ -1101,177 +831,8 @@ static struct ov5693_reg const ov5693_736x496_30fps[] = {
 	{OV5693_8BIT, 0x3821, 0x1e},
 	{OV5693_8BIT, 0x5002, 0x00},
 	{OV5693_8BIT, 0x5041, 0x84}, /* scale is auto enabled */
-	{OV5693_8BIT, 0x0100, 0x01},
 	{OV5693_TOK_TERM, 0, 0}
 };
-
-static struct ov5693_reg const ov5693_2576x1936_30fps[] = {
-	{OV5693_8BIT, 0x3501, 0x7b},
-	{OV5693_8BIT, 0x3502, 0x00},
-	{OV5693_8BIT, 0x3708, 0xe2},
-	{OV5693_8BIT, 0x3709, 0xc3},
-	{OV5693_8BIT, 0x3803, 0x00},
-	{OV5693_8BIT, 0x3806, 0x07},
-	{OV5693_8BIT, 0x3807, 0xa3},
-	{OV5693_8BIT, 0x3808, 0x0a},
-	{OV5693_8BIT, 0x3809, 0x10},
-	{OV5693_8BIT, 0x380a, 0x07},
-	{OV5693_8BIT, 0x380b, 0x90},
-	{OV5693_8BIT, 0x380c, 0x0a},
-	{OV5693_8BIT, 0x380d, 0x80},
-	{OV5693_8BIT, 0x380e, 0x07},
-	{OV5693_8BIT, 0x380f, 0xc0},
-	{OV5693_8BIT, 0x3811, 0x18},
-	{OV5693_8BIT, 0x3813, 0x00},
-	{OV5693_8BIT, 0x3814, 0x11},
-	{OV5693_8BIT, 0x3815, 0x11},
-	{OV5693_8BIT, 0x3820, 0x00},
-	{OV5693_8BIT, 0x3821, 0x1e},
-	{OV5693_8BIT, 0x5002, 0x00},
-	{OV5693_8BIT, 0x0100, 0x01},
-	{OV5693_TOK_TERM, 0, 0}
-};
-
-static struct ov5693_resolution ov5693_res_preview[] = {
-	{
-		.desc = "ov5693_736x496_30fps",
-		.width = 736,
-		.height = 496,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_736x496_30fps,
-	},
-	{
-		.desc = "ov5693_1616x1216_30fps",
-		.width = 1616,
-		.height = 1216,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_1616x1216_30fps,
-	},
-	{
-		.desc = "ov5693_5M_30fps",
-		.width = 2576,
-		.height = 1456,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_2576x1456_30fps,
-	},
-	{
-		.desc = "ov5693_5M_30fps",
-		.width = 2576,
-		.height = 1936,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_2576x1936_30fps,
-	},
-};
-
-#define N_RES_PREVIEW (ARRAY_SIZE(ov5693_res_preview))
-
-/*
- * Disable non-preview configurations until the configuration selection is
- * improved.
- */
-#if ENABLE_NON_PREVIEW
-struct ov5693_resolution ov5693_res_still[] = {
-	{
-		.desc = "ov5693_736x496_30fps",
-		.width = 736,
-		.height = 496,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_736x496_30fps,
-	},
-	{
-		.desc = "ov5693_1424x1168_30fps",
-		.width = 1424,
-		.height = 1168,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_1424x1168_30fps,
-	},
-	{
-		.desc = "ov5693_1616x1216_30fps",
-		.width = 1616,
-		.height = 1216,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_1616x1216_30fps,
-	},
-	{
-		.desc = "ov5693_5M_30fps",
-		.width = 2592,
-		.height = 1456,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_2592x1456_30fps,
-	},
-	{
-		.desc = "ov5693_5M_30fps",
-		.width = 2592,
-		.height = 1944,
-		.pix_clk_freq = 160,
-		.fps = 30,
-		.used = 0,
-		.pixels_per_line = 2688,
-		.lines_per_frame = 1984,
-		.bin_factor_x = 1,
-		.bin_factor_y = 1,
-		.bin_mode = 0,
-		.regs = ov5693_2592x1944_30fps,
-	},
-};
-
-#define N_RES_STILL (ARRAY_SIZE(ov5693_res_still))
 
 struct ov5693_resolution ov5693_res_video[] = {
 	{
@@ -1427,4 +988,3 @@ struct ov5693_resolution ov5693_res_video[] = {
 
 static struct ov5693_resolution *ov5693_res = ov5693_res_video;
 static unsigned long N_RES = N_RES_VIDEO;
-#endif
