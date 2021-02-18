@@ -203,8 +203,9 @@ static void geni_se_io_set_mode(void __iomem *base)
 	writel_relaxed(0, base + SE_GSI_EVENT_EN);
 }
 
-static void geni_se_io_init(void __iomem *base)
+static void geni_se_io_init(struct geni_se *se)
 {
+	void __iomem *base = se->base;
 	u32 val;
 
 	val = readl_relaxed(base + GENI_CGC_CTRL);
@@ -217,7 +218,9 @@ static void geni_se_io_init(void __iomem *base)
 	writel_relaxed(val, base + SE_DMA_GENERAL_CFG);
 
 	writel_relaxed(DEFAULT_IO_OUTPUT_CTRL_MSK, base + GENI_OUTPUT_CTRL);
-	writel_relaxed(FORCE_DEFAULT, base + GENI_FORCE_DEFAULT_REG);
+
+	if (!has_acpi_companion(se->dev))
+		writel_relaxed(FORCE_DEFAULT, base + GENI_FORCE_DEFAULT_REG);
 }
 
 static void geni_se_irq_clear(struct geni_se *se)
@@ -244,7 +247,7 @@ void geni_se_init(struct geni_se *se, u32 rx_wm, u32 rx_rfr)
 	u32 val;
 
 	geni_se_irq_clear(se);
-	geni_se_io_init(se->base);
+	geni_se_io_init(se);
 	geni_se_io_set_mode(se->base);
 
 	writel_relaxed(rx_wm, se->base + SE_GENI_RX_WATERMARK_REG);
