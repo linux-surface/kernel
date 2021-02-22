@@ -2135,6 +2135,21 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
 		device->handler->hotplug.notify_online(device);
 }
 
+static int __acpi_dev_get_dependent_dev(struct acpi_dep_data *dep, void *data)
+{
+	struct acpi_device *adev;
+	int ret;
+
+	ret = acpi_bus_get_device(dep->consumer, &adev);
+	if (ret)
+		/* If we don't find an adev then we want to continue parsing */
+		return 0;
+
+	*(struct acpi_device **)data = adev;
+
+	return 1;
+}
+
 static int __acpi_dev_flag_dependency_met(struct acpi_dep_data *dep,
 					  void *data)
 {
@@ -2186,6 +2201,25 @@ void acpi_dev_flag_dependency_met(acpi_handle handle)
 	acpi_walk_dep_device_list(handle, __acpi_dev_flag_dependency_met, NULL);
 }
 EXPORT_SYMBOL_GPL(acpi_dev_flag_dependency_met);
+
+/**
+ * acpi_dev_get_dependent_dev - Return ACPI device dependent on @adev
+ * @adev: Pointer to the dependee device
+ *
+ * Returns the first &struct acpi_device which declares itself dependent on
+ * @adev via the _DEP buffer, parsed from the acpi_dep_list.
+ */
+struct acpi_device *
+acpi_dev_get_dependent_dev(struct acpi_device *supplier)
+{
+	struct acpi_device *adev = NULL;
+
+	acpi_walk_dep_device_list(supplier->handle,
+				  __acpi_dev_get_dependent_dev, &adev);
+
+	return adev;
+}
+EXPORT_SYMBOL_GPL(acpi_dev_get_dependent_dev);
 
 /**
  * acpi_bus_scan - Add ACPI device node objects in a given namespace scope.
