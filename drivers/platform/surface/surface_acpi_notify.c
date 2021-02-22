@@ -835,7 +835,7 @@ static int san_probe(struct platform_device *pdev)
 	if (status)
 		goto err_install_dev;
 
-	acpi_walk_dep_device_list(san);
+	acpi_dev_flag_dependency_met(san);
 	return 0;
 
 err_install_dev:

@@ -706,7 +706,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	 *       For now let's thus default power/wakeup to false.
 	 */
 	device_set_wakeup_capable(&serdev->dev, true);
-	acpi_walk_dep_device_list(ssh);
+	acpi_dev_flag_dependency_met(ssh);
 
 	return 0;
 

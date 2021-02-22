@@ -279,7 +279,7 @@ void i2c_acpi_register_devices(struct i2c_adapter *adap)
 	if (!handle)
 		return;
 
-	acpi_walk_dep_device_list(handle);
+	acpi_dev_flag_dependency_met(handle);
 }
 
 static const struct acpi_device_id i2c_acpi_force_400khz_device_ids[] = {
