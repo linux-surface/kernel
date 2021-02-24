@@ -243,19 +243,19 @@
 &remoteproc_adsp {
 	status = "okay";
 	memory-region = <&adsp_mem>;
-	firmware-name = "qcom/sc8180x/qcadsp8180.mbn";
+	firmware-name = "qcom/LENOVO/82AK/qcadsp8180.mbn";
 };
 
 &remoteproc_cdsp {
 	status = "okay";
 	memory-region = <&cdsp_mem>;
-	firmware-name = "qcom/sc8180x/qccdsp8180.mbn";
+	firmware-name = "qcom/LENOVO/82AK/qccdsp8180.mbn";
 };
 
 &remoteproc_mpss {
 	status = "okay";
 	memory-region = <&mpss_mem>;
-	firmware-name = "qcom/sc8180x/qcmpss8180_nm.mbn";
+	firmware-name = "qcom/LENOVO/82AK/qcmpss8180_nm.mbn";
 };
 
 &tlmm {
