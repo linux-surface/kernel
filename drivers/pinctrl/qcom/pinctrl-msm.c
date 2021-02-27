@@ -488,10 +488,24 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 	return 0;
 }
 
+static int msm_config_pin_get(struct pinctrl_dev *pctldev, unsigned int pin,
+			      unsigned long *config)
+{
+	return msm_config_group_get(pctldev, pin, config);
+}
+
+static int msm_config_pin_set(struct pinctrl_dev *pctldev, unsigned pin,
+			      unsigned long *configs, unsigned num_configs)
+{
+	return msm_config_group_set(pctldev, pin, configs, num_configs);
+}
+
 static const struct pinconf_ops msm_pinconf_ops = {
 	.is_generic		= true,
 	.pin_config_group_get	= msm_config_group_get,
 	.pin_config_group_set	= msm_config_group_set,
+	.pin_config_get		= msm_config_pin_get,
+	.pin_config_set		= msm_config_pin_set,
 };
 
 static int msm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
@@ -716,6 +730,7 @@ static const struct gpio_chip msm_gpio_template = {
 	.get_direction    = msm_gpio_get_direction,
 	.get              = msm_gpio_get,
 	.set              = msm_gpio_set,
+	.set_config       = gpiochip_generic_config,
 	.request          = gpiochip_generic_request,
 	.free             = gpiochip_generic_free,
 	.dbg_show         = msm_gpio_dbg_show,
