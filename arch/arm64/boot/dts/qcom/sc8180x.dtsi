@@ -1229,7 +1229,7 @@
 			#gpio-cells = <2>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
-			gpio-ranges = <&tlmm 0 0 190>;
+			gpio-ranges = <&tlmm 0 0 191>;
 			wakeup-parent = <&pdc>;
 		};
 
