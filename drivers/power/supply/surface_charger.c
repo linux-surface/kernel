@@ -28,13 +28,13 @@ enum sam_battery_sta {
 };
 
 /* Get battery status (_STA). */
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x01,
 });
 
 /* Get platform power source for battery (_PSR / DPTF PSRC). */
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x0d,
 });
