@@ -85,25 +85,25 @@ static_assert(sizeof(struct spwr_bst) == 16);
 #define SPWR_BATTERY_VALUE_UNKNOWN	0xffffffff
 
 /* Get battery status (_STA) */
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x01,
 });
 
 /* Get battery static information (_BIX). */
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bix, struct spwr_bix, {
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bix, struct spwr_bix, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x02,
 });
 
 /* Get battery dynamic information (_BST). */
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x03,
 });
 
 /* Set battery trip point (_BTP). */
-static SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
+SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x04,
 });

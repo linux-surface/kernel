@@ -33,12 +33,12 @@ struct ssam_perf_info {
 	__le16 unknown2;
 } __packed;
 
-static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
 	.target_category = SSAM_SSH_TC_TMP,
 	.command_id      = 0x02,
 });
 
-static SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_perf_mode_set, __le32, {
+SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_perf_mode_set, __le32, {
 	.target_category = SSAM_SSH_TC_TMP,
 	.command_id      = 0x03,
 });
