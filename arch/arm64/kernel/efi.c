@@ -7,6 +7,7 @@
  * Copyright (C) 2013, 2014 Linaro Ltd.
  */
 
+#include <linux/dmi.h>
 #include <linux/efi.h>
 #include <linux/init.h>
 
@@ -114,12 +115,26 @@ int __init efi_set_mapping_permissions(struct mm_struct *mm,
 				   set_permissions, md);
 }
 
+static const struct dmi_system_id efi_reboot_broken_table[] = {
+	{
+		.ident = "Lenovo Flex 5G",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "Flex 5G"),
+		},
+	},
+	{ } /* terminator */
+};
+
 /*
  * UpdateCapsule() depends on the system being shutdown via
  * ResetSystem().
  */
 bool efi_poweroff_required(void)
 {
+	if (dmi_check_system(efi_reboot_broken_table))
+		return false;
+
 	return efi_enabled(EFI_RUNTIME_SERVICES);
 }
 
