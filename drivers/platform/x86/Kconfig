@@ -844,31 +844,6 @@ config INTEL_CHT_INT33FE
 	  device and CONFIG_TYPEC_FUSB302=m and CONFIG_BATTERY_MAX17042=m
 	  for Type-C device.
 
-config INTEL_SKL_INT3472
-	tristate "Intel SkyLake ACPI INT3472 Driver"
-	depends on X86 && ACPI
-	select REGMAP_I2C
-	help
-	  This driver adds support for the INT3472 ACPI devices found on some
-	  Intel SkyLake devices.
-
-	  There are 3 kinds of INT3472 ACPI device possible; two for devices
-	  designed for Windows (either with or without a physical tps68470
-	  PMIC) and one designed for Chrome OS. This driver handles all three
-	  situations by discovering information it needs to discern them at
-	  runtime.
-
-	  If your device was designed for Chrome OS, this driver will provide
-	  an ACPI operation region, which must be available before any of the
-	  devices using this are probed. For this reason, you should select Y
-	  if your device was designed for ChromeOS. This option also configures
-	  the designware-i2c driver to be built-in, for the same reason.
-
-	  Say Y or M here if you have a SkyLake device designed for use
-	  with Windows or ChromeOS. Say N here if you are not sure.
-
-	  The module will be named "intel-skl-int3472"
-
 config INTEL_HID_EVENT
 	tristate "INTEL HID Event"
 	depends on ACPI
