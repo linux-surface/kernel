@@ -96,6 +96,41 @@ static void install_memreserve_table(void)
 		efi_err("Failed to install memreserve config table!\n");
 }
 
+static void check_rt_properties_table_override(void)
+{
+	static const efi_guid_t rt_prop_guid = EFI_RT_PROPERTIES_TABLE_GUID;
+	efi_rt_properties_table_t *table;
+	unsigned long size = sizeof(u32);
+	efi_status_t status;
+	u32 override;
+
+	status = get_efi_var(L"OverrideSupported", &rt_prop_guid, NULL, &size, &override);
+	if (status != EFI_SUCCESS || size != sizeof(override))
+		return;
+
+	table = get_efi_config_table(rt_prop_guid);
+	if (!table) {
+		/* no table exists yet - allocate a new one */
+		status = efi_bs_call(allocate_pool, EFI_RUNTIME_SERVICES_DATA,
+				     sizeof(*table), (void **)&table);
+		if (status != EFI_SUCCESS)
+			return;
+		table->version = EFI_RT_PROPERTIES_TABLE_VERSION;
+		table->length = sizeof(*table);
+		table->runtime_services_supported = EFI_RT_SUPPORTED_ALL;
+
+		status = efi_bs_call(install_configuration_table,
+				     (efi_guid_t *)&rt_prop_guid, table);
+		if (status != EFI_SUCCESS) {
+			efi_warn("Failed to install RT_PROP override table\n");
+			return;
+		}
+	}
+
+	efi_info("Applying RT_PROP table override from EFI variable\n");
+	table->runtime_services_supported &= override;
+}
+
 static u32 get_supported_rt_services(void)
 {
 	const efi_rt_properties_table_t *rt_prop_table;
@@ -209,6 +244,8 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 	efi_enable_reset_attack_mitigation();
 
 	secure_boot = efi_get_secureboot();
+
+	check_rt_properties_table_override();
 
 	/*
 	 * Unauthenticated device tree data is a security hazard, so ignore
