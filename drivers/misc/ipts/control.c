@@ -26,11 +26,45 @@ int ipts_control_send(struct ipts_context *ipts, u32 code, void *payload,
 		memcpy(&cmd.payload, payload, size);
 
 	ret = mei_cldev_send(ipts->cldev, (u8 *)&cmd, sizeof(cmd.code) + size);
-	if (ret >= 0 || ret == -EINTR)
+	if (ret >= 0)
 		return 0;
 
-	dev_err(ipts->dev, "Error while sending: 0x%X:%d\n", code, ret);
+	/*
+	 * During shutdown the device might get pulled away from below our feet.
+	 * Dont log an error in this case, because it will confuse people.
+	 */
+	if (ret != -ENODEV || ipts->status != IPTS_HOST_STATUS_STOPPING)
+		dev_err(ipts->dev, "Error while sending: 0x%X:%d\n", code, ret);
+
 	return ret;
+}
+
+int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer)
+{
+	struct ipts_feedback_cmd cmd;
+
+	memset(&cmd, 0, sizeof(struct ipts_feedback_cmd));
+	cmd.buffer = buffer;
+
+	return ipts_control_send(ipts, IPTS_CMD_FEEDBACK, &cmd,
+				 sizeof(struct ipts_feedback_cmd));
+}
+
+int ipts_control_set_feature(struct ipts_context *ipts, u8 report, u8 value)
+{
+	struct ipts_feedback_buffer *feedback;
+
+	memset(ipts->host2me.address, 0, ipts->device_info.feedback_size);
+	feedback = (struct ipts_feedback_buffer *)ipts->host2me.address;
+
+	feedback->cmd_type = IPTS_FEEDBACK_CMD_TYPE_NONE;
+	feedback->data_type = IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES;
+	feedback->buffer = IPTS_HOST2ME_BUFFER;
+	feedback->size = 2;
+	feedback->payload[0] = report;
+	feedback->payload[1] = value;
+
+	return ipts_control_send_feedback(ipts, IPTS_HOST2ME_BUFFER);
 }
 
 int ipts_control_start(struct ipts_context *ipts)
@@ -48,6 +82,8 @@ int ipts_control_start(struct ipts_context *ipts)
 
 int ipts_control_stop(struct ipts_context *ipts)
 {
+	int ret;
+
 	if (ipts->status == IPTS_HOST_STATUS_STOPPING)
 		return -EBUSY;
 
@@ -60,10 +96,11 @@ int ipts_control_stop(struct ipts_context *ipts)
 	ipts_uapi_unlink();
 	ipts_resources_free(ipts);
 
-	if (!mei_cldev_enabled(ipts->cldev))
-		return 0;
+	ret = ipts_control_send_feedback(ipts, 0);
+	if (ret == -ENODEV)
+		ipts->status = IPTS_HOST_STATUS_STOPPED;
 
-	return ipts_control_send(ipts, IPTS_CMD_CLEAR_MEM_WINDOW, NULL, 0);
+	return ret;
 }
 
 int ipts_control_restart(struct ipts_context *ipts)

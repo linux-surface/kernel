@@ -141,6 +141,11 @@ enum ipts_status {
  */
 #define IPTS_BUFFERS 16
 
+/*
+ * The special buffer ID that is used for direct host2me feedback.
+ */
+#define IPTS_HOST2ME_BUFFER IPTS_BUFFERS
+
 /**
  * enum ipts_mode - Operation mode for IPTS hardware
  * @IPTS_MODE_SINGLETOUCH: Fallback that supports only one finger and no stylus.
@@ -218,6 +223,56 @@ struct ipts_feedback_cmd {
 } __packed;
 
 /**
+ * enum ipts_feedback_cmd_type - Commands that can be executed on the sensor through feedback.
+ */
+enum ipts_feedback_cmd_type {
+	IPTS_FEEDBACK_CMD_TYPE_NONE = 0,
+	IPTS_FEEDBACK_CMD_TYPE_SOFT_RESET = 1,
+	IPTS_FEEDBACK_CMD_TYPE_GOTO_ARMED = 2,
+	IPTS_FEEDBACK_CMD_TYPE_GOTO_SENSING = 3,
+	IPTS_FEEDBACK_CMD_TYPE_GOTO_SLEEP = 4,
+	IPTS_FEEDBACK_CMD_TYPE_GOTO_DOZE = 5,
+	IPTS_FEEDBACK_CMD_TYPE_HARD_RESET = 6,
+};
+
+/**
+ * enum ipts_feedback_data_type - Describes the data that a feedback buffer contains.
+ * @IPTS_FEEDBACK_DATA_TYPE_VENDOR:        The buffer contains vendor specific feedback.
+ * @IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES:  The buffer contains a HID set features command.
+ * @IPTS_FEEDBACK_DATA_TYPE_GET_FEATURES:  The buffer contains a HID get features command.
+ * @IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT: The buffer contains a HID output report.
+ * @IPTS_FEEDBACK_DATA_TYPE_STORE_DATA:    The buffer contains calibration data for the sensor.
+ */
+enum ipts_feedback_data_type {
+	IPTS_FEEDBACK_DATA_TYPE_VENDOR = 0,
+	IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES = 1,
+	IPTS_FEEDBACK_DATA_TYPE_GET_FEATURES = 2,
+	IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT = 3,
+	IPTS_FEEDBACK_DATA_TYPE_STORE_DATA = 4,
+};
+
+/**
+ * struct ipts_feedback_buffer - The contents of an IPTS feedback buffer.
+ * @cmd_type: A command that should be executed on the sensor.
+ * @size: The size of the payload to be written.
+ * @buffer: The ID of the buffer that contains this feedback data.
+ * @protocol: The protocol version of the EDS.
+ * @data_type: The type of payload that the buffer contains.
+ * @spi_offset: The offset at which to write the payload data.
+ * @payload: Payload for the feedback command, or 0 if no payload is sent.
+ */
+struct ipts_feedback_buffer {
+	enum ipts_feedback_cmd_type cmd_type;
+	u32 size;
+	u32 buffer;
+	u32 protocol;
+	enum ipts_feedback_data_type data_type;
+	u32 spi_offset;
+	u8 reserved[40];
+	u8 payload[];
+} __packed;
+
+/**
  * enum ipts_reset_type - Possible ways of resetting the touch sensor
  * @IPTS_RESET_TYPE_HARD: Perform hardware reset using GPIO pin.
  * @IPTS_RESET_TYPE_SOFT: Perform software reset using SPI interface.
@@ -267,6 +322,14 @@ struct ipts_get_device_info_rsp {
 	enum ipts_mode mode;
 	u8 max_contacts;
 	u8 reserved[19];
+} __packed;
+
+/**
+ * struct ipts_feedback_rsp - Payload for the FEEDBACK response.
+ * @buffer: The buffer that has received feedback.
+ */
+struct ipts_feedback_rsp {
+	u32 buffer;
 } __packed;
 
 /**
