@@ -7,12 +7,20 @@
  */
 
 #include <linux/mei_cl_bus.h>
+#include <linux/moduleparam.h>
 #include <linux/types.h>
 
 #include "context.h"
 #include "control.h"
 #include "protocol.h"
 #include "resources.h"
+
+/*
+ * Temporary parameter to guard gen7 multitouch mode.
+ * Remove once gen7 has stable iptsd support.
+ */
+static bool gen7mt;
+module_param(gen7mt, bool, 0644);
 
 static int ipts_receiver_handle_get_device_info(struct ipts_context *ipts,
 						struct ipts_response *rsp)
@@ -74,11 +82,36 @@ static int ipts_receiver_handle_set_mode(struct ipts_context *ipts)
 
 static int ipts_receiver_handle_set_mem_window(struct ipts_context *ipts)
 {
+	int ret;
+
 	dev_info(ipts->dev, "Device %04hX:%04hX ready\n",
 		 ipts->device_info.vendor_id, ipts->device_info.device_id);
 	ipts->status = IPTS_HOST_STATUS_STARTED;
 
-	return ipts_control_send(ipts, IPTS_CMD_READY_FOR_DATA, NULL, 0);
+	ret = ipts_control_send(ipts, IPTS_CMD_READY_FOR_DATA, NULL, 0);
+	if (ret)
+		return ret;
+
+	if (!gen7mt)
+		return 0;
+
+	return ipts_control_set_feature(ipts, 0x5, 0x1);
+}
+
+static int ipts_receiver_handle_feedback(struct ipts_context *ipts,
+					 struct ipts_response *rsp)
+{
+	struct ipts_feedback_rsp feedback;
+
+	if (ipts->status != IPTS_HOST_STATUS_STOPPING)
+		return 0;
+
+	memcpy(&feedback, rsp->payload, sizeof(feedback));
+
+	if (feedback.buffer < IPTS_BUFFERS - 1)
+		return ipts_control_send_feedback(ipts, feedback.buffer + 1);
+
+	return ipts_control_send(ipts, IPTS_CMD_CLEAR_MEM_WINDOW, NULL, 0);
 }
 
 static int ipts_receiver_handle_clear_mem_window(struct ipts_context *ipts)
@@ -151,6 +184,9 @@ static void ipts_receiver_handle_response(struct ipts_context *ipts,
 		break;
 	case IPTS_RSP_SET_MEM_WINDOW:
 		ret = ipts_receiver_handle_set_mem_window(ipts);
+		break;
+	case IPTS_RSP_FEEDBACK:
+		ret = ipts_receiver_handle_feedback(ipts, rsp);
 		break;
 	case IPTS_RSP_CLEAR_MEM_WINDOW:
 		ret = ipts_receiver_handle_clear_mem_window(ipts);

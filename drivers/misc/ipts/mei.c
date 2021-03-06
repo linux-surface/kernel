@@ -9,8 +9,8 @@
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/mei_cl_bus.h>
-#include <linux/module.h>
 #include <linux/mod_devicetable.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 
 #include "context.h"
@@ -65,10 +65,19 @@ static int ipts_mei_probe(struct mei_cl_device *cldev,
 
 static int ipts_mei_remove(struct mei_cl_device *cldev)
 {
+	int i;
 	struct ipts_context *ipts = mei_cldev_get_drvdata(cldev);
 
-	mei_cldev_disable(cldev);
 	ipts_control_stop(ipts);
+
+	for (i = 0; i < 20; i++) {
+		if (ipts->status == IPTS_HOST_STATUS_STOPPED)
+			break;
+
+		msleep(25);
+	}
+
+	mei_cldev_disable(cldev);
 	kfree(ipts);
 
 	return 0;

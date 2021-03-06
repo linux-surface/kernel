@@ -7,11 +7,11 @@
  */
 
 #include <linux/cdev.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/fs.h>
-#include <linux/delay.h>
-#include <linux/uaccess.h>
 #include <linux/types.h>
+#include <linux/uaccess.h>
 
 #include "context.h"
 #include "control.h"
@@ -96,17 +96,14 @@ static long ipts_uapi_ioctl_send_feedback(struct ipts_context *ipts,
 					  struct file *file)
 {
 	int ret;
-	struct ipts_feedback_cmd cmd;
+	u32 buffer;
 
 	if (!ipts || ipts->status != IPTS_HOST_STATUS_STARTED)
 		return -ENODEV;
 
-	memset(&cmd, 0, sizeof(struct ipts_feedback_cmd));
-	cmd.buffer = MINOR(file->f_path.dentry->d_inode->i_rdev);
+	buffer = MINOR(file->f_path.dentry->d_inode->i_rdev);
 
-	ret = ipts_control_send(ipts, IPTS_CMD_FEEDBACK, &cmd,
-				sizeof(struct ipts_feedback_cmd));
-
+	ret = ipts_control_send_feedback(ipts, buffer);
 	if (ret)
 		return -EFAULT;
 
