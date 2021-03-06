@@ -478,7 +478,7 @@ static int mshw0011_install_space_handler(struct i2c_client *client)
 		return -ENOMEM;
 	}
 
-	acpi_walk_dep_device_list(handle);
+	acpi_dev_flag_dependency_met(handle);
 	return 0;
 }
 

@@ -117,7 +117,7 @@ static int chtdc_ti_pmic_opregion_probe(struct platform_device *pdev)
 		return err;
 
 	/* Re-enumerate devices depending on PMIC */
-	acpi_walk_dep_device_list(ACPI_HANDLE(pdev->dev.parent));
+	acpi_dev_flag_dependency_met(ACPI_HANDLE(pdev->dev.parent));
 	return 0;
 }
 
