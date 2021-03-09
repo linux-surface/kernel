@@ -507,6 +507,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
 	/* Surface Pro 7 */
 	{ "MSHW0116", (unsigned long)&ssam_platform_hub_sp7 },
 
+	/* Surface Pro 7+ */
+	{ "MSHW0119", (unsigned long)&ssam_platform_hub_sp7 },
+
 	/* Surface Book 2 */
 	{ "MSHW0107", (unsigned long)&ssam_platform_hub_sb2 },
 
