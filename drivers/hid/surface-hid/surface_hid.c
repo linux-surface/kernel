@@ -157,15 +157,12 @@ static int ssam_hid_get_raw_report(struct surface_hid_device *shid, u8 rprt_id, 
 static u32 ssam_hid_event_fn(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
 	struct surface_hid_device *shid = container_of(nf, struct surface_hid_device, notif);
-	int status;
 
 	if (event->command_id != 0x00)
 		return 0;
 
-	status = hid_input_report(shid->hid, HID_INPUT_REPORT, (u8 *)&event->data[0],
-				  event->length, 0);
-
-	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
+	hid_input_report(shid->hid, HID_INPUT_REPORT, (u8 *)&event->data[0], event->length, 0);
+	return SSAM_NOTIF_HANDLED;
 }
 
 
