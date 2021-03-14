@@ -24,6 +24,7 @@ properties:
     enum:
       - qcom,sdm845-gpucc
       - qcom,sc7180-gpucc
+      - qcom,sc8180x-gpucc
       - qcom,sm8150-gpucc
       - qcom,sm8250-gpucc
 
