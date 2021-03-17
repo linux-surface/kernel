@@ -368,6 +368,13 @@ static int lps0_device_attach(struct acpi_device *adev,
 
 	ACPI_FREE(out_obj);
 
+	/*
+	 * Some HP laptops require ACPI_LPS0_ENTRY_AMD/ACPI_LPS0_EXIT_AMD for proper
+	 * S0ix, but don't set the function mask correctly.  Fix that up here.
+	 */
+	if (acpi_s2idle_vendor_amd())
+		lps0_dsm_func_mask |= (1 << ACPI_LPS0_ENTRY_AMD) | (1 << ACPI_LPS0_EXIT_AMD);
+
 	acpi_handle_debug(adev->handle, "_DSM function mask: 0x%x\n",
 			  lps0_dsm_func_mask);
 
