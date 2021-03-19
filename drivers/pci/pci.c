@@ -1520,7 +1520,9 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
 	u16 cmd;
 	u8 pin;
 
-	pci_power_up(dev);
+	err = pci_set_power_state(dev, PCI_D0);
+	if (err < 0 && err != -EIO)
+		return err;
 
 	bridge = pci_upstream_bridge(dev);
 	if (bridge)
