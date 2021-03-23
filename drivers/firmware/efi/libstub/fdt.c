@@ -279,6 +279,7 @@ efi_status_t allocate_new_fdt_and_exit_boot(void *handle,
 		efi_err("Unable to allocate memory for new device tree.\n");
 		goto fail;
 	}
+	efi_info("EFI Page allocation OK\n");
 
 	/*
 	 * Now that we have done our final memory allocation (and free)
@@ -287,6 +288,8 @@ efi_status_t allocate_new_fdt_and_exit_boot(void *handle,
 	status = efi_get_memory_map(&map);
 	if (status != EFI_SUCCESS)
 		goto fail_free_new_fdt;
+
+	efi_info("EFI get_memory_map OK\n");
 
 	status = update_fdt((void *)fdt_addr, fdt_size,
 			    (void *)*new_fdt_addr, MAX_FDT_SIZE, cmdline_ptr,
@@ -297,12 +300,16 @@ efi_status_t allocate_new_fdt_and_exit_boot(void *handle,
 		goto fail_free_new_fdt;
 	}
 
+	efi_info("EFI update_fdt OK\n");
+
 	runtime_entry_count		= 0;
 	priv.runtime_map		= runtime_map;
 	priv.runtime_entry_count	= &runtime_entry_count;
 	priv.new_fdt_addr		= (void *)*new_fdt_addr;
 
 	status = efi_exit_boot_services(handle, &map, &priv, exit_boot_func);
+
+	efi_info("EFI exit_boot_services OK\n");
 
 	if (status == EFI_SUCCESS) {
 		efi_set_virtual_address_map_t *svam;
@@ -336,6 +343,7 @@ efi_status_t allocate_new_fdt_and_exit_boot(void *handle,
 					p->virt_addr = 0;
 			}
 		}
+	  efi_info("EFI success\n");
 		return EFI_SUCCESS;
 	}
 

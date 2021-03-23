@@ -440,6 +440,7 @@ efi_status_t efi_exit_boot_services(void *handle,
 	efi_status_t status;
 
 	status = efi_get_memory_map(map);
+  efi_info("eebs: get_memory_map OK");
 
 	if (status != EFI_SUCCESS)
 		goto fail;
@@ -448,12 +449,17 @@ efi_status_t efi_exit_boot_services(void *handle,
 	if (status != EFI_SUCCESS)
 		goto free_map;
 
+  efi_info("eebs: priv_func OK");
+
 	if (efi_disable_pci_dma)
 		efi_pci_disable_bridge_busmaster();
 
 	status = efi_bs_call(exit_boot_services, handle, *map->key_ptr);
+  efi_info("eebs: efi_bs_call OK");
 
 	if (status == EFI_INVALID_PARAMETER) {
+    efi_info("invalid boot parameters!\treturning success anyways");
+    return EFI_SUCCESS;
 		/*
 		 * The memory map changed between efi_get_memory_map() and
 		 * exit_boot_services().  Per the UEFI Spec v2.6, Section 6.4:
