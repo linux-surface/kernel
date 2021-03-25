@@ -69,6 +69,7 @@ static struct usb_driver btusb_driver;
 #define BTUSB_BCM2045		0x40000
 #define BTUSB_IFNUM_2		0x80000
 #define BTUSB_CW6622		0x100000
+#define BTUSB_LOWER_LESCAN_INTERVAL	0x200000
 
 static const struct usb_device_id btusb_table[] = {
 	/* Generic Bluetooth USB device */
@@ -341,6 +342,7 @@ static const struct usb_device_id blacklist_table[] = {
 	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
 	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
 	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
+	{ USB_DEVICE(0x1286, 0x204c), .driver_info = BTUSB_LOWER_LESCAN_INTERVAL },
 
 	/* Intel Bluetooth devices */
 	{ USB_DEVICE(0x8087, 0x0025), .driver_info = BTUSB_INTEL_NEW },
@@ -3109,6 +3111,19 @@ static int btusb_probe(struct usb_interface *intf,
 
 	if (id->driver_info & BTUSB_MARVELL)
 		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
+
+	/* The Marvell 88W8897 combined wifi and bluetooth card is known for
+	 * very bad bt+wifi coexisting performance.
+	 *
+	 * Decrease the passive BT Low Energy scan interval a bit
+	 * (0x0190 * 0.625 msec = 250 msec) and make the scan window shorter
+	 * (0x000a * 0,625 msec = 6.25 msec). This allows for significantly
+	 * higher wifi throughput while passively scanning for BT LE devices.
+	 */
+	if (id->driver_info & BTUSB_LOWER_LESCAN_INTERVAL) {
+		hdev->le_scan_interval = 0x0190;
+		hdev->le_scan_window = 0x000a;
+	}
 
 	if (id->driver_info & BTUSB_SWAVE) {
 		set_bit(HCI_QUIRK_FIXUP_INQUIRY_MODE, &hdev->quirks);
