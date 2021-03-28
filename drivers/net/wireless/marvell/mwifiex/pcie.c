@@ -183,11 +183,6 @@ static const struct mwifiex_pcie_device mwifiex_pcie8997 = {
 	.can_ext_scan = true,
 };
 
-static bool enable_device_dump;
-module_param(enable_device_dump, bool, 0644);
-MODULE_PARM_DESC(enable_device_dump,
-		 "enable device_dump (default: disabled)");
-
 static const struct of_device_id mwifiex_pcie_of_match_table[] = {
 	{ .compatible = "pci11ab,2b42" },
 	{ .compatible = "pci1b4b,2b42" },
@@ -241,6 +236,12 @@ static int mwifiex_write_reg(struct mwifiex_adapter *adapter, int reg, u32 data)
 	struct pcie_service_card *card = adapter->card;
 
 	iowrite32(data, card->pci_mmap1 + reg);
+
+	/* Do a read-back, which makes the write non-posted, ensuring the
+	 * completion before returning.
+	 * The firmware of the 88W8897 card is buggy and this avoids crashes.
+	 */
+	ioread32(card->pci_mmap1 + reg);
 
 	return 0;
 }
@@ -2967,12 +2968,6 @@ static void mwifiex_pcie_fw_dump(struct mwifiex_adapter *adapter)
 
 static void mwifiex_pcie_device_dump_work(struct mwifiex_adapter *adapter)
 {
-	if (!enable_device_dump) {
-		mwifiex_dbg(adapter, MSG,
-			    "device_dump is disabled by module parameter\n");
-		return;
-	}
-
 	adapter->devdump_data = vzalloc(MWIFIEX_FW_DUMP_SIZE);
 	if (!adapter->devdump_data) {
 		mwifiex_dbg(adapter, ERROR,
