@@ -25,11 +25,6 @@
 static char *reg_alpha2;
 module_param(reg_alpha2, charp, 0);
 
-static bool allow_ps_mode;
-module_param(allow_ps_mode, bool, 0644);
-MODULE_PARM_DESC(allow_ps_mode,
-		 "allow WiFi power management to be enabled. (default: disallowed)");
-
 static const struct ieee80211_iface_limit mwifiex_ap_sta_limits[] = {
 	{
 		.max = MWIFIEX_MAX_BSS_NUM,
@@ -439,24 +434,6 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
 			    "info: ignore timeout value for IEEE Power Save\n");
 
 	ps_mode = enabled;
-
-	/* Allow ps_mode to be enabled only when allow_ps_mode is true */
-	if (ps_mode && !allow_ps_mode) {
-		mwifiex_dbg(priv->adapter, MSG,
-			    "Enabling ps_mode disallowed by modparam\n");
-
-		/* Return -EPERM to inform userspace tools that setting
-		 * power_save to be enabled is not permitted.
-		 */
-		return -EPERM;
-	}
-
-	if (ps_mode)
-		mwifiex_dbg(priv->adapter, MSG,
-			    "Enabling ps_mode, disable if unstable.\n");
-	else
-		mwifiex_dbg(priv->adapter, MSG,
-			    "Disabling ps_mode.\n");
 
 	return mwifiex_drv_set_power(priv, &ps_mode);
 }
