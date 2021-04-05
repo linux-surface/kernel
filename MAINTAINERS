@@ -11874,6 +11874,7 @@ L:	linux-pm@vger.kernel.org
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 F:	drivers/power/supply/surface_battery.c
+F:	drivers/power/supply/surface_charger.c
 
 MICROSOFT SURFACE DTX DRIVER
 M:	Maximilian Luz <luzmaximilian@gmail.com>
