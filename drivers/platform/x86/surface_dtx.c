@@ -647,7 +647,7 @@ static u32 sdtx_notifier(struct ssam_event_notifier *nf, const struct ssam_event
 
 	default:
 		return 0;
-	};
+	}
 
 	if (in->length != len) {
 		dev_err(ddev->dev,
