@@ -166,6 +166,11 @@ out:
 
 /* -- Device setup. --------------------------------------------------------- */
 
+static char *battery_supplied_to[] = {
+	"BAT1",
+	"BAT2",
+};
+
 static void spwr_ac_init(struct spwr_ac_device *ac, struct ssam_device *sdev,
 			 struct ssam_event_registry registry, const char *name)
 {
@@ -189,11 +194,6 @@ static void spwr_ac_init(struct spwr_ac_device *ac, struct ssam_device *sdev,
 	ac->psy_desc.get_property = spwr_ac_get_property;
 }
 
-static void spwr_ac_destroy(struct spwr_ac_device *ac)
-{
-	mutex_destroy(&ac->lock);
-}
-
 static int spwr_ac_register(struct spwr_ac_device *ac)
 {
 	struct power_supply_config psy_cfg = {};
@@ -209,22 +209,14 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
 		return -ENODEV;
 
 	psy_cfg.drv_data = ac;
-	ac->psy = power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
+	psy_cfg.supplied_to = battery_supplied_to;
+	psy_cfg.num_supplicants = ARRAY_SIZE(battery_supplied_to);
+
+	ac->psy = devm_power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
 	if (IS_ERR(ac->psy))
 		return PTR_ERR(ac->psy);
 
-	status = ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
-	if (status)
-		power_supply_unregister(ac->psy);
-
-	return status;
-}
-
-static int spwr_ac_unregister(struct spwr_ac_device *ac)
-{
-	ssam_notifier_unregister(ac->sdev->ctrl, &ac->notif);
-	power_supply_unregister(ac->psy);
-	return 0;
+	return ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
 }
 
 
@@ -240,7 +232,6 @@ static int surface_ac_probe(struct ssam_device *sdev)
 {
 	const struct spwr_psy_properties *p;
 	struct spwr_ac_device *ac;
-	int status;
 
 	p = ssam_device_get_match_data(sdev);
 	if (!p)
@@ -253,19 +244,14 @@ static int surface_ac_probe(struct ssam_device *sdev)
 	spwr_ac_init(ac, sdev, p->registry, p->name);
 	ssam_device_set_drvdata(sdev, ac);
 
-	status = spwr_ac_register(ac);
-	if (status)
-		spwr_ac_destroy(ac);
-
-	return status;
+	return spwr_ac_register(ac);
 }
 
 static void surface_ac_remove(struct ssam_device *sdev)
 {
 	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
 
-	spwr_ac_unregister(ac);
-	spwr_ac_destroy(ac);
+	ssam_notifier_unregister(sdev->ctrl, &ac->notif);
 }
 
 static const struct spwr_psy_properties spwr_psy_props_adp1 = {
