@@ -743,7 +743,7 @@ static int __maybe_unused surface_battery_resume(struct device *dev)
 {
 	return spwr_battery_recheck_full(dev_get_drvdata(dev));
 }
-SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
+static SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 
 static int surface_battery_probe(struct ssam_device *sdev)
 {
