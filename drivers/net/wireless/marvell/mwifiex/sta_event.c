@@ -1058,9 +1058,7 @@ int mwifiex_process_sta_event(struct mwifiex_private *priv)
 							adapter->event_skb);
 		break;
 	case EVENT_BT_COEX_WLAN_PARA_CHANGE:
-		dev_dbg(adapter->dev, "EVENT: BT coex wlan param update\n");
-		mwifiex_bt_coex_wlan_param_update_event(priv,
-							adapter->event_skb);
+		dev_dbg(adapter->dev, "EVENT: ignoring BT coex wlan param update\n");
 		break;
 	case EVENT_RXBA_SYNC:
 		dev_dbg(adapter->dev, "EVENT: RXBA_SYNC\n");
