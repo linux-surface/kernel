@@ -524,6 +524,7 @@ enum mwifiex_adapter_work_flags {
 	MWIFIEX_IS_SUSPENDED,
 	MWIFIEX_IS_HS_CONFIGURED,
 	MWIFIEX_IS_HS_ENABLING,
+	MWIFIEX_IS_REQUESTING_FW_VEREXT,
 };
 
 struct mwifiex_band_config {
@@ -986,6 +987,7 @@ struct mwifiex_adapter {
 	struct timer_list wakeup_timer;
 	struct mwifiex_hs_config_param hs_cfg;
 	u8 hs_activated;
+	u8 hs_activated_manually;
 	u16 hs_activate_wait_q_woken;
 	wait_queue_head_t hs_activate_wait_q;
 	u8 event_body[MAX_EVENT_SIZE];
