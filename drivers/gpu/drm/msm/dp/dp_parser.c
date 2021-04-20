@@ -251,6 +251,7 @@ static int dp_parser_clock(struct dp_parser *parser)
 static int dp_parser_parse(struct dp_parser *parser)
 {
 	struct dss_io_data *io = &parser->io.dp_controller;
+	struct device *dev = &parser->pdev->dev;
 	int rc = 0;
 
 	if (!parser) {
@@ -276,14 +277,25 @@ static int dp_parser_parse(struct dp_parser *parser)
 	 */
 	parser->regulator_cfg = &sdm845_dp_reg_cfg;
 
-	io->ahb = io->base + 0x0;
-	io->ahb_len = 0x200;
-	io->aux = io->base + 0x200;
-	io->aux_len = 0x200;
-	io->link = io->base + 0x400;
-	io->link_len = 0x600;
-	io->p0 = io->base + 0x1000;
-	io->p0_len = 0x400;
+	if (of_device_is_compatible(dev->of_node, "qcom,sc8180x-edp")) {
+		io->ahb = io->base + 0x0;
+		io->ahb_len = 0x200;
+		io->aux = io->base + 0x200;
+		io->aux_len = 0x200;
+		io->link = io->base + 0x400;
+		io->link_len = 0x600;
+		io->p0 = io->base + 0xa00;
+		io->p0_len = 0x400;
+	} else {
+		io->ahb = io->base + 0x0;
+		io->ahb_len = 0x200;
+		io->aux = io->base + 0x200;
+		io->aux_len = 0x200;
+		io->link = io->base + 0x400;
+		io->link_len = 0x600;
+		io->p0 = io->base + 0x1000;
+		io->p0_len = 0x400;
+	}
 
 	return 0;
 }
