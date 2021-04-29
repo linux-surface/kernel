@@ -961,6 +961,11 @@ void icc_node_add(struct icc_node *node, struct icc_provider *provider)
 {
 	mutex_lock(&icc_lock);
 
+	if (WARN_ON(node->provider)) {
+		dev_err(provider->dev, "%s is on multiple lists\n", node->name);
+		return;
+	}
+
 	node->provider = provider;
 	list_add_tail(&node->node_list, &provider->nodes);
 
