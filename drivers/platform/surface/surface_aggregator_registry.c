@@ -200,6 +200,20 @@ static const struct software_node *ssam_node_group_sp7[] = {
 	NULL,
 };
 
+/* Devices for Surface Pro X (SQ1, SQ2) */
+static const struct software_node *ssam_node_group_spx[] = {
+	&ssam_node_root,
+	&ssam_node_bat_ac,
+	&ssam_node_bat_main,
+	&ssam_node_tmp_pprof,
+	// TODO:
+	// - more devices (pen removal)
+	// - handle typecover detachment/attachment
+	&ssam_node_hid_main_keyboard,
+	&ssam_node_hid_main_touchpad,
+	NULL,
+};
+
 
 /* -- Device registry helper functions. ------------------------------------- */
 
@@ -505,6 +519,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
 
 	/* Surface Pro 7+ */
 	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
+
+	/* Surface Pro X */
+	{ "MSHW0115", (unsigned long)ssam_node_group_spx },
 
 	/* Surface Book 2 */
 	{ "MSHW0107", (unsigned long)ssam_node_group_sb2 },
