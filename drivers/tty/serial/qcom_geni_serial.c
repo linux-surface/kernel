@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2017-2018, The Linux foundation. All rights reserved.
 
+#include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/console.h>
 #include <linux/io.h>
@@ -999,8 +1000,9 @@ static void qcom_geni_serial_set_termios(struct uart_port *uport,
 
 	sampling_rate = UART_OVERSAMPLING;
 	/* Sampling rate is halved for IP versions >= 2.5 */
-	ver = geni_se_get_qup_hw_version(&port->se);
-	if (ver >= QUP_SE_VERSION_2_5)
+	// FIXME: se->wrapper is NULL on ACPI boot, thus the call below will crash
+	// ver = geni_se_get_qup_hw_version(&port->se);
+	// if (ver >= QUP_SE_VERSION_2_5)
 		sampling_rate /= 2;
 
 	clk_rate = get_clk_div_rate(baud, sampling_rate, &clk_div);
@@ -1008,7 +1010,8 @@ static void qcom_geni_serial_set_termios(struct uart_port *uport,
 		goto out_restart_rx;
 
 	uport->uartclk = clk_rate;
-	dev_pm_opp_set_rate(uport->dev, clk_rate);
+	if (uport->dev->of_node)
+		dev_pm_opp_set_rate(uport->dev, clk_rate);
 	ser_clk_cfg = SER_CLK_EN;
 	ser_clk_cfg |= clk_div << CLK_DIV_SHFT;
 
@@ -1335,6 +1338,9 @@ static const struct uart_ops qcom_geni_uart_pops = {
 	.pm = qcom_geni_serial_pm,
 };
 
+static DEFINE_MUTEX(qcom_geni_serial_lock);
+static DEFINE_IDR(qcom_geni_serial_idr);
+
 static int qcom_geni_serial_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -1346,16 +1352,28 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 	bool console = false;
 	struct uart_driver *drv;
 
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,geni-debug-uart"))
+	if (pdev->dev.of_node && of_device_is_compatible(pdev->dev.of_node, "qcom,geni-debug-uart"))
 		console = true;
 
-	if (console) {
-		drv = &qcom_geni_console_driver;
-		line = of_alias_get_id(pdev->dev.of_node, "serial");
+	if (pdev->dev.of_node) {
+		if (console) {
+			drv = &qcom_geni_console_driver;
+			line = of_alias_get_id(pdev->dev.of_node, "serial");
+		} else {
+			drv = &qcom_geni_uart_driver;
+			line = of_alias_get_id(pdev->dev.of_node, "hsuart");
+		}
 	} else {
 		drv = &qcom_geni_uart_driver;
-		line = of_alias_get_id(pdev->dev.of_node, "hsuart");
+
+		// TODO: properly free
+		mutex_lock(&qcom_geni_serial_lock);
+		line = idr_alloc(&qcom_geni_serial_idr, &pdev->dev, 0,
+				 GENI_UART_PORTS, GFP_KERNEL);
+		mutex_unlock(&qcom_geni_serial_lock);
 	}
+
+	dev_info(&pdev->dev, "using line %d", line);
 
 	port = get_port_from_line(line, console);
 	if (IS_ERR(port)) {
@@ -1371,11 +1389,15 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 	uport->dev = &pdev->dev;
 	port->se.dev = &pdev->dev;
 	port->se.wrapper = dev_get_drvdata(pdev->dev.parent);
-	port->se.clk = devm_clk_get(&pdev->dev, "se");
-	if (IS_ERR(port->se.clk)) {
-		ret = PTR_ERR(port->se.clk);
-		dev_err(&pdev->dev, "Err getting SE Core clk %d\n", ret);
-		return ret;
+	port->se.clk = NULL;
+
+	if (pdev->dev.of_node) {
+		port->se.clk = devm_clk_get(&pdev->dev, "se");
+		if (IS_ERR(port->se.clk)) {
+			ret = PTR_ERR(port->se.clk);
+			dev_err(&pdev->dev, "Err getting SE Core clk %d\n", ret);
+			return ret;
+		}
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1420,21 +1442,26 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 	if (!console)
 		port->wakeup_irq = platform_get_irq_optional(pdev, 1);
 
-	if (of_property_read_bool(pdev->dev.of_node, "rx-tx-swap"))
+	if (device_property_read_bool(&pdev->dev, "rx-tx-swap"))
 		port->rx_tx_swap = true;
 
-	if (of_property_read_bool(pdev->dev.of_node, "cts-rts-swap"))
+	if (device_property_read_bool(&pdev->dev, "cts-rts-swap"))
 		port->cts_rts_swap = true;
 
-	port->se.opp_table = dev_pm_opp_set_clkname(&pdev->dev, "se");
-	if (IS_ERR(port->se.opp_table))
-		return PTR_ERR(port->se.opp_table);
-	/* OPP table is optional */
-	ret = dev_pm_opp_of_add_table(&pdev->dev);
-	if (ret && ret != -ENODEV) {
-		dev_err(&pdev->dev, "invalid OPP table in device tree\n");
-		goto put_clkname;
+	port->se.opp_table = NULL;
+	if (pdev->dev.of_node) {
+		port->se.opp_table = dev_pm_opp_set_clkname(&pdev->dev, "se");
+		if (IS_ERR(port->se.opp_table))
+			return PTR_ERR(port->se.opp_table);
+		/* OPP table is optional */
+		ret = dev_pm_opp_of_add_table(&pdev->dev);
+		if (ret && ret != -ENODEV) {
+			dev_err(&pdev->dev, "invalid OPP table in device tree\n");
+			goto put_clkname;
+		}
 	}
+
+	dev_info(&pdev->dev, "OPP");
 
 	port->private_data.drv = drv;
 	uport->private_data = &port->private_data;
@@ -1474,9 +1501,11 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 
 	return 0;
 err:
-	dev_pm_opp_of_remove_table(&pdev->dev);
+	if (pdev->dev.of_node)
+		dev_pm_opp_of_remove_table(&pdev->dev);
 put_clkname:
-	dev_pm_opp_put_clkname(port->se.opp_table);
+	if (pdev->dev.of_node)
+		dev_pm_opp_put_clkname(port->se.opp_table);
 	return ret;
 }
 
@@ -1485,8 +1514,10 @@ static int qcom_geni_serial_remove(struct platform_device *pdev)
 	struct qcom_geni_serial_port *port = platform_get_drvdata(pdev);
 	struct uart_driver *drv = port->private_data.drv;
 
-	dev_pm_opp_of_remove_table(&pdev->dev);
-	dev_pm_opp_put_clkname(port->se.opp_table);
+	if (pdev->dev.of_node) {
+		dev_pm_opp_of_remove_table(&pdev->dev);
+		dev_pm_opp_put_clkname(port->se.opp_table);
+	}
 	dev_pm_clear_wake_irq(&pdev->dev);
 	device_init_wakeup(&pdev->dev, false);
 	uart_remove_one_port(drv, &port->uport);
@@ -1531,6 +1562,14 @@ static const struct dev_pm_ops qcom_geni_serial_pm_ops = {
 					qcom_geni_serial_sys_resume)
 };
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id qcom_geni_serial_acpi_match_table[] = {
+	{ "QCOM0418" },
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, qcom_geni_serial_acpi_match_table);
+#endif
+
 static const struct of_device_id qcom_geni_serial_match_table[] = {
 	{ .compatible = "qcom,geni-debug-uart", },
 	{ .compatible = "qcom,geni-uart", },
@@ -1544,6 +1583,7 @@ static struct platform_driver qcom_geni_serial_platform_driver = {
 	.driver = {
 		.name = "qcom_geni_serial",
 		.of_match_table = qcom_geni_serial_match_table,
+		.acpi_match_table = ACPI_PTR(qcom_geni_serial_acpi_match_table),
 		.pm = &qcom_geni_serial_pm_ops,
 	},
 };
