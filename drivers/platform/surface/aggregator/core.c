@@ -686,9 +686,9 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 		goto err_initrq;
 
 	/* Set up IRQ. */
-	status = ssam_irq_setup(ctrl);
-	if (status)
-		goto err_irq;
+	// status = ssam_irq_setup(ctrl);
+	// if (status)
+	// 	goto err_irq;
 
 	/* Finally, set main controller reference. */
 	status = ssam_try_set_controller(ctrl);
@@ -711,7 +711,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	return 0;
 
 err_mainref:
-	ssam_irq_free(ctrl);
+	// ssam_irq_free(ctrl);
 err_irq:
 	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 err_initrq:
@@ -736,7 +736,7 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 	ssam_clear_controller();
 
 	/* Disable and free IRQ. */
-	ssam_irq_free(ctrl);
+	// ssam_irq_free(ctrl);
 
 	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 	ssam_controller_lock(ctrl);
