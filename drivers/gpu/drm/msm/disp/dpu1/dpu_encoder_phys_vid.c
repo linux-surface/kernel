@@ -90,6 +90,8 @@ static void drm_mode_to_intf_timing_params(
 		timing->vsync_polarity = 0;
 	}
 
+	timing->widebus_en = true; /* XXX */
+
 	/*
 	 * For edp only:
 	 * DISPLAY_V_START = (VBP * HCYCLE) + HBP
@@ -108,6 +110,15 @@ static void drm_mode_to_intf_timing_params(
 		timing->h_front_porch = 0;
 		timing->v_back_porch += timing->v_front_porch;
 		timing->v_front_porch = 0;
+
+		/* Half the horizontal timing when widebus is enabled */
+		if (timing->widebus_en) {
+			timing->width /= 2;
+			timing->xres /= 2;
+			timing->h_back_porch /= 2;
+			timing->h_front_porch /= 2;
+			timing->hsync_pulse_width /= 2;
+		}
 	}
 }
 

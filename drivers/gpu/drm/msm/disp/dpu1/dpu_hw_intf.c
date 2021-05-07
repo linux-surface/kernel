@@ -188,6 +188,11 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *ctx,
 		DPU_REG_WRITE(c, INTF_ACTIVE_DATA_HCTL, display_data_hctl);
 	}
 
+	intf_cfg2 |= BIT(8);
+
+	if (p->widebus_en)
+		intf_cfg2 |= BIT(0);
+
 	DPU_REG_WRITE(c, INTF_HSYNC_CTL, hsync_ctl);
 	DPU_REG_WRITE(c, INTF_VSYNC_PERIOD_F0, vsync_period * hsync_period);
 	DPU_REG_WRITE(c, INTF_VSYNC_PULSE_WIDTH_F0,

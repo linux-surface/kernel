@@ -103,12 +103,15 @@ static enum drm_mode_status dp_connector_mode_valid(
 		struct drm_display_mode *mode)
 {
 	struct msm_dp *dp_disp;
+	unsigned long clock;
 
 	dp_disp = to_dp_connector(connector)->dp_display;
+	clock = mode->clock;
 
-	if ((dp_disp->max_pclk_khz <= 0) ||
-			(dp_disp->max_pclk_khz > DP_MAX_PIXEL_CLK_KHZ) ||
-			(mode->clock > dp_disp->max_pclk_khz))
+	if (1 /* widebus */)
+		clock /= 2;
+
+	if (clock > dp_disp->max_pclk_khz)
 		return MODE_BAD;
 
 	return dp_display_validate_mode(dp_disp, mode->clock);

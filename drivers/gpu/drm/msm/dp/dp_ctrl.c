@@ -1349,17 +1349,20 @@ static int dp_ctrl_enable_mainlink_clocks(struct dp_ctrl_private *ctrl)
 
 static int dp_ctrl_enable_stream_clocks(struct dp_ctrl_private *ctrl)
 {
+	unsigned long rate = ctrl->dp_ctrl.pixel_rate * 1000;
 	int ret = 0;
 
-	dp_ctrl_set_clock_rate(ctrl, DP_STREAM_PM, "stream_pixel",
-					ctrl->dp_ctrl.pixel_rate * 1000);
+	if (ctrl->dp_ctrl.widebus_en)
+		rate /= 2;
+
+	dp_ctrl_set_clock_rate(ctrl, DP_STREAM_PM, "stream_pixel", rate);
 
 	ret = dp_power_clk_enable(ctrl->power, DP_STREAM_PM, true);
 	if (ret)
 		DRM_ERROR("Unabled to start pixel clocks. ret=%d\n", ret);
 
-	DRM_DEBUG_DP("link rate=%d pixel_clk=%d\n",
-			ctrl->link->link_params.rate, ctrl->dp_ctrl.pixel_rate);
+	DRM_DEBUG_DP("link rate=%d pixel_clk=%ld\n",
+		     ctrl->link->link_params.rate, rate);
 
 	return ret;
 }
@@ -1912,6 +1915,8 @@ struct dp_ctrl *dp_ctrl_get(struct device *dev, struct dp_link *link,
 	ctrl->link     = link;
 	ctrl->catalog  = catalog;
 	ctrl->dev      = dev;
+	
+	ctrl->dp_ctrl.widebus_en = true;
 
 	return &ctrl->dp_ctrl;
 }
