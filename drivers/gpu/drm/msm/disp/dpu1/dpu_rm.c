@@ -4,6 +4,7 @@
  */
 
 #define pr_fmt(fmt)	"[drm:%s] " fmt, __func__
+#include <linux/delay.h>
 #include "dpu_kms.h"
 #include "dpu_hw_lm.h"
 #include "dpu_hw_ctl.h"
@@ -227,6 +228,41 @@ fail:
 	dpu_rm_destroy(rm);
 
 	return rc ? rc : -EFAULT;
+}
+
+void dpu_rm_clear_boot_config(struct dpu_rm *rm, struct dpu_mdss_cfg *cat)
+{
+	struct dpu_hw_intf *intf;
+	struct dpu_hw_ctl *ctl;
+	int i;
+
+	for (i = INTF_0; i < INTF_MAX; i++) {
+		if (!rm->intf_blks[i - INTF_0])
+			continue;
+
+		DPU_DEBUG("disabling intf%d timing engine\n", i - INTF_0);
+
+		intf = to_dpu_hw_intf(rm->intf_blks[i - INTF_0]);
+		intf->ops.enable_timing(intf, 0);
+	}
+
+	/*
+	 * Wait one frame for the INTF timing engine to stop, and then wait one
+	 * more frame, per the documentation.
+	 */
+	msleep(32);
+
+	for (i = CTL_0; i < CTL_MAX; i++) {
+		if (!rm->ctl_blks[i - CTL_0])
+			continue;
+
+		DPU_DEBUG("clearing ctl%d layer configuration\n", i - CTL_0);
+
+		ctl = to_dpu_hw_ctl(rm->ctl_blks[i - CTL_0]);
+		ctl->ops.clear_all_blendstages(ctl);
+		ctl->ops.trigger_flush(ctl);
+		ctl->ops.trigger_start(ctl);
+	}
 }
 
 static bool _dpu_rm_needs_split_display(const struct msm_display_topology *top)
