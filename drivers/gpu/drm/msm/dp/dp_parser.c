@@ -250,6 +250,7 @@ static int dp_parser_clock(struct dp_parser *parser)
 
 static int dp_parser_parse(struct dp_parser *parser)
 {
+	struct dss_io_data *io = &parser->io.dp_controller;
 	int rc = 0;
 
 	if (!parser) {
@@ -274,6 +275,15 @@ static int dp_parser_parse(struct dp_parser *parser)
 	 * mapping the regulator directly.
 	 */
 	parser->regulator_cfg = &sdm845_dp_reg_cfg;
+
+	io->ahb = io->base + 0x0;
+	io->ahb_len = 0x200;
+	io->aux = io->base + 0x200;
+	io->aux_len = 0x200;
+	io->link = io->base + 0x400;
+	io->link_len = 0x600;
+	io->p0 = io->base + 0x1000;
+	io->p0_len = 0x400;
 
 	return 0;
 }
