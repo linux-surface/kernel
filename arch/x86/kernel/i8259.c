@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
+
+#define pr_fmt(fmt) "i8259: " fmt
+
 #include <linux/linkage.h>
 #include <linux/errno.h>
 #include <linux/signal.h>
@@ -16,6 +19,7 @@
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/pgtable.h>
+#include <linux/dmi.h>
 
 #include <linux/atomic.h>
 #include <asm/timer.h>
@@ -298,11 +302,39 @@ static void unmask_8259A(void)
 	raw_spin_unlock_irqrestore(&i8259A_lock, flags);
 }
 
+/*
+ * DMI table to identify devices with quirky probe behavior. See comment in
+ * probe_8259A() for more details.
+ */
+static const struct dmi_system_id retry_probe_quirk_table[] = {
+	{
+		.ident = "Microsoft Surface Laptop 4 (AMD)",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
+		},
+	},
+	{}
+};
+
 static int probe_8259A(void)
 {
 	unsigned long flags;
 	unsigned char probe_val = ~(1 << PIC_CASCADE_IR);
 	unsigned char new_val;
+	unsigned int i, imax = 1;
+
+	/*
+	 * Some systems have a legacy PIC that doesn't immediately respond
+	 * after boot. We know it's there, we know it should respond and is
+	 * required for proper interrupt handling later on, so let's try a
+	 * couple of times.
+	 */
+	if (dmi_check_system(retry_probe_quirk_table)) {
+		pr_warn("system with broken legacy PIC detected, re-trying multiple times if necessary\n");
+		imax = 10;
+	}
+
 	/*
 	 * Check to see if we have a PIC.
 	 * Mask all except the cascade and read
@@ -312,15 +344,24 @@ static int probe_8259A(void)
 	 */
 	raw_spin_lock_irqsave(&i8259A_lock, flags);
 
-	outb(0xff, PIC_SLAVE_IMR);	/* mask all of 8259A-2 */
-	outb(probe_val, PIC_MASTER_IMR);
-	new_val = inb(PIC_MASTER_IMR);
-	if (new_val != probe_val) {
-		printk(KERN_INFO "Using NULL legacy PIC\n");
+	for (i = 0; i < imax; i++) {
+		outb(0xff, PIC_SLAVE_IMR);	/* mask all of 8259A-2 */
+		outb(probe_val, PIC_MASTER_IMR);
+		new_val = inb(PIC_MASTER_IMR);
+		if (new_val == probe_val)
+			break;
+	}
+
+	if (i == imax) {
+		pr_info("using NULL legacy PIC\n");
 		legacy_pic = &null_legacy_pic;
 	}
 
 	raw_spin_unlock_irqrestore(&i8259A_lock, flags);
+
+	if (imax > 1 && i < imax)
+		pr_info("got legacy PIC after %d tries\n", i + 1);
+
 	return nr_legacy_irqs();
 }
 
