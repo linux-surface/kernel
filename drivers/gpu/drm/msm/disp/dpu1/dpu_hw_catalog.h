@@ -196,12 +196,14 @@ enum {
  * @DPU_INTF_TE                 INTF block has TE configuration support
  * @DPU_DATA_HCTL_EN            Allows data to be transferred at different rate
                                 than video timing
+ * @DPU_INTF_WIDEBUS            INTF block supports driving 2 pixels per clock
  * @DPU_INTF_MAX
  */
 enum {
 	DPU_INTF_INPUT_CTRL = 0x1,
 	DPU_INTF_TE,
 	DPU_DATA_HCTL_EN,
+	DPU_INTF_WIDEBUS,
 	DPU_INTF_MAX
 };
 
