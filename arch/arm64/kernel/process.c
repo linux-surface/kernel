@@ -129,12 +129,12 @@ void machine_restart(char *cmd)
 	local_irq_disable();
 	smp_send_stop();
 
-	/*
-	 * UpdateCapsule() depends on the system being reset via
-	 * ResetSystem().
-	 */
-	if (efi_enabled(EFI_RUNTIME_SERVICES))
-		efi_reboot(reboot_mode, NULL);
+//	/*
+//	 * UpdateCapsule() depends on the system being reset via
+//	 * ResetSystem().
+//	 */
+//	if (efi_enabled(EFI_RUNTIME_SERVICES))
+//		efi_reboot(reboot_mode, NULL);
 
 	/* Now call the architecture specific reboot code. */
 	do_kernel_restart(cmd);
