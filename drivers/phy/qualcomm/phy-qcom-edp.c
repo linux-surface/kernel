@@ -36,16 +36,16 @@
 #define DP_PHY_PD_CTL                           0x001C
 #define DP_PHY_MODE                             0x0020
 
-#define DP_PHY_AUX_CFG0				0x0020
-#define DP_PHY_AUX_CFG1				0x0024
-#define DP_PHY_AUX_CFG2				0x0028
-#define DP_PHY_AUX_CFG3				0x002c
-#define DP_PHY_AUX_CFG4				0x0030
-#define DP_PHY_AUX_CFG5				0x0034
-#define DP_PHY_AUX_CFG6				0x0038
-#define DP_PHY_AUX_CFG7				0x003c
-#define DP_PHY_AUX_CFG8				0x0040
-#define DP_PHY_AUX_CFG9				0x0044
+#define DP_PHY_AUX_CFG0				0x0024
+#define DP_PHY_AUX_CFG1				0x0028
+#define DP_PHY_AUX_CFG2				0x002c
+#define DP_PHY_AUX_CFG3				0x0030
+#define DP_PHY_AUX_CFG4				0x0034
+#define DP_PHY_AUX_CFG5				0x0038
+#define DP_PHY_AUX_CFG6				0x003c
+#define DP_PHY_AUX_CFG7				0x0040
+#define DP_PHY_AUX_CFG8				0x0044
+#define DP_PHY_AUX_CFG9				0x0048
 
 #define DP_PHY_VCO_DIV                          0x0074
 #define DP_PHY_TX0_TX1_LANE_CTL                 0x007C
