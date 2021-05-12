@@ -209,4 +209,10 @@ config QCOM_APR
 	  application processor and QDSP6. APR is
 	  used by audio driver to configure QDSP6
 	  ASM, ADM and AFE modules.
+
+config QCOM_GLINK_ALTMODE
+	tristate "Qualcomm GLINK based altmode driver"
+	depends on RPMSG
+	help
+	  Yes
 endmenu
