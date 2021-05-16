@@ -1536,9 +1536,10 @@
 		};
 
 		usb_prim_qmpphy: phy@88e9000 {
-			compatible = "qcom,sc8180x-qmp-usb3-phy";
+			compatible = "qcom,sc8180x-qmp-usb3-dp-phy";
 			reg = <0 0x088e9000 0 0x18c>,
-			      <0 0x088e8000 0 0x10>;
+			      <0 0x088e8000 0 0x38>,
+			      <0 0x088ea000 0 0x40>;
 			reg-names = "reg-base", "dp_com";
 			status = "disabled";
 			#clock-cells = <1>;
@@ -1556,7 +1557,7 @@
 				 <&gcc GCC_USB3_PHY_PRIM_SP0_BCR>;
 			reset-names = "phy", "common";
 
-			usb_prim_ssphy: lanes@88e9200 {
+			usb_prim_ssphy: usb3-phy@88e9200 {
 				reg = <0 0x088e9200 0 0x200>,
 				      <0 0x088e9400 0 0x200>,
 				      <0 0x088e9c00 0 0x218>,
@@ -1567,6 +1568,16 @@
 				clocks = <&gcc GCC_USB3_PRIM_PHY_PIPE_CLK>;
 				clock-names = "pipe0";
 				clock-output-names = "usb3_prim_phy_pipe_clk_src";
+			};
+
+			usb_prim_dpphy: dp-phy@88ea200 {
+				reg = <0 0x088ea200 0 0x200>,
+				      <0 0x088ea400 0 0x200>,
+				      <0 0x088eaa00 0 0x200>,
+				      <0 0x088ea600 0 0x200>,
+				      <0 0x088ea800 0 0x200>;
+				#clock-cells = <1>;
+				#phy-cells = <0>;
 			};
 		};
 
