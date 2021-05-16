@@ -121,6 +121,7 @@ struct dp_display_private {
 
 static const struct of_device_id dp_dt_match[] = {
 	{.compatible = "qcom,sc7180-dp"},
+	{ .compatible = "qcom,sc8180x-dp" },
 	{ .compatible = "qcom,sc8180x-edp" },
 	{}
 };
@@ -401,18 +402,17 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 
 	if (!dev) {
 		DRM_ERROR("invalid dev\n");
-		rc = -EINVAL;
-		goto end;
+		return -EINVAL;
 	}
 
 	dp = container_of(g_dp_display,
 			struct dp_display_private, dp_display);
 	if (!dp) {
 		DRM_ERROR("no driver data found\n");
-		rc = -ENODEV;
-		goto end;
+		return -ENODEV;
 	}
 
+#if 0
 	dp_display_host_init(dp, false);
 
 	/*
@@ -423,6 +423,19 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 	rc = dp_display_process_hpd_high(dp);
 end:
 	return rc;
+#endif
+
+	dp_add_event(dp, EV_HPD_PLUG_INT, 0, 0);
+	dp_del_event(dp, EV_CONNECT_PENDING_TIMEOUT);
+	dp_add_event(dp, EV_IRQ_HPD_INT, 0, 0);
+
+	/* DP controller isr */
+	dp_ctrl_isr(dp->ctrl);
+
+	/* DP aux isr */
+	dp_aux_isr(dp->aux);
+
+	return 0;
 }
 
 static int dp_display_usbpd_disconnect_cb(struct device *dev)
@@ -443,10 +456,16 @@ static int dp_display_usbpd_disconnect_cb(struct device *dev)
 		rc = -ENODEV;
 		return rc;
 	}
+		
+	dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
 
-	dp_add_event(dp, EV_USER_NOTIFICATION, false, 0);
+	/* DP controller isr */
+	dp_ctrl_isr(dp->ctrl);
 
-	return rc;
+	/* DP aux isr */
+	dp_aux_isr(dp->aux);
+
+	return 0;
 }
 
 static void dp_display_handle_video_request(struct dp_display_private *dp)
