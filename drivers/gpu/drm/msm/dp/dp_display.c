@@ -87,6 +87,8 @@ struct dp_display_private {
 	bool hpd_irq_on;
 	bool audio_supported;
 
+	bool use_hw_hpd;
+
 	struct platform_device *pdev;
 	struct dentry *root;
 
@@ -511,11 +513,10 @@ static int dp_display_handle_irq_hpd(struct dp_display_private *dp)
 	return 0;
 }
 
-static int dp_display_usbpd_attention_cb(struct device *dev)
+static int dp_display_usbpd_attention(struct dp_display_private *dp)
 {
 	int rc = 0;
 	u32 sink_request;
-	struct dp_display_private *dp = dev_get_dp_display_private(dev);
 
 	/* check for any test request issued by sink */
 	rc = dp_link_process_request(dp->link);
@@ -744,7 +745,7 @@ static int dp_irq_hpd_handle(struct dp_display_private *dp, u32 data)
 		return 0;
 	}
 
-	dp_display_usbpd_attention_cb(&dp->pdev->dev);
+	dp_display_usbpd_attention(dp);
 
 	DRM_DEBUG_DP("After, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
@@ -760,6 +761,13 @@ static void dp_display_deinit_sub_modules(struct dp_display_private *dp)
 	dp_audio_put(dp->audio);
 	dp_panel_put(dp->panel);
 	dp_aux_put(dp->aux);
+}
+
+static int dp_display_usbpd_attention_cb(struct device *dev)
+{
+	struct dp_display_private *dp = dev_get_dp_display_private(dev);
+
+	return dp_irq_hpd_handle(dp, 0);
 }
 
 static int dp_init_sub_modules(struct dp_display_private *dp)
@@ -783,6 +791,8 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		dp->usbpd = NULL;
 		goto error;
 	}
+
+	dp->use_hw_hpd = !of_property_read_bool(dev->of_node, "mode-switch");
 
 	dp->parser = dp_parser_get(dp->pdev);
 	if (IS_ERR(dp->parser)) {
@@ -1198,28 +1208,30 @@ static irqreturn_t dp_display_irq_handler(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
-	hpd_isr_status = dp_catalog_hpd_get_intr_status(dp->catalog);
+	if (dp->use_hw_hpd) {
+		hpd_isr_status = dp_catalog_hpd_get_intr_status(dp->catalog);
 
-	if (hpd_isr_status & 0x0F) {
-		DRM_DEBUG_DP("type=%d isr=0x%x\n",
-			dp->dp_display.connector_type, hpd_isr_status);
-		/* hpd related interrupts */
-		if (hpd_isr_status & DP_DP_HPD_PLUG_INT_MASK)
-			dp_add_event(dp, EV_HPD_PLUG_INT, 0, 0);
+		if (hpd_isr_status & 0x0F) {
+			DRM_DEBUG_DP("type=%d isr=0x%x\n",
+				     dp->dp_display.connector_type, hpd_isr_status);
+			/* hpd related interrupts */
+			if (hpd_isr_status & DP_DP_HPD_PLUG_INT_MASK)
+				dp_add_event(dp, EV_HPD_PLUG_INT, 0, 0);
 
-		if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK) {
-			/* stop sentinel connect pending checking */
-			dp_del_event(dp, EV_CONNECT_PENDING_TIMEOUT);
-			dp_add_event(dp, EV_IRQ_HPD_INT, 0, 0);
+			if (hpd_isr_status & DP_DP_IRQ_HPD_INT_MASK) {
+				/* stop sentinel connect pending checking */
+				dp_del_event(dp, EV_CONNECT_PENDING_TIMEOUT);
+				dp_add_event(dp, EV_IRQ_HPD_INT, 0, 0);
+			}
+
+			if (hpd_isr_status & DP_DP_HPD_REPLUG_INT_MASK) {
+				dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
+				dp_add_event(dp, EV_HPD_PLUG_INT, 0, 3);
+			}
+
+			if (hpd_isr_status & DP_DP_HPD_UNPLUG_INT_MASK)
+				dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
 		}
-
-		if (hpd_isr_status & DP_DP_HPD_REPLUG_INT_MASK) {
-			dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
-			dp_add_event(dp, EV_HPD_PLUG_INT, 0, 3);
-		}
-
-		if (hpd_isr_status & DP_DP_HPD_UNPLUG_INT_MASK)
-			dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
 	}
 
 	/* DP controller isr */
