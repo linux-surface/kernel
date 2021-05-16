@@ -39,21 +39,27 @@
 static int ucsi_acknowledge_command(struct ucsi *ucsi)
 {
 	u64 ctrl;
+	int ret;
 
 	ctrl = UCSI_ACK_CC_CI;
 	ctrl |= UCSI_ACK_COMMAND_COMPLETE;
 
-	return ucsi->ops->sync_write(ucsi, UCSI_CONTROL, &ctrl, sizeof(ctrl));
+	ret = ucsi->ops->sync_write(ucsi, UCSI_CONTROL, &ctrl, sizeof(ctrl));
+	trace_ucsi_run_command(ctrl, ret);
+	return ret;
 }
 
 static int ucsi_acknowledge_connector_change(struct ucsi *ucsi)
 {
 	u64 ctrl;
+	int ret;
 
 	ctrl = UCSI_ACK_CC_CI;
 	ctrl |= UCSI_ACK_CONNECTOR_CHANGE;
 
-	return ucsi->ops->sync_write(ucsi, UCSI_CONTROL, &ctrl, sizeof(ctrl));
+	ret = ucsi->ops->sync_write(ucsi, UCSI_CONTROL, &ctrl, sizeof(ctrl));
+	trace_ucsi_run_command(ctrl, ret);
+	return ret;
 }
 
 static int ucsi_exec_command(struct ucsi *ucsi, u64 command);
@@ -121,10 +127,12 @@ static int ucsi_exec_command(struct ucsi *ucsi, u64 cmd)
 	int ret;
 
 	ret = ucsi->ops->sync_write(ucsi, UCSI_CONTROL, &cmd, sizeof(cmd));
+	trace_ucsi_run_command(cmd, ret);
 	if (ret)
 		return ret;
 
 	ret = ucsi->ops->read(ucsi, UCSI_CCI, &cci, sizeof(cci));
+	trace_ucsi_notify(cci);
 	if (ret)
 		return ret;
 
@@ -317,7 +325,7 @@ static int ucsi_register_altmode(struct ucsi_connector *con,
 		return -EINVAL;
 	}
 
-	trace_ucsi_register_altmode(recipient, alt);
+	//trace_ucsi_register_altmode(recipient, alt);
 
 	return 0;
 
@@ -882,6 +890,7 @@ static int ucsi_reset_ppm(struct ucsi *ucsi)
 
 	ret = ucsi->ops->async_write(ucsi, UCSI_CONTROL, &command,
 				     sizeof(command));
+	trace_ucsi_reset_ppm(command, ret);
 	if (ret < 0)
 		goto out;
 
@@ -894,6 +903,7 @@ static int ucsi_reset_ppm(struct ucsi *ucsi)
 		}
 
 		ret = ucsi->ops->read(ucsi, UCSI_CCI, &cci, sizeof(cci));
+		trace_ucsi_notify(cci);
 		if (ret)
 			goto out;
 
