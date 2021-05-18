@@ -55,28 +55,32 @@ static int dp_hpd_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 {
 	struct dp_hpd_private *dp_hpd = typec_mux_get_drvdata(mux);	
 	struct typec_altmode *alt = state->alt;
+	bool active = false;
 
 	dev_err(dp_hpd->dev, "%s() mode: %ld\n", __func__, state->mode);
 
-	if (!alt) {
+	if (alt) {
+		dev_err(dp_hpd->dev, "%s() alt:svid: %#x\n", __func__, alt->svid);
+		dev_err(dp_hpd->dev, "%s() alt:mode: %d\n", __func__, alt->mode);
+		dev_err(dp_hpd->dev, "%s() alt:vdo: %#x\n", __func__, alt->vdo);
+		dev_err(dp_hpd->dev, "%s() alt:active: %d\n", __func__, alt->active);
+
+		active = alt->active;
+	} else {
 		dev_err(dp_hpd->dev, "%s() state->alt is NULL\n", __func__);
-		return 0;
+
+		active = false;
 	}
 
-	dev_err(dp_hpd->dev, "%s() svid: %#x\n", __func__, alt->svid);
-	dev_err(dp_hpd->dev, "%s() mode: %d\n", __func__, alt->mode);
-	dev_err(dp_hpd->dev, "%s() vdo: %#x\n", __func__, alt->vdo);
-	dev_err(dp_hpd->dev, "%s() active: %d\n", __func__, alt->active);
-
-	if (dp_hpd->active == alt->active)
+	if (dp_hpd->active == active)
 		return 0;
 
-	if (alt->active)
+	if (active)
 		dp_hpd->dp_cb->configure(dp_hpd->dev);
 	else
 		dp_hpd->dp_cb->disconnect(dp_hpd->dev);
 
-	dp_hpd->active = alt->active;
+	dp_hpd->active = active;
 
 	return 0;
 }
