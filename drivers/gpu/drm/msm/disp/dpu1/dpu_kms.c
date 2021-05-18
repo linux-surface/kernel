@@ -1037,6 +1037,24 @@ u64 dpu_kms_get_clk_rate(struct dpu_kms *dpu_kms, char *clock_name)
 	return clk_get_rate(clk);
 }
 
+static void dpu_kms_phy_crossbar(struct dpu_kms *dpu_kms, int intf, int phy)
+{
+	u32 intf_shift = intf * 3;
+	u32 phy_shift = phy * 3 + 6;
+	u32 val;
+
+	val = readl(dpu_kms->mmio + 0x460);
+	val &= ~(3 << intf_shift);
+	val |= (phy + 1) << intf_shift;
+
+	val &= ~(3 << phy_shift);
+	val |= (intf + 1) << phy_shift;
+
+	writel(val, dpu_kms->mmio + 0x460);
+
+	writel(0, dpu_kms->mmio + 0x484);
+}
+
 static int dpu_kms_hw_init(struct msm_kms *kms)
 {
 	struct dpu_kms *dpu_kms;
@@ -1104,6 +1122,9 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		dpu_kms->catalog = NULL;
 		goto power_error;
 	}
+
+	dpu_kms_phy_crossbar(dpu_kms, 0, 0);
+	dpu_kms_phy_crossbar(dpu_kms, 1, 1);
 
 	/*
 	 * Now we need to read the HW catalog and initialize resources such as
