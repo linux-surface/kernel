@@ -2001,7 +2001,7 @@
 			                      "ctrl_link_iface", "stream_pixel";
 
 				assigned-clocks = <&dispcc DISP_CC_MDSS_DP_LINK_CLK_SRC>,
-						  <&dispcc DISP_CC_MDSS_DP_PIXEL1_CLK_SRC>;
+						  <&dispcc DISP_CC_MDSS_DP_PIXEL_CLK_SRC>;
 				assigned-clock-parents = <&usb_prim_dpphy 0>, <&usb_prim_dpphy 1>;
 
 				phys = <&usb_prim_dpphy>;
