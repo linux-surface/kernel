@@ -1246,6 +1246,7 @@ static void sc8180_cfg_init(struct dpu_mdss_cfg *dpu_cfg)
 		.dma_cfg = sm8150_regdma,
 		.perf = sc8180_perf_data,
 		.mdss_irqs = 0x3ff,
+		.obsolete_irq = INTR_SC7180_MASK,
 	};
 }
 
