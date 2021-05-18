@@ -246,7 +246,10 @@
 &mdss_dp0 {
 	status = "okay";
 
-	data-lanes = <0 1 2 3>;
+	data-lanes = <0 1>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&dp0_sbu_sw_en>;
 
 	mode-switch;
 	svid = /bits/ 16 <0xff01>;
@@ -321,6 +324,20 @@
 
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <47 4>, <126 4>;
+
+	dp0_sbu_sw_en: dp0-sbu-sw-en {
+		sel {
+			pins = "gpio100";
+			function = "gpio";
+			output-low;
+		};
+
+		oe-n {
+			pins = "gpio152";
+			function = "gpio";
+			output-low;
+		};
+	};
 
 	edp_hpd_active: epd-hpd-active-state {
 		pins = "gpio10";
