@@ -402,6 +402,9 @@ static int ucsi_altmode_enable_dp(struct ucsi_glink *ug, struct glink_altmode_po
 	struct typec_displayport_data dp_data = {};
 	int ret;
 
+	if (flags != 67)
+		return 0;
+
 	dp_data.status = DP_STATUS_ENABLED;
 	if (flags & 0x40)
 		dp_data.status |= DP_STATUS_IRQ_HPD;
