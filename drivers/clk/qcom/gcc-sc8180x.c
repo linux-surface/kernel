@@ -4,7 +4,9 @@
  * Copyright (c) 2020-2021, Linaro Ltd.
  */
 
+#include <linux/acpi.h>
 #include <linux/bitops.h>
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/err.h>
 #include <linux/kernel.h>
@@ -4556,7 +4558,7 @@ static const struct regmap_config gcc_sc8180x_regmap_config = {
 	.fast_io	= true,
 };
 
-static const struct qcom_cc_desc gcc_sc8180x_desc = {
+static struct qcom_cc_desc gcc_sc8180x_desc = {
 	.config = &gcc_sc8180x_regmap_config,
 	.clks = gcc_sc8180x_clocks,
 	.num_clks = ARRAY_SIZE(gcc_sc8180x_clocks),
@@ -4572,9 +4574,86 @@ static const struct of_device_id gcc_sc8180x_match_table[] = {
 };
 MODULE_DEVICE_TABLE(of, gcc_sc8180x_match_table);
 
+static const struct resource gcc_sc8180x_acpi_mmio = {
+	.name  = "CLKREGS",
+	.start = 0x00100000,
+	.end   = 0x002effff,
+	.flags = IORESOURCE_MEM,
+};
+
+static const struct acpi_device_id gcc_sc8180x_acpi_match_table[] = {
+	{ "QCOM0419", .driver_data = (unsigned long)&gcc_sc8180x_acpi_mmio },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, gcc_sc8180x_acpi_match_table);
+
+static int hack_patch_in_resource(struct platform_device *pdev, const struct resource* rsrc)
+{
+	struct resource *old = pdev->resource;
+	struct resource *new;
+
+	new = kzalloc(sizeof(struct resource) * (pdev->num_resources + 1), GFP_KERNEL);
+	if (!new)
+		return -ENOMEM;
+
+	memcpy(&new[0], rsrc, sizeof(struct resource));
+	memcpy(&new[1], old, sizeof(struct resource) * pdev->num_resources);
+
+	pdev->resource = new;
+	pdev->num_resources = pdev->num_resources + 1;
+
+	kfree(old);
+	return 0;
+}
+
+static int hack_enable_clock(struct platform_device *pdev, struct clk_hw *hw, const char *con_id)
+{
+	struct clk *clk;
+	int status;
+
+	clk = devm_clk_hw_get_clk(&pdev->dev, hw, con_id);
+	if (IS_ERR(clk)) {
+		status = PTR_ERR(clk);
+		goto out;
+	}
+
+	dev_err(&pdev->dev, "got clock: %p\n", clk);
+
+	status = clk_prepare_enable(clk);
+
+	dev_err(&pdev->dev, "enabled clock: %d\n", status);
+
+out:
+	if (status)
+		dev_err(&pdev->dev, "HACK: failed to enable clock %s: %d\n", con_id, status);
+	else
+		dev_info(&pdev->dev, "HACK: enabled clock: %s\n", con_id);
+
+	return status;
+}
+
 static int gcc_sc8180x_probe(struct platform_device *pdev)
 {
+	const struct resource *mmiores;
 	struct regmap *regmap;
+	int status;
+
+	// HACK: ACPI doesn't have any memory resources associated with PEP,
+	//       add clock config register resource manually...
+	mmiores = acpi_device_get_match_data(&pdev->dev);
+	if (mmiores) {
+		dev_info(&pdev->dev, "HACK: patching-in memory resource\n");
+
+		status = hack_patch_in_resource(pdev, mmiores);
+		if (status)
+			return status;
+	}
+
+	// HACK: ACPI mode doesn't support GDSCs...
+	if (!pdev->dev.of_node) {
+		gcc_sc8180x_desc.gdscs = NULL;
+		gcc_sc8180x_desc.num_gdscs = 0;
+	}
 
 	regmap = qcom_cc_map(pdev, &gcc_sc8180x_desc);
 	if (IS_ERR(regmap))
@@ -4602,7 +4681,23 @@ static int gcc_sc8180x_probe(struct platform_device *pdev)
 	regmap_update_bits(regmap, 0x4d110, 0x3, 0x3);
 	regmap_update_bits(regmap, 0x71028, 0x3, 0x3);
 
-	return qcom_cc_really_probe(pdev, &gcc_sc8180x_desc, regmap);
+	status = qcom_cc_really_probe(pdev, &gcc_sc8180x_desc, regmap);
+	dev_info(&pdev->dev, "HACK: qcom_cc_really_probe returned %d\n", status);
+
+	// HACK: enable clocks for UART[5] (SAM).
+	status = hack_enable_clock(pdev, &gcc_qupv3_wrap_2_m_ahb_clk.clkr.hw, "wrap2-m-ahb");
+	if (status)
+		return status;
+
+	status = hack_enable_clock(pdev, &gcc_qupv3_wrap_2_s_ahb_clk.clkr.hw, "wrap2-s-ahb");
+	if (status)
+		return status;
+
+	status = hack_enable_clock(pdev, &gcc_qupv3_wrap2_s5_clk.clkr.hw, "wrap2-s5");
+	if (status)
+		return status;
+
+	return status;
 }
 
 static struct platform_driver gcc_sc8180x_driver = {
@@ -4610,6 +4705,7 @@ static struct platform_driver gcc_sc8180x_driver = {
 	.driver		= {
 		.name	= "gcc-sc8180x",
 		.of_match_table = gcc_sc8180x_match_table,
+		.acpi_match_table = ACPI_PTR(gcc_sc8180x_acpi_match_table),
 	},
 };
 
