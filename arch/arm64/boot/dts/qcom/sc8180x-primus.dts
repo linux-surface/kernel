@@ -9,6 +9,8 @@
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/gpio/gpio.h>
 #include "sc8180x.dtsi"
+#include "pmc8180.dtsi"
+#include "pmc8180c.dtsi"
 
 / {
 	model = "Qualcomm SC8180x Primus";
