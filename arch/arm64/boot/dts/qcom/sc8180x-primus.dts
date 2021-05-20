@@ -24,6 +24,27 @@
 		stdout-path = "serial0:115200n8";
 	};
 
+	vreg_nvme_0p9: nvme-0p9-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_nvme_0p9";
+
+		regulator-min-microvolt = <900000>;
+		regulator-max-microvolt = <900000>;
+	};
+
+	vreg_nvme_3p3: nvme-3p3-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_nvme_3p3";
+
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+
+		gpio = <&pmc8180c_gpios 11 0>;
+		enable-active-high;
+
+		regulator-always-on;
+	};
+
 	vph_pwr: vph-pwr-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
@@ -57,6 +78,7 @@
 		qcom,pmic-id = "c";
 
 		vdd-s6-supply = <&vph_pwr>;
+		vdd-s8-supply = <&vph_pwr>;
 		vdd-l2-l3-supply = <&vreg_s6c_1p35>;
 		vdd-bob-supply = <&vph_pwr>;
 
@@ -64,6 +86,13 @@
 			regulator-min-microvolt = <1350000>;
 			regulator-max-microvolt = <1372000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_s8c_1p8: smps8 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
 		};
 
 		vreg_l3c_1p2: ldo3 {
@@ -158,6 +187,20 @@
 	pinctrl-0 = <&edp_hpd_active>;
 };
 
+&pcie2 {
+//	status = "okay";
+	perst-gpio = <&tlmm 175 GPIO_ACTIVE_LOW>;
+	wake-gpio = <&tlmm 177 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie2_default_state>;
+};
+
+&pcie2_phy {
+//	status = "okay";
+	vdda-phy-supply = <&vreg_l5e_0p88>;
+	vdda-pll-supply = <&vreg_l3c_1p2>;
+};
+
 &qupv3_id_0 {
 	status = "okay";
 };
@@ -166,13 +209,83 @@
 	status = "okay";
 };
 
+&remoteproc_adsp {
+	status = "okay";
+	memory-region = <&adsp_mem>;
+	firmware-name = "qcom/sc8180x/qcadsp8180.mbn";
+};
+
+&remoteproc_adsp_glink {
+	pmic-glink {
+		compatible = "qcom,glink-ucsi";
+		qcom,glink-channels = "PMIC_RTR_ADSP_APPS";
+
+		connector {
+			compatible = "usb-c-connector";
+			power-role = "dual";
+			data-role = "dual";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					ucsi_port_0_dp: endpoint {
+						remote-endpoint = <&dp0_mode>;
+					};
+				};
+			};
+		};
+	};
+};
+
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <47 4>, <126 4>;
+
+	dp0_sbu_sw_en: dp0-sbu-sw-en {
+		sel {
+			pins = "gpio100";
+			function = "gpio";
+			output-low;
+		};
+
+		oe-n {
+			pins = "gpio152";
+			function = "gpio";
+			output-low;
+		};
+	};
 
 	edp_hpd_active: epd-hpd-active-state {
 		pins = "gpio10";
 		function = "edp_hot";
 	};
+
+	pcie2_default_state: pcie2-default-state {
+		clkreq {
+			pins = "gpio176";
+			function = "pci_e2";
+			bias-pull-up;
+		};
+
+		reset-n {
+			pins = "gpio175";
+			function = "gpio";
+
+			drive-strength = <2>;
+			output-low;
+			bias-pull-down;
+		};
+
+		wake-n {
+			pins = "gpio177";
+			function = "gpio";
+
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
 };
 
 &uart12 {
