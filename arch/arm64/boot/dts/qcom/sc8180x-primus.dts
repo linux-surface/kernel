@@ -51,6 +51,13 @@
 		regulator-min-microvolt = <3700000>;
 		regulator-max-microvolt = <3700000>;
 	};
+	
+	reserved-memory {
+		adsp_mem: memory@90800000 {
+			reg = <0x0 0x90800000 0x0 0x1c00000>;
+			no-map;
+		};
+	};
 };
 
 &apps_rsc {
@@ -171,7 +178,23 @@
 };
 
 &mdss_dp0 {
-//	status = "okay";
+	status = "okay";
+
+	data-lanes = <0 1>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&dp0_sbu_sw_en>;
+
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	ports {
+		port@1 {
+			reg = <1>;
+			dp0_mode: endpoint {
+				remote-endpoint = <&ucsi_port_0_dp>;
+			};
+		};
+	};
 };
 
 &mdss_dp1 {
@@ -179,7 +202,7 @@
 };
 
 &mdss_edp {
-	status = "okay";
+//	status = "okay";
 
 	data-lanes = <0 1 2 3>;
 
