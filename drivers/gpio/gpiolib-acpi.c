@@ -1263,7 +1263,7 @@ void acpi_gpiochip_add(struct gpio_chip *chip)
 
 	acpi_gpiochip_request_regions(acpi_gpio);
 	acpi_gpiochip_scan_gpios(acpi_gpio);
-	acpi_dev_flag_dependency_met(handle);
+	acpi_walk_dep_device_list(handle);
 }
 
 void acpi_gpiochip_remove(struct gpio_chip *chip)
