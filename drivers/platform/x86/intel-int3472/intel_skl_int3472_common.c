@@ -25,7 +25,7 @@ union acpi_object *skl_int3472_get_acpi_buffer(struct acpi_device *adev,
 		return ERR_PTR(-ENODEV);
 
 	if (obj->type != ACPI_TYPE_BUFFER) {
-		dev_err(&adev->dev, "%s object is not an ACPI buffer\n", id);
+		acpi_handle_err(handle, "%s object is not an ACPI buffer\n", id);
 		kfree(obj);
 		return ERR_PTR(-EINVAL);
 	}
@@ -43,7 +43,7 @@ int skl_int3472_fill_cldb(struct acpi_device *adev, struct int3472_cldb *cldb)
 		return PTR_ERR(obj);
 
 	if (obj->buffer.length > sizeof(*cldb)) {
-		dev_err(&adev->dev, "The CLDB buffer is too large\n");
+		acpi_handle_err(adev->handle, "The CLDB buffer is too large\n");
 		ret = -EINVAL;
 		goto out_free_obj;
 	}
@@ -80,7 +80,7 @@ static struct i2c_driver int3472_tps68470 = {
 
 static int skl_int3472_init(void)
 {
-	int ret = 0;
+	int ret;
 
 	ret = platform_driver_register(&int3472_discrete);
 	if (ret)

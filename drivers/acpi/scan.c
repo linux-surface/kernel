@@ -2135,7 +2135,7 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
 		device->handler->hotplug.notify_online(device);
 }
 
-static int __acpi_dev_get_dependent_dev(struct acpi_dep_data *dep, void *data)
+static int acpi_return_dep_dev(struct acpi_dep_data *dep, void *data)
 {
 	struct acpi_device *adev;
 	int ret;
@@ -2150,8 +2150,7 @@ static int __acpi_dev_get_dependent_dev(struct acpi_dep_data *dep, void *data)
 	return 1;
 }
 
-static int __acpi_dev_flag_dependency_met(struct acpi_dep_data *dep,
-					  void *data)
+static int acpi_scan_clear_dep(struct acpi_dep_data *dep, void *data)
 {
 	struct acpi_device *adev;
 
@@ -2165,12 +2164,25 @@ static int __acpi_dev_flag_dependency_met(struct acpi_dep_data *dep,
 
 	list_del(&dep->node);
 	kfree(dep);
+
 	return 0;
 }
 
-void acpi_walk_dep_device_list(acpi_handle handle,
-			       int (*callback)(struct acpi_dep_data *, void *),
-			       void *data)
+/**
+ * acpi_walk_dep_device_list - Apply a callback to every entry in acpi_dep_list
+ * @handle:	The ACPI handle of the supplier device
+ * @callback:	Pointer to the callback function to apply
+ * @data:	Pointer to some data to pass to the callback
+ *
+ * The return value of the callback determines this function's behaviour. If 0
+ * is returned we continue to iterate over acpi_dep_list. If a positive value
+ * is returned then the loop is broken but this function returns 0. If a
+ * negative value is returned by the callback then the loop is broken and that
+ * value is returned as the final error.
+ */
+int acpi_walk_dep_device_list(acpi_handle handle,
+			      int (*callback)(struct acpi_dep_data *, void *),
+			      void *data)
 {
 	struct acpi_dep_data *dep, *tmp;
 	int ret;
@@ -2184,38 +2196,41 @@ void acpi_walk_dep_device_list(acpi_handle handle,
 		}
 	}
 	mutex_unlock(&acpi_dep_list_lock);
+
+	return ret > 0 ? 0 : ret;
 }
 EXPORT_SYMBOL_GPL(acpi_walk_dep_device_list);
 
 /**
- * acpi_dev_flag_dependency_met() - Inform consumers of @handle that the device
- *				    is now active
- * @handle: acpi_handle for the supplier device
+ * acpi_dev_clear_dependencies - Inform consumers that the device is now active
+ * @supplier: Pointer to the supplier &struct acpi_device
  *
- * This function walks through the dependencies list and informs each consumer
- * of @handle that their dependency upon it is now met. Devices with no more
- * unmet dependencies will be attached to the acpi bus.
+ * Clear dependencies on the given device.
  */
-void acpi_dev_flag_dependency_met(acpi_handle handle)
+void acpi_dev_clear_dependencies(struct acpi_device *supplier)
 {
-	acpi_walk_dep_device_list(handle, __acpi_dev_flag_dependency_met, NULL);
+	acpi_walk_dep_device_list(supplier->handle, acpi_scan_clear_dep, NULL);
 }
-EXPORT_SYMBOL_GPL(acpi_dev_flag_dependency_met);
+EXPORT_SYMBOL_GPL(acpi_dev_clear_dependencies);
 
 /**
- * acpi_dev_get_dependent_dev - Return ACPI device dependent on @adev
- * @adev: Pointer to the dependee device
+ * acpi_dev_get_dependent_dev - Return ACPI device dependent on @supplier
+ * @supplier: Pointer to the dependee device
  *
  * Returns the first &struct acpi_device which declares itself dependent on
- * @adev via the _DEP buffer, parsed from the acpi_dep_list.
+ * @supplier via the _DEP buffer, parsed from the acpi_dep_list.
+ *
+ * The caller is responsible for putting the reference to adev when it is no
+ * longer needed.
  */
-struct acpi_device *
-acpi_dev_get_dependent_dev(struct acpi_device *supplier)
+struct acpi_device *acpi_dev_get_dependent_dev(struct acpi_device *supplier)
 {
 	struct acpi_device *adev = NULL;
 
-	acpi_walk_dep_device_list(supplier->handle,
-				  __acpi_dev_get_dependent_dev, &adev);
+	acpi_walk_dep_device_list(supplier->handle, acpi_return_dep_dev, &adev);
+
+	if (adev)
+		get_device(&adev->dev);
 
 	return adev;
 }

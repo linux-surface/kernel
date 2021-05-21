@@ -9,15 +9,15 @@
 
 #include "intel_skl_int3472_common.h"
 
-static const struct mfd_cell tps68470_c[] = {
+static const struct mfd_cell tps68470_cros[] = {
 	{ .name = "tps68470-gpio" },
 	{ .name = "tps68470_pmic_opregion" },
 };
 
-static const struct mfd_cell tps68470_w[] = {
+static const struct mfd_cell tps68470_win[] = {
 	{ .name = "tps68470-gpio" },
 	{ .name = "tps68470-clk" },
-	{ .name = "tps68470-regulator"},
+	{ .name = "tps68470-regulator" },
 };
 
 static const struct regmap_config tps68470_regmap_config = {
@@ -51,7 +51,6 @@ int skl_int3472_tps68470_probe(struct i2c_client *client)
 {
 	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
 	struct int3472_cldb cldb = { 0 };
-	bool cldb_present = true;
 	struct regmap *regmap;
 	int ret;
 
@@ -93,15 +92,12 @@ int skl_int3472_tps68470_probe(struct i2c_client *client)
 	}
 
 	if (ret)
-		cldb_present = false;
-
-	if (cldb_present)
 		ret = devm_mfd_add_devices(&client->dev, PLATFORM_DEVID_NONE,
-					   tps68470_w, ARRAY_SIZE(tps68470_w),
+					   tps68470_cros, ARRAY_SIZE(tps68470_cros),
 					   NULL, 0, NULL);
 	else
 		ret = devm_mfd_add_devices(&client->dev, PLATFORM_DEVID_NONE,
-					   tps68470_c, ARRAY_SIZE(tps68470_c),
+					   tps68470_win, ARRAY_SIZE(tps68470_win),
 					   NULL, 0, NULL);
 
 	if (ret) {

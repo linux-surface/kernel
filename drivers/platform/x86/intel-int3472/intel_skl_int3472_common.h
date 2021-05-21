@@ -40,9 +40,9 @@
 #define to_int3472_device(clk)					\
 	container_of(clk, struct int3472_discrete_device, clock)
 
-struct platform_device;
-struct i2c_client;
 struct acpi_device;
+struct i2c_client;
+struct platform_device;
 
 struct int3472_cldb {
 	u8 version;
@@ -60,8 +60,8 @@ struct int3472_cldb {
 };
 
 struct int3472_gpio_function_remap {
-	char *documented;
-	char *actual;
+	const char *documented;
+	const char *actual;
 };
 
 struct int3472_sensor_config {
@@ -76,7 +76,7 @@ struct int3472_discrete_device {
 	struct acpi_device *sensor;
 	const char *sensor_name;
 
-	struct int3472_sensor_config *sensor_config;
+	const struct int3472_sensor_config *sensor_config;
 
 	struct int3472_gpio_regulator {
 		char regulator_name[GPIO_REGULATOR_NAME_LENGTH];
@@ -106,5 +106,8 @@ int skl_int3472_tps68470_probe(struct i2c_client *client);
 union acpi_object *skl_int3472_get_acpi_buffer(struct acpi_device *adev,
 					       char *id);
 int skl_int3472_fill_cldb(struct acpi_device *adev, struct int3472_cldb *cldb);
+int skl_int3472_register_clock(struct int3472_discrete_device *int3472);
+int skl_int3472_register_regulator(struct int3472_discrete_device *int3472,
+				   struct acpi_resource *ares);
 
 #endif

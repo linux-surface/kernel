@@ -3,14 +3,16 @@
 
 #include <linux/acpi.h>
 #include <linux/clkdev.h>
+#include <linux/clk-provider.h>
+#include <linux/device.h>
 #include <linux/gpio/consumer.h>
+#include <linux/gpio/machine.h>
 #include <linux/i2c.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/overflow.h>
 #include <linux/platform_device.h>
-#include <linux/regulator/driver.h>
-#include <linux/slab.h>
+#include <linux/uuid.h>
 
 #include "intel_skl_int3472_common.h"
 
@@ -53,99 +55,19 @@ static const struct int3472_gpio_function_remap ov2680_gpio_function_remaps[] = 
 	{ }
 };
 
-static struct int3472_sensor_config int3472_sensor_configs[] = {
+static const struct int3472_sensor_config int3472_sensor_configs[] = {
 	/* Lenovo Miix 510-12ISK - OV2680, Front */
-	{ "GNDF140809R", { 0 }, ov2680_gpio_function_remaps},
+	{ "GNDF140809R", { 0 }, ov2680_gpio_function_remaps },
 	/* Lenovo Miix 510-12ISK - OV5648, Rear */
-	{ "GEFF150023R", REGULATOR_SUPPLY("avdd", NULL), NULL},
+	{ "GEFF150023R", REGULATOR_SUPPLY("avdd", NULL), NULL },
 	/* Surface Go 1&2 - OV5693, Front */
-	{ "YHCU", REGULATOR_SUPPLY("avdd", NULL), NULL},
+	{ "YHCU", REGULATOR_SUPPLY("avdd", NULL), NULL },
 };
 
-/*
- * The regulators have to have .ops to be valid, but the only ops we actually
- * support are .enable and .disable which are handled via .ena_gpiod. Pass an
- * empty struct to clear the check without lying about capabilities.
- */
-static const struct regulator_ops int3472_gpio_regulator_ops = { 0 };
-
-static int skl_int3472_clk_prepare(struct clk_hw *hw)
-{
-	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
-
-	gpiod_set_value(clk->ena_gpio, 1);
-	if (clk->led_gpio)
-		gpiod_set_value(clk->led_gpio, 1);
-
-	return 0;
-}
-
-static void skl_int3472_clk_unprepare(struct clk_hw *hw)
-{
-	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
-
-	gpiod_set_value(clk->ena_gpio, 0);
-	if (clk->led_gpio)
-		gpiod_set_value(clk->led_gpio, 0);
-}
-
-static int skl_int3472_clk_enable(struct clk_hw *hw)
-{
-	/*
-	 * We're just turning a GPIO on to enable, which operation has the
-	 * potential to sleep. Given enable cannot sleep, but prepare can,
-	 * we toggle the GPIO in prepare instead. Thus, nothing to do here.
-	 */
-	return 0;
-}
-
-static void skl_int3472_clk_disable(struct clk_hw *hw)
-{
-	/* Likewise, nothing to do here... */
-}
-
-static unsigned int skl_int3472_get_clk_frequency(struct int3472_discrete_device *int3472)
-{
-	union acpi_object *obj;
-	unsigned int ret = 0;
-
-	obj = skl_int3472_get_acpi_buffer(int3472->sensor, "SSDB");
-	if (IS_ERR(obj))
-		return 0; /* report rate as 0 on error */
-
-	if (obj->buffer.length < CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET + sizeof(u32)) {
-		dev_err(int3472->dev, "The buffer is too small\n");
-		goto out_free_buff;
-	}
-
-	ret = *(u32 *)(obj->buffer.pointer + CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET);
-
-out_free_buff:
-	kfree(obj);
-	return ret;
-}
-
-static unsigned long skl_int3472_clk_recalc_rate(struct clk_hw *hw,
-						 unsigned long parent_rate)
-{
-	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
-	struct int3472_discrete_device *int3472 = to_int3472_device(clk);
-
-	return int3472->clock.frequency;
-}
-
-static const struct clk_ops skl_int3472_clock_ops = {
-	.prepare = skl_int3472_clk_prepare,
-	.unprepare = skl_int3472_clk_unprepare,
-	.enable = skl_int3472_clk_enable,
-	.disable = skl_int3472_clk_disable,
-	.recalc_rate = skl_int3472_clk_recalc_rate,
-};
-
-static struct int3472_sensor_config *
+static const struct int3472_sensor_config *
 skl_int3472_get_sensor_module_config(struct int3472_discrete_device *int3472)
 {
-	struct int3472_sensor_config *ret;
+	const struct int3472_sensor_config *ret;
 	union acpi_object *obj;
 	unsigned int i;
 
@@ -166,7 +88,7 @@ skl_int3472_get_sensor_module_config(struct int3472_discrete_device *int3472)
 		goto out_free_obj;
 	}
 
-	ret = NULL;
+	ret = ERR_PTR(-EINVAL);
 	for (i = 0; i < ARRAY_SIZE(int3472_sensor_configs); i++) {
 		if (!strcmp(int3472_sensor_configs[i].sensor_module_name,
 			    obj->string.pointer)) {
@@ -182,7 +104,7 @@ out_free_obj:
 
 static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int3472,
 					  struct acpi_resource *ares,
-					  char *func, u32 polarity)
+					  const char *func, u32 polarity)
 {
 	char *path = ares->data.gpio.resource_source.string_ptr;
 	const struct int3472_sensor_config *sensor_config;
@@ -198,15 +120,15 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
 	}
 
 	sensor_config = int3472->sensor_config;
-	if (!IS_ERR_OR_NULL(sensor_config) && sensor_config->function_maps) {
-		const struct int3472_gpio_function_remap *remap =
-			sensor_config->function_maps;
+	if (!IS_ERR(sensor_config) && sensor_config->function_maps) {
+		const struct int3472_gpio_function_remap *remap;
 
-		for (; remap->documented; ++remap)
+		for (remap = sensor_config->function_maps; remap->documented; remap++) {
 			if (!strcmp(func, remap->documented)) {
 				func = remap->actual;
 				break;
 			}
+		}
 	}
 
 	/* Functions mapped to NULL should not be mapped to the sensor */
@@ -241,131 +163,28 @@ static int skl_int3472_map_gpio_to_clk(struct int3472_discrete_device *int3472,
 
 	switch (type) {
 	case INT3472_GPIO_TYPE_CLK_ENABLE:
-		gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0],
-				      "int3472,clk-enable");
+		gpio = acpi_get_and_request_gpiod(path, ares->data.gpio.pin_table[0],
+						  "int3472,clk-enable");
 		if (IS_ERR(gpio))
 			return (PTR_ERR(gpio));
 
 		int3472->clock.ena_gpio = gpio;
 		break;
 	case INT3472_GPIO_TYPE_PRIVACY_LED:
-		gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0],
-				      "int3472,privacy-led");
+		gpio = acpi_get_and_request_gpiod(path, ares->data.gpio.pin_table[0],
+						  "int3472,privacy-led");
 		if (IS_ERR(gpio))
 			return (PTR_ERR(gpio));
 
 		int3472->clock.led_gpio = gpio;
 		break;
 	default:
-		dev_err(int3472->dev, "Invalid GPIO type 0x%hx for clock\n",
+		dev_err(int3472->dev, "Invalid GPIO type 0x%02x for clock\n",
 			type);
 		break;
 	}
 
 	return 0;
-}
-
-static int skl_int3472_register_clock(struct int3472_discrete_device *int3472)
-{
-	struct clk_init_data init = {
-		.ops = &skl_int3472_clock_ops,
-		.flags = CLK_GET_RATE_NOCACHE,
-	};
-	int ret = 0;
-
-	init.name = kasprintf(GFP_KERNEL, "%s-clk",
-			      acpi_dev_name(int3472->adev));
-	if (!init.name)
-		return -ENOMEM;
-
-	int3472->clock.frequency = skl_int3472_get_clk_frequency(int3472);
-
-	int3472->clock.clk_hw.init = &init;
-	int3472->clock.clk = clk_register(&int3472->adev->dev,
-					  &int3472->clock.clk_hw);
-	if (IS_ERR(int3472->clock.clk)) {
-		ret = PTR_ERR(int3472->clock.clk);
-		goto out_free_init_name;
-	}
-
-	int3472->clock.cl = clkdev_create(int3472->clock.clk, NULL,
-					  int3472->sensor_name);
-	if (!int3472->clock.cl) {
-		ret = -ENOMEM;
-		goto err_unregister_clk;
-	}
-
-	goto out_free_init_name;
-
-err_unregister_clk:
-	clk_unregister(int3472->clock.clk);
-out_free_init_name:
-	kfree(init.name);
-
-	return ret;
-}
-
-static int skl_int3472_register_regulator(struct int3472_discrete_device *int3472,
-					  struct acpi_resource *ares)
-{
-	char *path = ares->data.gpio.resource_source.string_ptr;
-	struct int3472_sensor_config *sensor_config;
-	struct regulator_init_data init_data = { };
-	struct regulator_config cfg = { };
-	int ret;
-
-	sensor_config = int3472->sensor_config;
-	if (IS_ERR_OR_NULL(sensor_config)) {
-		dev_err(int3472->dev, "No sensor module config\n");
-		return PTR_ERR(sensor_config);
-	}
-
-	if (!sensor_config->supply_map.supply) {
-		dev_err(int3472->dev, "No supply name defined\n");
-		return -ENODEV;
-	}
-
-	init_data.constraints.valid_ops_mask = REGULATOR_CHANGE_STATUS;
-	init_data.num_consumer_supplies = 1;
-	sensor_config->supply_map.dev_name = int3472->sensor_name;
-	init_data.consumer_supplies = &sensor_config->supply_map;
-
-	snprintf(int3472->regulator.regulator_name,
-		 sizeof(int3472->regulator.regulator_name), "%s-regulator",
-		 acpi_dev_name(int3472->adev));
-	snprintf(int3472->regulator.supply_name,
-		 GPIO_REGULATOR_SUPPLY_NAME_LENGTH, "supply-0");
-
-	int3472->regulator.rdesc = INT3472_REGULATOR(
-						int3472->regulator.regulator_name,
-						int3472->regulator.supply_name,
-						&int3472_gpio_regulator_ops);
-
-	int3472->regulator.gpio = acpi_get_gpiod(path,
-						 ares->data.gpio.pin_table[0],
-						 "int3472,regulator");
-	if (IS_ERR(int3472->regulator.gpio)) {
-		dev_err(int3472->dev, "Failed to get regulator GPIO lines\n");
-		return PTR_ERR(int3472->regulator.gpio);
-	}
-
-	cfg.dev = &int3472->adev->dev;
-	cfg.init_data = &init_data;
-	cfg.ena_gpiod = int3472->regulator.gpio;
-
-	int3472->regulator.rdev = regulator_register(&int3472->regulator.rdesc,
-						     &cfg);
-	if (IS_ERR(int3472->regulator.rdev)) {
-		ret = PTR_ERR(int3472->regulator.rdev);
-		goto err_free_gpio;
-	}
-
-	return 0;
-
-err_free_gpio:
-	gpiod_put(int3472->regulator.gpio);
-
-	return ret;
 }
 
 /**
@@ -403,14 +222,13 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 					     void *data)
 {
 	struct int3472_discrete_device *int3472 = data;
-	u16 pin = ares->data.gpio.pin_table[0];
+	struct acpi_resource_gpio *agpio;
 	union acpi_object *obj;
-	char *err_msg;
-	int ret = 0;
+	const char *err_msg;
+	int ret;
 	u8 type;
 
-	if (ares->type != ACPI_RESOURCE_TYPE_GPIO ||
-	    ares->data.gpio.connection_type != ACPI_RESOURCE_GPIO_TYPE_IO)
+	if (!acpi_gpio_get_io_resource(ares, &agpio))
 		return 1; /* Deliberately positive so parsing continues */
 
 	/*
@@ -423,7 +241,8 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 				      NULL, ACPI_TYPE_INTEGER);
 
 	if (!obj) {
-		dev_warn(int3472->dev, "No _DSM entry for GPIO pin %u\n", pin);
+		dev_warn(int3472->dev, "No _DSM entry for GPIO pin %u\n",
+			 ares->data.gpio.pin_table[0]);
 		return 1;
 	}
 
@@ -466,22 +285,24 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 		break;
 	}
 
-	if (ret < 0 && ret != -EPROBE_DEFER)
-		dev_err(int3472->dev, err_msg);
-
 	int3472->n_gpios++;
 	ACPI_FREE(obj);
 
-	return ret;
+	if (ret)
+		return dev_err_probe(int3472->dev, ret, err_msg);
+
+	return 0;
 }
 
 static int skl_int3472_parse_crs(struct int3472_discrete_device *int3472)
 {
-	struct list_head resource_list;
+	LIST_HEAD(resource_list);
 	int ret;
 
-	INIT_LIST_HEAD(&resource_list);
-
+	/*
+	 * No error check, because not having a sensor config is not necessarily
+	 * a failure mode.
+	 */
 	int3472->sensor_config = skl_int3472_get_sensor_module_config(int3472);
 
 	ret = acpi_dev_get_resources(int3472->adev, &resource_list,
@@ -529,8 +350,8 @@ int skl_int3472_discrete_probe(struct platform_device *pdev)
 	}
 
 	/* Max num GPIOs we've seen plus a terminator */
-	int3472 = kzalloc(struct_size(int3472, gpios.table,
-			  INT3472_MAX_SENSOR_GPIOS + 1), GFP_KERNEL);
+	int3472 = devm_kzalloc(&pdev->dev, struct_size(int3472, gpios.table,
+			       INT3472_MAX_SENSOR_GPIOS + 1), GFP_KERNEL);
 	if (!int3472)
 		return -ENOMEM;
 
@@ -539,16 +360,24 @@ int skl_int3472_discrete_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, int3472);
 
 	int3472->sensor = acpi_dev_get_dependent_dev(adev);
-	if (IS_ERR_OR_NULL(int3472->sensor)) {
-		dev_err(&pdev->dev,
-			"INT3472 seems to have no dependents.\n");
-		ret = -ENODEV;
-		goto err_free_int3472;
+	if (!int3472->sensor) {
+		dev_err(&pdev->dev, "INT3472 seems to have no dependents.\n");
+		return -ENODEV;
 	}
-	get_device(&int3472->sensor->dev);
 
-	int3472->sensor_name = kasprintf(GFP_KERNEL, I2C_DEV_NAME_FORMAT,
-					 acpi_dev_name(int3472->sensor));
+	int3472->sensor_name = devm_kasprintf(int3472->dev, GFP_KERNEL,
+					      I2C_DEV_NAME_FORMAT,
+					      acpi_dev_name(int3472->sensor));
+	if (!int3472->sensor_name) {
+		ret = -ENOMEM;
+		goto err_put_sensor;
+	}
+
+	/*
+	 * Initialising this list means we can call gpiod_remove_lookup_table()
+	 * in failure paths without issue.
+	 */
+	INIT_LIST_HEAD(&int3472->gpios.list);
 
 	ret = skl_int3472_parse_crs(int3472);
 	if (ret) {
@@ -558,8 +387,9 @@ int skl_int3472_discrete_probe(struct platform_device *pdev)
 
 	return 0;
 
-err_free_int3472:
-	kfree(int3472);
+err_put_sensor:
+	acpi_dev_put(int3472->sensor);
+
 	return ret;
 }
 
@@ -567,26 +397,13 @@ int skl_int3472_discrete_remove(struct platform_device *pdev)
 {
 	struct int3472_discrete_device *int3472 = platform_get_drvdata(pdev);
 
-	if (int3472->gpios.dev_id)
-		gpiod_remove_lookup_table(&int3472->gpios);
-
-	if (!IS_ERR(int3472->regulator.rdev))
-		regulator_unregister(int3472->regulator.rdev);
-
-	if (!IS_ERR(int3472->clock.clk))
-		clk_unregister(int3472->clock.clk);
-
-	if (int3472->clock.cl)
-		clkdev_drop(int3472->clock.cl);
-
+	gpiod_remove_lookup_table(&int3472->gpios);
+	regulator_unregister(int3472->regulator.rdev);
+	clk_unregister(int3472->clock.clk);
+	clkdev_drop(int3472->clock.cl);
 	gpiod_put(int3472->regulator.gpio);
 	gpiod_put(int3472->clock.ena_gpio);
 	gpiod_put(int3472->clock.led_gpio);
-
-	acpi_dev_put(int3472->sensor);
-
-	kfree(int3472->sensor_name);
-	kfree(int3472);
 
 	return 0;
 }

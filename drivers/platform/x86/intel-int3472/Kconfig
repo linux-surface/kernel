@@ -1,10 +1,10 @@
 config INTEL_SKL_INT3472
 	tristate "Intel SkyLake ACPI INT3472 Driver"
 	depends on ACPI
-	depends on REGULATOR
-	depends on GPIOLIB
 	depends on COMMON_CLK && CLKDEV_LOOKUP
 	depends on I2C
+	depends on GPIOLIB
+	depends on REGULATOR
 	select MFD_CORE
 	select REGMAP_I2C
 	help
