@@ -210,7 +210,7 @@ static const struct dpu_caps sc8180_dpu_caps = {
 	.has_src_split = true,
 	.has_dim_layer = true,
 	.has_idle_pc = true,
-	.has_3d_merge = false,   /* I think? */
+	.has_3d_merge = true,
 	.max_linewidth = 4096,
 	.pixel_ram_size = DEFAULT_PIXEL_RAM_SIZE,
 	.max_hdeci_exp = MAX_HORZ_DECIMATION,
@@ -288,7 +288,6 @@ static const struct dpu_mdp_cfg sc7180_mdp[] = {
 static const struct dpu_mdp_cfg sc8180_mdp[] = {
 	{
 	.name = "top_0", .id = MDP_TOP,
-	// TODO check len
 	.base = 0x0, .len = 0x45C,
 	.features = 0,
 	.highest_bank_bit = 0x3,
@@ -308,9 +307,6 @@ static const struct dpu_mdp_cfg sc8180_mdp[] = {
 			.reg_off = 0x2BC, .bit_off = 8},
 	.clk_ctrls[DPU_CLK_CTRL_CURSOR1] = {
 			.reg_off = 0x2C4, .bit_off = 8},
-// TODO ???
-//	.clk_ctrls[DPU_CLK_CTRL_REG_DMA] = {
-//			.reg_off = 0x2BC, .bit_off = 20},
 	},
 };
 
@@ -1065,6 +1061,8 @@ static const struct dpu_perf_cfg sc8180_perf_data = {
 		{.rd_enable = 1, .wr_enable = 1},
 		{.rd_enable = 1, .wr_enable = 0}
 	},
+	.clk_inefficiency_factor = 105,
+	.bw_inefficiency_factor = 120,
 };
 
 static const struct dpu_perf_cfg sm8250_perf_data = {
@@ -1238,6 +1236,8 @@ static void sc8180_cfg_init(struct dpu_mdss_cfg *dpu_cfg)
 		.mixer = sm8150_lm,
 		.pingpong_count = ARRAY_SIZE(sm8150_pp),
 		.pingpong = sm8150_pp,
+		.merge_3d_count = ARRAY_SIZE(sm8150_merge_3d),
+		.merge_3d = sm8150_merge_3d,
 		.intf_count = ARRAY_SIZE(sc8180x_intf),
 		.intf = sc8180x_intf,
 		.vbif_count = ARRAY_SIZE(sdm845_vbif),
@@ -1245,7 +1245,7 @@ static void sc8180_cfg_init(struct dpu_mdss_cfg *dpu_cfg)
 		.reg_dma_count = 1,
 		.dma_cfg = sm8150_regdma,
 		.perf = sc8180_perf_data,
-		.mdss_irqs = 0x3ff,
+		.mdss_irqs = 0x3f,
 		.obsolete_irq = INTR_SC7180_MASK,
 	};
 }
