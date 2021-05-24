@@ -23,7 +23,10 @@
 #define   CTL_SW_RESET                  0x030
 #define   CTL_LAYER_EXTN_OFFSET         0x40
 #define   CTL_MERGE_3D_ACTIVE           0x0E4
+#define   CTL_WB_ACTIVE                 0x0EC
+#define   CTL_CWB_ACTIVE                0x0F0
 #define   CTL_INTF_ACTIVE               0x0F4
+#define   CTL_CDM_ACTIVE                0x0F8
 #define   CTL_MERGE_3D_FLUSH            0x100
 #define   CTL_INTF_FLUSH                0x110
 #define   CTL_INTF_MASTER               0x134
@@ -349,9 +352,35 @@ static void dpu_hw_ctl_clear_all_blendstages(struct dpu_hw_ctl *ctx)
 		DPU_REG_WRITE(c, CTL_LAYER_EXT(LM_0 + i), 0);
 		DPU_REG_WRITE(c, CTL_LAYER_EXT2(LM_0 + i), 0);
 		DPU_REG_WRITE(c, CTL_LAYER_EXT3(LM_0 + i), 0);
+	}
+
+	DPU_REG_WRITE(c, CTL_FETCH_PIPE_ACTIVE, 0);
+}
+
+static void dpu_hw_ctl_invalidate_config(struct dpu_hw_ctl *ctx)
+{
+	struct dpu_hw_blk_reg_map *c = &ctx->hw;
+	int i;
+
+	for (i = 0; i < ctx->mixer_count; i++) {
+		DPU_REG_WRITE(c, CTL_LAYER(LM_0 + i), 0);
+		DPU_REG_WRITE(c, CTL_LAYER_EXT(LM_0 + i), 0);
+		DPU_REG_WRITE(c, CTL_LAYER_EXT2(LM_0 + i), 0);
+		DPU_REG_WRITE(c, CTL_LAYER_EXT3(LM_0 + i), 0);
 
 		ctx->pending_flush_mask |= dpu_hw_ctl_get_bitmask_mixer(ctx, LM_0 + i);
 	}
+
+	DPU_REG_WRITE(c, CTL_TOP, 0);
+	DPU_REG_WRITE(c, CTL_WB_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_CWB_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_INTF_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_CDM_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_MERGE_3D_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_INTF_MASTER, 0);
+
+	for (i = 0; i < INTF_MAX; i++)
+		dpu_hw_ctl_update_pending_flush_intf_v1(ctx, INTF_0 + i);
 
 	DPU_REG_WRITE(c, CTL_FETCH_PIPE_ACTIVE, 0);
 
@@ -507,7 +536,10 @@ static void dpu_hw_ctl_intf_cfg_v1(struct dpu_hw_ctl *ctx,
 	intf_active |= BIT(cfg->intf - INTF_0);
 
 	DPU_REG_WRITE(c, CTL_TOP, mode_sel);
+	DPU_REG_WRITE(c, CTL_WB_ACTIVE, 0);
+	DPU_REG_WRITE(c, CTL_CWB_ACTIVE, 0);
 	DPU_REG_WRITE(c, CTL_INTF_ACTIVE, intf_active);
+	DPU_REG_WRITE(c, CTL_CDM_ACTIVE, 0);
 	if (cfg->merge_3d)
 		DPU_REG_WRITE(c, CTL_MERGE_3D_ACTIVE,
 			      BIT(cfg->merge_3d - MERGE_3D_0));
@@ -584,6 +616,7 @@ static void _setup_ctl_ops(struct dpu_hw_ctl_ops *ops,
 	ops->trigger_pending = dpu_hw_ctl_trigger_pending;
 	ops->reset = dpu_hw_ctl_reset_control;
 	ops->wait_reset_status = dpu_hw_ctl_wait_reset_status;
+	ops->invalidate_config = dpu_hw_ctl_invalidate_config;
 	ops->clear_all_blendstages = dpu_hw_ctl_clear_all_blendstages;
 	ops->setup_blendstage = dpu_hw_ctl_setup_blendstage;
 	ops->get_bitmask_sspp = dpu_hw_ctl_get_bitmask_sspp;

@@ -244,6 +244,7 @@ void dpu_rm_clear_boot_config(struct dpu_rm *rm, struct dpu_mdss_cfg *cat)
 
 		intf = to_dpu_hw_intf(rm->intf_blks[i - INTF_0]);
 		intf->ops.enable_timing(intf, 0);
+		intf->ops.bind_pingpong_blk(intf, false, PINGPONG_0);
 	}
 
 	/*
@@ -259,7 +260,7 @@ void dpu_rm_clear_boot_config(struct dpu_rm *rm, struct dpu_mdss_cfg *cat)
 		DPU_DEBUG("clearing ctl%d layer configuration\n", i - CTL_0);
 
 		ctl = to_dpu_hw_ctl(rm->ctl_blks[i - CTL_0]);
-		ctl->ops.clear_all_blendstages(ctl);
+		ctl->ops.invalidate_config(ctl);
 		ctl->ops.trigger_flush(ctl);
 		ctl->ops.trigger_start(ctl);
 	}
