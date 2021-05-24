@@ -305,6 +305,8 @@ static ssize_t dp_test_active_write(struct file *file,
 				debug->panel->video_test = true;
 			else
 				debug->panel->video_test = false;
+
+			dp_panel_tpg_config(debug->panel, debug->panel->video_test);
 		}
 	}
 	drm_connector_list_iter_end(&conn_iter);
