@@ -729,6 +729,25 @@ static int dp_irq_hpd_handle(struct dp_display_private *dp, u32 data)
 	return 0;
 }
 
+static int dp_display_usbpd_configure_callback(struct device *dev)
+{
+	struct dp_display_private *dp = container_of(g_dp_display, struct dp_display_private, dp_display);
+
+	return dp_add_event(dp, EV_HPD_PLUG_INT, 0, 0);
+}
+
+static int dp_display_usbpd_disconnect_callback(struct device *dev)
+{
+	struct dp_display_private *dp = container_of(g_dp_display, struct dp_display_private, dp_display);
+
+	return dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
+}
+
+static int dp_display_usbpd_attention_callback(struct device *dev)
+{
+	return 0;
+}
+
 static void dp_display_deinit_sub_modules(struct dp_display_private *dp)
 {
 	dp_debug_put(dp->debug);
@@ -748,9 +767,9 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 	};
 
 	/* Callback APIs used for cable status change event */
-	cb->configure  = dp_display_usbpd_configure_cb;
-	cb->disconnect = dp_display_usbpd_disconnect_cb;
-	cb->attention  = dp_display_usbpd_attention_cb;
+	cb->configure  = dp_display_usbpd_configure_callback;
+	cb->disconnect = dp_display_usbpd_disconnect_callback;
+	cb->attention  = dp_display_usbpd_attention_callback;
 
 	dp->usbpd = dp_hpd_get(dev, cb);
 	if (IS_ERR(dp->usbpd)) {
