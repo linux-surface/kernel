@@ -33,6 +33,7 @@
 #define INTF_TP_COLOR1                  0x05C
 #define INTF_CONFIG2                    0x060
 #define INTF_DISPLAY_DATA_HCTL          0x064
+#define INTF_ACTIVE_DATA_HCTL           0x068
 #define INTF_FRAME_LINE_COUNT_EN        0x0A8
 #define INTF_FRAME_COUNT                0x0AC
 #define   INTF_LINE_COUNT               0x0B0
@@ -184,6 +185,7 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *ctx,
 		intf_cfg2 |= BIT(4);
 		display_data_hctl = display_hctl;
 		DPU_REG_WRITE(c, INTF_DISPLAY_DATA_HCTL, display_data_hctl);
+		DPU_REG_WRITE(c, INTF_ACTIVE_DATA_HCTL, display_data_hctl);
 	}
 
 	DPU_REG_WRITE(c, INTF_HSYNC_CTL, hsync_ctl);
