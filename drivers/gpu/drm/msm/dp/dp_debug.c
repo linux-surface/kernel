@@ -157,6 +157,8 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 			debug->panel->video_test = true;
 		else
 			debug->panel->video_test = false;
+
+		msm_dp_panel_tpg_config(debug->panel, debug->panel->video_test);
 	}
 	kfree(input_buffer);
 
