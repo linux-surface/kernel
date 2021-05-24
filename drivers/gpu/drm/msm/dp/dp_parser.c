@@ -277,7 +277,8 @@ static int dp_parser_parse(struct dp_parser *parser)
 	 */
 	parser->regulator_cfg = &sdm845_dp_reg_cfg;
 
-	if (of_device_is_compatible(dev->of_node, "qcom,sc8180x-edp")) {
+	if (of_device_is_compatible(dev->of_node, "qcom,sc8180x-edp") ||
+	    of_device_is_compatible(dev->of_node, "qcom,sc8180x-dp")) {
 		io->ahb = io->base + 0x0;
 		io->ahb_len = 0x200;
 		io->aux = io->base + 0x200;
