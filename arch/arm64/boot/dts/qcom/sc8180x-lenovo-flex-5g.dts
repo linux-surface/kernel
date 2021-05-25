@@ -244,9 +244,9 @@
 };
 
 &mdss_dp0 {
-//	status = "okay";
+	status = "okay";
 
-	data-lanes = <0 1>;
+	data-lanes = <0 1 2 3>;
 
 	pinctrl-names = "default";
 	pinctrl-0 = <&dp0_sbu_sw_en>;
@@ -264,7 +264,7 @@
 };
 
 &mdss_edp {
-	status = "okay";
+	// status = "okay";
 
 	data-lanes = <0 1 2 3>;
 

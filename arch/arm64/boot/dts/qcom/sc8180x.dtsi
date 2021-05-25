@@ -1939,6 +1939,8 @@
 			#size-cells = <2>;
 			ranges;
 
+			dp-only-mode;
+
 			clocks = <&gcc GCC_USB3_PRIM_PHY_AUX_CLK>,
 				 <&rpmhcc RPMH_CXO_CLK>,
 				 <&gcc GCC_USB3_PRIM_CLKREF_CLK>,

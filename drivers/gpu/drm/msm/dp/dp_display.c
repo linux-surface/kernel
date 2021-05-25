@@ -989,6 +989,8 @@ int dp_display_validate_mode(struct msm_dp *dp, u32 mode_pclk_khz)
 	mode_rate_khz = mode_pclk_khz * mode_bpp;
 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
 
+	DRM_DEBUG_DP("lanes: %d rate: %d (rate_khz: %d) mode_khz: %d\n", link_info->num_lanes, link_info->rate, supported_rate_khz, mode_rate_khz);
+
 	if (mode_rate_khz > supported_rate_khz)
 		return MODE_BAD;
 

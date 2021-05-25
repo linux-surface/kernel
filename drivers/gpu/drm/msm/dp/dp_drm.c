@@ -107,6 +107,8 @@ static enum drm_mode_status dp_connector_mode_valid(
 
 	dp_disp = to_dp_connector(connector)->dp_display;
 	clock = mode->clock;
+	
+	DRM_DEBUG_DP("clock: %d max_pclk_khz: %d\n", mode->clock, dp_disp->max_pclk_khz);
 
 	if (1 /* widebus */)
 		clock /= 2;

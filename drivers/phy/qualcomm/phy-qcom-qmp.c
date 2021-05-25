@@ -3711,17 +3711,17 @@ static const u8 qmp_dp_v3_voltage_swing_hbr3_hbr2[4][4] = {
 };
 
 static const u8 qmp_dp_v3_pre_emphasis_hbr_rbr[4][4] = {
-	{ 0x00, 0x0c, 0x14, 0x19 },
-	{ 0x00, 0x0b, 0x12, 0xff },
-	{ 0x00, 0x0b, 0xff, 0xff },
-	{ 0x04, 0xff, 0xff, 0xff }
+	{ 0x00, 0x0e, 0x16, 0xff },
+	{ 0x00, 0x0e, 0x16, 0xff },
+	{ 0x00, 0x0e, 0xff, 0xff },
+	{ 0x0d, 0xff, 0xff, 0xff }
 };
 
 static const u8 qmp_dp_v3_voltage_swing_hbr_rbr[4][4] = {
-	{ 0x08, 0x0f, 0x16, 0x1f },
+	{ 0x07, 0x0f, 0x16, 0xff },
 	{ 0x11, 0x1e, 0x1f, 0xff },
-	{ 0x19, 0x1f, 0xff, 0xff },
-	{ 0x1f, 0xff, 0xff, 0xff }
+	{ 0x1a, 0x1f, 0xff, 0xff },
+	{ 0xff, 0xff, 0xff, 0xff }
 };
 
 static int qcom_qmp_phy_configure_dp_swing(struct qmp_phy *qphy,
@@ -3737,6 +3737,8 @@ static int qcom_qmp_phy_configure_dp_swing(struct qmp_phy *qphy,
 		p_level = max(p_level, dp_opts->pre[i]);
 	}
 
+	printk(KERN_ERR "%s() v_level: %d p_level: %d\n", __func__, v_level, p_level);
+
 	if (dp_opts->link_rate <= 2700) {
 		voltage_swing_cfg = qmp_dp_v3_voltage_swing_hbr_rbr[v_level][p_level];
 		pre_emphasis_cfg = qmp_dp_v3_pre_emphasis_hbr_rbr[v_level][p_level];
@@ -3746,7 +3748,7 @@ static int qcom_qmp_phy_configure_dp_swing(struct qmp_phy *qphy,
 	}
 
 	/* TODO: Move check to config check */
-	if (voltage_swing_cfg == 0xFF && pre_emphasis_cfg == 0xFF)
+	if (voltage_swing_cfg == 0xFF || pre_emphasis_cfg == 0xFF)
 		return -EINVAL;
 
 	/* Enable MUX to use Cursor values from these registers */
@@ -3787,8 +3789,9 @@ static void qcom_qmp_v3_phy_configure_dp_tx(struct qmp_phy *qphy)
 
 static bool qcom_qmp_phy_configure_dp_mode(struct qmp_phy *qphy)
 {
-	u32 val;
+	const struct phy_configure_opts_dp *dp_opts = &qphy->dp_opts;
 	bool reverse = false;
+	u32 val;
 
 	val = DP_PHY_PD_CTL_PWRDN | DP_PHY_PD_CTL_AUX_PWRDN |
 	      DP_PHY_PD_CTL_PLL_PWRDN | DP_PHY_PD_CTL_DP_CLAMP_EN;
@@ -3807,10 +3810,17 @@ static bool qcom_qmp_phy_configure_dp_mode(struct qmp_phy *qphy)
 	 * if (orientation == ORIENTATION_CC2)
 	 *	writel(0x4c, qphy->pcs + QSERDES_V3_DP_PHY_MODE);
 	 */
-	val |= DP_PHY_PD_CTL_LANE_2_3_PWRDN;
+	if (dp_opts->lanes == 4 || reverse)
+		val |= DP_PHY_PD_CTL_LANE_0_1_PWRDN;
+	if (dp_opts->lanes == 4 || !reverse)
+		val |= DP_PHY_PD_CTL_LANE_2_3_PWRDN;
+	printk(KERN_ERR "%s() PHY_PD_CTL: %#x\n", __func__, val);
 	writel(val, qphy->pcs + QSERDES_DP_PHY_PD_CTL);
 
-	writel(0x5c, qphy->pcs + QSERDES_DP_PHY_MODE);
+	if (reverse)
+		writel(0x4c, qphy->pcs + QSERDES_DP_PHY_MODE);
+	else
+		writel(0x5c, qphy->pcs + QSERDES_DP_PHY_MODE);
 
 	return reverse;
 }
@@ -3936,8 +3946,8 @@ static void qcom_qmp_v4_phy_dp_aux_init(struct qmp_phy *qphy)
 static void qcom_qmp_v4_phy_configure_dp_tx(struct qmp_phy *qphy)
 {
 	/* Program default values before writing proper values */
-	writel(0x27, qphy->tx + QSERDES_V4_TX_TX_DRV_LVL);
-	writel(0x27, qphy->tx2 + QSERDES_V4_TX_TX_DRV_LVL);
+	writel(0x2a, qphy->tx + QSERDES_V4_TX_TX_DRV_LVL);
+	writel(0x2a, qphy->tx2 + QSERDES_V4_TX_TX_DRV_LVL);
 
 	writel(0x20, qphy->tx + QSERDES_V4_TX_TX_EMP_POST1_LVL);
 	writel(0x20, qphy->tx2 + QSERDES_V4_TX_TX_EMP_POST1_LVL);
@@ -4077,8 +4087,8 @@ static int qcom_qmp_v4_phy_configure_dp_phy(struct qmp_phy *qphy)
 	writel(0x0a, qphy->tx + QSERDES_V4_TX_TX_POL_INV);
 	writel(0x0a, qphy->tx2 + QSERDES_V4_TX_TX_POL_INV);
 
-	writel(0x27, qphy->tx + QSERDES_V4_TX_TX_DRV_LVL);
-	writel(0x27, qphy->tx2 + QSERDES_V4_TX_TX_DRV_LVL);
+	writel(0x2a, qphy->tx + QSERDES_V4_TX_TX_DRV_LVL);
+	writel(0x2a, qphy->tx2 + QSERDES_V4_TX_TX_DRV_LVL);
 
 	writel(0x20, qphy->tx + QSERDES_V4_TX_TX_EMP_POST1_LVL);
 	writel(0x20, qphy->tx2 + QSERDES_V4_TX_TX_EMP_POST1_LVL);
@@ -4176,7 +4186,19 @@ static int qcom_qmp_phy_com_init(struct qmp_phy *qphy)
 		goto err_rst;
 	}
 
-	if (cfg->has_phy_dp_com_ctrl) {
+	if (of_property_read_bool(qmp->dev->of_node, "dp-only-mode")) {
+		qphy_setbits(dp_com, QPHY_V3_DP_COM_POWER_DOWN_CTRL, SW_PWRDN);
+
+		writel(0xa, dp_com + QPHY_V3_DP_COM_RESET_OVRD_CTRL);
+		writel(0x2, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
+
+		writel(0x1, dp_com + QPHY_V3_DP_COM_SW_RESET);
+
+		writel(0x02, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
+
+		writel(0x0, dp_com + QPHY_V3_DP_COM_SWI_CTRL);
+		writel(0x0, dp_com + QPHY_V3_DP_COM_SW_RESET);
+	} else if (cfg->has_phy_dp_com_ctrl) {
 		qphy_setbits(dp_com, QPHY_V3_DP_COM_POWER_DOWN_CTRL,
 			     SW_PWRDN);
 		/* override hardware control for reset of qmp phy */

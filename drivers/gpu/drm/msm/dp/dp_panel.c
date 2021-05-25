@@ -73,8 +73,10 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel)
 	link_info->rate = drm_dp_bw_code_to_link_rate(dpcd[DP_MAX_LINK_RATE]);
 	link_info->num_lanes = dpcd[DP_MAX_LANE_COUNT] & DP_MAX_LANE_COUNT_MASK;
 
-	if (link_info->num_lanes > dp_panel->max_dp_lanes)
+	if (link_info->num_lanes > dp_panel->max_dp_lanes) {
+		DRM_DEBUG_DP("limiting %d lanes to %d\n", link_info->num_lanes, dp_panel->max_dp_lanes);
 		link_info->num_lanes = dp_panel->max_dp_lanes;
+	}
 
 	/* Limit support upto HBR2 until HBR3 support is added */
 	if (link_info->rate >= (drm_dp_bw_code_to_link_rate(DP_LINK_BW_5_4)))
