@@ -197,6 +197,8 @@ struct qcom_pcie {
 	struct phy *phy;
 	struct gpio_desc *reset;
 	const struct qcom_pcie_ops *ops;
+
+	struct clk *ahb_clk;
 };
 
 #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
@@ -1520,10 +1522,15 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 
 	pp->ops = &qcom_pcie_dw_ops;
 
+	/* Enable AHB clock before dw_pcie_host_init() registers the msi handler */
+	ret = clk_prepare_enable(pcie->ahb_clk);
+	if (ret < 0)
+		goto err_pm_runtime_put;
+
 	ret = phy_init(pcie->phy);
 	if (ret) {
 		pm_runtime_disable(&pdev->dev);
-		goto err_pm_runtime_put;
+		goto err_unprepare_ahb_clk;
 	}
 
 	platform_set_drvdata(pdev, pcie);
@@ -1532,10 +1539,13 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(dev, "cannot initialize host\n");
 		pm_runtime_disable(&pdev->dev);
-		goto err_pm_runtime_put;
+		goto err_unprepare_ahb_clk;
 	}
 
 	return 0;
+
+err_unprepare_ahb_clk:
+	clk_disable_unprepare(pcie->ahb_clk);
 
 err_pm_runtime_put:
 	pm_runtime_put(dev);
