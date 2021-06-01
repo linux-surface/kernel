@@ -125,6 +125,9 @@ extern struct irq_domain *pch_lpc_domain;
 extern struct irq_domain *pch_msi_domain[MAX_IO_PICS];
 extern struct irq_domain *pch_pic_domain[MAX_IO_PICS];
 
+extern void fixup_irqs(void);
+extern irqreturn_t loongson3_ipi_interrupt(int irq, void *dev);
+
 #include <asm-generic/irq.h>
 
 #endif /* _ASM_IRQ_H */
