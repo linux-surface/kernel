@@ -6,6 +6,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/of.h>
 #include <linux/slab.h>
 
 #include <linux/surface_aggregator/controller.h>
@@ -13,6 +14,9 @@
 
 #include "bus.h"
 #include "controller.h"
+
+
+/* -- Basic bus functionality. ---------------------------------------------- */
 
 static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
@@ -369,8 +373,12 @@ static int ssam_remove_device(struct device *dev, void *_data)
 {
 	struct ssam_device *sdev = to_ssam_device(dev);
 
-	if (is_ssam_device(dev))
+	if (is_ssam_device(dev)) {
 		ssam_device_remove(sdev);
+
+		if (dev->of_node)
+			of_node_clear_flag(dev->of_node, OF_POPULATED);
+	}
 
 	return 0;
 }
@@ -389,6 +397,135 @@ void ssam_remove_clients(struct device *dev)
 	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
 }
 EXPORT_SYMBOL_GPL(ssam_remove_clients);
+
+
+/* -- DT/OF client instantiation. ------------------------------------------- */
+
+#ifdef CONFIG_OF
+
+static int ssam_of_uid_from_string(const char *str, struct ssam_device_uid *uid)
+{
+	u8 d, tc, tid, iid, fn;
+	int n;
+
+	n = sscanf(str, "%hhx:%hhx:%hhx:%hhx:%hhx", &d, &tc, &tid, &iid, &fn);
+	if (n != 5)
+		return -EINVAL;
+
+	uid->domain = d;
+	uid->category = tc;
+	uid->target = tid;
+	uid->instance = iid;
+	uid->function = fn;
+
+	return 0;
+}
+
+static int ssam_of_get_uid(struct device_node *node,
+			   struct ssam_device_uid *uid)
+{
+	const char *uid_string;
+	int status;
+
+	status = of_property_read_string(node, "ssam-uid", &uid_string);
+	if (status)
+		return -EINVAL;
+
+	status = ssam_of_uid_from_string(uid_string, uid);
+	if (status)
+		return status;
+
+	return 0;
+}
+
+static int ssam_of_add_client(struct ssam_controller *ctrl,
+			      struct device *parent, struct device_node *node)
+{
+	struct ssam_device_uid uid;
+	struct ssam_device *sdev;
+	int status;
+
+	status = ssam_of_get_uid(node, &uid);
+	if (status)
+		return -EINVAL;
+
+	sdev = ssam_device_alloc(ctrl, uid);
+	if (!sdev)
+		return -ENOMEM;
+
+	sdev->dev.parent = parent;
+	sdev->dev.of_node = node;
+	sdev->dev.fwnode = of_fwnode_handle(node);
+
+	status = ssam_device_add(sdev);
+	if (status)
+		ssam_device_put(sdev);
+
+	return status;
+}
+
+/**
+ * ssam_of_register_clients() - Register SSAM client devices defined under the
+ * OF node associated with the given device.
+ * @ctrl: The controller to which the clients belong.
+ * @dev: The parent device under which the clients will be looked up and added.
+ *
+ * Walks over all children of the OF node associated with the given parent
+ * device. For each node that represents a SSAM client device, identified via
+ * the ssam-uid property, a corresponding device will be instantiated and
+ * registered. The new device will be added under the specified parent-device
+ * and use the given controller. Nodes without a ssam-uid property will be
+ * ignored.
+ *
+ * Note that all client devices need to be unregistered before the controller
+ * is removed, i.e. care must be taken that no client device outlives the
+ * controller. Refer to ssam_device_add() for more details regarding lifetime
+ * management.
+ *
+ * Devices added with this function should be removed via ssam_remove_clients().
+ *
+ * Return: Returns zero on success or a negative error code on failure.
+ */
+int ssam_of_register_clients(struct ssam_controller *ctrl, struct device *dev)
+{
+	struct device_node *node, *child;
+	int status;
+
+	/* ACPI doesn't have clients defined under the controller node. */
+	if (!dev->of_node)
+		return 0;
+
+	node = of_node_get(dev->of_node);
+
+	for_each_available_child_of_node(node, child) {
+		if (of_node_test_and_set_flag(child, OF_POPULATED))
+			continue;
+
+		status = ssam_of_add_client(ctrl, dev, child);
+		if (status) {
+			of_node_clear_flag(child, OF_POPULATED);
+
+			if (status == -EINVAL)
+				ssam_dbg(ctrl, "ignoring invalid client device description\n");
+			else
+				goto err;
+		}
+	}
+
+	of_node_put(node);
+	return 0;
+
+err:
+	ssam_remove_clients(dev);
+	of_node_put(node);
+	return status;
+}
+EXPORT_SYMBOL_GPL(ssam_of_register_clients);
+
+#endif /* CONFIG_OF */
+
+
+/* -- Bus registration. ----------------------------------------------------- */
 
 /**
  * ssam_bus_register() - Register and set-up the SSAM client device bus.
