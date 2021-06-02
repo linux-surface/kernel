@@ -327,6 +327,15 @@ void ssam_remove_clients(struct device *dev);
 void ssam_remove_clients(struct device *dev) {}
 #endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
 
+#if defined(CONFIG_SURFACE_AGGREGATOR_BUS) && defined(CONFIG_OF)
+int ssam_of_register_clients(struct ssam_controller *ctrl, struct device *dev);
+#else /* defined(CONFIG_SURFACE_AGGREGATOR_BUS) && defined(CONFIG_OF) */
+int ssam_of_register_clients(struct ssam_controller *ctrl, struct device *dev)
+{
+	return 0;
+}
+#endif /* defined(CONFIG_SURFACE_AGGREGATOR_BUS) && defined(CONFIG_OF) */
+
 
 /* -- Helpers for client-device requests. ----------------------------------- */
 
