@@ -1357,6 +1357,8 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
 		line = of_alias_get_id(pdev->dev.of_node, "hsuart");
 	}
 
+	line = 0;
+
 	port = get_port_from_line(line, console);
 	if (IS_ERR(port)) {
 		dev_err(&pdev->dev, "Invalid line %d\n", line);
