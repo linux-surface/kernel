@@ -210,16 +210,16 @@
 	pinctrl-0 = <&edp_hpd_active>;
 };
 
-&pcie2 {
-//	status = "okay";
+&pcie1 {
+	status = "okay";
 	perst-gpio = <&tlmm 175 GPIO_ACTIVE_LOW>;
 	wake-gpio = <&tlmm 177 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie2_default_state>;
 };
 
-&pcie2_phy {
-//	status = "okay";
+&pcie1_phy {
+	status = "okay";
 	vdda-phy-supply = <&vreg_l5e_0p88>;
 	vdda-pll-supply = <&vreg_l3c_1p2>;
 };
