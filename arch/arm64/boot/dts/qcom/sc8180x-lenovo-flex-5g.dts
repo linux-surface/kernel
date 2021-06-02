@@ -272,6 +272,20 @@
 	pinctrl-0 = <&edp_hpd_active>;
 };
 
+&pcie3 {
+	status = "okay";
+	perst-gpio = <&tlmm 178 GPIO_ACTIVE_LOW>;
+	wake-gpio = <&tlmm 180 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie3_default_state>;
+};
+
+&pcie3_phy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l5e_0p88>;
+	vdda-pll-supply = <&vreg_l3c_1p2>;
+};
+
 &qupv3_id_0 {
 	status = "okay";
 };
@@ -376,6 +390,31 @@
 		input-enable;
 		bias-pull-up;
 		drive-strength = <2>;
+	};
+
+	pcie3_default_state: pcie3-default-state {
+		clkreq {
+			pins = "gpio179";
+			function = "pci_e3";
+			bias-pull-up;
+		};
+
+		reset-n {
+			pins = "gpio178";
+			function = "gpio";
+
+			drive-strength = <2>;
+			output-low;
+			bias-pull-down;
+		};
+
+		wake-n {
+			pins = "gpio180";
+			function = "gpio";
+
+			drive-strength = <2>;
+			bias-pull-up;
+		};
 	};
 };
 
