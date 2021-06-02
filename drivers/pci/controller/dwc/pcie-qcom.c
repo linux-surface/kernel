@@ -181,9 +181,10 @@ struct qcom_pcie;
 
 struct qcom_pcie_ops {
 	int (*get_resources)(struct qcom_pcie *pcie);
+	int (*enable_resources)(struct qcom_pcie *pcie);
 	int (*init)(struct qcom_pcie *pcie);
 	int (*post_init)(struct qcom_pcie *pcie);
-	void (*deinit)(struct qcom_pcie *pcie);
+	void (*disable_resources)(struct qcom_pcie *pcie);
 	void (*post_deinit)(struct qcom_pcie *pcie);
 	void (*ltssm_enable)(struct qcom_pcie *pcie);
 	int (*config_sid)(struct qcom_pcie *pcie);
@@ -197,8 +198,6 @@ struct qcom_pcie {
 	struct phy *phy;
 	struct gpio_desc *reset;
 	const struct qcom_pcie_ops *ops;
-
-	struct clk *ahb_clk;
 };
 
 #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
@@ -1173,7 +1172,7 @@ static int qcom_pcie_get_resources_2_7_0(struct qcom_pcie *pcie)
 	return PTR_ERR_OR_ZERO(res->pipe_clk);
 }
 
-static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
+static int qcom_pcie_enable_resources_2_7_0(struct qcom_pcie *pcie)
 {
 	struct qcom_pcie_resources_2_7_0 *res = &pcie->res.v2_7_0;
 	struct dw_pcie *pci = pcie->pci;
@@ -1211,6 +1210,20 @@ static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
 		goto err_disable_clocks;
 	}
 
+	return 0;
+
+err_disable_clocks:
+	clk_bulk_disable_unprepare(res->num_clks, res->clks);
+err_disable_regulators:
+	regulator_bulk_disable(ARRAY_SIZE(res->supplies), res->supplies);
+
+	return ret;
+}
+
+static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
+{
+	u32 val;
+
 	/* configure PCIe to RC mode */
 	writel(DEVICE_TYPE_RC, pcie->parf + PCIE20_PARF_DEVICE_TYPE);
 
@@ -1238,12 +1251,6 @@ static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
 	}
 
 	return 0;
-err_disable_clocks:
-	clk_bulk_disable_unprepare(res->num_clks, res->clks);
-err_disable_regulators:
-	regulator_bulk_disable(ARRAY_SIZE(res->supplies), res->supplies);
-
-	return ret;
 }
 
 static void qcom_pcie_deinit_2_7_0(struct qcom_pcie *pcie)
@@ -1347,13 +1354,18 @@ static int qcom_pcie_config_sid_sm8250(struct qcom_pcie *pcie)
 	return 0;
 }
 
+static int qcom_pcie_enable_resources(struct qcom_pcie *pcie)
+{
+	qcom_ep_reset_assert(pcie);
+
+	return pcie->ops->enable_resources(pcie);
+}
+
 static int qcom_pcie_host_init(struct pcie_port *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct qcom_pcie *pcie = to_qcom_pcie(pci);
 	int ret;
-
-	qcom_ep_reset_assert(pcie);
 
 	ret = pcie->ops->init(pcie);
 	if (ret)
@@ -1361,7 +1373,7 @@ static int qcom_pcie_host_init(struct pcie_port *pp)
 
 	ret = phy_power_on(pcie->phy);
 	if (ret)
-		goto err_deinit;
+		return ret;
 
 	if (pcie->ops->post_init) {
 		ret = pcie->ops->post_init(pcie);
@@ -1385,21 +1397,24 @@ err:
 		pcie->ops->post_deinit(pcie);
 err_disable_phy:
 	phy_power_off(pcie->phy);
-err_deinit:
-	pcie->ops->deinit(pcie);
 
 	return ret;
 }
 
+static void qcom_pcie_disable_resources(struct  qcom_pcie *pcie)
+{
+	pcie->ops->disable_resources(pcie);
+}
+
 static const struct dw_pcie_host_ops qcom_pcie_dw_ops = {
-	.msi_host_init = qcom_pcie_host_init,
+	.host_init = qcom_pcie_host_init,
 };
 
 /* Qcom IP rev.: 2.1.0	Synopsys IP rev.: 4.01a */
 static const struct qcom_pcie_ops ops_2_1_0 = {
 	.get_resources = qcom_pcie_get_resources_2_1_0,
 	.init = qcom_pcie_init_2_1_0,
-	.deinit = qcom_pcie_deinit_2_1_0,
+	.disable_resources = qcom_pcie_deinit_2_1_0,
 	.ltssm_enable = qcom_pcie_2_1_0_ltssm_enable,
 };
 
@@ -1407,7 +1422,7 @@ static const struct qcom_pcie_ops ops_2_1_0 = {
 static const struct qcom_pcie_ops ops_1_0_0 = {
 	.get_resources = qcom_pcie_get_resources_1_0_0,
 	.init = qcom_pcie_init_1_0_0,
-	.deinit = qcom_pcie_deinit_1_0_0,
+	.disable_resources = qcom_pcie_deinit_1_0_0,
 	.ltssm_enable = qcom_pcie_2_1_0_ltssm_enable,
 };
 
@@ -1416,7 +1431,7 @@ static const struct qcom_pcie_ops ops_2_3_2 = {
 	.get_resources = qcom_pcie_get_resources_2_3_2,
 	.init = qcom_pcie_init_2_3_2,
 	.post_init = qcom_pcie_post_init_2_3_2,
-	.deinit = qcom_pcie_deinit_2_3_2,
+	.disable_resources = qcom_pcie_deinit_2_3_2,
 	.post_deinit = qcom_pcie_post_deinit_2_3_2,
 	.ltssm_enable = qcom_pcie_2_3_2_ltssm_enable,
 };
@@ -1425,7 +1440,7 @@ static const struct qcom_pcie_ops ops_2_3_2 = {
 static const struct qcom_pcie_ops ops_2_4_0 = {
 	.get_resources = qcom_pcie_get_resources_2_4_0,
 	.init = qcom_pcie_init_2_4_0,
-	.deinit = qcom_pcie_deinit_2_4_0,
+	.disable_resources = qcom_pcie_deinit_2_4_0,
 	.ltssm_enable = qcom_pcie_2_3_2_ltssm_enable,
 };
 
@@ -1433,7 +1448,7 @@ static const struct qcom_pcie_ops ops_2_4_0 = {
 static const struct qcom_pcie_ops ops_2_3_3 = {
 	.get_resources = qcom_pcie_get_resources_2_3_3,
 	.init = qcom_pcie_init_2_3_3,
-	.deinit = qcom_pcie_deinit_2_3_3,
+	.disable_resources = qcom_pcie_deinit_2_3_3,
 	.ltssm_enable = qcom_pcie_2_3_2_ltssm_enable,
 };
 
@@ -1441,7 +1456,7 @@ static const struct qcom_pcie_ops ops_2_3_3 = {
 static const struct qcom_pcie_ops ops_2_7_0 = {
 	.get_resources = qcom_pcie_get_resources_2_7_0,
 	.init = qcom_pcie_init_2_7_0,
-	.deinit = qcom_pcie_deinit_2_7_0,
+	.disable_resources = qcom_pcie_deinit_2_7_0,
 	.ltssm_enable = qcom_pcie_2_3_2_ltssm_enable,
 	.post_init = qcom_pcie_post_init_2_7_0,
 	.post_deinit = qcom_pcie_post_deinit_2_7_0,
@@ -1450,8 +1465,9 @@ static const struct qcom_pcie_ops ops_2_7_0 = {
 /* Qcom IP rev.: 1.9.0 */
 static const struct qcom_pcie_ops ops_1_9_0 = {
 	.get_resources = qcom_pcie_get_resources_2_7_0,
+	.enable_resources = qcom_pcie_enable_resources_2_7_0,
 	.init = qcom_pcie_init_2_7_0,
-	.deinit = qcom_pcie_deinit_2_7_0,
+	.disable_resources = qcom_pcie_deinit_2_7_0,
 	.ltssm_enable = qcom_pcie_2_3_2_ltssm_enable,
 	.post_init = qcom_pcie_post_init_2_7_0,
 	.post_deinit = qcom_pcie_post_deinit_2_7_0,
@@ -1522,15 +1538,14 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 
 	pp->ops = &qcom_pcie_dw_ops;
 
-	/* Enable AHB clock before dw_pcie_host_init() registers the msi handler */
-	ret = clk_prepare_enable(pcie->ahb_clk);
-	if (ret < 0)
+	ret = qcom_pcie_enable_resources(pcie);
+	if (ret)
 		goto err_pm_runtime_put;
 
 	ret = phy_init(pcie->phy);
 	if (ret) {
 		pm_runtime_disable(&pdev->dev);
-		goto err_unprepare_ahb_clk;
+		goto err_deinit;
 	}
 
 	platform_set_drvdata(pdev, pcie);
@@ -1539,13 +1554,13 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(dev, "cannot initialize host\n");
 		pm_runtime_disable(&pdev->dev);
-		goto err_unprepare_ahb_clk;
+		goto err_deinit;
 	}
 
 	return 0;
 
-err_unprepare_ahb_clk:
-	clk_disable_unprepare(pcie->ahb_clk);
+err_deinit:
+	qcom_pcie_disable_resources(pcie);
 
 err_pm_runtime_put:
 	pm_runtime_put(dev);
