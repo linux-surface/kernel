@@ -186,9 +186,19 @@
 		bias-pull-up;
 		drive-strength = <2>;
 	};
+
+	uart15_active: uart15-active-state {
+		// TODO: do we really need all of those?
+		pins = "gpio27", "gpio28", "gpio29", "gpio30";
+		function = "qup15";
+	};
 };
 
 &qupv3_id_0 {
+	status = "okay";
+};
+
+&qupv3_id_2 {
 	status = "okay";
 };
 
@@ -204,6 +214,44 @@
 		reg = <0x39>;
 
 		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
+	};
+};
+
+&uart15 {
+	status = "okay";
+	clock-frequency = <4000000>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart15_active>;
+
+	surface_aggregator@0 {
+		compatible = "surface,aggregator";
+
+		// TODO
+		// - wakeup gpio pin/interrupt
+		// - typecover devices need to be hot-pluggable (via hub)
+		// - make sure we're using the correct registries
+		// - missing devices: performance profile, ..?
+
+		ac@0 {
+			compatible = "surface,ac";
+			ssam-uid = "01:02:01:01:01";
+		};
+
+		battery@0 {
+			compatible = "surface,battery";
+			ssam-uid = "01:02:01:01:00";
+		};
+
+		hid@1 {		// keyboard
+			compatible = "surface,hid";
+			ssam-uid = "01:15:02:01:00";
+		};
+
+		hid@3 {		// touchpad
+			compatible = "surface,hid";
+			ssam-uid = "01:15:02:03:00";
+		};
 	};
 };
 
@@ -265,11 +313,4 @@
 // 	clock-frequency = <115200>;
 //
 // 	// TODO: bluetooth
-// };
-//
-// &uart15 {
-// 	status = "okay";
-// 	clock-frequency = <4000000>;
-//
-// 	// TODO: SAM
 // };
