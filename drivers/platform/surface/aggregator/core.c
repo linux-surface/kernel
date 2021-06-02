@@ -626,12 +626,15 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	acpi_status astatus;
 	int status;
 
-	if (gpiod_count(&serdev->dev, NULL) < 0)
-		return -ENODEV;
+	// TODO: specify GPIO/IRQ in DT
+	if (ssh) {
+		if (gpiod_count(&serdev->dev, NULL) < 0)
+			return -ENODEV;
 
-	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
-	if (status)
-		return status;
+		status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
+		if (status)
+			return status;
+	}
 
 	/* Allocate controller. */
 	ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
@@ -652,10 +655,17 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		goto err_devopen;
 
-	astatus = ssam_serdev_setup_via_acpi(ssh, serdev);
-	if (ACPI_FAILURE(astatus)) {
-		status = -ENXIO;
-		goto err_devinit;
+	if (ssh) {
+		astatus = ssam_serdev_setup_via_acpi(ssh, serdev);
+		if (ACPI_FAILURE(astatus)) {
+			status = -ENXIO;
+			goto err_devinit;
+		}
+	} else {
+		// TODO: get properties from DT, add init function similar to ACPI one
+		serdev_device_set_baudrate(serdev, 4000000);
+		serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
+		serdev_device_set_flow_control(serdev, true);
 	}
 
 	/* Start controller. */
@@ -685,10 +695,13 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		goto err_initrq;
 
-	/* Set up IRQ. */
-	status = ssam_irq_setup(ctrl);
-	if (status)
-		goto err_irq;
+	// TODO: specify GPIO/IRQ in DT
+	if (ssh) {
+		/* Set up IRQ. */
+		status = ssam_irq_setup(ctrl);
+		if (status)
+			goto err_irq;
+	}
 
 	/* Finally, set main controller reference. */
 	status = ssam_try_set_controller(ctrl);
@@ -706,7 +719,9 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	 *       For now let's thus default power/wakeup to false.
 	 */
 	device_set_wakeup_capable(&serdev->dev, true);
-	acpi_walk_dep_device_list(ssh);
+
+	if (ssh)
+		acpi_walk_dep_device_list(ssh);
 
 	return 0;
 
@@ -777,12 +792,23 @@ static const struct acpi_device_id ssam_serial_hub_match[] = {
 };
 MODULE_DEVICE_TABLE(acpi, ssam_serial_hub_match);
 
+#ifdef CONFIG_OF
+static const struct of_device_id ssam_serial_hub_of_match[] = {
+	{ .compatible = "surface,aggregator", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, ssam_serial_hub_of_match);
+#else /* CONFIG_OF */
+#define ssam_serial_hub_of_match NULL
+#endif /* CONFIG_OF */
+
 static struct serdev_device_driver ssam_serial_hub = {
 	.probe = ssam_serial_hub_probe,
 	.remove = ssam_serial_hub_remove,
 	.driver = {
 		.name = "surface_serial_hub",
 		.acpi_match_table = ssam_serial_hub_match,
+		.of_match_table = ssam_serial_hub_of_match,
 		.pm = &ssam_serial_hub_pm_ops,
 		.shutdown = ssam_serial_hub_shutdown,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
