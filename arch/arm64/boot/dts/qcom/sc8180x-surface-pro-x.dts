@@ -248,6 +248,11 @@
 			ssam-uid = "01:15:02:01:00";
 		};
 
+		hid@2 {		// pen stash notifier
+			compatible = "surface,hid";
+			ssam-uid = "01:15:02:02:00";
+		};
+
 		hid@3 {		// touchpad
 			compatible = "surface,hid";
 			ssam-uid = "01:15:02:03:00";
