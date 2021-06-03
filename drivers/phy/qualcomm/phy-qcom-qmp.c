@@ -4947,6 +4947,7 @@ static int phy_dp_clks_register(struct qcom_qmp *qmp, struct qmp_phy *qphy,
 
 	init.ops = &qcom_qmp_dp_link_clk_ops;
 	init.name = "qmp_dp_phy_pll_link_clk";
+	of_property_read_string_index(np, "clock-output-names", 0, &init.name);
 	dp_clks->dp_link_hw.init = &init;
 	ret = devm_clk_hw_register(qmp->dev, &dp_clks->dp_link_hw);
 	if (ret)
@@ -4954,6 +4955,7 @@ static int phy_dp_clks_register(struct qcom_qmp *qmp, struct qmp_phy *qphy,
 
 	init.ops = &qcom_qmp_dp_pixel_clk_ops;
 	init.name = "qmp_dp_phy_pll_vco_div_clk";
+	of_property_read_string_index(np, "clock-output-names", 1, &init.name);
 	dp_clks->dp_pixel_hw.init = &init;
 	ret = devm_clk_hw_register(qmp->dev, &dp_clks->dp_pixel_hw);
 	if (ret)
