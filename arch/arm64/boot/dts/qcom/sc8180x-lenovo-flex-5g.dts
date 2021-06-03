@@ -244,7 +244,7 @@
 };
 
 &mdss_dp0 {
-	// status = "okay";
+	status = "okay";
 
 	data-lanes = <0 1 2 3>;
 

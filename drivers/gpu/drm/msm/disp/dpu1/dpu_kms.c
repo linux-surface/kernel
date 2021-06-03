@@ -187,6 +187,7 @@ static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 	struct dentry *entry;
 	struct drm_device *dev;
 	struct msm_drm_private *priv;
+	int i;
 
 	if (!p)
 		return -EINVAL;
@@ -202,8 +203,8 @@ static int dpu_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
 	dpu_debugfs_vbif_init(dpu_kms, entry);
 	dpu_debugfs_core_irq_init(dpu_kms, entry);
 
-	if (priv->dp)
-		msm_dp_debugfs_init(priv->dp, minor);
+	for (i = 0; i < ARRAY_SIZE(priv->dp); i++)
+		msm_dp_debugfs_init(priv->dp[i], minor);
 
 	return dpu_core_perf_debugfs_init(dpu_kms, entry);
 }
@@ -505,24 +506,28 @@ static int _dpu_kms_initialize_displayport(struct drm_device *dev,
 {
 	struct drm_encoder *encoder = NULL;
 	int rc = 0;
+	int i;
 
-	if (!priv->dp)
-		return rc;
+	for (i = 0; i < ARRAY_SIZE(priv->dp); i++) {
+		if (!priv->dp[i])
+			continue;
 
-	encoder = dpu_encoder_init(dev, DRM_MODE_ENCODER_TMDS);
-	if (IS_ERR(encoder)) {
-		DPU_ERROR("encoder init failed for dsi display\n");
-		return PTR_ERR(encoder);
+		encoder = dpu_encoder_init(dev, DRM_MODE_ENCODER_TMDS);
+		if (IS_ERR(encoder)) {
+			DPU_ERROR("encoder init failed for dsi display\n");
+			return PTR_ERR(encoder);
+		}
+
+		rc = msm_dp_modeset_init(priv->dp[i], dev, encoder);
+		if (rc) {
+			DPU_ERROR("modeset_init failed for DP, rc = %d\n", rc);
+			drm_encoder_cleanup(encoder);
+			return rc;
+		}
+
+		priv->encoders[priv->num_encoders++] = encoder;
 	}
 
-	rc = msm_dp_modeset_init(priv->dp, dev, encoder);
-	if (rc) {
-		DPU_ERROR("modeset_init failed for DP, rc = %d\n", rc);
-		drm_encoder_cleanup(encoder);
-		return rc;
-	}
-
-	priv->encoders[priv->num_encoders++] = encoder;
 	return rc;
 }
 
@@ -725,6 +730,8 @@ static void dpu_kms_destroy(struct msm_kms *kms)
 	msm_kms_destroy(&dpu_kms->base);
 }
 
+struct drm_encoder *msm_dp_get_encoder(struct msm_dp *dp);
+
 static void _dpu_kms_set_encoder_mode(struct msm_kms *kms,
 				 struct drm_encoder *encoder,
 				 bool cmd_mode)
@@ -750,7 +757,13 @@ static void _dpu_kms_set_encoder_mode(struct msm_kms *kms,
 		}
 		break;
 	case DRM_MODE_ENCODER_TMDS:
-		info.num_of_h_tiles = 1;
+		for (i = 0; i < ARRAY_SIZE(priv->dp); i++) {
+			if (msm_dp_get_encoder(priv->dp[i]) == encoder) {
+				printk(KERN_ERR "%s() found encoder at index %d\n", __func__, i);
+				info.h_tile_instance[0] = i;
+				info.num_of_h_tiles = 1;
+			}
+		}
 		break;
 	}
 
@@ -778,6 +791,7 @@ static int dpu_irq_postinstall(struct msm_kms *kms)
 {
 	struct msm_drm_private *priv;
 	struct dpu_kms *dpu_kms = to_dpu_kms(kms);
+	int i;
 
 	if (!dpu_kms || !dpu_kms->dev)
 		return -EINVAL;
@@ -786,7 +800,8 @@ static int dpu_irq_postinstall(struct msm_kms *kms)
 	if (!priv)
 		return -EINVAL;
 
-	msm_dp_irq_postinstall(priv->dp);
+	for (i = 0; i < ARRAY_SIZE(priv->dp); i++)
+		msm_dp_irq_postinstall(priv->dp[i]);
 
 	return 0;
 }

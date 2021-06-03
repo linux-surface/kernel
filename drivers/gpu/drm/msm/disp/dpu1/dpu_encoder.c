@@ -992,6 +992,26 @@ static int dpu_encoder_resource_control(struct drm_encoder *drm_enc,
 	return 0;
 }
 
+struct drm_encoder *msm_dp_get_encoder(struct msm_dp *dp);
+
+static struct msm_dp *dpu_find_msm_dp(struct msm_drm_private *priv,
+				      struct drm_encoder *drm_enc)
+{
+	int i;
+
+	if (drm_enc->encoder_type != DRM_MODE_ENCODER_TMDS)
+		return NULL;
+
+	for (i = 0; i < ARRAY_SIZE(priv->dp); i++) {
+		if (msm_dp_get_encoder(priv->dp[i]) == drm_enc) {
+			printk(KERN_ERR "%s() found dp at %d\n", __func__, i);
+			return priv->dp[i];
+		}
+	}
+
+	return NULL;
+}
+
 static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 				      struct drm_display_mode *mode,
 				      struct drm_display_mode *adj_mode)
@@ -1008,6 +1028,7 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 	struct dpu_hw_blk *hw_ctl[MAX_CHANNELS_PER_ENC];
 	struct dpu_hw_blk *hw_lm[MAX_CHANNELS_PER_ENC];
 	struct dpu_hw_blk *hw_dspp[MAX_CHANNELS_PER_ENC] = { NULL };
+	struct msm_dp *dp;
 	int num_lm, num_ctl, num_pp;
 	int i, j;
 
@@ -1031,8 +1052,9 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 
 	trace_dpu_enc_mode_set(DRMID(drm_enc));
 
-	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp)
-		msm_dp_display_mode_set(priv->dp, drm_enc, mode, adj_mode);
+	dp = dpu_find_msm_dp(priv, drm_enc);
+	if (dp)
+		msm_dp_display_mode_set(dp, drm_enc, mode, adj_mode);
 
 	list_for_each_entry(conn_iter, connector_list, head)
 		if (conn_iter->encoder == drm_enc)
@@ -1183,6 +1205,7 @@ static void dpu_encoder_virt_enable(struct drm_encoder *drm_enc)
 	int ret = 0;
 	struct msm_drm_private *priv;
 	struct drm_display_mode *cur_mode = NULL;
+	struct msm_dp *dp;
 
 	if (!drm_enc) {
 		DPU_ERROR("invalid encoder\n");
@@ -1213,9 +1236,9 @@ static void dpu_encoder_virt_enable(struct drm_encoder *drm_enc)
 
 	_dpu_encoder_virt_enable_helper(drm_enc);
 
-	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp) {
-		ret = msm_dp_display_enable(priv->dp,
-						drm_enc);
+	dp = dpu_find_msm_dp(priv, drm_enc);
+	if (dp) {
+		ret = msm_dp_display_enable(dp, drm_enc);
 		if (ret) {
 			DPU_ERROR_ENC(dpu_enc, "dp display enable failed: %d\n",
 				ret);
@@ -1232,6 +1255,7 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 {
 	struct dpu_encoder_virt *dpu_enc = NULL;
 	struct msm_drm_private *priv;
+	struct msm_dp *dp;
 	int i = 0;
 
 	if (!drm_enc) {
@@ -1255,10 +1279,9 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 	/* wait for idle */
 	dpu_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
 
-	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp) {
-		if (msm_dp_display_pre_disable(priv->dp, drm_enc))
+	dp = dpu_find_msm_dp(priv, drm_enc);
+	if (dp && msm_dp_display_pre_disable(dp, drm_enc))
 			DPU_ERROR_ENC(dpu_enc, "dp display push idle failed\n");
-	}
 
 	dpu_encoder_resource_control(drm_enc, DPU_ENC_RC_EVENT_PRE_STOP);
 
@@ -1284,10 +1307,8 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 
 	DPU_DEBUG_ENC(dpu_enc, "encoder disabled\n");
 
-	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp) {
-		if (msm_dp_display_disable(priv->dp, drm_enc))
-			DPU_ERROR_ENC(dpu_enc, "dp display disable failed\n");
-	}
+	if (dp && msm_dp_display_disable(dp, drm_enc))
+		DPU_ERROR_ENC(dpu_enc, "dp display disable failed\n");
 
 	mutex_unlock(&dpu_enc->enc_lock);
 }

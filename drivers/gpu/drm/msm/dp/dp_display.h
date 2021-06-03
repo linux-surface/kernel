@@ -26,6 +26,7 @@ struct msm_dp {
 	struct dp_audio *dp_audio;
 };
 
+struct drm_encoder *msm_dp_get_encoder(struct msm_dp *dp);
 int dp_display_set_plugged_cb(struct msm_dp *dp_display,
 		hdmi_codec_plugged_cb fn, struct device *codec_dev);
 int dp_display_validate_mode(struct msm_dp *dp_display, u32 mode_pclk_khz);
