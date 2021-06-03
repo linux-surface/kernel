@@ -278,7 +278,8 @@ static int ucsi_glink_async_write(struct ucsi *ucsi, unsigned int offset,
 
 	return ret;
 }
-	
+
+#if 0
 static int ucsi_glink_ack_command(struct ucsi_glink *ug)
 {
 	unsigned long left;
@@ -292,7 +293,7 @@ static int ucsi_glink_ack_command(struct ucsi_glink *ug)
 	reinit_completion(&ug->sync_ack);
 	ret = ucsi_glink_locked_write(ug, UCSI_CONTROL, &ctrl, sizeof(ctrl));
 	mutex_unlock(&ug->lock);
-	
+
 	left = wait_for_completion_timeout(&ug->sync_ack, 5 * HZ);
 	if (!left) {
 		dev_err(ug->dev, "timeout waiting for UCSI sync write response\n");
@@ -301,6 +302,7 @@ static int ucsi_glink_ack_command(struct ucsi_glink *ug)
 
 	return ret;
 }
+#endif
 
 static int ucsi_glink_sync_write(struct ucsi *ucsi, unsigned int offset,
 				 const void *val, size_t val_len)
@@ -388,7 +390,7 @@ static void ucsi_glink_notify(struct work_struct *work)
 	if (con_num) {
 		ucsi_connector_change(ug->ucsi, con_num);
 	}
-	
+
 	if (ug->sync_pending && cci & UCSI_CCI_BUSY) {
 		ug->sync_val = -EBUSY;
 		complete(&ug->sync_ack);
@@ -402,17 +404,15 @@ static int ucsi_altmode_enable_dp(struct ucsi_glink *ug, struct glink_altmode_po
 	struct typec_displayport_data dp_data = {};
 	int ret;
 
-	if (flags != 67)
-		return 0;
+//	if (flags != 67)
+//		return 0;
 
 	dp_data.status = DP_STATUS_ENABLED;
 	if (flags & 0x40)
-		dp_data.status |= DP_STATUS_IRQ_HPD;
-	if (flags & 0x80)
 		dp_data.status |= DP_STATUS_HPD_STATE;
-
-	if (flags & 0x3f)
-		dp_data.conf = (flags & 0x3f) + 6;
+	if (flags & 0x80)
+		dp_data.status |= DP_STATUS_IRQ_HPD;
+	dp_data.conf = DP_CONF_SET_PIN_ASSIGN(flags & 0x3f);
 
 	port->state.alt = &port->dp_alt;
 	port->state.data = &dp_data;
@@ -429,6 +429,7 @@ static int ucsi_altmode_enable_usb(struct ucsi_glink *ug, struct glink_altmode_p
 	int ret;
 
 	port->state.alt = NULL;
+	port->state.data = NULL;
 	port->state.mode = TYPEC_STATE_USB;
 
 	ret = typec_mux_set(port->mux, &port->state);
