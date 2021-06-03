@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/device.h>
 #include <linux/usb/typec_altmode.h>
+#include <linux/usb/typec_dp.h>
 #include <linux/usb/typec_mux.h>
 
 #include "dp_hpd.h"
@@ -25,7 +26,7 @@ struct dp_hpd_private {
 	struct dp_usbpd_cb *dp_cb;
 	struct dp_usbpd dp_usbpd;
 	struct typec_mux *mux;
-	bool active;
+	bool connected;
 };
 
 int dp_hpd_connect(struct dp_usbpd *dp_usbpd, bool hpd)
@@ -53,34 +54,29 @@ int dp_hpd_connect(struct dp_usbpd *dp_usbpd, bool hpd)
 
 static int dp_hpd_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 {
-	struct dp_hpd_private *dp_hpd = typec_mux_get_drvdata(mux);	
-	struct typec_altmode *alt = state->alt;
-	bool active = false;
+	struct dp_hpd_private *dp_hpd = typec_mux_get_drvdata(mux);
+	struct dp_usbpd *usbpd = &dp_hpd->dp_usbpd;
+	struct typec_displayport_data *dp_data = state->data;
+	int pin_assign = 0;
 
-	dev_err(dp_hpd->dev, "%s() mode: %ld\n", __func__, state->mode);
-
-	if (alt) {
-		dev_err(dp_hpd->dev, "%s() alt:svid: %#x\n", __func__, alt->svid);
-		dev_err(dp_hpd->dev, "%s() alt:mode: %d\n", __func__, alt->mode);
-		dev_err(dp_hpd->dev, "%s() alt:vdo: %#x\n", __func__, alt->vdo);
-		dev_err(dp_hpd->dev, "%s() alt:active: %d\n", __func__, alt->active);
-
-		active = alt->active;
-	} else {
-		dev_err(dp_hpd->dev, "%s() state->alt is NULL\n", __func__);
-
-		active = false;
+	if (dp_data) {
+		pin_assign = DP_CONF_GET_PIN_ASSIGN(dp_data->conf);
+		usbpd->hpd_high = !!(dp_data->status & DP_STATUS_HPD_STATE);
+		usbpd->hpd_irq = !!(dp_data->status & DP_STATUS_IRQ_HPD);
+		usbpd->multi_func = pin_assign == DP_PIN_ASSIGN_C || DP_PIN_ASSIGN_E;
 	}
 
-	if (dp_hpd->active == active)
-		return 0;
-
-	if (active)
+	if (!pin_assign) {
+		if (dp_hpd->connected) {
+			dp_hpd->connected = false;
+			dp_hpd->dp_cb->disconnect(dp_hpd->dev);
+		}
+	} else if (!dp_hpd->connected) {
+		dp_hpd->connected = true;
 		dp_hpd->dp_cb->configure(dp_hpd->dev);
-	else
-		dp_hpd->dp_cb->disconnect(dp_hpd->dev);
-
-	dp_hpd->active = active;
+	} else {
+		dp_hpd->dp_cb->attention(dp_hpd->dev);
+	}
 
 	return 0;
 }
