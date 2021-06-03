@@ -1174,10 +1174,17 @@ static void __init mp_config_acpi_legacy_irqs(void)
 
 static const struct dmi_system_id surface_quirk[] __initconst = {
 	{
-		.ident = "Microsoft Surface Laptop 4 (AMD)",
+		.ident = "Microsoft Surface Laptop 4 (AMD 15\")",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
+		},
+	},
+	{
+		.ident = "Microsoft Surface Laptop 4 (AMD 13\")",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1958:1959")
 		},
 	},
 	{}
