@@ -289,10 +289,10 @@ int driver_deferred_probe_check_state(struct device *dev)
 		return -ENODEV;
 	}
 
-	if (!driver_deferred_probe_timeout && initcalls_done) {
-		dev_warn(dev, "deferred probe timeout, ignoring dependency\n");
-		return -ETIMEDOUT;
-	}
+//	if (!driver_deferred_probe_timeout && initcalls_done) {
+//		dev_warn(dev, "deferred probe timeout, ignoring dependency\n");
+//		return -ETIMEDOUT;
+//	}
 
 	return -EPROBE_DEFER;
 }
