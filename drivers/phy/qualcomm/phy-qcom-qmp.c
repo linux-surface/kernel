@@ -3799,8 +3799,24 @@ static void qcom_qmp_v3_phy_configure_dp_tx(struct qmp_phy *qphy)
 static bool qcom_qmp_phy_configure_dp_mode(struct qmp_phy *qphy)
 {
 	const struct phy_configure_opts_dp *dp_opts = &qphy->dp_opts;
-	bool reverse = false;
+	void __iomem *dp_com = qphy->qmp->dp_com;
+	bool reverse = qphy->qmp->orientation == TYPEC_ORIENTATION_REVERSE;
 	u32 val;
+
+	if (dp_opts->lanes == 4) {
+		writel(0xa, dp_com + QPHY_V3_DP_COM_RESET_OVRD_CTRL);
+		writel(DP_MODE, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
+
+		writel(0x1, dp_com + QPHY_V3_DP_COM_SW_RESET);
+
+		if (reverse)
+			writel(0x03, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
+		else
+			writel(0x02, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
+
+		writel(0x0, dp_com + QPHY_V3_DP_COM_SWI_CTRL);
+		writel(0x0, dp_com + QPHY_V3_DP_COM_SW_RESET);
+	}
 
 	val = DP_PHY_PD_CTL_PWRDN | DP_PHY_PD_CTL_AUX_PWRDN |
 	      DP_PHY_PD_CTL_PLL_PWRDN | DP_PHY_PD_CTL_DP_CLAMP_EN;
@@ -4195,19 +4211,7 @@ static int qcom_qmp_phy_com_init(struct qmp_phy *qphy)
 		goto err_rst;
 	}
 
-	if (of_property_read_bool(qmp->dev->of_node, "dp-only-mode")) {
-		qphy_setbits(dp_com, QPHY_V3_DP_COM_POWER_DOWN_CTRL, SW_PWRDN);
-
-		writel(0xa, dp_com + QPHY_V3_DP_COM_RESET_OVRD_CTRL);
-		writel(0x2, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
-
-		writel(0x1, dp_com + QPHY_V3_DP_COM_SW_RESET);
-
-		writel(0x02, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
-
-		writel(0x0, dp_com + QPHY_V3_DP_COM_SWI_CTRL);
-		writel(0x0, dp_com + QPHY_V3_DP_COM_SW_RESET);
-	} else if (cfg->has_phy_dp_com_ctrl) {
+	if (cfg->has_phy_dp_com_ctrl) {
 		qphy_setbits(dp_com, QPHY_V3_DP_COM_POWER_DOWN_CTRL,
 			     SW_PWRDN);
 		/* override hardware control for reset of qmp phy */
