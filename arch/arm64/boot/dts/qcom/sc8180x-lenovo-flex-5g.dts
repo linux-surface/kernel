@@ -263,6 +263,26 @@
 	};
 };
 
+&mdss_dp1 {
+	status = "okay";
+
+	data-lanes = <0 1 2 3>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&dp1_sbu_sw_en>;
+
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	ports {
+		port@1 {
+			reg = <1>;
+			dp1_mode: endpoint {
+				remote-endpoint = <&ucsi_port_1_dp>;
+			};
+		};
+	};
+};
+
 &mdss_edp {
 	status = "okay";
 
@@ -305,8 +325,12 @@
 		compatible = "qcom,glink-ucsi";
 		qcom,glink-channels = "PMIC_RTR_ADSP_APPS";
 
-		connector {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		connector@0 {
 			compatible = "usb-c-connector";
+			reg = <0>;
 			power-role = "dual";
 			data-role = "dual";
 
@@ -324,6 +348,31 @@
 					reg = <1>;
 					ucsi_port_0_switch: endpoint {
 						remote-endpoint = <&usb_prim_qmp_switch>;
+					};
+				};
+			};
+		};
+
+		connector@1 {
+			compatible = "usb-c-connector";
+			reg = <1>;
+			power-role = "dual";
+			data-role = "dual";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					ucsi_port_1_dp: endpoint {
+						remote-endpoint = <&dp1_mode>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+					ucsi_port_1_switch: endpoint {
+						remote-endpoint = <&usb_sec_qmp_switch>;
 					};
 				};
 			};
@@ -355,6 +404,20 @@
 
 		oe-n {
 			pins = "gpio152";
+			function = "gpio";
+			output-low;
+		};
+	};
+
+	dp1_sbu_sw_en: dp1-sbu-sw-en {
+		sel {
+			pins = "gpio187";
+			function = "gpio";
+			output-low;
+		};
+
+		oe-n {
+			pins = "gpio188";
 			function = "gpio";
 			output-low;
 		};
@@ -480,6 +543,10 @@
 	status = "okay";
 	vdda-phy-supply = <&vreg_l3c_1p2>;
 	vdda-pll-supply = <&vreg_l5e_0p88>;
+};
+
+&usb_sec_qmp_switch {
+	remote-endpoint = <&ucsi_port_1_switch>;
 };
 
 &usb_sec {

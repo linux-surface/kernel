@@ -1980,9 +1980,10 @@
 		};
 
 		usb_sec_qmpphy: phy@88ee000 {
-			compatible = "qcom,sc8180x-qmp-usb3-phy";
+			compatible = "qcom,sc8180x-qmp-usb3-dp-phy";
 			reg = <0 0x088ee000 0 0x18c>,
-			      <0 0x088ed000 0 0x10>;
+			      <0 0x088ed000 0 0x10>,
+			      <0 0x088ef000 0 0x40>;
 			reg-names = "reg-base", "dp_com";
 			status = "disabled";
 			#clock-cells = <1>;
@@ -2000,7 +2001,13 @@
 				 <&gcc GCC_USB3_PHY_SEC_BCR>;
 			reset-names = "phy", "common";
 
-			usb_sec_ssphy: lanes@88e9200 {
+			orientation-switch;
+			port {
+				usb_sec_qmp_switch: endpoint {
+				};
+			};
+
+			usb_sec_ssphy: usb3-phy@88e9200 {
 				reg = <0 0x088ee200 0 0x200>,
 				      <0 0x088ee400 0 0x200>,
 				      <0 0x088eec00 0 0x218>,
@@ -2011,6 +2018,17 @@
 				clocks = <&gcc GCC_USB3_SEC_PHY_PIPE_CLK>;
 				clock-names = "pipe0";
 				clock-output-names = "usb3_sec_phy_pipe_clk_src";
+			};
+
+			usb_sec_dpphy: dp-phy@88ef200 {
+				reg = <0 0x088ef200 0 0x200>,
+				      <0 0x088ef400 0 0x200>,
+				      <0 0x088efa00 0 0x200>,
+				      <0 0x088ef600 0 0x200>,
+				      <0 0x088ef800 0 0x200>;
+				#clock-cells = <1>;
+				#phy-cells = <0>;
+				clock-output-names = "qmp_dptx1_phy_pll_link_clk", "qmp_dptx1_phy_pll_vco_div_clk";
 			};
 		};
 
@@ -2471,11 +2489,16 @@
 					      "ctrl_link",
 			                      "ctrl_link_iface", "stream_pixel";
 
-				// phys = <&dp_phy>;
+				assigned-clocks = <&dispcc DISP_CC_MDSS_DP_LINK1_CLK_SRC>,
+						  <&dispcc DISP_CC_MDSS_DP_PIXEL2_CLK_SRC>;
+				assigned-clock-parents = <&usb_sec_dpphy 0>, <&usb_sec_dpphy 1>;
+
+				phys = <&usb_sec_dpphy>;
 			        phy-names = "dp";
 
 			        #sound-dai-cells = <0>;
 
+				operating-points-v2 = <&dp0_opp_table>;
 			        power-domains = <&rpmhpd SC8180X_CX>;
 
 				status = "disabled";
@@ -2498,6 +2521,30 @@
 						};
 					};
 #endif
+				};
+
+				dp1_opp_table: dp-opp-table {
+					compatible = "operating-points-v2";
+
+					opp-160000000 {
+						opp-hz = /bits/ 64 <160000000>;
+						required-opps = <&rpmhpd_opp_low_svs>;
+					};
+
+					opp-270000000 {
+						opp-hz = /bits/ 64 <270000000>;
+						required-opps = <&rpmhpd_opp_svs>;
+					};
+
+					opp-540000000 {
+						opp-hz = /bits/ 64 <540000000>;
+						required-opps = <&rpmhpd_opp_svs_l1>;
+					};
+
+					opp-810000000 {
+						opp-hz = /bits/ 64 <810000000>;
+						required-opps = <&rpmhpd_opp_nom>;
+					};
 				};
 			};
 
@@ -2592,12 +2639,16 @@
 				 <&sleep_clk>,
 				 <&usb_prim_dpphy 0>,
 				 <&usb_prim_dpphy 1>,
+				 <&usb_sec_dpphy 0>,
+				 <&usb_sec_dpphy 1>,
 				 <&edp_phy 0>,
 				 <&edp_phy 1>;
 			clock-names = "bi_tcxo",
 				      "sleep_clk",
 				      "dp_phy_pll_link_clk",
 				      "dp_phy_pll_vco_div_clk",
+				      "dptx1_phy_pll_link_clk",
+				      "dptx1_phy_pll_vco_div_clk",
 				      "edp_phy_pll_link_clk",
 				      "edp_phy_pll_vco_div_clk";
 			#clock-cells = <1>;
