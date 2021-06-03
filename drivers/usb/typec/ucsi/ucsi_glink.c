@@ -108,6 +108,7 @@ struct usbc_write_req {
 };
 
 struct glink_altmode_port {
+	struct typec_switch *typec_switch;
 	struct typec_mux *mux;
 	struct typec_mux_state state;
 	struct typec_altmode dp_alt;
@@ -462,6 +463,8 @@ static void ucsi_altmode_notify(struct work_struct *work)
 
 	alt_port = &ug->ports[port];
 
+	typec_switch_set(alt_port->typec_switch, orientation ? TYPEC_ORIENTATION_REVERSE : TYPEC_ORIENTATION_NORMAL);
+
 	switch (mux) {
 	case 2:
 		ucsi_altmode_enable_dp(ug, alt_port, flags);
@@ -592,6 +595,15 @@ static int ucsi_glink_probe(struct rpmsg_device *rpdev)
 			dev_err(dev, "%d: mux is NULL\n", port);
 		} else {
 			dev_err(dev, "%d: mux found\n", port);
+		}
+
+		alt_port->typec_switch = fwnode_typec_switch_get(fwnode);
+		if (IS_ERR(alt_port->typec_switch)) {
+			dev_err(dev, "%d: failed to find orientation-switch\n", port);
+		} else if (!alt_port->typec_switch) {
+			dev_err(dev, "%d: typec_switch is NULL\n", port);
+		} else {
+			dev_err(dev, "%d: typec_switch found\n", port);
 		}
 		port++;
 	}
