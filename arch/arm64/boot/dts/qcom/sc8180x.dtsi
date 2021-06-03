@@ -1939,8 +1939,6 @@
 			#size-cells = <2>;
 			ranges;
 
-			dp-only-mode;
-
 			clocks = <&gcc GCC_USB3_PRIM_PHY_AUX_CLK>,
 				 <&rpmhcc RPMH_CXO_CLK>,
 				 <&gcc GCC_USB3_PRIM_CLKREF_CLK>,
@@ -1950,6 +1948,12 @@
 			resets = <&gcc GCC_USB3_DP_PHY_PRIM_SP0_BCR>,
 				 <&gcc GCC_USB3_PHY_PRIM_SP0_BCR>;
 			reset-names = "phy", "common";
+
+			orientation-switch;
+			port {
+				usb_prim_qmp_switch: endpoint {
+				};
+			};
 
 			usb_prim_ssphy: usb3-phy@88e9200 {
 				reg = <0 0x088e9200 0 0x200>,

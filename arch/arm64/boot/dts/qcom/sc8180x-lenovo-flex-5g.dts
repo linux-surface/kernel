@@ -319,6 +319,13 @@
 						remote-endpoint = <&dp0_mode>;
 					};
 				};
+
+				port@1 {
+					reg = <1>;
+					ucsi_port_0_switch: endpoint {
+						remote-endpoint = <&usb_prim_qmp_switch>;
+					};
+				};
 			};
 		};
 	};
@@ -448,6 +455,10 @@
 	status = "okay";
 	vdda-phy-supply = <&vreg_l3c_1p2>;
 	vdda-pll-supply = <&vreg_l5e_0p88>;
+};
+
+&usb_prim_qmp_switch {
+	remote-endpoint = <&ucsi_port_0_switch>;
 };
 
 &usb_prim {
