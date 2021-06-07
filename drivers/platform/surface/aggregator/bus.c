@@ -388,6 +388,9 @@ void ssam_remove_clients(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(ssam_remove_clients);
 
+
+/* -- Bus registration. ----------------------------------------------------- */
+
 /**
  * ssam_bus_register() - Register and set-up the SSAM client device bus.
  */
