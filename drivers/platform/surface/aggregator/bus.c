@@ -398,6 +398,36 @@ void ssam_remove_clients(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(ssam_remove_clients);
 
+static int ssam_mark_device_hot_removed(struct device *dev, void *_data)
+{
+	struct ssam_device *sdev = to_ssam_device(dev);
+
+	if (is_ssam_device(dev))
+		ssam_device_mark_hot_removed(sdev);
+
+	return 0;
+}
+
+/**
+ * ssam_hot_remove_clients() - Remove SSAM client devices registered as direct
+ * children under the given parent device and mark them as hot-removed.
+ * @dev: The (parent) device to remove all direct clients for.
+ *
+ * Remove all SSAM client devices registered as direct children under the given
+ * device.
+ *
+ * Note that this only accounts for direct children of the device. Refer to
+ * ssam_device_add()/ssam_device_remove() for more details.
+ */
+void ssam_hot_remove_clients(struct device *dev)
+{
+	/* Mark devices as hot-removed before we remove any */
+	device_for_each_child_reverse(dev, NULL, ssam_mark_device_hot_removed);
+
+	ssam_remove_clients(dev);
+}
+EXPORT_SYMBOL_GPL(ssam_hot_remove_clients);
+
 
 /* -- DT/OF client instantiation. ------------------------------------------- */
 
