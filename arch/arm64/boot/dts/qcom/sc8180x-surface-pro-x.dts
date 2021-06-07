@@ -229,7 +229,6 @@
 
 		// TODO
 		// - wakeup gpio pin/interrupt
-		// - typecover devices need to be hot-pluggable (via hub)
 		// - make sure we're using the correct registries
 		// - missing devices: performance profile, ..?
 
@@ -243,19 +242,24 @@
 			ssam-uid = "01:02:01:01:00";
 		};
 
-		hid@1 {		// keyboard
-			compatible = "surface,hid";
-			ssam-uid = "01:15:02:01:00";
-		};
+		kip_hub@0 {
+			compatible = "surface,kip-hub";
+			ssam-uid = "01:0e:01:00:00";
 
-		hid@2 {		// pen stash notifier
-			compatible = "surface,hid";
-			ssam-uid = "01:15:02:02:00";
-		};
+			hid@1 {		// keyboard
+				compatible = "surface,hid";
+				ssam-uid = "01:15:02:01:00";
+			};
 
-		hid@3 {		// touchpad
-			compatible = "surface,hid";
-			ssam-uid = "01:15:02:03:00";
+			hid@2 {		// pen stash notifier
+				compatible = "surface,hid";
+				ssam-uid = "01:15:02:02:00";
+			};
+
+			hid@3 {		// touchpad
+				compatible = "surface,hid";
+				ssam-uid = "01:15:02:03:00";
+			};
 		};
 	};
 };
