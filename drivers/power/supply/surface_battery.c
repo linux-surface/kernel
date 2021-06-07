@@ -156,6 +156,9 @@ static bool spwr_battery_present(struct spwr_battery_device *bat)
 {
 	lockdep_assert_held(&bat->lock);
 
+	if (ssam_device_is_hot_removed(bat->sdev))
+		return false;
+
 	return le32_to_cpu(bat->sta) & SAM_BATTERY_STA_PRESENT;
 }
 
@@ -244,6 +247,9 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
 	int status;
 
 	lockdep_assert_held(&bat->lock);
+
+	if (ssam_device_is_hot_removed(bat->sdev))
+		return 0;
 
 	status = spwr_battery_load_sta(bat);
 	if (status)
@@ -802,7 +808,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	if (IS_ERR(bat->psy))
 		return PTR_ERR(bat->psy);
 
-	return ssam_notifier_register(bat->sdev->ctrl, &bat->notif);
+	return ssam_device_notifier_register(bat->sdev, &bat->notif);
 }
 
 
@@ -837,7 +843,7 @@ static void surface_battery_remove(struct ssam_device *sdev)
 {
 	struct spwr_battery_device *bat = ssam_device_get_drvdata(sdev);
 
-	ssam_notifier_unregister(sdev->ctrl, &bat->notif);
+	ssam_device_notifier_unregister(sdev, &bat->notif);
 	cancel_delayed_work_sync(&bat->update_work);
 }
 
