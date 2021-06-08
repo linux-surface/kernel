@@ -160,6 +160,13 @@ config SURFACE_KIP_HUB
 	help
 	  TODO
 
+config SURFACE_KIP_TABLET_SWITCH
+	tristate "Surface KIP Tablet-Mode Switch Driver"
+	depends on SURFACE_AGGREGATOR
+	depends on SURFACE_AGGREGATOR_BUS
+	help
+	  TODO
+
 config SURFACE_PLATFORM_PROFILE
 	tristate "Surface Platform Profile Driver"
 	depends on SURFACE_AGGREGATOR_REGISTRY
