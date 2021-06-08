@@ -261,6 +261,11 @@
 				ssam-uid = "01:15:02:03:00";
 			};
 		};
+
+		kip_tabletsw@0 {
+			compatible = "surface,kip-tabletsw";
+			ssam-uid = "01:0e:01:00:01";
+		};
 	};
 };
 
