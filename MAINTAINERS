@@ -12823,6 +12823,12 @@ L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 F:	drivers/platform/surface/surface_hotplug.c
 
+MICROSOFT SURFACE KIP TABLET-MODE SWITCH
+M:	Maximilian Luz <luzmaximilian@gmail.com>
+L:	platform-driver-x86@vger.kernel.org
+S:	Maintained
+F:	drivers/platform/surface/surface_kip_tablet_switch.c
+
 MICROSOFT SURFACE PLATFORM PROFILE DRIVER
 M:	Maximilian Luz <luzmaximilian@gmail.com>
 L:	platform-driver-x86@vger.kernel.org
