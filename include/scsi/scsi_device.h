@@ -606,6 +606,20 @@ static inline int scsi_device_supports_vpd(struct scsi_device *sdev)
 	return 0;
 }
 
+static inline bool scsi_device_has_vpd(struct scsi_device *sdev)
+{
+	struct scsi_vpd *vpd;
+	bool found = false;
+
+	rcu_read_lock();
+	vpd = rcu_dereference(sdev->vpd_pg0);
+	if (vpd)
+		found = true;
+	rcu_read_unlock();
+
+	return found;
+}
+
 static inline int scsi_device_busy(struct scsi_device *sdev)
 {
 	return sbitmap_weight(&sdev->budget_map);
