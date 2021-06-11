@@ -149,9 +149,13 @@ static void spi_hid_dev_input_callback(void *context,
         } else {
                 switch (header.report_type) {
                 case SPI_HID_REPORT_TYPE_DATA:
-                        spi_hid_pool_push_report(&dev->input.buf, buf);
-                        //trace_spi_hid_bus_pending(&dev->spi->dev, pending);
-                        spi_hid_dev_event(dev, SPI_HID_DEV_EVENT_INPUT_REPORT);
+			if (test_bit(SPI_HID_DEV_READY, &dev->flags)) {
+				spi_hid_pool_push_report(&dev->input.buf, buf);
+				//trace_spi_hid_bus_pending(&dev->spi->dev, pending);
+				spi_hid_dev_event(dev, SPI_HID_DEV_EVENT_INPUT_REPORT);
+			} else {
+				dev_warn(&dev->spi->dev, "buffers not yet allocated, ignoring data\n");
+			}
                         reenable_irq = 1;
                         break;
                 case SPI_HID_REPORT_TYPE_RESET_RESP:
