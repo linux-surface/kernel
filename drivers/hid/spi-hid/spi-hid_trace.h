@@ -144,7 +144,7 @@ TRACE_EVENT(spi_hid_bus_output_begin,
 		__assign_str(dev, dev_name(dev));
 		__entry->len = len;
 	),
-	TP_printk("dev %s len",
+	TP_printk("dev %s len %u",
 		__get_str(dev),
 		__entry->len
 	)

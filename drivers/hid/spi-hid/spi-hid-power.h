@@ -27,32 +27,32 @@ static inline int spi_hid_power_init(struct spi_hid_power *pwr,
 	pwr->supply = devm_regulator_get(dev, "vdd");
 	if (IS_ERR(pwr->supply)) {
 		if (PTR_ERR(pwr->supply) != -EPROBE_DEFER)
-			dev_err(dev, "Failed to get regulator: %d\n", PTR_ERR(pwr->supply));
+			dev_err(dev, "Failed to get regulator: %ld\n", PTR_ERR(pwr->supply));
 		return PTR_ERR(pwr->supply);
 	}
 
 	pwr->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR_OR_NULL(pwr->pinctrl)) {
-		dev_err(dev, "Could not get pinctrl handle: %d\n",
-				pwr->pinctrl);
+		dev_err(dev, "Could not get pinctrl handle: %ld\n",
+				PTR_ERR(pwr->pinctrl));
 		return PTR_ERR(pwr->pinctrl);
 	}
 	pwr->pinctrl_reset = pinctrl_lookup_state(pwr->pinctrl, "reset");
 	if (IS_ERR_OR_NULL(pwr->pinctrl)) {
-		dev_err(dev, "Could not get pinctrl reset: %d\n",
-				pwr->pinctrl);
+		dev_err(dev, "Could not get pinctrl reset: %ld\n",
+				PTR_ERR(pwr->pinctrl));
 		return PTR_ERR(pwr->pinctrl);
 	}
 	pwr->pinctrl_active = pinctrl_lookup_state(pwr->pinctrl, "active");
 	if (IS_ERR_OR_NULL(pwr->pinctrl)) {
-		dev_err(dev, "Could not get pinctrl active: %d\n",
-				pwr->pinctrl);
+		dev_err(dev, "Could not get pinctrl active: %ld\n",
+				PTR_ERR(pwr->pinctrl));
 		return PTR_ERR(pwr->pinctrl);
 	}
 	pwr->pinctrl_sleep = pinctrl_lookup_state(pwr->pinctrl, "sleep");
 	if (IS_ERR_OR_NULL(pwr->pinctrl)) {
-		dev_err(dev, "Could not get pinctrl sleep: %d\n",
-				pwr->pinctrl);
+		dev_err(dev, "Could not get pinctrl sleep: %ld\n",
+				PTR_ERR(pwr->pinctrl));
 		return PTR_ERR(pwr->pinctrl);
 	}
 

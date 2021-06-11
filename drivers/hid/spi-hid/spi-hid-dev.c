@@ -129,7 +129,7 @@ static void spi_hid_dev_input_callback(void *context,
 	spi_hid_input_body(buf->body.body, &body);
 
         if (body.content_id == 0 || body.content_id == 0xFF) {
-                dev_warn(&dev->spi->dev, "Received bad ID: %u, header.report_length: %u, content_length: %u, buf_len: %u\n",
+                dev_warn(&dev->spi->dev, "Received bad ID: %u, header.report_length: %u, content_length: %u, buf_len: %lu\n",
                         body.content_id, header.report_length, body.content_length, test_bit(SPI_HID_DEV_READY, &dev->flags) ?
                         (dev->desc.max_input_length - sizeof(struct spi_hid_input_buf) - SPI_HID_INPUT_BODY_LEN) :
                         sizeof(struct spi_hid_device_desc_raw));
@@ -142,7 +142,7 @@ static void spi_hid_dev_input_callback(void *context,
                         spi_hid_pool_drop_input(&dev->input.buf, buf);
                         reenable_irq = 1;
                 }
-                dev_err(&dev->spi->dev, "Received bad content_length: %u, header.report_length: %u, ID: %u, buf_len: %u\n",
+                dev_err(&dev->spi->dev, "Received bad content_length: %u, header.report_length: %u, ID: %u, buf_len: %lu\n",
                         body.content_length, header.report_length, body.content_id, test_bit(SPI_HID_DEV_READY, &dev->flags) ?
                         (dev->desc.max_input_length - sizeof(struct spi_hid_input_buf) - SPI_HID_INPUT_BODY_LEN) :
                         sizeof(struct spi_hid_device_desc_raw));
@@ -341,7 +341,7 @@ int spi_hid_dev_output_report(struct spi_hid_dev *dev, u32 output_register,
 		// We'll assume it is. buf->size is the size of the content buffer (no body)
 		if (padded_length > dev->desc.max_output_length + sizeof(buf->body)) {
 			dev_err(&dev->bus.spi->dev,
-					"Output report bigger than max size ((%d +) %d (+ %d) > %d)\n",
+					"Output report bigger than max size ((%ld +) %d (+ %d) > %ld)\n",
 					sizeof(buf->body), padded_length, padding,
 					dev->desc.max_output_length + sizeof(buf->body));
 			err = -E2BIG;
@@ -490,7 +490,7 @@ int spi_hid_dev_init(struct spi_hid_dev *dev, struct spi_device *spi,
         memset(&dev->input.buf, 0, sizeof(struct spi_hid_pool));
 	dev->input.init_buf = kzalloc(sizeof(spi_hid_input_init_buf), GFP_KERNEL);
 	if (!dev->input.init_buf) {
-		dev_err(&dev->spi->dev, "Failed to alloc init_buf, no memory\n", __func__);
+		dev_err(&dev->spi->dev, "Failed to alloc init_buf, no memory\n");
 		return -ENOMEM;
 	}
 	INIT_WORK(&dev->buffer_alloc_work, spi_hid_dev_buffer_alloc_work);

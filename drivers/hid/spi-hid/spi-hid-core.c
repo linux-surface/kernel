@@ -240,8 +240,8 @@ static int spi_hid_command_acked(struct spi_hid *shid, u8 opcode,
 	if (ret || shid->response.len < 1 || shid->response.data[0] != arg_buf[0]) {
 		dev_err(&shid->spi->dev,
 				"%s power command not acked by device, \
-				ret: %d, len: %d, arg: 0x%x ack: 0x%x\n",
-				ret, shid->response.len, shid->response.data[0], arg_buf[0], __func__);
+				ret: %d, len: %d, arg: 0x%x ack: 0x%x\n", __func__,
+				ret, shid->response.len, shid->response.data[0], arg_buf[0]);
 		ret = -1;
 	}
 	return ret;
@@ -520,8 +520,7 @@ static void spi_hid_dev_ready_work(struct work_struct *work)
 	shid->attempts = 0;
 
 	if (!hid || IS_ERR(hid)) {
-		dev_err(&shid->spi->dev,
-				"Failed to allocate hid device: %d\n", PTR_ERR(hid));
+		dev_err(&shid->spi->dev, "Failed to allocate hid device: %ld\n", PTR_ERR(hid));
 		return;
 	}
 	dev_dbg(&shid->spi->dev, "Received device descriptor\n");
