@@ -192,6 +192,56 @@
 		pins = "gpio27", "gpio28", "gpio29", "gpio30";
 		function = "qup15";
 	};
+
+	spi1_active: spi1-active-state {
+		pins = "gpio114", "gpio115", "gpio116", "gpio117";
+		function = "qup1";
+
+		drive-strength = <6>;
+		bias-disable;
+	};
+
+	spi1_active_cs0: spi1-active-cs0-state {
+		pins = "gpio88", "gpio94";
+		function = "qspi0_cs";
+	};
+
+	spi1_active_cs1: spi1-active-cs1-state {
+		pins = "gpio55", "gpio164";
+		function = "qspi1_cs";
+	};
+
+	spi1_active_clk0: spi1-active-clk0-state {
+		pins = "gpio92";
+		function = "qspi0_clk";
+	};
+
+	spi1_active_clk1: spi1-active-clk1-state {
+		pins = "gpio163";
+		function = "qspi1_clk";
+	};
+
+	spi1_hid_active: spi1-hid-active-state {
+		pins = "gpio122";
+		function = "gpio";
+
+		bias-disable;
+		input-enable;
+	};
+
+	spi1_hid_reset_deassert: spi1-hid-reset-deassert-state {
+		// pins = "gpioXXX";	// TODO: pmic 0x2A9
+		// function = "gpio";
+		// drive-strength = <8>;
+		// bias-pull-up;
+	};
+
+	spi1_hid_reset_assert: spi1-hid-reset-assert-state {
+		// pins = "gpioXXX";	// TODO: pmic 0x2A9
+		// function = "gpio";
+		// drive-strength = <2>;
+		// bias-pull-down;
+	};
 };
 
 &qupv3_id_0 {
@@ -269,6 +319,37 @@
 	};
 };
 
+&spi1 {
+	status = "okay";
+	// spi-max-frequency = <25000000>;
+	spi-max-frequency = <2500000>;	// NOTE: lowered due to communication failure
+
+	// FIXME: don't need all of them...
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi1_active>; // &spi1_active_clk0 &spi1_active_clk1 &spi1_active_cs0 &spi1_active_cs1>;
+
+	hid@0 {
+		// adapted from https://github.com/microsoft/surface-duo-oss-kernel.msm-4..14/blob/23b91edc77ca98ef2af07c9410c10f408114828a/arch/arm64/boot/dts/surface/surface-duo-touch.dtsi
+
+		compatible = "hid-over-spi";
+		reg = <0>;
+		// spi-max-frequency = <25000000>;
+		spi-max-frequency = <2500000>;	// NOTE: lowered due to communication failure
+
+		interrupts-extended = <&tlmm 122 IRQ_TYPE_EDGE_FALLING>;
+
+		vdd-supply = <&vreg_l3c_1p2>;					// FIXME: this is probably not correct
+
+		pinctrl-names = "active", "sleep", "reset";
+		pinctrl-0 = <&spi1_hid_active /* &spi1_hid_reset_deassert */>;
+		pinctrl-1 = <&spi1_hid_active /* &spi1_hid_reset_assert */>;	// FIXME: proper sleep state
+		pinctrl-2 = <&spi1_hid_active /* &spi1_hid_reset_assert */>;
+
+		hid-descr-addr = <1>;
+		sleep-timeout-ms = <30000>;
+	};
+};
+
 &usb_prim_hsphy {
 	status = "okay";
 
@@ -315,13 +396,6 @@
 	dr_mode = "host";
 };
 
-// &spi1 {
-// 	status = "okay";
-// 	clock-frequency = <25000000>;
-//
-// 	// TODO: HID-over-SPI touchscreen
-// };
-//
 // &uart13 {
 // 	status = "okay";
 // 	clock-frequency = <115200>;
