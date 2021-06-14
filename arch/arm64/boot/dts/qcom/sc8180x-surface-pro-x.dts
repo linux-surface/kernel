@@ -367,17 +367,3 @@
 	vdd-3.3-ch0-supply = <&vreg_l11c_3p3>;
 	vdd-3.3-ch1-supply = <&vreg_l10c_3p3>;
 };
-
-// &spi1 {
-// 	status = "okay";
-// 	clock-frequency = <25000000>;
-//
-// 	// TODO: HID-over-SPI touchscreen
-// };
-//
-// &uart13 {
-// 	status = "okay";
-// 	clock-frequency = <115200>;
-//
-// 	// TODO: bluetooth
-// };
