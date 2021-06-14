@@ -183,8 +183,7 @@
 		function = "gpio";
 
 		input-enable;
-		bias-pull-up;
-		drive-strength = <2>;
+		bias-disable;
 	};
 
 	uart15_active: uart15-active-state {
