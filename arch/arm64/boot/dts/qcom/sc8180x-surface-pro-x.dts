@@ -20,8 +20,32 @@
 	};
 
 	reserved-memory {
+		rmtfs_mem: memory@85500000 {
+			compatible = "qcom,rmtfs-mem";
+			reg = <0x0 0x85500000 0x0 0x200000>;
+			no-map;
+
+			qcom,client-id = <1>;
+			qcom,vmid = <15>;
+		};
+
 		wlan_mem: memory@8bc00000 {
 			reg = <0x0 0x8bc00000 0x0 0x180000>;
+			no-map;
+		};
+
+		adsp_mem: memory@90800000 {
+			reg = <0x0 0x90800000 0x0 0x1c00000>;
+			no-map;
+		};
+
+		mpss_mem: memory@8d800000 {
+			reg = <0x0 0x8d800000 0x0 0x3000000>;
+			no-map;
+		};
+
+		cdsp_mem: memory@98900000 {
+			reg = <0x0 0x98900000 0x0 0x1400000>;
 			no-map;
 		};
 	};
@@ -193,6 +217,24 @@
 	};
 };
 
+&remoteproc_adsp {
+	status = "okay";
+	memory-region = <&adsp_mem>;
+	firmware-name = "qcom/MS/spxsq2/qcadsp8180.mbn";
+};
+
+&remoteproc_cdsp {
+	status = "okay";
+	memory-region = <&cdsp_mem>;
+	firmware-name = "qcom/MS/spxsq2/qccdsp8180.mbn";
+};
+
+&remoteproc_mpss {
+	status = "okay";
+	memory-region = <&mpss_mem>;
+	firmware-name = "qcom/MS/spxsq2/qcmpss8180.mbn";
+};
+
 &qupv3_id_0 {
 	status = "okay";
 };
@@ -312,6 +354,18 @@
 
 &usb_sec_dwc3 {
 	dr_mode = "host";
+};
+
+&wifi {
+	status = "okay";
+
+	memory-region = <&wlan_mem>;
+
+	vdd-0.8-cx-mx-supply = <&vreg_s4a_1p8>;
+	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
+	vdd-1.3-rfa-supply = <&vreg_l9a_1p3>;
+	vdd-3.3-ch0-supply = <&vreg_l11c_3p3>;
+	vdd-3.3-ch1-supply = <&vreg_l10c_3p3>;
 };
 
 // &spi1 {
