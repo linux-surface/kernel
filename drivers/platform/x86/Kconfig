@@ -639,6 +639,8 @@ config THINKPAD_ACPI_HOTKEY_POLL
 	  If you are not sure, say Y here.  The driver enables polling only if
 	  it is strictly necessary to do so.
 
+source "drivers/platform/x86/intel/Kconfig"
+
 config INTEL_ATOMISP2_LED
 	tristate "Intel AtomISP2 camera LED driver"
 	depends on GPIOLIB && LEDS_GPIO
@@ -696,8 +698,6 @@ config INTEL_CHT_INT33FE
 	  CONFIG_BATTERY_BQ27XXX=m or CONFIG_BATTERY_BQ27XXX_I2C=m for Micro-B
 	  device and CONFIG_TYPEC_FUSB302=m and CONFIG_BATTERY_MAX17042=m
 	  for Type-C device.
-
-source "drivers/platform/x86/intel-int3472/Kconfig"
 
 config INTEL_HID_EVENT
 	tristate "INTEL HID Event"
