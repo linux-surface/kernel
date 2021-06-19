@@ -42,6 +42,8 @@ static const struct acpi_device_id lps0_device_ids[] = {
 
 /* AMD */
 #define ACPI_LPS0_DSM_UUID_AMD      "e3f32452-febc-43ce-9039-932122d37721"
+#define ACPI_LPS0_ENTRY_AMD         2
+#define ACPI_LPS0_EXIT_AMD          3
 #define ACPI_LPS0_SCREEN_OFF_AMD    4
 #define ACPI_LPS0_SCREEN_ON_AMD     5
 
@@ -94,7 +96,7 @@ static void lpi_device_get_constraints_amd(void)
 	int i, j, k;
 
 	out_obj = acpi_evaluate_dsm_typed(lps0_device_handle, &lps0_dsm_guid,
-					  1, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
+					  rev_id, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
 					  NULL, ACPI_TYPE_PACKAGE);
 
 	if (!out_obj)
@@ -366,6 +368,13 @@ static int lps0_device_attach(struct acpi_device *adev,
 
 	ACPI_FREE(out_obj);
 
+	/*
+	 * Some HP laptops require ACPI_LPS0_ENTRY_AMD/ACPI_LPS0_EXIT_AMD for proper
+	 * S0ix, but don't set the function mask correctly.  Fix that up here.
+	 */
+	if (acpi_s2idle_vendor_amd())
+		lps0_dsm_func_mask |= (1 << ACPI_LPS0_ENTRY_AMD) | (1 << ACPI_LPS0_EXIT_AMD);
+
 	acpi_handle_debug(adev->handle, "_DSM function mask: 0x%x\n",
 			  lps0_dsm_func_mask);
 
@@ -408,6 +417,7 @@ int acpi_s2idle_prepare_late(void)
 
 	if (acpi_s2idle_vendor_amd()) {
 		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_OFF_AMD);
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_ENTRY_AMD);
 	} else {
 		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_OFF);
 		acpi_sleep_run_lps0_dsm(ACPI_LPS0_ENTRY);
@@ -422,6 +432,7 @@ void acpi_s2idle_restore_early(void)
 		return;
 
 	if (acpi_s2idle_vendor_amd()) {
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_EXIT_AMD);
 		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_ON_AMD);
 	} else {
 		acpi_sleep_run_lps0_dsm(ACPI_LPS0_EXIT);
