@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! # The Rust core allocation and collections library
 //!
 //! This library provides smart pointers and collections for managing
@@ -204,11 +206,12 @@ mod boxed {
 pub mod borrow;
 pub mod collections;
 pub mod fmt;
+#[cfg(not(no_rc))]
 pub mod rc;
 pub mod slice;
 pub mod str;
 pub mod string;
-#[cfg(target_has_atomic = "ptr")]
+#[cfg(all(not(no_sync), target_has_atomic = "ptr"))]
 pub mod sync;
 #[cfg(all(not(no_global_oom_handling), target_has_atomic = "ptr"))]
 pub mod task;

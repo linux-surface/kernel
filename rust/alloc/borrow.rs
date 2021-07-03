@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! A module for working with borrowed data.
 
 #![stable(feature = "rust1", since = "1.0.0")]
