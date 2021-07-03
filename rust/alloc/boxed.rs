@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! A pointer type for heap allocation.
 //!
 //! [`Box<T>`], casually referred to as a 'box', provides the simplest form of

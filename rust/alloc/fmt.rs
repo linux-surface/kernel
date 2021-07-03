@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Utilities for formatting and printing `String`s.
 //!
 //! This module contains the runtime support for the [`format!`] syntax extension.

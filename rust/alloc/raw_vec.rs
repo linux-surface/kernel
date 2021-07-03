@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 #![unstable(feature = "raw_vec_internals", reason = "unstable const warnings", issue = "none")]
 
 use core::alloc::LayoutError;
@@ -18,10 +20,10 @@ use crate::collections::TryReserveErrorKind::*;
 #[cfg(test)]
 mod tests;
 
-#[cfg(not(no_global_oom_handling))]
 enum AllocInit {
     /// The contents of the new memory are uninitialized.
     Uninitialized,
+    #[allow(dead_code)]
     /// The new memory is guaranteed to be zeroed.
     Zeroed,
 }
@@ -132,6 +134,13 @@ impl<T, A: Allocator> RawVec<T, A> {
         Self::allocate_in(capacity, AllocInit::Uninitialized, alloc)
     }
 
+    /// Like `try_with_capacity`, but parameterized over the choice of
+    /// allocator for the returned `RawVec`.
+    #[inline]
+    pub fn try_with_capacity_in(capacity: usize, alloc: A) -> Result<Self, TryReserveError> {
+        Self::try_allocate_in(capacity, AllocInit::Uninitialized, alloc)
+    }
+
     /// Like `with_capacity_zeroed`, but parameterized over the choice
     /// of allocator for the returned `RawVec`.
     #[cfg(not(no_global_oom_handling))]
@@ -199,6 +208,29 @@ impl<T, A: Allocator> RawVec<T, A> {
                 alloc,
             }
         }
+    }
+
+    fn try_allocate_in(capacity: usize, init: AllocInit, alloc: A) -> Result<Self, TryReserveError> {
+        if mem::size_of::<T>() == 0 {
+            return Ok(Self::new_in(alloc));
+        }
+
+        let layout = Layout::array::<T>(capacity).map_err(|_| CapacityOverflow)?;
+        alloc_guard(layout.size())?;
+        let result = match init {
+            AllocInit::Uninitialized => alloc.allocate(layout),
+            AllocInit::Zeroed => alloc.allocate_zeroed(layout),
+        };
+        let ptr = result.map_err(|_| AllocError { layout, non_exhaustive: () })?;
+
+        // Allocators currently return a `NonNull<[u8]>` whose length
+        // matches the size requested. If that ever changes, the capacity
+        // here should change to `ptr.len() / mem::size_of::<T>()`.
+        Ok(Self {
+            ptr: unsafe { Unique::new_unchecked(ptr.cast().as_ptr()) },
+            cap: capacity,
+            alloc,
+        })
     }
 
     /// Reconstitutes a `RawVec` from a pointer, capacity, and allocator.
@@ -309,6 +341,12 @@ impl<T, A: Allocator> RawVec<T, A> {
         }
     }
 
+    /// The same as `reserve_for_push`, but returns on errors instead of panicking or aborting.
+    #[inline(never)]
+    pub fn try_reserve_for_push(&mut self, len: usize) -> Result<(), TryReserveError> {
+        self.grow_amortized(len, 1)
+    }
+
     /// Ensures that the buffer contains at least enough space to hold `len +
     /// additional` elements. If it doesn't already, will reallocate the
     /// minimum possible amount of memory necessary. Generally this will be
@@ -353,6 +391,16 @@ impl<T, A: Allocator> RawVec<T, A> {
     #[cfg(not(no_global_oom_handling))]
     pub fn shrink_to_fit(&mut self, cap: usize) {
         handle_reserve(self.shrink(cap));
+    }
+
+    /// Tries to shrink the buffer down to the specified capacity. If the given amount
+    /// is 0, actually completely deallocates.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given amount is *larger* than the current capacity.
+    pub fn try_shrink_to_fit(&mut self, cap: usize) -> Result<(), TryReserveError> {
+        self.shrink(cap)
     }
 }
 
