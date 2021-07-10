@@ -2781,6 +2781,7 @@ complete:
 static int ov8865_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
+	struct fwnode_handle *fwnode = dev_fwnode(dev);
 	struct fwnode_handle *handle;
 	struct ov8865_sensor *sensor;
 	struct v4l2_subdev *subdev;
@@ -2797,11 +2798,11 @@ static int ov8865_probe(struct i2c_client *client)
 
 	/* Graph Endpoint */
 
-	handle = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
-	if (!handle) {
-		dev_err(dev, "unable to find endpoint node\n");
-		return -EINVAL;
-	}
+	handle = fwnode_graph_get_next_endpoint(fwnode, NULL);
+	if (!handle && !IS_ERR_OR_NULL(fwnode->secondary))
+		handle = fwnode_graph_get_next_endpoint(fwnode->secondary, NULL);
+	if (!handle)
+		return -EPROBE_DEFER;
 
 	sensor->endpoint.bus_type = V4L2_MBUS_CSI2_DPHY;
 
