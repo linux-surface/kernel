@@ -2705,6 +2705,21 @@ int ssam_irq_setup(struct ssam_controller *ctrl)
 	if (irq < 0)
 		return irq;
 
+	/*
+	 * GPIO interrupts declared in ACPI are setup for us by the ACPI
+	 * driver before we configure the IRQ, and thus may already be
+	 * enabled.  This driver however does not currently implement wakeup
+	 * detection, so we need the opportunity to reconfigure the configured
+	 * GPIO interrupt, otherwise we will receive spurious interrupts.
+	 * We are not allowed to have unbalanced enable/disable of IRQ wake,
+	 * so we will enable the wakeup source so it can be reconfigured with
+	 * the subsequent disable.
+	 */
+	status = enable_irq_wake(irq);
+	if (status)
+		return status;
+	disable_irq_wake(irq);
+
 	status = request_threaded_irq(irq, NULL, ssam_irq_handle, irqf,
 				      "ssam_wakeup", ctrl);
 	if (status)
