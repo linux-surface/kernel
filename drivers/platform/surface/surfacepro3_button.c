@@ -149,7 +149,8 @@ static int surface_button_resume(struct device *dev)
 /*
  * Surface Pro 4 and Surface Book 2 / Surface Pro 2017 use the same device
  * ID (MSHW0040) for the power/volume buttons. Make sure this is the right
- * device by checking for the _DSM method and OEM Platform Revision.
+ * device by checking for the _DSM method and OEM Platform Revision DSM
+ * function.
  *
  * Returns true if the driver should bind to this device, i.e. the device is
  * either MSWH0028 (Pro 3) or MSHW0040 on a Pro 4 or Book 1.
@@ -157,30 +158,11 @@ static int surface_button_resume(struct device *dev)
 static bool surface_button_check_MSHW0040(struct acpi_device *dev)
 {
 	acpi_handle handle = dev->handle;
-	union acpi_object *result;
-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
 
-	// get OEM platform revision
-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
-					 MSHW0040_DSM_REVISION,
-					 MSHW0040_DSM_GET_OMPR,
-					 NULL, ACPI_TYPE_INTEGER);
-
-	/*
-	 * If evaluating the _DSM fails, the method is not present. This means
-	 * that we have either MSHW0028 or MSHW0040 on Pro 4 or Book 1, so we
-	 * should use this driver. We use revision 0 indicating it is
-	 * unavailable.
-	 */
-
-	if (result) {
-		oem_platform_rev = result->integer.value;
-		ACPI_FREE(result);
-	}
-
-	dev_dbg(&dev->dev, "OEM Platform Revision %llu\n", oem_platform_rev);
-
-	return oem_platform_rev == 0;
+	// make sure that OEM platform revision DSM call does not exist
+	return !acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
+			       MSHW0040_DSM_REVISION,
+			       BIT(MSHW0040_DSM_GET_OMPR));
 }
 
 
