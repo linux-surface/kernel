@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0
+
+if LEDS_CLASS_MULTICOLOR
+
+config LEDS_QCOM_LPG
+	tristate "LED support for Qualcomm LPG"
+	depends on OF
+	depends on SPMI
+	help
+	  This option enables support for the Light Pulse Generator found in a
+	  wide variety of Qualcomm PMICs.
+
+	  If compiled as a module, the module will be named leds-qcom-lpg.
+
+endif # LEDS_CLASS_MULTICOLOR
