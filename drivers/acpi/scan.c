@@ -2246,6 +2246,9 @@ static const char * const acpi_system_dev_ids[] = {
 
 static void acpi_default_enumeration(struct acpi_device *device)
 {
+	if (!acpi_dev_ready_for_enumeration(device))
+		return;
+
 	/*
 	 * Do not enumerate devices with enumeration_by_parent flag set as
 	 * they will be enumerated by their respective parents.
