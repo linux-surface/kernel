@@ -2197,6 +2197,9 @@ static acpi_status acpi_bus_check_add_2(acpi_handle handle, u32 lvl_not_used,
 
 static void acpi_default_enumeration(struct acpi_device *device)
 {
+	if (!acpi_dev_ready_for_enumeration(device))
+		return;
+
 	/*
 	 * Do not enumerate devices with enumeration_by_parent flag set as
 	 * they will be enumerated by their respective parents.
