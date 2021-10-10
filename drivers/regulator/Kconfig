@@ -1339,6 +1339,15 @@ config REGULATOR_TPS65912
 	help
 	    This driver supports TPS65912 voltage regulator chip.
 
+config REGULATOR_TPS68470
+	tristate "TI TPS68370 PMIC Regulators Driver"
+	depends on INTEL_SKL_INT3472
+	help
+	  This driver adds support for the TPS68470 PMIC to register
+	  regulators against the usual framework.
+
+	  The module will be called "tps68470-regulator"
+
 config REGULATOR_TPS80031
 	tristate "TI TPS80031/TPS80032 power regulator driver"
 	depends on MFD_TPS80031
