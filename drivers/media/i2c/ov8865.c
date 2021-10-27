@@ -5,11 +5,11 @@
  * Author: Paul Kocialkowski <paul.kocialkowski@bootlin.com>
  */
 
-#include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/i2c.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of_graph.h>
 #include <linux/pm_runtime.h>
@@ -46,6 +46,8 @@
 #define OV8865_PLL_CTRL6_REG			0x306
 #define OV8865_PLL_CTRL6_SYS_DIV(v)		(((v) - 1) & BIT(0))
 
+#define OV8865_PLL_CTRL8_REG			0x308
+#define OV8865_PLL_CTRL9_REG			0x309
 #define OV8865_PLL_CTRLA_REG			0x30a
 #define OV8865_PLL_CTRLA_PRE_DIV_HALF(v)	(((v) - 1) & BIT(0))
 #define OV8865_PLL_CTRLB_REG			0x30b
@@ -58,12 +60,23 @@
 #define OV8865_PLL_CTRLE_SYS_DIV(v)		((v) & GENMASK(2, 0))
 #define OV8865_PLL_CTRLF_REG			0x30f
 #define OV8865_PLL_CTRLF_SYS_PRE_DIV(v)		(((v) - 1) & GENMASK(3, 0))
+#define OV8865_PLL_CTRL10_REG			0x310
+#define OV8865_PLL_CTRL11_REG			0x311
 #define OV8865_PLL_CTRL12_REG			0x312
 #define OV8865_PLL_CTRL12_PRE_DIV_HALF(v)	((((v) - 1) << 4) & BIT(4))
 #define OV8865_PLL_CTRL12_DAC_DIV(v)		(((v) - 1) & GENMASK(3, 0))
 
+#define OV8865_PLL_CTRL1B_REG			0x31b
+#define OV8865_PLL_CTRL1C_REG			0x31c
+
 #define OV8865_PLL_CTRL1E_REG			0x31e
 #define OV8865_PLL_CTRL1E_PLL1_NO_LAT		BIT(3)
+
+#define OV8865_PAD_OEN0_REG			0x3000
+
+#define OV8865_PAD_OEN2_REG			0x3002
+
+#define OV8865_CLK_RST5_REG			0x3005
 
 #define OV8865_CHIP_ID_HH_REG			0x300a
 #define OV8865_CHIP_ID_HH_VALUE			0x00
@@ -71,8 +84,17 @@
 #define OV8865_CHIP_ID_H_VALUE			0x88
 #define OV8865_CHIP_ID_L_REG			0x300c
 #define OV8865_CHIP_ID_L_VALUE			0x65
+#define OV8865_PAD_OUT2_REG			0x300d
+
+#define OV8865_PAD_SEL2_REG			0x3010
+#define OV8865_PAD_PK_REG			0x3011
+#define OV8865_PAD_PK_DRIVE_STRENGTH_1X		(0 << 5)
+#define OV8865_PAD_PK_DRIVE_STRENGTH_2X		(1 << 5)
+#define OV8865_PAD_PK_DRIVE_STRENGTH_3X		(2 << 5)
+#define OV8865_PAD_PK_DRIVE_STRENGTH_4X		(3 << 5)
 
 #define OV8865_PUMP_CLK_DIV_REG			0x3015
+#define OV8865_PUMP_CLK_DIV_PUMP_N(v)		(((v) << 4) & GENMASK(6, 4))
 #define OV8865_PUMP_CLK_DIV_PUMP_P(v)		((v) & GENMASK(2, 0))
 
 #define OV8865_MIPI_SC_CTRL0_REG		0x3018
@@ -80,12 +102,21 @@
 						 GENMASK(7, 5))
 #define OV8865_MIPI_SC_CTRL0_MIPI_EN		BIT(4)
 #define OV8865_MIPI_SC_CTRL0_UNKNOWN		BIT(1)
+#define OV8865_MIPI_SC_CTRL0_LANES_PD_MIPI	BIT(0)
+#define OV8865_MIPI_SC_CTRL1_REG		0x3019
+#define OV8865_CLK_RST0_REG			0x301a
+#define OV8865_CLK_RST1_REG			0x301b
+#define OV8865_CLK_RST2_REG			0x301c
+#define OV8865_CLK_RST3_REG			0x301d
+#define OV8865_CLK_RST4_REG			0x301e
 
 #define OV8865_PCLK_SEL_REG			0x3020
 #define OV8865_PCLK_SEL_PCLK_DIV_MASK		BIT(3)
 #define OV8865_PCLK_SEL_PCLK_DIV(v)		((((v) - 1) << 3) & BIT(3))
 
+#define OV8865_MISC_CTRL_REG			0x3021
 #define OV8865_MIPI_SC_CTRL2_REG		0x3022
+#define OV8865_MIPI_SC_CTRL2_CLK_LANES_PD_MIPI	BIT(1)
 #define OV8865_MIPI_SC_CTRL2_PD_MIPI_RST_SYNC	BIT(0)
 
 #define OV8865_MIPI_BIT_SEL_REG			0x3031
@@ -94,6 +125,7 @@
 #define OV8865_CLK_SEL0_PLL1_SYS_SEL(v)		(((v) << 7) & BIT(7))
 #define OV8865_CLK_SEL1_REG			0x3033
 #define OV8865_CLK_SEL1_MIPI_EOF		BIT(5)
+#define OV8865_CLK_SEL1_UNKNOWN			BIT(2)
 #define OV8865_CLK_SEL1_PLL_SCLK_SEL_MASK	BIT(1)
 #define OV8865_CLK_SEL1_PLL_SCLK_SEL(v)		(((v) << 1) & BIT(1))
 
@@ -110,6 +142,7 @@
 #define OV8865_EXPOSURE_CTRL_H(v)		(((v) & GENMASK(15, 8)) >> 8)
 #define OV8865_EXPOSURE_CTRL_L_REG		0x3502
 #define OV8865_EXPOSURE_CTRL_L(v)		((v) & GENMASK(7, 0))
+#define OV8865_EXPOSURE_GAIN_MANUAL_REG		0x3503
 
 #define OV8865_GAIN_CTRL_H_REG			0x3508
 #define OV8865_GAIN_CTRL_H(v)			(((v) & GENMASK(12, 8)) >> 8)
@@ -164,6 +197,18 @@
 #define OV8865_INC_X_ODD(v)			((v) & GENMASK(4, 0))
 #define OV8865_INC_X_EVEN_REG			0x3815
 #define OV8865_INC_X_EVEN(v)			((v) & GENMASK(4, 0))
+#define OV8865_VSYNC_START_H_REG		0x3816
+#define OV8865_VSYNC_START_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+#define OV8865_VSYNC_START_L_REG		0x3817
+#define OV8865_VSYNC_START_L(v)			((v) & GENMASK(7, 0))
+#define OV8865_VSYNC_END_H_REG			0x3818
+#define OV8865_VSYNC_END_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+#define OV8865_VSYNC_END_L_REG			0x3819
+#define OV8865_VSYNC_END_L(v)			((v) & GENMASK(7, 0))
+#define OV8865_HSYNC_FIRST_H_REG		0x381a
+#define OV8865_HSYNC_FIRST_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+#define OV8865_HSYNC_FIRST_L_REG		0x381b
+#define OV8865_HSYNC_FIRST_L(v)			((v) & GENMASK(7, 0))
 
 #define OV8865_FORMAT1_REG			0x3820
 #define OV8865_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
@@ -195,6 +240,10 @@
 #define OV8865_AUTO_SIZE_CTRL_CROP_END_X_REG	BIT(2)
 #define OV8865_AUTO_SIZE_CTRL_CROP_START_Y_REG	BIT(1)
 #define OV8865_AUTO_SIZE_CTRL_CROP_START_X_REG	BIT(0)
+#define OV8865_AUTO_SIZE_X_OFFSET_H_REG		0x3842
+#define OV8865_AUTO_SIZE_X_OFFSET_L_REG		0x3843
+#define OV8865_AUTO_SIZE_Y_OFFSET_H_REG		0x3844
+#define OV8865_AUTO_SIZE_Y_OFFSET_L_REG		0x3845
 #define OV8865_AUTO_SIZE_BOUNDARIES_REG		0x3846
 #define OV8865_AUTO_SIZE_BOUNDARIES_Y(v)	(((v) << 4) & GENMASK(7, 4))
 #define OV8865_AUTO_SIZE_BOUNDARIES_X(v)	((v) & GENMASK(3, 0))
@@ -210,10 +259,30 @@
 #define OV8865_BLC_CTRL0_TRIG_FORMAT_EN		BIT(6)
 #define OV8865_BLC_CTRL0_TRIG_GAIN_EN		BIT(5)
 #define OV8865_BLC_CTRL0_TRIG_EXPOSURE_EN	BIT(4)
+#define OV8865_BLC_CTRL0_TRIG_MANUAL_EN		BIT(3)
+#define OV8865_BLC_CTRL0_FREEZE_EN		BIT(2)
+#define OV8865_BLC_CTRL0_ALWAYS_EN		BIT(1)
 #define OV8865_BLC_CTRL0_FILTER_EN		BIT(0)
 #define OV8865_BLC_CTRL1_REG			0x4001
+#define OV8865_BLC_CTRL1_DITHER_EN		BIT(7)
+#define OV8865_BLC_CTRL1_ZERO_LINE_DIFF_EN	BIT(6)
+#define OV8865_BLC_CTRL1_COL_SHIFT_256		(0 << 4)
 #define OV8865_BLC_CTRL1_COL_SHIFT_128		(1 << 4)
+#define OV8865_BLC_CTRL1_COL_SHIFT_64		(2 << 4)
+#define OV8865_BLC_CTRL1_COL_SHIFT_32		(3 << 4)
 #define OV8865_BLC_CTRL1_OFFSET_LIMIT_EN	BIT(2)
+#define OV8865_BLC_CTRL1_COLUMN_CANCEL_EN	BIT(1)
+#define OV8865_BLC_CTRL2_REG			0x4002
+#define OV8865_BLC_CTRL3_REG			0x4003
+#define OV8865_BLC_CTRL4_REG			0x4004
+#define OV8865_BLC_CTRL5_REG			0x4005
+#define OV8865_BLC_CTRL6_REG			0x4006
+#define OV8865_BLC_CTRL7_REG			0x4007
+#define OV8865_BLC_CTRL8_REG			0x4008
+#define OV8865_BLC_CTRL9_REG			0x4009
+#define OV8865_BLC_CTRLA_REG			0x400a
+#define OV8865_BLC_CTRLB_REG			0x400b
+#define OV8865_BLC_CTRLC_REG			0x400c
 #define OV8865_BLC_CTRLD_REG			0x400d
 #define OV8865_BLC_CTRLD_OFFSET_TRIGGER(v)	((v) & GENMASK(7, 0))
 
@@ -268,8 +337,66 @@
 
 /* MIPI */
 
-#define OV8865_MIPI_PCLK_PERIOD_REG		0x4837
+#define OV8865_MIPI_CTRL0_REG			0x4800
+#define OV8865_MIPI_CTRL1_REG			0x4801
+#define OV8865_MIPI_CTRL2_REG			0x4802
+#define OV8865_MIPI_CTRL3_REG			0x4803
+#define OV8865_MIPI_CTRL4_REG			0x4804
+#define OV8865_MIPI_CTRL5_REG			0x4805
+#define OV8865_MIPI_CTRL6_REG			0x4806
+#define OV8865_MIPI_CTRL7_REG			0x4807
+#define OV8865_MIPI_CTRL8_REG			0x4808
 
+#define OV8865_MIPI_FCNT_MAX_H_REG		0x4810
+#define OV8865_MIPI_FCNT_MAX_L_REG		0x4811
+
+#define OV8865_MIPI_CTRL13_REG			0x4813
+#define OV8865_MIPI_CTRL14_REG			0x4814
+#define OV8865_MIPI_CTRL15_REG			0x4815
+#define OV8865_MIPI_EMBEDDED_DT_REG		0x4816
+
+#define OV8865_MIPI_HS_ZERO_MIN_H_REG		0x4818
+#define OV8865_MIPI_HS_ZERO_MIN_L_REG		0x4819
+#define OV8865_MIPI_HS_TRAIL_MIN_H_REG		0x481a
+#define OV8865_MIPI_HS_TRAIL_MIN_L_REG		0x481b
+#define OV8865_MIPI_CLK_ZERO_MIN_H_REG		0x481c
+#define OV8865_MIPI_CLK_ZERO_MIN_L_REG		0x481d
+#define OV8865_MIPI_CLK_PREPARE_MAX_REG		0x481e
+#define OV8865_MIPI_CLK_PREPARE_MIN_REG		0x481f
+#define OV8865_MIPI_CLK_POST_MIN_H_REG		0x4820
+#define OV8865_MIPI_CLK_POST_MIN_L_REG		0x4821
+#define OV8865_MIPI_CLK_TRAIL_MIN_H_REG		0x4822
+#define OV8865_MIPI_CLK_TRAIL_MIN_L_REG		0x4823
+#define OV8865_MIPI_LPX_P_MIN_H_REG		0x4824
+#define OV8865_MIPI_LPX_P_MIN_L_REG		0x4825
+#define OV8865_MIPI_HS_PREPARE_MIN_REG		0x4826
+#define OV8865_MIPI_HS_PREPARE_MAX_REG		0x4827
+#define OV8865_MIPI_HS_EXIT_MIN_H_REG		0x4828
+#define OV8865_MIPI_HS_EXIT_MIN_L_REG		0x4829
+#define OV8865_MIPI_UI_HS_ZERO_MIN_REG		0x482a
+#define OV8865_MIPI_UI_HS_TRAIL_MIN_REG		0x482b
+#define OV8865_MIPI_UI_CLK_ZERO_MIN_REG		0x482c
+#define OV8865_MIPI_UI_CLK_PREPARE_REG		0x482d
+#define OV8865_MIPI_UI_CLK_POST_MIN_REG		0x482e
+#define OV8865_MIPI_UI_CLK_TRAIL_MIN_REG	0x482f
+#define OV8865_MIPI_UI_LPX_P_MIN_REG		0x4830
+#define OV8865_MIPI_UI_HS_PREPARE_REG		0x4831
+#define OV8865_MIPI_UI_HS_EXIT_MIN_REG		0x4832
+#define OV8865_MIPI_PKT_START_SIZE_REG		0x4833
+
+#define OV8865_MIPI_PCLK_PERIOD_REG		0x4837
+#define OV8865_MIPI_LP_GPIO0_REG		0x4838
+#define OV8865_MIPI_LP_GPIO1_REG		0x4839
+
+#define OV8865_MIPI_CTRL3C_REG			0x483c
+#define OV8865_MIPI_LP_GPIO4_REG		0x483d
+
+#define OV8865_MIPI_CTRL4A_REG			0x484a
+#define OV8865_MIPI_CTRL4B_REG			0x484b
+#define OV8865_MIPI_CTRL4C_REG			0x484c
+#define OV8865_MIPI_LANE_TEST_PATTERN_REG	0x484d
+#define OV8865_MIPI_FRAME_END_DELAY_REG		0x484e
+#define OV8865_MIPI_CLOCK_TEST_PATTERN_REG	0x484f
 #define OV8865_MIPI_LANE_SEL01_REG		0x4850
 #define OV8865_MIPI_LANE_SEL01_LANE0(v)		(((v) << 0) & GENMASK(2, 0))
 #define OV8865_MIPI_LANE_SEL01_LANE1(v)		(((v) << 4) & GENMASK(6, 4))
@@ -280,6 +407,7 @@
 /* ISP */
 
 #define OV8865_ISP_CTRL0_REG			0x5000
+#define OV8865_ISP_CTRL0_LENC_EN		BIT(7)
 #define OV8865_ISP_CTRL0_WHITE_BALANCE_EN	BIT(4)
 #define OV8865_ISP_CTRL0_DPC_BLACK_EN		BIT(2)
 #define OV8865_ISP_CTRL0_DPC_WHITE_EN		BIT(1)
@@ -288,11 +416,17 @@
 #define OV8865_ISP_CTRL2_REG			0x5002
 #define OV8865_ISP_CTRL2_DEBUG			BIT(3)
 #define OV8865_ISP_CTRL2_VARIOPIXEL_EN		BIT(2)
+#define OV8865_ISP_CTRL2_VSYNC_LATCH_EN		BIT(0)
+#define OV8865_ISP_CTRL3_REG			0x5003
 
 #define OV8865_ISP_GAIN_RED_H_REG		0x5018
 #define OV8865_ISP_GAIN_RED_H(v)		(((v) & GENMASK(13, 6)) >> 6)
 #define OV8865_ISP_GAIN_RED_L_REG		0x5019
 #define OV8865_ISP_GAIN_RED_L(v)		((v) & GENMASK(5, 0))
+#define OV8865_ISP_GAIN_GREEN_H_REG		0x501a
+#define OV8865_ISP_GAIN_GREEN_H(v)		(((v) & GENMASK(13, 6)) >> 6)
+#define OV8865_ISP_GAIN_GREEN_L_REG		0x501b
+#define OV8865_ISP_GAIN_GREEN_L(v)		((v) & GENMASK(5, 0))
 #define OV8865_ISP_GAIN_BLUE_H_REG		0x501c
 #define OV8865_ISP_GAIN_BLUE_H(v)		(((v) & GENMASK(13, 6)) >> 6)
 #define OV8865_ISP_GAIN_BLUE_L_REG		0x501d
@@ -300,6 +434,7 @@
 
 /* VarioPixel */
 
+#define OV8865_VAP_CTRL0_REG			0x5900
 #define OV8865_VAP_CTRL1_REG			0x5901
 #define OV8865_VAP_CTRL1_HSUB_COEF(v)		((((v) - 1) << 2) & \
 						 GENMASK(3, 2))
@@ -439,6 +574,25 @@ struct ov8865_sclk_config {
 	unsigned int sclk_div;
 };
 
+struct ov8865_pll_configs {
+	const struct ov8865_pll1_config *pll1_config;
+	const struct ov8865_pll2_config *pll2_config_native;
+	const struct ov8865_pll2_config *pll2_config_binning;
+};
+
+/* Clock rate */
+
+enum extclk_rate {
+	OV8865_19_2_MHZ,
+	OV8865_24_MHZ,
+	OV8865_NUM_SUPPORTED_RATES
+};
+
+static const unsigned long supported_extclk_rates[] = {
+	[OV8865_19_2_MHZ] = 19200000,
+	[OV8865_24_MHZ] = 24000000,
+};
+
 /*
  * General formulas for (array-centered) mode calculation:
  * - photo_array_width = 3296
@@ -505,11 +659,7 @@ struct ov8865_mode {
 	unsigned int blc_anchor_right_start;
 	unsigned int blc_anchor_right_end;
 
-	struct v4l2_fract frame_interval;
-
-	const struct ov8865_pll1_config *pll1_config;
-	const struct ov8865_pll2_config *pll2_config;
-	const struct ov8865_sclk_config *sclk_config;
+	bool pll2_binning;
 
 	const struct ov8865_register_value *register_values;
 	unsigned int register_values_count;
@@ -542,7 +692,7 @@ struct ov8865_sensor {
 	struct regulator *dovdd;
 
 	unsigned long extclk_rate;
-	unsigned int extclk_rate_idx;
+	const struct ov8865_pll_configs *pll_configs;
 	struct clk *extclk;
 
 	struct v4l2_fwnode_endpoint endpoint;
@@ -562,8 +712,7 @@ struct ov8865_sensor {
  * MIPI_PCLK = 90 MHz
  */
 
-static const struct ov8865_pll1_config ov8865_pll1_configs_native[] = {
-	{ /* 19.2 MHz input clock */
+static const struct ov8865_pll1_config ov8865_pll1_config_native_19_2mhz = {
 		.pll_pre_div_half	= 1,
 		.pll_pre_div		= 2,
 		.pll_mul		= 75,
@@ -572,8 +721,9 @@ static const struct ov8865_pll1_config ov8865_pll1_configs_native[] = {
 		.pclk_div		= 1,
 		.sys_pre_div		= 1,
 		.sys_div		= 2,
-	},
-	{ /* 24MHz input clock */
+};
+
+static const struct ov8865_pll1_config ov8865_pll1_config_native_24mhz = {
 		.pll_pre_div_half	= 1,
 		.pll_pre_div		= 0,
 		.pll_mul		= 30,
@@ -582,7 +732,6 @@ static const struct ov8865_pll1_config ov8865_pll1_configs_native[] = {
 		.pclk_div		= 1,
 		.sys_pre_div		= 1,
 		.sys_div		= 2,
-	},
 };
 
 /*
@@ -590,25 +739,22 @@ static const struct ov8865_pll1_config ov8865_pll1_configs_native[] = {
  * SCLK = 144 MHz
  */
 
-static const struct ov8865_pll2_config ov8865_pll2_configs_native[] = {
-	/* 19.2MHz input clock */
-	{
+static const struct ov8865_pll2_config ov8865_pll2_config_native_19_2mhz = {
 		.pll_pre_div_half	= 1,
 		.pll_pre_div		= 5,
 		.pll_mul		= 75,
 		.dac_div		= 1,
 		.sys_pre_div		= 1,
 		.sys_div		= 3,
-	},
-	/* 24MHz input clock */
-	{
+};
+
+static const struct ov8865_pll2_config ov8865_pll2_config_native_24mhz = {
 		.pll_pre_div_half	= 1,
 		.pll_pre_div		= 0,
 		.pll_mul		= 30,
 		.dac_div		= 2,
 		.sys_pre_div		= 5,
 		.sys_div		= 0,
-	}
 };
 
 /*
@@ -616,25 +762,39 @@ static const struct ov8865_pll2_config ov8865_pll2_configs_native[] = {
  * SCLK = 72 MHz
  */
 
-static const struct ov8865_pll2_config ov8865_pll2_configs_binning[] = {
-	/* 19.2MHz input clock */
-	{
+static const struct ov8865_pll2_config ov8865_pll2_config_binning_19_2mhz = {
 	.pll_pre_div_half	= 1,
 	.pll_pre_div		= 2,
 	.pll_mul		= 75,
 	.dac_div		= 2,
 	.sys_pre_div		= 10,
 	.sys_div		= 0,
-	},
-	/* 24MHz input clock */
-	{
+};
+
+static const struct ov8865_pll2_config ov8865_pll2_config_binning_24mhz = {
 	.pll_pre_div_half	= 1,
 	.pll_pre_div		= 0,
 	.pll_mul		= 30,
 	.dac_div		= 2,
 	.sys_pre_div		= 10,
 	.sys_div		= 0,
-	}
+};
+
+static struct ov8865_pll_configs ov8865_pll_configs_19_2mhz = {
+	.pll1_config = &ov8865_pll1_config_native_19_2mhz,
+	.pll2_config_native = &ov8865_pll2_config_native_19_2mhz,
+	.pll2_config_binning = &ov8865_pll2_config_binning_19_2mhz,
+};
+
+static struct ov8865_pll_configs ov8865_pll_configs_24mhz = {
+	.pll1_config = &ov8865_pll1_config_native_24mhz,
+	.pll2_config_native = &ov8865_pll2_config_native_24mhz,
+	.pll2_config_binning = &ov8865_pll2_config_binning_24mhz,
+};
+
+static const struct ov8865_pll_configs *ov8865_pll_configs[] = {
+	&ov8865_pll_configs_19_2mhz,
+	&ov8865_pll_configs_24mhz,
 };
 
 static const struct ov8865_sclk_config ov8865_sclk_config_native = {
@@ -803,7 +963,7 @@ static const struct ov8865_mode ov8865_modes[] = {
 	{
 		/* Horizontal */
 		.output_size_x			= 3264,
-		.hts				= 1944,
+		.hts				= 3888,
 
 		/* Vertical */
 		.output_size_y			= 2448,
@@ -842,13 +1002,8 @@ static const struct ov8865_mode ov8865_modes[] = {
 		.blc_anchor_right_start		= 1984,
 		.blc_anchor_right_end		= 2239,
 
-		/* Frame Interval */
-		.frame_interval			= { 1, 30 },
-
 		/* PLL */
-		.pll1_config			= ov8865_pll1_configs_native,
-		.pll2_config			= ov8865_pll2_configs_native,
-		.sclk_config			= &ov8865_sclk_config_native,
+		.pll2_binning			= false,
 
 		/* Registers */
 		.register_values	= ov8865_register_values_native,
@@ -859,11 +1014,11 @@ static const struct ov8865_mode ov8865_modes[] = {
 	{
 		/* Horizontal */
 		.output_size_x			= 3264,
-		.hts				= 2582,
+		.hts				= 3888,
 
 		/* Vertical */
 		.output_size_y			= 1836,
-		.vts				= 2002,
+		.vts				= 2470,
 
 		.size_auto			= true,
 		.size_auto_boundary_x		= 8,
@@ -898,13 +1053,8 @@ static const struct ov8865_mode ov8865_modes[] = {
 		.blc_anchor_right_start		= 1984,
 		.blc_anchor_right_end		= 2239,
 
-		/* Frame Interval */
-		.frame_interval			= { 1, 30 },
-
 		/* PLL */
-		.pll1_config			= ov8865_pll1_configs_native,
-		.pll2_config			= ov8865_pll2_configs_native,
-		.sclk_config			= &ov8865_sclk_config_native,
+		.pll2_binning			= false,
 
 		/* Registers */
 		.register_values	= ov8865_register_values_native,
@@ -958,13 +1108,8 @@ static const struct ov8865_mode ov8865_modes[] = {
 		.blc_anchor_right_start		= 992,
 		.blc_anchor_right_end		= 1119,
 
-		/* Frame Interval */
-		.frame_interval			= { 1, 30 },
-
 		/* PLL */
-		.pll1_config			= ov8865_pll1_configs_native,
-		.pll2_config			= ov8865_pll2_configs_binning,
-		.sclk_config			= &ov8865_sclk_config_native,
+		.pll2_binning			= true,
 
 		/* Registers */
 		.register_values	= ov8865_register_values_binning,
@@ -1024,13 +1169,8 @@ static const struct ov8865_mode ov8865_modes[] = {
 		.blc_anchor_right_start		= 992,
 		.blc_anchor_right_end		= 1119,
 
-		/* Frame Interval */
-		.frame_interval			= { 1, 90 },
-
 		/* PLL */
-		.pll1_config			= ov8865_pll1_configs_native,
-		.pll2_config			= ov8865_pll2_configs_binning,
-		.sclk_config			= &ov8865_sclk_config_native,
+		.pll2_binning			= true,
 
 		/* Registers */
 		.register_values	= ov8865_register_values_binning,
@@ -1176,13 +1316,6 @@ static const struct ov8865_register_value ov8865_init_sequence[] = {
 	/* ADC Sync */
 
 	{ 0x4503, 0x10 },
-};
-
-/* Clock rate */
-
-static const unsigned long supported_extclk_rates[] = {
-	19200000,
-	24000000,
 };
 
 static const s64 ov8865_link_freq_menu[] = {
@@ -1435,7 +1568,7 @@ static unsigned long ov8865_mode_pll1_rate(struct ov8865_sensor *sensor,
 	const struct ov8865_pll1_config *config;
 	unsigned long pll1_rate;
 
-	config = &mode->pll1_config[sensor->extclk_rate_idx];
+	config = sensor->pll_configs->pll1_config;
 	pll1_rate = sensor->extclk_rate * config->pll_mul / config->pll_pre_div_half;
 
 	switch (config->pll_pre_div) {
@@ -1474,7 +1607,7 @@ static int ov8865_mode_pll1_configure(struct ov8865_sensor *sensor,
 	u8 value;
 	int ret;
 
-	config = &mode->pll1_config[sensor->extclk_rate_idx];
+	config = sensor->pll_configs->pll1_config;
 
 	switch (mbus_code) {
 	case MEDIA_BUS_FMT_SBGGR10_1X10:
@@ -1545,7 +1678,8 @@ static int ov8865_mode_pll2_configure(struct ov8865_sensor *sensor,
 	const struct ov8865_pll2_config *config;
 	int ret;
 
-	config = &mode->pll2_config[sensor->extclk_rate_idx];
+	config = mode->pll2_binning ? sensor->pll_configs->pll2_config_binning :
+				      sensor->pll_configs->pll2_config_native;
 
 	ret = ov8865_write(sensor, OV8865_PLL_CTRL12_REG,
 			   OV8865_PLL_CTRL12_PRE_DIV_HALF(config->pll_pre_div_half) |
@@ -1580,7 +1714,7 @@ static int ov8865_mode_pll2_configure(struct ov8865_sensor *sensor,
 static int ov8865_mode_sclk_configure(struct ov8865_sensor *sensor,
 				      const struct ov8865_mode *mode)
 {
-	const struct ov8865_sclk_config *config = mode->sclk_config;
+	const struct ov8865_sclk_config *config = &ov8865_sclk_config_native;
 	int ret;
 
 	ret = ov8865_write(sensor, OV8865_CLK_SEL0_REG,
@@ -1978,7 +2112,7 @@ static unsigned long ov8865_mode_mipi_clk_rate(struct ov8865_sensor *sensor,
 	const struct ov8865_pll1_config *config;
 	unsigned long pll1_rate;
 
-	config = &mode->pll1_config[sensor->extclk_rate_idx];
+	config = sensor->pll_configs->pll1_config;
 
 	pll1_rate = ov8865_mode_pll1_rate(sensor, mode);
 
@@ -2333,7 +2467,8 @@ static int ov8865_s_ctrl(struct v4l2_ctrl *ctrl)
 					 sensor->ctrls.exposure->minimum,
 					 exposure_max,
 					 sensor->ctrls.exposure->step,
-					 min(sensor->ctrls.exposure->val, exposure_max));
+					 min(sensor->ctrls.exposure->val,
+					     exposure_max));
 	}
 
 	/* Wait for the sensor to be on before setting controls. */
@@ -2398,7 +2533,8 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
 
 	/* Gain */
 
-	v4l2_ctrl_new_std(handler, ops, V4L2_CID_ANALOGUE_GAIN, 128, 8191, 128, 128);
+	v4l2_ctrl_new_std(handler, ops, V4L2_CID_ANALOGUE_GAIN, 128, 8191, 128,
+			  128);
 
 	/* White Balance */
 
@@ -2420,7 +2556,7 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
 				     0, 0, ov8865_test_pattern_menu);
 
 	/* Blanking */
-	hblank = mode->hts < mode->output_size_x ? 0 : mode->hts - mode->output_size_x;
+	hblank = mode->hts - mode->output_size_x;
 	ctrls->hblank = v4l2_ctrl_new_std(handler, ops, V4L2_CID_HBLANK, hblank,
 					  hblank, 1, hblank);
 
@@ -2505,11 +2641,18 @@ static int ov8865_g_frame_interval(struct v4l2_subdev *subdev,
 {
 	struct ov8865_sensor *sensor = ov8865_subdev_sensor(subdev);
 	const struct ov8865_mode *mode;
+	unsigned int framesize;
+	unsigned int fps;
 
 	mutex_lock(&sensor->mutex);
 
 	mode = sensor->state.mode;
-	interval->interval = mode->frame_interval;
+	framesize = mode->hts * (mode->output_size_y +
+				 sensor->ctrls.vblank->val);
+	fps = DIV_ROUND_CLOSEST(sensor->ctrls.pixel_rate->val, framesize);
+
+	interval->interval.numerator = 1;
+	interval->interval.denominator = fps;
 
 	mutex_unlock(&sensor->mutex);
 
@@ -2628,7 +2771,7 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
 				 OV8865_TIMING_MAX_VTS - mode->output_size_y,
 				 1, mode->vts - mode->output_size_y);
 
-	hblank = mode->hts < mode->output_size_x ? 0 : mode->hts - mode->output_size_x;
+	hblank = mode->hts - mode->output_size_x;
 	__v4l2_ctrl_modify_range(sensor->ctrls.hblank, hblank, hblank, 1,
 				 hblank);
 
@@ -2636,7 +2779,8 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
 	__v4l2_ctrl_modify_range(sensor->ctrls.exposure,
 				 sensor->ctrls.exposure->minimum, exposure_max,
 				 sensor->ctrls.exposure->step,
-				 min(sensor->ctrls.exposure->val, exposure_max));
+				 min(sensor->ctrls.exposure->val,
+				     exposure_max));
 
 complete:
 	mutex_unlock(&sensor->mutex);
@@ -2661,55 +2805,22 @@ static int ov8865_enum_frame_size(struct v4l2_subdev *subdev,
 	return 0;
 }
 
-static int ov8865_enum_frame_interval(struct v4l2_subdev *subdev,
-				      struct v4l2_subdev_state *sd_state,
-				      struct v4l2_subdev_frame_interval_enum *interval_enum)
-{
-	const struct ov8865_mode *mode = NULL;
-	unsigned int mode_index;
-	unsigned int interval_index;
-
-	if (interval_enum->index > 0)
-		return -EINVAL;
-	/*
-	 * Multiple modes with the same dimensions may have different frame
-	 * intervals, so look up each relevant mode.
-	 */
-	for (mode_index = 0, interval_index = 0;
-	     mode_index < ARRAY_SIZE(ov8865_modes); mode_index++) {
-		mode = &ov8865_modes[mode_index];
-
-		if (mode->output_size_x == interval_enum->width &&
-		    mode->output_size_y == interval_enum->height) {
-			if (interval_index == interval_enum->index)
-				break;
-
-			interval_index++;
-		}
-	}
-
-	if (mode_index == ARRAY_SIZE(ov8865_modes))
-		return -EINVAL;
-
-	interval_enum->interval = mode->frame_interval;
-
-	return 0;
-}
-
 static void
 __ov8865_get_pad_crop(struct ov8865_sensor *sensor,
 		      struct v4l2_subdev_state *state, unsigned int pad,
 		      enum v4l2_subdev_format_whence which, struct v4l2_rect *r)
 {
+	const struct ov8865_mode *mode = sensor->state.mode;
+
 	switch (which) {
 	case V4L2_SUBDEV_FORMAT_TRY:
 		*r = *v4l2_subdev_get_try_crop(&sensor->subdev, state, pad);
 		break;
 	case V4L2_SUBDEV_FORMAT_ACTIVE:
-		r->height = sensor->state.mode->output_size_y;
-		r->width = sensor->state.mode->output_size_x;
-		r->top = (OV8865_NATIVE_HEIGHT - sensor->state.mode->output_size_y) / 2;
-		r->left = (OV8865_NATIVE_WIDTH - sensor->state.mode->output_size_x) / 2;
+		r->height = mode->output_size_y;
+		r->width = mode->output_size_x;
+		r->top = (OV8865_NATIVE_HEIGHT - mode->output_size_y) / 2;
+		r->left = (OV8865_NATIVE_WIDTH - mode->output_size_x) / 2;
 		break;
 	}
 }
@@ -2752,8 +2863,8 @@ static const struct v4l2_subdev_pad_ops ov8865_subdev_pad_ops = {
 	.get_fmt		= ov8865_get_fmt,
 	.set_fmt		= ov8865_set_fmt,
 	.enum_frame_size	= ov8865_enum_frame_size,
-	.enum_frame_interval	= ov8865_enum_frame_interval,
 	.get_selection		= ov8865_get_selection,
+	.set_selection		= ov8865_get_selection,
 };
 
 static const struct v4l2_subdev_ops ov8865_subdev_ops = {
@@ -2829,7 +2940,6 @@ complete:
 static int ov8865_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
-	struct fwnode_handle *fwnode = dev_fwnode(dev);
 	struct fwnode_handle *handle;
 	struct ov8865_sensor *sensor;
 	struct v4l2_subdev *subdev;
@@ -2845,11 +2955,29 @@ static int ov8865_probe(struct i2c_client *client)
 	sensor->dev = dev;
 	sensor->i2c_client = client;
 
+	/* Regulators */
+
+	/* DVDD: digital core */
+	sensor->dvdd = devm_regulator_get(dev, "dvdd");
+	if (IS_ERR(sensor->dvdd))
+		return dev_err_probe(dev, PTR_ERR(sensor->dvdd),
+				     "cannot get DVDD regulator\n");
+
+	/* DOVDD: digital I/O */
+	sensor->dovdd = devm_regulator_get(dev, "dovdd");
+	if (IS_ERR(sensor->dovdd))
+		return dev_err_probe(dev, PTR_ERR(sensor->dovdd),
+				     "cannot get DOVDD regulator\n");
+
+	/* AVDD: analog */
+	sensor->avdd = devm_regulator_get(dev, "avdd");
+	if (IS_ERR(sensor->avdd))
+		return dev_err_probe(dev, PTR_ERR(sensor->avdd),
+				     "cannot get AVDD regulator\n");
+
 	/* Graph Endpoint */
 
-	handle = fwnode_graph_get_next_endpoint(fwnode, NULL);
-	if (!handle && !IS_ERR_OR_NULL(fwnode->secondary))
-		handle = fwnode_graph_get_next_endpoint(fwnode->secondary, NULL);
+	handle = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
 	if (!handle)
 		return -EPROBE_DEFER;
 
@@ -2877,32 +3005,6 @@ static int ov8865_probe(struct i2c_client *client)
 		goto error_endpoint;
 	}
 
-	/* Regulators */
-
-	/* DVDD: digital core */
-	sensor->dvdd = devm_regulator_get(dev, "dvdd");
-	if (IS_ERR(sensor->dvdd)) {
-		dev_err(dev, "cannot get DVDD (digital core) regulator\n");
-		ret = PTR_ERR(sensor->dvdd);
-		goto error_endpoint;
-	}
-
-	/* DOVDD: digital I/O */
-	sensor->dovdd = devm_regulator_get(dev, "dovdd");
-	if (IS_ERR(sensor->dovdd)) {
-		dev_err(dev, "cannot get DOVDD (digital I/O) regulator\n");
-		ret = PTR_ERR(sensor->dovdd);
-		goto error_endpoint;
-	}
-
-	/* AVDD: analog */
-	sensor->avdd = devm_regulator_get(dev, "avdd");
-	if (IS_ERR(sensor->avdd)) {
-		dev_err(dev, "cannot get AVDD (analog) regulator\n");
-		ret = PTR_ERR(sensor->avdd);
-		goto error_endpoint;
-	}
-
 	/* External Clock */
 
 	sensor->extclk = devm_clk_get(dev, NULL);
@@ -2915,11 +3017,11 @@ static int ov8865_probe(struct i2c_client *client)
 	/*
 	 * We could have either a 24MHz or 19.2MHz clock rate. Check for a
 	 * clock-frequency property and if found, set that rate. This should
-	 * cover ACPI case. If the system uses devicetree then the configured
-	 * rate should already be set, so we'll have to check it.
+	 * cover the ACPI case. If the system uses devicetree then the
+	 * configured rate should already be set, so we'll have to check it.
 	 */
-
-	ret = fwnode_property_read_u32(fwnode, "clock-frequency", &rate);
+	ret = fwnode_property_read_u32(dev_fwnode(dev), "clock-frequency",
+				       &rate);
 	if (!ret) {
 		ret = clk_set_rate(sensor->extclk, rate);
 		if (ret) {
@@ -2942,7 +3044,7 @@ static int ov8865_probe(struct i2c_client *client)
 		goto error_endpoint;
 	}
 
-	sensor->extclk_rate_idx = i;
+	sensor->pll_configs = ov8865_pll_configs[i];
 
 	/* Subdev, entity and pad */
 
@@ -2971,14 +3073,16 @@ static int ov8865_probe(struct i2c_client *client)
 	if (ret)
 		goto error_mutex;
 
+	mutex_lock(&sensor->mutex);
 	ret = ov8865_state_init(sensor);
+	mutex_unlock(&sensor->mutex);
 	if (ret)
 		goto error_ctrls;
 
 	/* Runtime PM */
 
-	pm_runtime_enable(sensor->dev);
 	pm_runtime_set_suspended(sensor->dev);
+	pm_runtime_enable(sensor->dev);
 
 	/* V4L2 subdev register */
 
@@ -3028,7 +3132,7 @@ static const struct dev_pm_ops ov8865_pm_ops = {
 
 static const struct acpi_device_id ov8865_acpi_match[] = {
 	{"INT347A"},
-	{},
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, ov8865_acpi_match);
 
