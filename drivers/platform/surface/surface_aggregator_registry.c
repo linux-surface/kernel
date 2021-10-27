@@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
 	.parent = &ssam_node_root,
 };
 
+/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
+static const struct software_node ssam_node_hub_kip = {
+	.name = "ssam:01:0e:01:00:00",
+	.parent = &ssam_node_root,
+};
+
 /* AC adapter. */
 static const struct software_node ssam_node_bat_ac = {
 	.name = "ssam:01:02:01:01:01",
@@ -155,6 +161,30 @@ static const struct software_node ssam_node_hid_base_iid6 = {
 	.parent = &ssam_node_hub_base,
 };
 
+/* HID keyboard (KIP hub). */
+static const struct software_node ssam_node_hid_kip_keyboard = {
+	.name = "ssam:01:15:02:01:00",
+	.parent = &ssam_node_hub_kip,
+};
+
+/* HID pen stash (KIP hub; pen taken / stashed away evens). */
+static const struct software_node ssam_node_hid_kip_penstash = {
+	.name = "ssam:01:15:02:02:00",
+	.parent = &ssam_node_hub_kip,
+};
+
+/* HID touchpad (KIP hub). */
+static const struct software_node ssam_node_hid_kip_touchpad = {
+	.name = "ssam:01:15:02:03:00",
+	.parent = &ssam_node_hub_kip,
+};
+
+/* HID device instance 5 (KIP hub, unknown HID device). */
+static const struct software_node ssam_node_hid_kip_iid5 = {
+	.name = "ssam:01:15:02:05:00",
+	.parent = &ssam_node_hub_kip,
+};
+
 /*
  * Devices for 5th- and 6th-generations models:
  * - Surface Book 2,
@@ -230,10 +260,15 @@ static const struct software_node *ssam_node_group_sp7[] = {
 
 static const struct software_node *ssam_node_group_sp8[] = {
 	&ssam_node_root,
+	&ssam_node_hub_kip,
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
 	&ssam_node_tmp_pprof,
-	/* TODO: Add support for keyboard cover. */
+	&ssam_node_hid_kip_keyboard,
+	&ssam_node_hid_kip_penstash,
+	&ssam_node_hid_kip_touchpad,
+	&ssam_node_hid_kip_iid5,
+	/* TODO: Add support for tablet mode switch. */
 	NULL,
 };
 
