@@ -156,6 +156,9 @@ static bool spwr_battery_present(struct spwr_battery_device *bat)
 {
 	lockdep_assert_held(&bat->lock);
 
+	if (ssam_device_is_hot_removed(bat->sdev))
+		return false;
+
 	return le32_to_cpu(bat->sta) & SAM_BATTERY_STA_PRESENT;
 }
 
@@ -244,6 +247,9 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
 	int status;
 
 	lockdep_assert_held(&bat->lock);
+
+	if (ssam_device_is_hot_removed(bat->sdev))
+		return 0;
 
 	status = spwr_battery_load_sta(bat);
 	if (status)
