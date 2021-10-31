@@ -640,7 +640,7 @@ static void ssam_kip_hub_update_workfn(struct work_struct *work)
 	if (hub->state == SSAM_KIP_HUB_CONNECTED)
 		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
 	else
-		ssam_hot_remove_clients(&hub->sdev->dev);
+		ssam_remove_clients(&hub->sdev->dev);
 
 	if (status)
 		dev_err(&hub->sdev->dev, "failed to update KIP-hub devices: %d\n", status);
