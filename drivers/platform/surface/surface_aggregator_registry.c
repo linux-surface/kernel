@@ -47,12 +47,6 @@ static const struct software_node ssam_node_hub_base = {
 	.parent = &ssam_node_root,
 };
 
-/* KIP device hub (keyboard cover on Surface Pro 8). */
-static const struct software_node ssam_node_hub_kip = {
-	.name = "ssam:01:0e:01:00:00",
-	.parent = &ssam_node_root,
-};
-
 /* AC adapter. */
 static const struct software_node ssam_node_bat_ac = {
 	.name = "ssam:01:02:01:01:01",
@@ -74,12 +68,6 @@ static const struct software_node ssam_node_bat_sb3base = {
 /* Platform profile / performance-mode device. */
 static const struct software_node ssam_node_tmp_pprof = {
 	.name = "ssam:01:03:01:00:01",
-	.parent = &ssam_node_root,
-};
-
-/* Tablet mode switch via KIP subsystem. */
-static const struct software_node ssam_node_kip_tablet_switch = {
-	.name = "ssam:01:0e:01:00:01",
 	.parent = &ssam_node_root,
 };
 
@@ -167,30 +155,6 @@ static const struct software_node ssam_node_hid_base_iid6 = {
 	.parent = &ssam_node_hub_base,
 };
 
-/* HID keyboard (KIP hub). */
-static const struct software_node ssam_node_hid_kip_keyboard = {
-	.name = "ssam:01:15:02:01:00",
-	.parent = &ssam_node_hub_kip,
-};
-
-/* HID pen stash (KIP hub; pen taken / stashed away evens). */
-static const struct software_node ssam_node_hid_kip_penstash = {
-	.name = "ssam:01:15:02:02:00",
-	.parent = &ssam_node_hub_kip,
-};
-
-/* HID touchpad (KIP hub). */
-static const struct software_node ssam_node_hid_kip_touchpad = {
-	.name = "ssam:01:15:02:03:00",
-	.parent = &ssam_node_hub_kip,
-};
-
-/* HID device instance 5 (KIP hub, unknown HID device). */
-static const struct software_node ssam_node_hid_kip_iid5 = {
-	.name = "ssam:01:15:02:05:00",
-	.parent = &ssam_node_hub_kip,
-};
-
 /*
  * Devices for 5th- and 6th-generations models:
  * - Surface Book 2,
@@ -264,20 +228,6 @@ static const struct software_node *ssam_node_group_sp7[] = {
 	NULL,
 };
 
-static const struct software_node *ssam_node_group_sp8[] = {
-	&ssam_node_root,
-	&ssam_node_hub_kip,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
-	&ssam_node_tmp_pprof,
-	&ssam_node_kip_tablet_switch,
-	&ssam_node_hid_kip_keyboard,
-	&ssam_node_hid_kip_penstash,
-	&ssam_node_hid_kip_touchpad,
-	&ssam_node_hid_kip_iid5,
-	NULL,
-};
-
 
 /* -- Device registry helper functions. ------------------------------------- */
 
@@ -297,6 +247,20 @@ static int ssam_uid_from_string(const char *str, struct ssam_device_uid *uid)
 	uid->function = fn;
 
 	return 0;
+}
+
+static int ssam_hub_remove_devices_fn(struct device *dev, void *data)
+{
+	if (!is_ssam_device(dev))
+		return 0;
+
+	ssam_device_remove(to_ssam_device(dev));
+	return 0;
+}
+
+static void ssam_hub_remove_devices(struct device *parent)
+{
+	device_for_each_child_reverse(parent, NULL, ssam_hub_remove_devices_fn);
 }
 
 static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ctrl,
@@ -324,8 +288,8 @@ static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ct
 	return status;
 }
 
-static int ssam_hub_register_clients(struct device *parent, struct ssam_controller *ctrl,
-				     struct fwnode_handle *node)
+static int ssam_hub_add_devices(struct device *parent, struct ssam_controller *ctrl,
+				struct fwnode_handle *node)
 {
 	struct fwnode_handle *child;
 	int status;
@@ -344,7 +308,7 @@ static int ssam_hub_register_clients(struct device *parent, struct ssam_controll
 
 	return 0;
 err:
-	ssam_remove_clients(parent);
+	ssam_hub_remove_devices(parent);
 	return status;
 }
 
@@ -439,9 +403,9 @@ static void ssam_base_hub_update_workfn(struct work_struct *work)
 	hub->state = state;
 
 	if (hub->state == SSAM_BASE_HUB_CONNECTED)
-		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
+		status = ssam_hub_add_devices(&hub->sdev->dev, hub->sdev->ctrl, node);
 	else
-		ssam_remove_clients(&hub->sdev->dev);
+		ssam_hub_remove_devices(&hub->sdev->dev);
 
 	if (status)
 		dev_err(&hub->sdev->dev, "failed to update base-hub devices: %d\n", status);
@@ -509,7 +473,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 
 	ssam_device_set_drvdata(sdev, hub);
 
-	status = ssam_device_notifier_register(sdev, &hub->notif);
+	status = ssam_notifier_register(sdev->ctrl, &hub->notif);
 	if (status)
 		return status;
 
@@ -521,9 +485,9 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
 	return 0;
 
 err:
-	ssam_device_notifier_unregister(sdev, &hub->notif);
+	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
 	cancel_delayed_work_sync(&hub->update_work);
-	ssam_remove_clients(&sdev->dev);
+	ssam_hub_remove_devices(&sdev->dev);
 	return status;
 }
 
@@ -533,9 +497,9 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
 
 	sysfs_remove_group(&sdev->dev.kobj, &ssam_base_hub_group);
 
-	ssam_device_notifier_unregister(sdev, &hub->notif);
+	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
 	cancel_delayed_work_sync(&hub->update_work);
-	ssam_remove_clients(&sdev->dev);
+	ssam_hub_remove_devices(&sdev->dev);
 }
 
 static const struct ssam_device_id ssam_base_hub_match[] = {
@@ -555,200 +519,6 @@ static struct ssam_device_driver ssam_base_hub_driver = {
 };
 
 
-/* -- SSAM KIP-subsystem hub driver. ---------------------------------------- */
-
-/*
- * Some devices may need a bit of time to be fully usable after being
- * (re-)connected. This delay has been determined via experimentation.
- */
-#define SSAM_KIP_UPDATE_CONNECT_DELAY		msecs_to_jiffies(250)
-
-#define SSAM_EVENT_KIP_CID_CONNECTION		0x2c
-
-enum ssam_kip_hub_state {
-	SSAM_KIP_HUB_UNINITIALIZED,
-	SSAM_KIP_HUB_CONNECTED,
-	SSAM_KIP_HUB_DISCONNECTED,
-};
-
-struct ssam_kip_hub {
-	struct ssam_device *sdev;
-
-	enum ssam_kip_hub_state state;
-	struct delayed_work update_work;
-
-	struct ssam_event_notifier notif;
-};
-
-SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_connection_state, u8, {
-	.target_category = SSAM_SSH_TC_KIP,
-	.target_id       = 0x01,
-	.command_id      = 0x2c,
-	.instance_id     = 0x00,
-});
-
-static int ssam_kip_get_connection_state(struct ssam_kip_hub *hub, enum ssam_kip_hub_state *state)
-{
-	int status;
-	u8 connected;
-
-	status = ssam_retry(__ssam_kip_get_connection_state, hub->sdev->ctrl, &connected);
-	if (status < 0) {
-		dev_err(&hub->sdev->dev, "failed to query KIP connection state: %d\n", status);
-		return status;
-	}
-
-	*state = connected ? SSAM_KIP_HUB_CONNECTED : SSAM_KIP_HUB_DISCONNECTED;
-	return 0;
-}
-
-static ssize_t ssam_kip_hub_state_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct ssam_kip_hub *hub = dev_get_drvdata(dev);
-	bool connected = hub->state == SSAM_KIP_HUB_CONNECTED;
-
-	return sysfs_emit(buf, "%d\n", connected);
-}
-
-static struct device_attribute ssam_kip_hub_attr_state =
-	__ATTR(state, 0444, ssam_kip_hub_state_show, NULL);
-
-static struct attribute *ssam_kip_hub_attrs[] = {
-	&ssam_kip_hub_attr_state.attr,
-	NULL,
-};
-
-static const struct attribute_group ssam_kip_hub_group = {
-	.attrs = ssam_kip_hub_attrs,
-};
-
-static void ssam_kip_hub_update_workfn(struct work_struct *work)
-{
-	struct ssam_kip_hub *hub = container_of(work, struct ssam_kip_hub, update_work.work);
-	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
-	enum ssam_kip_hub_state state;
-	int status = 0;
-
-	status = ssam_kip_get_connection_state(hub, &state);
-	if (status)
-		return;
-
-	if (hub->state == state)
-		return;
-	hub->state = state;
-
-	if (hub->state == SSAM_KIP_HUB_CONNECTED)
-		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
-	else
-		ssam_remove_clients(&hub->sdev->dev);
-
-	if (status)
-		dev_err(&hub->sdev->dev, "failed to update KIP-hub devices: %d\n", status);
-}
-
-static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
-{
-	struct ssam_kip_hub *hub = container_of(nf, struct ssam_kip_hub, notif);
-	unsigned long delay;
-
-	if (event->command_id != SSAM_EVENT_KIP_CID_CONNECTION)
-		return 0;	/* Return "unhandled". */
-
-	if (event->length < 1) {
-		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
-		return 0;
-	}
-
-	/*
-	 * Delay update when KIP devices are being connected to give devices/EC
-	 * some time to set up.
-	 */
-	delay = event->data[0] ? SSAM_KIP_UPDATE_CONNECT_DELAY : 0;
-
-	schedule_delayed_work(&hub->update_work, delay);
-
-	return SSAM_NOTIF_HANDLED;
-}
-
-static int __maybe_unused ssam_kip_hub_resume(struct device *dev)
-{
-	struct ssam_kip_hub *hub = dev_get_drvdata(dev);
-
-	schedule_delayed_work(&hub->update_work, 0);
-	return 0;
-}
-static SIMPLE_DEV_PM_OPS(ssam_kip_hub_pm_ops, NULL, ssam_kip_hub_resume);
-
-static int ssam_kip_hub_probe(struct ssam_device *sdev)
-{
-	struct ssam_kip_hub *hub;
-	int status;
-
-	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
-	if (!hub)
-		return -ENOMEM;
-
-	hub->sdev = sdev;
-	hub->state = SSAM_KIP_HUB_UNINITIALIZED;
-
-	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
-	hub->notif.base.fn = ssam_kip_hub_notif;
-	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
-	hub->notif.event.id.target_category = SSAM_SSH_TC_KIP,
-	hub->notif.event.id.instance = 0,
-	hub->notif.event.mask = SSAM_EVENT_MASK_TARGET;
-	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
-
-	INIT_DELAYED_WORK(&hub->update_work, ssam_kip_hub_update_workfn);
-
-	ssam_device_set_drvdata(sdev, hub);
-
-	status = ssam_device_notifier_register(sdev, &hub->notif);
-	if (status)
-		return status;
-
-	status = sysfs_create_group(&sdev->dev.kobj, &ssam_kip_hub_group);
-	if (status)
-		goto err;
-
-	schedule_delayed_work(&hub->update_work, 0);
-	return 0;
-
-err:
-	ssam_device_notifier_unregister(sdev, &hub->notif);
-	cancel_delayed_work_sync(&hub->update_work);
-	ssam_remove_clients(&sdev->dev);
-	return status;
-}
-
-static void ssam_kip_hub_remove(struct ssam_device *sdev)
-{
-	struct ssam_kip_hub *hub = ssam_device_get_drvdata(sdev);
-
-	sysfs_remove_group(&sdev->dev.kobj, &ssam_kip_hub_group);
-
-	ssam_device_notifier_unregister(sdev, &hub->notif);
-	cancel_delayed_work_sync(&hub->update_work);
-	ssam_remove_clients(&sdev->dev);
-}
-
-static const struct ssam_device_id ssam_kip_hub_match[] = {
-	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00) },
-	{ },
-};
-
-static struct ssam_device_driver ssam_kip_hub_driver = {
-	.probe = ssam_kip_hub_probe,
-	.remove = ssam_kip_hub_remove,
-	.match_table = ssam_kip_hub_match,
-	.driver = {
-		.name = "surface_kip_hub",
-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-		.pm = &ssam_kip_hub_pm_ops,
-	},
-};
-
-
 /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
 
 static const struct acpi_device_id ssam_platform_hub_match[] = {
@@ -763,9 +533,6 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
 
 	/* Surface Pro 7+ */
 	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
-
-	/* Surface Pro 8 */
-	{ "MSHW0263", (unsigned long)ssam_node_group_sp8 },
 
 	/* Surface Book 2 */
 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
@@ -832,7 +599,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
 
 	set_secondary_fwnode(&pdev->dev, root);
 
-	status = ssam_hub_register_clients(&pdev->dev, ctrl, root);
+	status = ssam_hub_add_devices(&pdev->dev, ctrl, root);
 	if (status) {
 		set_secondary_fwnode(&pdev->dev, NULL);
 		software_node_unregister_node_group(nodes);
@@ -846,7 +613,7 @@ static int ssam_platform_hub_remove(struct platform_device *pdev)
 {
 	const struct software_node **nodes = platform_get_drvdata(pdev);
 
-	ssam_remove_clients(&pdev->dev);
+	ssam_hub_remove_devices(&pdev->dev);
 	set_secondary_fwnode(&pdev->dev, NULL);
 	software_node_unregister_node_group(nodes);
 	return 0;
@@ -871,30 +638,18 @@ static int __init ssam_device_hub_init(void)
 
 	status = platform_driver_register(&ssam_platform_hub_driver);
 	if (status)
-		goto err_platform;
+		return status;
 
 	status = ssam_device_driver_register(&ssam_base_hub_driver);
 	if (status)
-		goto err_base;
+		platform_driver_unregister(&ssam_platform_hub_driver);
 
-	status = ssam_device_driver_register(&ssam_kip_hub_driver);
-	if (status)
-		goto err_kip;
-
-	return 0;
-
-err_kip:
-	ssam_device_driver_unregister(&ssam_base_hub_driver);
-err_base:
-	platform_driver_unregister(&ssam_platform_hub_driver);
-err_platform:
 	return status;
 }
 module_init(ssam_device_hub_init);
 
 static void __exit ssam_device_hub_exit(void)
 {
-	ssam_device_driver_unregister(&ssam_kip_hub_driver);
 	ssam_device_driver_unregister(&ssam_base_hub_driver);
 	platform_driver_unregister(&ssam_platform_hub_driver);
 }

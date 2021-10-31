@@ -22,7 +22,6 @@
 #include <linux/sysfs.h>
 
 #include <linux/surface_aggregator/controller.h>
-#include <linux/surface_aggregator/device.h>
 
 #include "bus.h"
 #include "controller.h"
@@ -743,7 +742,7 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 	ssam_controller_lock(ctrl);
 
 	/* Remove all client devices. */
-	ssam_remove_clients(&serdev->dev);
+	ssam_controller_remove_clients(ctrl);
 
 	/* Act as if suspending to silence events. */
 	status = ssam_ctrl_notif_display_off(ctrl);
