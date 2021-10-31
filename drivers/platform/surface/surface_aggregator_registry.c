@@ -47,7 +47,7 @@ static const struct software_node ssam_node_hub_base = {
 	.parent = &ssam_node_root,
 };
 
-/* KIP device hub (keyboard cover on Surface Pro 8). */
+/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
 static const struct software_node ssam_node_hub_kip = {
 	.name = "ssam:01:0e:01:00:00",
 	.parent = &ssam_node_root,
@@ -77,7 +77,7 @@ static const struct software_node ssam_node_tmp_pprof = {
 	.parent = &ssam_node_root,
 };
 
-/* Tablet mode switch via KIP subsystem. */
+/* Tablet-mode switch via KIP subsystem. */
 static const struct software_node ssam_node_kip_tablet_switch = {
 	.name = "ssam:01:0e:01:00:01",
 	.parent = &ssam_node_root,
@@ -605,9 +605,33 @@ static int ssam_kip_get_connection_state(struct ssam_kip_hub *hub, enum ssam_kip
 static ssize_t ssam_kip_hub_state_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct ssam_kip_hub *hub = dev_get_drvdata(dev);
-	bool connected = hub->state == SSAM_KIP_HUB_CONNECTED;
+	const char *state;
 
-	return sysfs_emit(buf, "%d\n", connected);
+	switch (hub->state) {
+	case SSAM_KIP_HUB_UNINITIALIZED:
+		state = "uninitialized";
+		break;
+
+	case SSAM_KIP_HUB_CONNECTED:
+		state = "connected";
+		break;
+
+	case SSAM_KIP_HUB_DISCONNECTED:
+		state = "disconnected";
+		break;
+
+	default:
+		/*
+		 * Any value not handled in the above cases is invalid and
+		 * should never have been set. Thus this case should be
+		 * impossible to reach.
+		 */
+		WARN(1, "invalid KIP hub state: %d\n", hub->state);
+		state = "<invalid>";
+		break;
+	}
+
+	return sysfs_emit(buf, "%s\n", state);
 }
 
 static struct device_attribute ssam_kip_hub_attr_state =
@@ -664,7 +688,6 @@ static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_
 	 * some time to set up.
 	 */
 	delay = event->data[0] ? SSAM_KIP_UPDATE_CONNECT_DELAY : 0;
-
 	schedule_delayed_work(&hub->update_work, delay);
 
 	return SSAM_NOTIF_HANDLED;

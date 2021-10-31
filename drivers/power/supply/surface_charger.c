@@ -69,9 +69,6 @@ static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 	__le32 old = ac->state;
 	int status;
 
-	if (ssam_device_is_hot_removed(ac->sdev))
-		return -ENODEV;
-
 	lockdep_assert_held(&ac->lock);
 
 	status = ssam_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
@@ -106,6 +103,7 @@ static int spwr_ac_recheck(struct spwr_ac_device *ac)
 static u32 spwr_notify_ac(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
 	struct spwr_ac_device *ac;
+	int status;
 
 	ac = container_of(nf, struct spwr_ac_device, notif);
 
@@ -123,12 +121,8 @@ static u32 spwr_notify_ac(struct ssam_event_notifier *nf, const struct ssam_even
 
 	switch (event->command_id) {
 	case SAM_EVENT_CID_BAT_ADP:
-		/*
-		 * Any errors here should not be critical and logged in the
-		 * corresponding functions, so ignore them.
-		 */
-		spwr_ac_recheck(ac);
-		return SSAM_NOTIF_HANDLED;
+		status = spwr_ac_recheck(ac);
+		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 
 	default:
 		return 0;

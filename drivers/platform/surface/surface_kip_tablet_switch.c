@@ -58,34 +58,39 @@ static int ssam_kip_get_lid_state(struct ssam_kip_sw *sw, enum ssam_kip_lid_stat
 	return 0;
 }
 
-static const char* ssam_kip_lid_state_str(enum ssam_kip_lid_state state)
-{
-	switch (state) {
-	case SSAM_KIP_LID_STATE_DISCONNECTED:
-		return "disconnected";
-
-	case SSAM_KIP_LID_STATE_CLOSED:
-		return "closed";
-
-	case SSAM_KIP_LID_STATE_LAPTOP:
-		return "laptop";
-
-	case SSAM_KIP_LID_STATE_FOLDED_CANVAS:
-		return "folded-canvas";
-
-	case SSAM_KIP_LID_STATE_FOLDED_BACK:
-		return "folded-back";
-
-	default:
-		return "<unknown>";
-	}
-}
-
 static ssize_t state_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct ssam_kip_sw *sw = dev_get_drvdata(dev);
+	const char *state;
 
-	return sysfs_emit(buf, "%s\n", ssam_kip_lid_state_str(sw->state));
+	switch (sw->state) {
+	case SSAM_KIP_LID_STATE_DISCONNECTED:
+		state = "disconnected";
+		break;
+
+	case SSAM_KIP_LID_STATE_CLOSED:
+		state = "closed";
+		break;
+
+	case SSAM_KIP_LID_STATE_LAPTOP:
+		state = "laptop";
+		break;
+
+	case SSAM_KIP_LID_STATE_FOLDED_CANVAS:
+		state = "folded-canvas";
+		break;
+
+	case SSAM_KIP_LID_STATE_FOLDED_BACK:
+		state = "folded-back";
+		break;
+
+	default:
+		state = "<unknown>";
+		dev_warn(dev, "unknown KIP lid state: %d\n", sw->state);
+		break;
+	}
+
+	return sysfs_emit(buf, "%s\n", state);
 }
 static DEVICE_ATTR_RO(state);
 
@@ -110,7 +115,6 @@ static void ssam_kip_sw_update_workfn(struct work_struct *work)
 
 	if (sw->state == state)
 		return;
-
 	sw->state = state;
 
 	/* Send SW_TABLET_MODE event. */
@@ -132,7 +136,6 @@ static u32 ssam_kip_sw_notif(struct ssam_event_notifier *nf, const struct ssam_e
 	}
 
 	schedule_work(&sw->update_work);
-
 	return SSAM_NOTIF_HANDLED;
 }
 

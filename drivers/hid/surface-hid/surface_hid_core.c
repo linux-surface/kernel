@@ -113,7 +113,7 @@ static void surface_hid_stop(struct hid_device *hid)
 
 	/*
 	 * Communication may fail for devices that have been hot-removed. This
-	 * also includes registration of HID events, so we need to check this
+	 * also includes unregistration of HID events, so we need to check this
 	 * here. Only if the device has not been marked as hot-removed, we can
 	 * safely disable events.
 	 */

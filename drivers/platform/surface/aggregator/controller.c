@@ -2206,7 +2206,7 @@ static int ssam_nf_refcount_enable(struct ssam_controller *ctrl,
  * @flags: The flags used for enabling the event on the EC.
  * @ec:    Flag specifying if the event should actually be disabled on the EC.
  *
- * If ``ec`` equals ``true`` and the reference count equals zero (i.e.  the
+ * If ``ec`` equals ``true`` and the reference count equals zero (i.e. the
  * event is no longer requested by any client), the specified event will be
  * disabled on the EC via the corresponding request.
  *
