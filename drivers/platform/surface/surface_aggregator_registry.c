@@ -41,13 +41,7 @@ static const struct software_node ssam_node_root = {
 	.name = "ssam_platform_hub",
 };
 
-/* Base device hub (devices attached to Surface Book 3 base). */
-static const struct software_node ssam_node_hub_base = {
-	.name = "ssam:00:00:02:00:00",
-	.parent = &ssam_node_root,
-};
-
-/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
+/* KIP device hub (connects detachable keyboard/touchpad on Surface Pro 8 and Book 3). */
 static const struct software_node ssam_node_hub_kip = {
 	.name = "ssam:01:0e:01:00:00",
 	.parent = &ssam_node_root,
@@ -65,10 +59,10 @@ static const struct software_node ssam_node_bat_main = {
 	.parent = &ssam_node_root,
 };
 
-/* Secondary battery (Surface Book 3). */
-static const struct software_node ssam_node_bat_sb3base = {
+/* Secondary battery (Surface Book 3, managed via KIP hub). */
+static const struct software_node ssam_node_bat_kip = {
 	.name = "ssam:01:02:02:01:00",
-	.parent = &ssam_node_hub_base,
+	.parent = &ssam_node_hub_kip,
 };
 
 /* Platform profile / performance-mode device. */
@@ -143,30 +137,6 @@ static const struct software_node ssam_node_hid_main_iid5 = {
 	.parent = &ssam_node_root,
 };
 
-/* HID keyboard (base hub). */
-static const struct software_node ssam_node_hid_base_keyboard = {
-	.name = "ssam:01:15:02:01:00",
-	.parent = &ssam_node_hub_base,
-};
-
-/* HID touchpad (base hub). */
-static const struct software_node ssam_node_hid_base_touchpad = {
-	.name = "ssam:01:15:02:03:00",
-	.parent = &ssam_node_hub_base,
-};
-
-/* HID device instance 5 (unknown HID device, base hub). */
-static const struct software_node ssam_node_hid_base_iid5 = {
-	.name = "ssam:01:15:02:05:00",
-	.parent = &ssam_node_hub_base,
-};
-
-/* HID device instance 6 (unknown HID device, base hub). */
-static const struct software_node ssam_node_hid_base_iid6 = {
-	.name = "ssam:01:15:02:06:00",
-	.parent = &ssam_node_hub_base,
-};
-
 /* HID keyboard (KIP hub). */
 static const struct software_node ssam_node_hid_kip_keyboard = {
 	.name = "ssam:01:15:02:01:00",
@@ -191,6 +161,12 @@ static const struct software_node ssam_node_hid_kip_iid5 = {
 	.parent = &ssam_node_hub_kip,
 };
 
+/* HID device instance 6 (KIP hub, unknown HID device). */
+static const struct software_node ssam_node_hid_kip_iid6 = {
+	.name = "ssam:01:15:02:06:00",
+	.parent = &ssam_node_hub_kip,
+};
+
 /*
  * Devices for 5th- and 6th-generations models:
  * - Surface Book 2,
@@ -206,16 +182,16 @@ static const struct software_node *ssam_node_group_gen5[] = {
 /* Devices for Surface Book 3. */
 static const struct software_node *ssam_node_group_sb3[] = {
 	&ssam_node_root,
-	&ssam_node_hub_base,
+	&ssam_node_hub_kip,
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
-	&ssam_node_bat_sb3base,
+	&ssam_node_bat_kip,
 	&ssam_node_tmp_pprof,
 	&ssam_node_bas_dtx,
-	&ssam_node_hid_base_keyboard,
-	&ssam_node_hid_base_touchpad,
-	&ssam_node_hid_base_iid5,
-	&ssam_node_hid_base_iid6,
+	&ssam_node_hid_kip_keyboard,
+	&ssam_node_hid_kip_touchpad,
+	&ssam_node_hid_kip_iid5,
+	&ssam_node_hid_kip_iid6,
 	NULL,
 };
 
