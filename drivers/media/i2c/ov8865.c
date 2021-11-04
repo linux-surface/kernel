@@ -143,6 +143,7 @@
 #define OV8865_EXPOSURE_CTRL_L_REG		0x3502
 #define OV8865_EXPOSURE_CTRL_L(v)		((v) & GENMASK(7, 0))
 #define OV8865_EXPOSURE_GAIN_MANUAL_REG		0x3503
+#define OV8865_INTEGRATION_TIME_MARGIN		8
 
 #define OV8865_GAIN_CTRL_H_REG			0x3508
 #define OV8865_GAIN_CTRL_H(v)			(((v) & GENMASK(12, 8)) >> 8)
@@ -2462,7 +2463,8 @@ static int ov8865_s_ctrl(struct v4l2_ctrl *ctrl)
 	if (ctrl->id == V4L2_CID_VBLANK) {
 		int exposure_max;
 
-		exposure_max = sensor->state.mode->output_size_y + ctrl->val;
+		exposure_max = sensor->state.mode->output_size_y + ctrl->val -
+			       OV8865_INTEGRATION_TIME_MARGIN;
 		__v4l2_ctrl_modify_range(sensor->ctrls.exposure,
 					 sensor->ctrls.exposure->minimum,
 					 exposure_max,
