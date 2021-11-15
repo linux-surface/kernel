@@ -416,6 +416,16 @@ static const struct attribute_group ssam_kip_hub_group = {
 	.attrs = ssam_kip_hub_attrs,
 };
 
+static int ssam_kip_hub_mark_hot_removed(struct device *dev, void *_data)
+{
+	struct ssam_device *sdev = to_ssam_device(dev);
+
+	if (is_ssam_device(dev))
+		ssam_device_mark_hot_removed(sdev);
+
+	return 0;
+}
+
 static void ssam_kip_hub_update_workfn(struct work_struct *work)
 {
 	struct ssam_kip_hub *hub = container_of(work, struct ssam_kip_hub, update_work.work);
@@ -434,7 +444,7 @@ static void ssam_kip_hub_update_workfn(struct work_struct *work)
 	if (hub->state == SSAM_KIP_HUB_CONNECTED)
 		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
 	else
-		ssam_hot_remove_clients(&hub->sdev->dev);
+		ssam_remove_clients(&hub->sdev->dev);
 
 	if (status)
 		dev_err(&hub->sdev->dev, "failed to update KIP-hub devices: %d\n", status);
@@ -453,13 +463,17 @@ static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_
 		return 0;
 	}
 
+	/* Mark devices as hot-removed before we remove any */
+	if (!event->data[0])
+		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_kip_hub_mark_hot_removed);
+
 	/*
 	 * Delay update when KIP devices are being connected to give devices/EC
 	 * some time to set up.
 	 */
 	delay = event->data[0] ? SSAM_KIP_UPDATE_CONNECT_DELAY : 0;
-	schedule_delayed_work(&hub->update_work, delay);
 
+	schedule_delayed_work(&hub->update_work, delay);
 	return SSAM_NOTIF_HANDLED;
 }
 
