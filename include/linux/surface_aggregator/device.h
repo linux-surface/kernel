@@ -365,10 +365,8 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
 
 #ifdef CONFIG_SURFACE_AGGREGATOR_BUS
 void ssam_remove_clients(struct device *dev);
-void ssam_hot_remove_clients(struct device *dev);
 #else /* CONFIG_SURFACE_AGGREGATOR_BUS */
 static inline void ssam_remove_clients(struct device *dev) {}
-static inline void ssam_hot_remove_clients(struct device *dev) {}
 #endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
 
 
