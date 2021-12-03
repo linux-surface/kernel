@@ -66,6 +66,14 @@ config MAX8925_POWER
 	  Say Y here to enable support for the battery charger in the Maxim
 	  MAX8925 PMIC.
 
+config QCOM_PMIC_GLINK_POWER
+	tristate "Qualcomm PMIC GLINK power supply driver"
+	depends on QCOM_PMIC_GLINK
+	help
+	  Say Y here to enable the Qualcomm PMIC GLINK power supply driver,
+	  which is used on modern Qualcomm platforms to provide battery and
+	  power supply information.
+
 config WM831X_BACKUP
 	tristate "WM831X backup battery charger support"
 	depends on MFD_WM831X
