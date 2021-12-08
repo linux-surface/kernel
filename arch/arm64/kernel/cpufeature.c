@@ -1956,6 +1956,7 @@ static bool has_address_auth_metacap(const struct arm64_cpu_capabilities *entry,
 	bool apa = has_address_auth_cpucap(cpu_hwcaps_ptrs[ARM64_HAS_ADDRESS_AUTH_ARCH_QARMA5], scope);
 	bool apa3 = has_address_auth_cpucap(cpu_hwcaps_ptrs[ARM64_HAS_ADDRESS_AUTH_ARCH_QARMA3], scope);
 
+	return false;
 	return apa || apa3 || api;
 }
 
@@ -1966,6 +1967,7 @@ static bool has_generic_auth(const struct arm64_cpu_capabilities *entry,
 	bool gpa = __system_matches_cap(ARM64_HAS_GENERIC_AUTH_ARCH_QARMA5);
 	bool gpa3 = __system_matches_cap(ARM64_HAS_GENERIC_AUTH_ARCH_QARMA3);
 
+	return false;
 	return gpa || gpa3 || gpi;
 }
 #endif /* CONFIG_ARM64_PTR_AUTH */
