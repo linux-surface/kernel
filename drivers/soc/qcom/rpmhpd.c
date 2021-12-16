@@ -30,7 +30,6 @@
  * @active_only:	True if it represents an Active only peer
  * @corner:		current corner
  * @active_corner:	current active corner
- * @enable_corner:	lowest non-zero corner
  * @level:		An array of level (vlvl) to corner (hlvl) mappings
  *			derived from cmd-db
  * @level_count:	Number of levels supported by the power domain. max
@@ -48,7 +47,6 @@ struct rpmhpd {
 	const bool	active_only;
 	unsigned int	corner;
 	unsigned int	active_corner;
-	unsigned int	enable_corner;
 	u32		level[RPMH_ARC_MAX_LEVELS];
 	size_t		level_count;
 	bool		enabled;
@@ -528,13 +526,13 @@ static int rpmhpd_aggregate_corner(struct rpmhpd *pd, unsigned int corner)
 static int rpmhpd_power_on(struct generic_pm_domain *domain)
 {
 	struct rpmhpd *pd = domain_to_rpmhpd(domain);
-	unsigned int corner;
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&rpmhpd_lock);
 
-	corner = max(pd->corner, pd->enable_corner);
-	ret = rpmhpd_aggregate_corner(pd, corner);
+	if (pd->corner)
+		ret = rpmhpd_aggregate_corner(pd, pd->corner);
+
 	if (!ret)
 		pd->enabled = true;
 
@@ -579,10 +577,6 @@ static int rpmhpd_set_performance_state(struct generic_pm_domain *domain,
 		i--;
 
 	if (pd->enabled) {
-		/* Ensure that the domain isn't turn off */
-		if (i < pd->enable_corner)
-			i = pd->enable_corner;
-
 		ret = rpmhpd_aggregate_corner(pd, i);
 		if (ret)
 			goto out;
@@ -618,10 +612,6 @@ static int rpmhpd_update_level_mapping(struct rpmhpd *rpmhpd)
 
 	for (i = 0; i < rpmhpd->level_count; i++) {
 		rpmhpd->level[i] = buf[i];
-
-		/* Remember the first corner with non-zero level */
-		if (!rpmhpd->level[rpmhpd->enable_corner] && rpmhpd->level[i])
-			rpmhpd->enable_corner = i;
 
 		/*
 		 * The AUX data may be zero padded.  These 0 valued entries at
