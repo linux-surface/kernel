@@ -100,6 +100,7 @@ MODULE_ALIAS_SCSI_DEVICE(TYPE_ZBC);
 #define SD_MINORS	16
 
 static void sd_config_discard(struct scsi_disk *, enum sd_lbp_mode);
+static void sd_config_write_zeroes(struct scsi_disk *, enum sd_zeroing_mode);
 static void sd_config_write_same(struct scsi_disk *);
 static int  sd_revalidate_disk(struct gendisk *);
 static void sd_unlock_native_capacity(struct gendisk *disk);
@@ -423,10 +424,12 @@ static DEVICE_ATTR_RW(provisioning_mode);
 
 /* sysfs_match_string() requires dense arrays */
 static const char *zeroing_mode[] = {
+	[SD_ZERO_DEFAULT]	= "default",
 	[SD_ZERO_WRITE]		= "write",
 	[SD_ZERO_WS]		= "writesame",
 	[SD_ZERO_WS16_UNMAP]	= "writesame_16_unmap",
 	[SD_ZERO_WS10_UNMAP]	= "writesame_10_unmap",
+	[SD_ZERO_DISABLE]	= "disabled",
 };
 
 static ssize_t
@@ -452,7 +455,12 @@ zeroing_mode_store(struct device *dev, struct device_attribute *attr,
 	if (mode < 0)
 		return -EINVAL;
 
-	sdkp->zeroing_mode = mode;
+	if (mode == SD_ZERO_DEFAULT)
+		sdkp->zeroing_override = false;
+	else
+		sdkp->zeroing_override = true;
+
+	sd_config_write_zeroes(sdkp, mode);
 
 	return count;
 }
@@ -1015,6 +1023,31 @@ static blk_status_t sd_setup_write_same10_cmnd(struct scsi_cmnd *cmd,
 	return scsi_alloc_sgtables(cmd);
 }
 
+static void sd_config_write_zeroes(struct scsi_disk *sdkp,
+				   enum sd_zeroing_mode mode)
+{
+	struct request_queue *q = sdkp->disk->queue;
+	unsigned int logical_block_size = sdkp->device->sector_size;
+
+	if (mode == SD_ZERO_DEFAULT && !sdkp->zeroing_override) {
+		if (sdkp->lbprz && sdkp->lbpws)
+			mode = SD_ZERO_WS16_UNMAP;
+		else if (sdkp->lbprz && sdkp->lbpws10)
+			mode = SD_ZERO_WS10_UNMAP;
+		else if (sdkp->max_ws_blocks)
+			mode = SD_ZERO_WS;
+		else
+			mode = SD_ZERO_WRITE;
+	}
+
+	if (mode == SD_ZERO_DISABLE)
+		sdkp->zeroing_override = true;
+
+	sdkp->zeroing_mode = mode;
+	blk_queue_max_write_zeroes_sectors(q, sdkp->max_ws_blocks *
+					   (logical_block_size >> 9));
+}
+
 static blk_status_t sd_setup_write_zeroes_cmnd(struct scsi_cmnd *cmd)
 {
 	struct request *rq = scsi_cmd_to_rq(cmd);
@@ -1045,12 +1078,11 @@ static blk_status_t sd_setup_write_zeroes_cmnd(struct scsi_cmnd *cmd)
 
 static void sd_config_write_same(struct scsi_disk *sdkp)
 {
-	struct request_queue *q = sdkp->disk->queue;
 	unsigned int logical_block_size = sdkp->device->sector_size;
 
 	if (sdkp->device->no_write_same) {
 		sdkp->max_ws_blocks = 0;
-		goto out;
+		return;
 	}
 
 	/* Some devices can not handle block counts above 0xffff despite
@@ -1068,15 +1100,6 @@ static void sd_config_write_same(struct scsi_disk *sdkp)
 		sdkp->device->no_write_same = 1;
 		sdkp->max_ws_blocks = 0;
 	}
-
-	if (sdkp->lbprz && sdkp->lbpws)
-		sdkp->zeroing_mode = SD_ZERO_WS16_UNMAP;
-	else if (sdkp->lbprz && sdkp->lbpws10)
-		sdkp->zeroing_mode = SD_ZERO_WS10_UNMAP;
-	else if (sdkp->max_ws_blocks)
-		sdkp->zeroing_mode = SD_ZERO_WS;
-	else
-		sdkp->zeroing_mode = SD_ZERO_WRITE;
 
 	if (sdkp->max_ws_blocks &&
 	    sdkp->physical_block_size > logical_block_size) {
@@ -1097,10 +1120,6 @@ static void sd_config_write_same(struct scsi_disk *sdkp)
 				   bytes_to_logical(sdkp->device,
 						    sdkp->physical_block_size));
 	}
-
-out:
-	blk_queue_max_write_zeroes_sectors(q, sdkp->max_ws_blocks *
-					 (logical_block_size >> 9));
 }
 
 static blk_status_t sd_setup_flush_cmnd(struct scsi_cmnd *cmd)
@@ -2097,6 +2116,8 @@ static int sd_done(struct scsi_cmnd *SCpnt)
 			case WRITE_SAME:
 				if (SCpnt->cmnd[1] & 8) { /* UNMAP */
 					sd_config_discard(sdkp, SD_LBP_DISABLE);
+					sd_config_write_zeroes(sdkp,
+							       SD_ZERO_DISABLE);
 				} else {
 					sdkp->device->no_write_same = 1;
 					sd_config_write_same(sdkp);
@@ -3332,7 +3353,9 @@ static int sd_revalidate_disk(struct gendisk *disk)
 		sd_read_write_same(sdkp, buffer);
 		sd_read_security(sdkp, buffer);
 		sd_config_protection(sdkp);
+		sd_config_write_same(sdkp);
 		sd_config_discard(sdkp, SD_LBP_DEFAULT);
+		sd_config_write_zeroes(sdkp, SD_ZERO_DEFAULT);
 	}
 
 	/*
@@ -3378,7 +3401,6 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	sdkp->first_scan = 0;
 
 	set_capacity_and_notify(disk, logical_to_sectors(sdp, sdkp->capacity));
-	sd_config_write_same(sdkp);
 	kfree(buffer);
 
 	/*
