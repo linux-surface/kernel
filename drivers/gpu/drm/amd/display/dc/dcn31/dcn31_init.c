@@ -101,6 +101,7 @@ static const struct hw_sequencer_funcs dcn31_funcs = {
 	.z10_restore = dcn31_z10_restore,
 	.z10_save_init = dcn31_z10_save_init,
 	.set_disp_pattern_generator = dcn30_set_disp_pattern_generator,
+	.exit_optimized_pwr_state = dcn21_exit_optimized_pwr_state,
 	.update_visual_confirm_color = dcn20_update_visual_confirm_color,
 };
 
@@ -137,6 +138,7 @@ static const struct hwseq_private_funcs dcn31_private_funcs = {
 	.dccg_init = dcn20_dccg_init,
 	.set_blend_lut = dcn30_set_blend_lut,
 	.set_shaper_3dlut = dcn20_set_shaper_3dlut,
+	.setup_hpo_hw_control = dcn31_setup_hpo_hw_control,
 };
 
 void dcn31_hw_sequencer_construct(struct dc *dc)
