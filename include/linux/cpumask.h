@@ -576,6 +576,56 @@ static inline unsigned int cpumask_weight(const struct cpumask *srcp)
 }
 
 /**
+ * cpumask_weight_eq - Check if # of bits in *srcp is equal to a given number
+ * @srcp: the cpumask to count bits (< nr_cpu_ids) in.
+ * @num: the number to check.
+ */
+static inline bool cpumask_weight_eq(const struct cpumask *srcp, unsigned int num)
+{
+	return bitmap_weight_eq(cpumask_bits(srcp), nr_cpumask_bits, num);
+}
+
+/**
+ * cpumask_weight_gt - Check if # of bits in *srcp is greater than a given number
+ * @srcp: the cpumask to count bits (< nr_cpu_ids) in.
+ * @num: the number to check.
+ */
+static inline bool cpumask_weight_gt(const struct cpumask *srcp, int num)
+{
+	return bitmap_weight_gt(cpumask_bits(srcp), nr_cpumask_bits, num);
+}
+
+/**
+ * cpumask_weight_ge - Check if # of bits in *srcp is greater than or equal to a given number
+ * @srcp: the cpumask to count bits (< nr_cpu_ids) in.
+ * @num: the number to check.
+ */
+static inline bool cpumask_weight_ge(const struct cpumask *srcp, int num)
+{
+	return bitmap_weight_ge(cpumask_bits(srcp), nr_cpumask_bits, num);
+}
+
+/**
+ * cpumask_weight_lt - Check if # of bits in *srcp is less than a given number
+ * @srcp: the cpumask to count bits (< nr_cpu_ids) in.
+ * @num: the number to check.
+ */
+static inline bool cpumask_weight_lt(const struct cpumask *srcp, int num)
+{
+	return bitmap_weight_lt(cpumask_bits(srcp), nr_cpumask_bits, num);
+}
+
+/**
+ * cpumask_weight_le - Check if # of bits in *srcp is less than or equal to a given number
+ * @srcp: the cpumask to count bits (< nr_cpu_ids) in.
+ * @num: the number to check.
+ */
+static inline bool cpumask_weight_le(const struct cpumask *srcp, int num)
+{
+	return bitmap_weight_le(cpumask_bits(srcp), nr_cpumask_bits, num);
+}
+
+/**
  * cpumask_shift_right - *dstp = *srcp >> n
  * @dstp: the cpumask result
  * @srcp: the input to shift
