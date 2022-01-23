@@ -90,7 +90,7 @@ static unsigned int down_and_up_cpus(const struct cpumask *cpus,
 		 * cpu_down() checks the number of online CPUs before the TOS
 		 * resident CPU.
 		 */
-		if (cpumask_weight(offlined_cpus) + 1 == nb_available_cpus) {
+		if (cpumask_weight_eq(offlined_cpus, nb_available_cpus - 1)) {
 			if (ret != -EBUSY) {
 				pr_err("Unexpected return code %d while trying "
 				       "to power down last online CPU %d\n",
