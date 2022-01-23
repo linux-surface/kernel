@@ -155,8 +155,8 @@ static int msb_validate_used_block_bitmap(struct msb_data *msb)
 	for (i = 0; i < msb->zone_count; i++)
 		total_free_blocks += msb->free_block_count[i];
 
-	if (msb->block_count - bitmap_weight(msb->used_blocks_bitmap,
-					msb->block_count) == total_free_blocks)
+	if (bitmap_weight_eq(msb->used_blocks_bitmap, msb->block_count,
+				msb->block_count - total_free_blocks))
 		return 0;
 
 	pr_err("BUG: free block counts don't match the bitmap");
