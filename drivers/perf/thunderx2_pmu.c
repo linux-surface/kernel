@@ -623,8 +623,8 @@ static void tx2_uncore_event_start(struct perf_event *event, int flags)
 		return;
 
 	/* Start timer for first event */
-	if (bitmap_weight(tx2_pmu->active_counters,
-				tx2_pmu->max_counters) == 1) {
+	if (bitmap_weight_eq(tx2_pmu->active_counters,
+				tx2_pmu->max_counters, 1)) {
 		hrtimer_start(&tx2_pmu->hrtimer,
 			ns_to_ktime(tx2_pmu->hrtimer_interval),
 			HRTIMER_MODE_REL_PINNED);
