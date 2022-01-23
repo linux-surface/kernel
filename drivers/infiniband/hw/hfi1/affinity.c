@@ -506,7 +506,7 @@ static int _dev_comp_vect_cpu_mask_init(struct hfi1_devdata *dd,
 	 * available CPUs divide it by the number of devices in the
 	 * local NUMA node.
 	 */
-	if (cpumask_weight(&entry->comp_vect_mask) == 1) {
+	if (cpumask_weight_eq(&entry->comp_vect_mask, 1)) {
 		possible_cpus_comp_vect = 1;
 		dd_dev_warn(dd,
 			    "Number of kernel receive queues is too large for completion vector affinity to be effective\n");
@@ -592,7 +592,7 @@ int hfi1_dev_affinity_init(struct hfi1_devdata *dd)
 {
 	struct hfi1_affinity_node *entry;
 	const struct cpumask *local_mask;
-	int curr_cpu, possible, i, ret;
+	int curr_cpu, i, ret;
 	bool new_entry = false;
 
 	local_mask = cpumask_of_node(dd->node);
@@ -625,10 +625,9 @@ int hfi1_dev_affinity_init(struct hfi1_devdata *dd)
 			    local_mask);
 
 		/* fill in the receive list */
-		possible = cpumask_weight(&entry->def_intr.mask);
 		curr_cpu = cpumask_first(&entry->def_intr.mask);
 
-		if (possible == 1) {
+		if (cpumask_weight_eq(&entry->def_intr.mask, 1)) {
 			/* only one CPU, everyone will use it */
 			cpumask_set_cpu(curr_cpu, &entry->rcv_intr.mask);
 			cpumask_set_cpu(curr_cpu, &entry->general_intr_mask);
@@ -1016,7 +1015,7 @@ int hfi1_get_proc_affinity(int node)
 		cpu = cpumask_first(proc_mask);
 		cpumask_set_cpu(cpu, &set->used);
 		goto done;
-	} else if (current->nr_cpus_allowed < cpumask_weight(&set->mask)) {
+	} else if (cpumask_weight_gt(&set->mask, current->nr_cpus_allowed)) {
 		hfi1_cdbg(PROC, "PID %u %s affinity set to CPU set(s) %*pbl",
 			  current->pid, current->comm,
 			  cpumask_pr_args(proc_mask));
