@@ -1199,8 +1199,8 @@ int otx2_remove_flow(struct otx2_nic *pfvf, u32 location)
 		 * interface mac address and configure CGX/RPM block in
 		 * promiscuous mode
 		 */
-		if (bitmap_weight(&flow_cfg->dmacflt_bmap,
-				  flow_cfg->dmacflt_max_flows) == 1)
+		if (bitmap_weight_eq(&flow_cfg->dmacflt_bmap,
+				     flow_cfg->dmacflt_max_flows, 1))
 			otx2_update_rem_pfmac(pfvf, DMAC_ADDR_DEL);
 	} else {
 #ifdef CONFIG_DCB
