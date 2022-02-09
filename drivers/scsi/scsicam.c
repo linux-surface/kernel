@@ -40,8 +40,12 @@ unsigned char *scsi_bios_ptable(struct block_device *dev)
 	if (IS_ERR(page))
 		return NULL;
 
-	if (!PageError(page))
-		res = kmemdup(page_address(page) + 0x1be, 66, GFP_KERNEL);
+	if (PageUptodate(page)) {
+		char *addr = kmap_local_page(page);
+
+		res = kmemdup(addr + 0x1be, 66, GFP_KERNEL);
+		kunmap_local(addr);
+	}
 	put_page(page);
 	return res;
 }
