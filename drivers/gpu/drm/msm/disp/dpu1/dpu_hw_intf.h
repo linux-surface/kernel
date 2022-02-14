@@ -30,6 +30,12 @@ struct intf_timing_params {
 	u32 border_clr;
 	u32 underflow_clr;
 	u32 hsync_skew;
+
+	bool wide_bus_en;
+	bool compression_en;
+	u32 extra_dto_cycles;   /* for DP only */
+	bool dsc_4hs_merge;     /* DSC 4HS merge */
+	u32 dce_bytes_per_line;
 };
 
 struct intf_prog_fetch {
