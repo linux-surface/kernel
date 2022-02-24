@@ -1714,6 +1714,11 @@ static bool acpi_device_enumeration_by_parent(struct acpi_device *device)
 		{"BSG2150", },
 		{"INT33FE", },
 		{"INT3515", },
+	/*
+	 * Some ACPI devs contain SerialBus resources even though they are not
+	 * attached to a serial bus at all.
+	 */
+		{"MSHW0028", },
 		{}
 	};
 
