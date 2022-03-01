@@ -81,24 +81,6 @@ static __u8 *uclogic_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 	return rdesc;
 }
 
-static int uclogic_input_mapping(struct hid_device *hdev,
-				 struct hid_input *hi,
-				 struct hid_field *field,
-				 struct hid_usage *usage,
-				 unsigned long **bit,
-				 int *max)
-{
-	struct uclogic_drvdata *drvdata = hid_get_drvdata(hdev);
-	struct uclogic_params *params = &drvdata->params;
-
-	/* discard the unused pen interface */
-	if (params->pen_unused && (field->application == HID_DG_PEN))
-		return -1;
-
-	/* let hid-core decide what to do */
-	return 0;
-}
-
 static int uclogic_input_configured(struct hid_device *hdev,
 		struct hid_input *hi)
 {
@@ -314,17 +296,18 @@ static int uclogic_raw_event_pen(struct uclogic_drvdata *drvdata,
  * uclogic_raw_event_frame - handle raw frame events (frame HID reports).
  *
  * @drvdata:	Driver data.
+ * @frame:	The parameters of the frame controls to handle.
  * @data:	Report data buffer, can be modified.
  * @size:	Report data size, bytes.
  *
  * Returns:
  *	Negative value on error (stops event delivery), zero for success.
  */
-static int uclogic_raw_event_frame(struct uclogic_drvdata *drvdata,
-					u8 *data, int size)
+static int uclogic_raw_event_frame(
+		struct uclogic_drvdata *drvdata,
+		const struct uclogic_params_frame *frame,
+		u8 *data, int size)
 {
-	struct uclogic_params_frame *frame = &drvdata->params.frame;
-
 	WARN_ON(drvdata == NULL);
 	WARN_ON(data == NULL && size != 0);
 
@@ -368,28 +351,49 @@ static int uclogic_raw_event(struct hid_device *hdev,
 	unsigned int report_id = report->id;
 	struct uclogic_drvdata *drvdata = hid_get_drvdata(hdev);
 	struct uclogic_params *params = &drvdata->params;
+	struct uclogic_params_pen_subreport *subreport;
+	struct uclogic_params_pen_subreport *subreport_list_end;
+	size_t i;
 
 	/* Do not handle anything but input reports */
 	if (report->type != HID_INPUT_REPORT)
 		return 0;
 
-	/* Tweak pen reports, if necessary */
-	if (!params->pen_unused &&
-	    (report_id == params->pen.id) &&
-	    (size >= 2)) {
-		/* If it's the "virtual" frame controls report */
-		if (params->frame.id != 0 &&
-		    data[1] & params->pen_frame_flag) {
-			/* Change to virtual frame controls report ID */
-			report_id = data[0] = params->frame.id;
-		} else {
-			return uclogic_raw_event_pen(drvdata, data, size);
+	while (true) {
+		/* Tweak pen reports, if necessary */
+		if ((report_id == params->pen.id) && (size >= 2)) {
+			subreport_list_end =
+				params->pen.subreport_list +
+				ARRAY_SIZE(params->pen.subreport_list);
+			/* Try to match a subreport */
+			for (subreport = params->pen.subreport_list;
+			     subreport < subreport_list_end; subreport++) {
+				if (subreport->value != 0 &&
+				    subreport->value == data[1]) {
+					break;
+				}
+			}
+			/* If a subreport matched */
+			if (subreport < subreport_list_end) {
+				/* Change to subreport ID, and restart */
+				report_id = data[0] = subreport->id;
+				continue;
+			} else {
+				return uclogic_raw_event_pen(drvdata, data, size);
+			}
 		}
-	}
 
-	/* Tweak frame control reports, if necessary */
-	if (report_id == params->frame.id)
-		return uclogic_raw_event_frame(drvdata, data, size);
+		/* Tweak frame control reports, if necessary */
+		for (i = 0; i < ARRAY_SIZE(params->frame_list); i++) {
+			if (report_id == params->frame_list[i].id) {
+				return uclogic_raw_event_frame(
+					drvdata, &params->frame_list[i],
+					data, size);
+			}
+		}
+
+		break;
+	}
 
 	return 0;
 }
@@ -464,7 +468,6 @@ static struct hid_driver uclogic_driver = {
 	.remove = uclogic_remove,
 	.report_fixup = uclogic_report_fixup,
 	.raw_event = uclogic_raw_event,
-	.input_mapping = uclogic_input_mapping,
 	.input_configured = uclogic_input_configured,
 #ifdef CONFIG_PM
 	.resume	          = uclogic_resume,
