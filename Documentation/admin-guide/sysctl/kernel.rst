@@ -1001,7 +1001,7 @@ This is a directory, with the following entries:
 * ``urandom_min_reseed_secs``: obsolete (used to determine the minimum
   number of seconds between urandom pool reseeding). This file is
   writable for compatibility purposes, but writing to it has no effect
-  on any RNG behavior.
+  on any RNG behavior;
 
 * ``uuid``: a UUID generated every time this is retrieved (this can
   thus be used to generate UUIDs at will);
@@ -1009,8 +1009,10 @@ This is a directory, with the following entries:
 * ``write_wakeup_threshold``: when the entropy count drops below this
   (as a number of bits), processes waiting to write to ``/dev/random``
   are woken up. This file is writable for compatibility purposes, but
-  writing to it has no effect on any RNG behavior.
+  writing to it has no effect on any RNG behavior;
 
+* ``fork_event``: unreadable, but can be poll()'d on for notifications
+  delivered after the RNG reseeds following a virtual machine fork.
 
 randomize_va_space
 ==================

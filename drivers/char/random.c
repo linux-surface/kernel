@@ -1187,6 +1187,9 @@ EXPORT_SYMBOL_GPL(add_bootloader_randomness);
 
 #if IS_ENABLED(CONFIG_VMGENID)
 static BLOCKING_NOTIFIER_HEAD(vmfork_chain);
+#ifdef CONFIG_SYSCTL
+static DEFINE_CTL_TABLE_POLL(sysctl_fork_event_poll);
+#endif
 
 /*
  * Handle a new unique VM ID, which is unique, not secret, so we
@@ -1201,6 +1204,9 @@ void add_vmfork_randomness(const void *unique_vm_id, size_t size)
 		pr_notice("crng reseeded due to virtual machine fork\n");
 	}
 	blocking_notifier_call_chain(&vmfork_chain, 0, NULL);
+#ifdef CONFIG_SYSCTL
+	proc_sys_poll_notify(&sysctl_fork_event_poll);
+#endif
 }
 #if IS_MODULE(CONFIG_VMGENID)
 EXPORT_SYMBOL_GPL(add_vmfork_randomness);
@@ -1671,6 +1677,8 @@ const struct file_operations urandom_fops = {
  *   It is writable to avoid breaking old userspaces, but writing
  *   to it does not change any behavior of the RNG.
  *
+ * - fork_event - an unreadable file that can be poll()'d on for VM forks.
+ *
  ********************************************************************/
 
 #ifdef CONFIG_SYSCTL
@@ -1724,6 +1732,14 @@ static int proc_do_rointvec(struct ctl_table *table, int write, void *buffer,
 	return write ? 0 : proc_dointvec(table, 0, buffer, lenp, ppos);
 }
 
+#if IS_ENABLED(CONFIG_VMGENID)
+static int proc_do_nodata(struct ctl_table *table, int write, void *buffer,
+			  size_t *lenp, loff_t *ppos)
+{
+	return -ENODATA;
+}
+#endif
+
 static struct ctl_table random_table[] = {
 	{
 		.procname	= "poolsize",
@@ -1764,6 +1780,14 @@ static struct ctl_table random_table[] = {
 		.mode		= 0444,
 		.proc_handler	= proc_do_uuid,
 	},
+#if IS_ENABLED(CONFIG_VMGENID)
+	{
+		.procname	= "fork_event",
+		.mode		= 0444,
+		.poll		= &sysctl_fork_event_poll,
+		.proc_handler	= proc_do_nodata,
+	},
+#endif
 	{ }
 };
 
