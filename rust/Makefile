@@ -245,7 +245,8 @@ bindgen_skip_c_flags := -mno-fp-ret-in-387 -mpreferred-stack-boundary=% \
 	-fno-reorder-blocks -fno-allow-store-data-races -fasan-shadow-offset=% \
 	-fzero-call-used-regs=% -fno-stack-clash-protection \
 	-fno-inline-functions-called-once \
-	--param=% --param asan-%
+	--param=% --param asan-% \
+	$(GCC_PLUGINS_CFLAGS)
 
 # Derived from `scripts/Makefile.clang`.
 BINDGEN_TARGET_arm	:= arm-linux-gnueabi
