@@ -27,6 +27,7 @@
 #include <linux/reset.h>
 #include <linux/slab.h>
 #include <linux/types.h>
+#include <linux/interconnect.h>
 
 #include "../../pci.h"
 #include "pcie-designware.h"
@@ -118,6 +119,9 @@
 #define QCOM_PCIE_2_1_0_MAX_CLOCKS	5
 
 #define QCOM_PCIE_CRC8_POLYNOMIAL (BIT(2) | BIT(1) | BIT(0))
+
+#define PCIE_MEM_AVG_BW		MBps_to_icc(2500)
+#define PCIE_MEM_PEAK_BW	MBps_to_icc(4000)
 
 struct qcom_pcie_resources_2_1_0 {
 	struct clk_bulk_data clks[QCOM_PCIE_2_1_0_MAX_CLOCKS];
@@ -220,6 +224,7 @@ struct qcom_pcie {
 	union qcom_pcie_resources res;
 	struct phy *phy;
 	struct gpio_desc *reset;
+	struct icc_path *icc_mem;
 	const struct qcom_pcie_cfg *cfg;
 };
 
@@ -1485,9 +1490,16 @@ static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
 
 	qcom_ep_reset_assert(pcie);
 
+	ret = icc_set_bw(pcie->icc_mem, PCIE_MEM_AVG_BW, PCIE_MEM_PEAK_BW);
+	if (ret) {
+		dev_err(pci->dev, "failed to set interconnect bandwidth: %d\n",
+			ret);
+		return ret;
+	}
+
 	ret = pcie->cfg->ops->init(pcie);
 	if (ret)
-		return ret;
+		goto err_set_icc_bw;
 
 	ret = phy_power_on(pcie->phy);
 	if (ret)
@@ -1515,6 +1527,8 @@ err_disable_phy:
 	phy_power_off(pcie->phy);
 err_deinit:
 	pcie->cfg->ops->deinit(pcie);
+err_set_icc_bw:
+	icc_set_bw(pcie->icc_mem, 0, 0);
 
 	return ret;
 }
@@ -1524,6 +1538,7 @@ static void qcom_pcie_host_deinit(struct qcom_pcie *pcie)
 	qcom_ep_reset_assert(pcie);
 	phy_power_off(pcie->phy);
 	pcie->cfg->ops->deinit(pcie);
+	icc_set_bw(pcie->icc_mem, 0, 0);
 }
 
 static const struct dw_pcie_host_ops qcom_pcie_dw_ops = {
@@ -1695,6 +1710,12 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	pcie->phy = devm_phy_optional_get(dev, "pciephy");
 	if (IS_ERR(pcie->phy)) {
 		ret = PTR_ERR(pcie->phy);
+		goto err_pm_runtime_put;
+	}
+
+	pcie->icc_mem = devm_of_icc_get(&pdev->dev, "pcie-mem");
+	if (IS_ERR(pcie->icc_mem)) {
+		ret = PTR_ERR(pcie->icc_mem);
 		goto err_pm_runtime_put;
 	}
 
