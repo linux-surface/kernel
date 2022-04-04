@@ -658,6 +658,11 @@ static int ignore_undef_symbol(struct elf_info *info, const char *symname)
 		    strstarts(symname, "_savevr_") ||
 		    strcmp(symname, ".TOC.") == 0)
 			return 1;
+
+	if (info->hdr->e_machine == EM_S390)
+		/* Expoline thunks are linked on all kernel modules during final link of .ko */
+		if (strstarts(symname, "__s390_indirect_jump_r"))
+			return 1;
 	/* Do not ignore this symbol */
 	return 0;
 }
@@ -833,8 +838,10 @@ static int match(const char *sym, const char * const pat[])
 {
 	const char *p;
 	while (*pat) {
+		const char *endp;
+
 		p = *pat++;
-		const char *endp = p + strlen(p) - 1;
+		endp = p + strlen(p) - 1;
 
 		/* "*foo*" */
 		if (*p == '*' && *endp == '*') {

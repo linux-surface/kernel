@@ -389,7 +389,7 @@ static int emit_indirect(int op, int reg, u8 *bytes)
  *
  *   CALL *%\reg
  *
- * It also tries to inline spectre_v2=retpoline,amd when size permits.
+ * It also tries to inline spectre_v2=retpoline,lfence when size permits.
  */
 static int patch_retpoline(void *addr, struct insn *insn, u8 *bytes)
 {
@@ -407,7 +407,7 @@ static int patch_retpoline(void *addr, struct insn *insn, u8 *bytes)
 	BUG_ON(reg == 4);
 
 	if (cpu_feature_enabled(X86_FEATURE_RETPOLINE) &&
-	    !cpu_feature_enabled(X86_FEATURE_RETPOLINE_AMD))
+	    !cpu_feature_enabled(X86_FEATURE_RETPOLINE_LFENCE))
 		return -1;
 
 	op = insn->opcode.bytes[0];
@@ -438,9 +438,9 @@ static int patch_retpoline(void *addr, struct insn *insn, u8 *bytes)
 	}
 
 	/*
-	 * For RETPOLINE_AMD: prepend the indirect CALL/JMP with an LFENCE.
+	 * For RETPOLINE_LFENCE: prepend the indirect CALL/JMP with an LFENCE.
 	 */
-	if (cpu_feature_enabled(X86_FEATURE_RETPOLINE_AMD)) {
+	if (cpu_feature_enabled(X86_FEATURE_RETPOLINE_LFENCE)) {
 		bytes[i++] = 0x0f;
 		bytes[i++] = 0xae;
 		bytes[i++] = 0xe8; /* LFENCE */
@@ -1100,6 +1100,40 @@ void *text_poke(void *addr, const void *opcode, size_t len)
 void *text_poke_kgdb(void *addr, const void *opcode, size_t len)
 {
 	return __text_poke(addr, opcode, len);
+}
+
+/**
+ * text_poke_copy - Copy instructions into (an unused part of) RX memory
+ * @addr: address to modify
+ * @opcode: source of the copy
+ * @len: length to copy, could be more than 2x PAGE_SIZE
+ *
+ * Not safe against concurrent execution; useful for JITs to dump
+ * new code blocks into unused regions of RX memory. Can be used in
+ * conjunction with synchronize_rcu_tasks() to wait for existing
+ * execution to quiesce after having made sure no existing functions
+ * pointers are live.
+ */
+void *text_poke_copy(void *addr, const void *opcode, size_t len)
+{
+	unsigned long start = (unsigned long)addr;
+	size_t patched = 0;
+
+	if (WARN_ON_ONCE(core_kernel_text(start)))
+		return NULL;
+
+	mutex_lock(&text_mutex);
+	while (patched < len) {
+		unsigned long ptr = start + patched;
+		size_t s;
+
+		s = min_t(size_t, PAGE_SIZE * 2 - offset_in_page(ptr), len - patched);
+
+		__text_poke((void *)ptr, opcode + patched, s);
+		patched += s;
+	}
+	mutex_unlock(&text_mutex);
+	return addr;
 }
 
 static void do_sync_core(void *info)
