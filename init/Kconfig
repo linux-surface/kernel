@@ -2068,7 +2068,7 @@ config RUST
 	depends on HAVE_RUST
 	depends on RUST_IS_AVAILABLE
 	depends on !MODVERSIONS
-	depends on !GCC_PLUGIN_RANDSTRUCT
+	depends on !GCC_PLUGINS
 	select CONSTRUCTORS
 	help
 	  Enables Rust support in the kernel.
