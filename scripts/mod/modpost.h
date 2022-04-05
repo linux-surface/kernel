@@ -25,7 +25,6 @@
 #define Elf_Sym     Elf32_Sym
 #define Elf_Addr    Elf32_Addr
 #define Elf_Sword   Elf64_Sword
-#define Elf_Section Elf32_Half
 #define ELF_ST_BIND ELF32_ST_BIND
 #define ELF_ST_TYPE ELF32_ST_TYPE
 
@@ -40,7 +39,6 @@
 #define Elf_Sym     Elf64_Sym
 #define Elf_Addr    Elf64_Addr
 #define Elf_Sword   Elf64_Sxword
-#define Elf_Section Elf64_Half
 #define ELF_ST_BIND ELF64_ST_BIND
 #define ELF_ST_TYPE ELF64_ST_TYPE
 
@@ -138,8 +136,6 @@ struct elf_info {
 	Elf_Shdr     *sechdrs;
 	Elf_Sym      *symtab_start;
 	Elf_Sym      *symtab_stop;
-	Elf_Section  export_sec;
-	Elf_Section  export_gpl_sec;
 	char         *strtab;
 	char	     *modinfo;
 	unsigned int modinfo_len;
