@@ -405,6 +405,18 @@ config HOLTEK_FF
 	  Say Y here if you have a Holtek On Line Grip based game controller
 	  and want to have force feedback support for it.
 
+config HID_GOOGLE_ATRUS
+	tristate "Google Hangouts Meet Speakermic"
+	depends on USB_HID
+	help
+	This selects a driver for the Google Hangouts Meet Speakermic.
+
+	This driver works around a problem with the HID usage sent by this
+	device for the mute button. It prevents key events from being generated
+	for that HID usage since they would be incorrect.
+
+	Say Y here if you have a Google Hangouts Meet Speakermic.
+
 config HID_GOOGLE_HAMMER
 	tristate "Google Hammer Keyboard"
 	depends on USB_HID && LEDS_CLASS && CROS_EC
