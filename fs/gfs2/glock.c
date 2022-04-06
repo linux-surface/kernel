@@ -1508,8 +1508,6 @@ __acquires(&gl->gl_lockref.lock)
 	list_for_each_entry(gh2, &gl->gl_holders, gh_list) {
 		if (likely(gh2->gh_owner_pid != gh->gh_owner_pid))
 			continue;
-		if (gh->gh_gl->gl_ops->go_type == LM_TYPE_FLOCK)
-			continue;
 		if (test_bit(HIF_MAY_DEMOTE, &gh2->gh_iflags))
 			continue;
 		if (!pid_is_meaningful(gh2))
