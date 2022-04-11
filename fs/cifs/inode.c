@@ -2440,7 +2440,7 @@ int cifs_getattr(struct user_namespace *mnt_userns, const struct path *path,
 	if ((request_mask & (STATX_CTIME | STATX_MTIME | STATX_SIZE | STATX_BLOCKS)) &&
 	    !CIFS_CACHE_READ(CIFS_I(inode)) &&
 	    inode->i_mapping && inode->i_mapping->nrpages != 0) {
-		rc = filemap_fdatawait(inode->i_mapping);
+		rc = filemap_write_and_wait(inode->i_mapping);
 		if (rc) {
 			mapping_set_error(inode->i_mapping, rc);
 			return rc;
