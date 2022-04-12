@@ -63,6 +63,8 @@
 			    (pdev)->device == 0x4e19 ||		\
 			    (pdev)->device == 0x465d ||		\
 			    (pdev)->device == 0x1919))
+#define IS_IPTS(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
+			    ((pdev)->device == 0x9d3e))
 #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
 
 #define IOAPIC_RANGE_START	(0xfee00000)
@@ -339,6 +341,7 @@ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
 
 static int dmar_map_gfx = 1;
 static int dmar_map_ipu = 1;
+static int dmar_map_ipts = 1;
 static int intel_iommu_superpage = 1;
 static int iommu_identity_mapping;
 static int iommu_skip_te_disable;
@@ -346,6 +349,7 @@ static int iommu_skip_te_disable;
 #define IDENTMAP_GFX		2
 #define IDENTMAP_AZALIA		4
 #define IDENTMAP_IPU		8
+#define IDENTMAP_IPTS		16
 
 int intel_iommu_gfx_mapped;
 EXPORT_SYMBOL_GPL(intel_iommu_gfx_mapped);
@@ -2977,6 +2981,9 @@ static int device_def_domain_type(struct device *dev)
 
 		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
 			return IOMMU_DOMAIN_IDENTITY;
+
+		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
+			return IOMMU_DOMAIN_IDENTITY;
 	}
 
 	return 0;
@@ -3415,6 +3422,9 @@ static int __init init_dmars(void)
 
 	if (!dmar_map_ipu)
 		iommu_identity_mapping |= IDENTMAP_IPU;
+
+	if (!dmar_map_ipts)
+		iommu_identity_mapping |= IDENTMAP_IPTS;
 
 	check_tylersburg_isoch();
 
@@ -5669,6 +5679,17 @@ static void quirk_iommu_ipu(struct pci_dev *dev)
 	dmar_map_ipu = 0;
 }
 
+static void quirk_iommu_ipts(struct pci_dev *dev)
+{
+	if (!IS_IPTS(dev))
+		return;
+
+	if (risky_device(dev))
+		return;
+
+	pci_info(dev, "Passthrough IOMMU for IPTS\n");
+	dmar_map_ipts = 0;
+}
 /* G4x/GM45 integrated gfx dmar support is totally busted. */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
@@ -5706,6 +5727,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
 
 /* disable IPU dmar support */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
+
+/* disable IPTS dmar support */
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
 
 static void quirk_iommu_rwbf(struct pci_dev *dev)
 {
