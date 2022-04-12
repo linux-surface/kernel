@@ -1993,6 +1993,11 @@ static noinline_for_stack void rcu_gp_fqs_loop(void)
 			WRITE_ONCE(rcu_state.jiffies_kick_kthreads,
 				   jiffies + (j ? 3 * j : 2));
 		}
+		if (rcu_state.cbovld) {
+			j = (j + 2) / 3;
+			if (j <= 0)
+				j = 1;
+		}
 		trace_rcu_grace_period(rcu_state.name, rcu_state.gp_seq,
 				       TPS("fqswait"));
 		WRITE_ONCE(rcu_state.gp_state, RCU_GP_WAIT_FQS);
