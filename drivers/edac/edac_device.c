@@ -70,9 +70,7 @@ edac_device_alloc_ctl_info(unsigned pvt_sz, char *dev_name, unsigned nr_instance
 	if (!dev_ctl)
 		return NULL;
 
-	dev_inst = kmalloc_array(nr_instances,
-				 sizeof(struct edac_device_instance),
-				 GFP_KERNEL | __GFP_ZERO);
+	dev_inst = kcalloc(nr_instances, sizeof(struct edac_device_instance), GFP_KERNEL);
 	if (!dev_inst)
 		goto free;
 
@@ -87,9 +85,8 @@ edac_device_alloc_ctl_info(unsigned pvt_sz, char *dev_name, unsigned nr_instance
 	dev_ctl->blocks = dev_blk;
 
 	if (nr_attrib) {
-		dev_attrib = kmalloc_array(nr_attrib,
-					   sizeof(struct edac_dev_sysfs_block_attribute),
-					   GFP_KERNEL | __GFP_ZERO);
+		dev_attrib = kcalloc(nr_attrib, sizeof(struct edac_dev_sysfs_block_attribute),
+				     GFP_KERNEL);
 		if (!dev_attrib)
 			goto free;
 
