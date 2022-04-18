@@ -2219,10 +2219,16 @@ static int ath11k_qmi_request_target_cap(struct ath11k_base *ab)
 		ab->qmi.target.chip_family = resp.chip_info.chip_family;
 	}
 
+#if 0
 	if (resp.board_info_valid)
 		ab->qmi.target.board_id = resp.board_info.board_id;
 	else
 		ab->qmi.target.board_id = 0xFF;
+#else
+	ath11k_warn(ab, "WARNING: overriding board_id (%02x) -- only intended for basic internal testing\n",
+			resp.board_info.board_id);
+	ab->qmi.target.board_id = 0xFF;
+#endif
 
 	if (resp.soc_info_valid)
 		ab->qmi.target.soc_id = resp.soc_info.soc_id;
