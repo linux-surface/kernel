@@ -1420,6 +1420,7 @@ struct qmp_phy_cfg {
  * @rx2: iomapped memory space for second lane's rx (in dual lane PHYs)
  * @pcs_misc: iomapped memory space for lane's pcs_misc
  * @pipe_clk: pipe clock
+ * @pipediv2_clk: pipediv2 clock
  * @index: lane index
  * @qmp: QMP phy to which this lane belongs
  * @mode: current PHY mode
@@ -1435,6 +1436,7 @@ struct qmp_phy {
 	void __iomem *rx2;
 	void __iomem *pcs_misc;
 	struct clk *pipe_clk;
+	struct clk *pipediv2_clk;
 	unsigned int index;
 	struct qcom_qmp *qmp;
 	enum phy_mode mode;
@@ -2013,6 +2015,37 @@ static int qcom_qmp_phy_pcie_init(struct phy *phy)
 	return 0;
 }
 
+static int pipe_clk_enable(struct qmp_phy *qphy)
+{
+	struct qcom_qmp *qmp = qphy->qmp;
+	int ret;
+
+	ret = clk_prepare_enable(qphy->pipe_clk);
+	if (ret) {
+		dev_err(qmp->dev, "failed to enable pipe clock: %d\n", ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(qphy->pipediv2_clk);
+	if (ret) {
+		dev_err(qmp->dev, "failed to enable pipediv2 clock: %d\n", ret);
+		goto err_disable_pipe_clk;
+	}
+
+	return 0;
+
+err_disable_pipe_clk:
+	clk_disable_unprepare(qphy->pipe_clk);
+
+	return ret;
+}
+
+static void pipe_clk_disable(struct qmp_phy *qphy)
+{
+	clk_disable_unprepare(qphy->pipediv2_clk);
+	clk_disable_unprepare(qphy->pipe_clk);
+}
+
 static int qcom_qmp_phy_pcie_power_on(struct phy *phy)
 {
 	struct qmp_phy *qphy = phy_get_drvdata(phy);
@@ -2028,11 +2061,9 @@ static int qcom_qmp_phy_pcie_power_on(struct phy *phy)
 
 	qcom_qmp_phy_pcie_serdes_init(qphy);
 
-	ret = clk_prepare_enable(qphy->pipe_clk);
-	if (ret) {
-		dev_err(qmp->dev, "pipe_clk enable failed err=%d\n", ret);
+	ret = pipe_clk_enable(qphy);
+	if (ret)
 		return ret;
-	}
 
 	/* Tx, Rx, and PCS configurations */
 	qcom_qmp_phy_pcie_configure_lane(tx, cfg->regs,
@@ -2106,7 +2137,7 @@ static int qcom_qmp_phy_pcie_power_on(struct phy *phy)
 	return 0;
 
 err_disable_pipe_clk:
-	clk_disable_unprepare(qphy->pipe_clk);
+	pipe_clk_disable(qphy);
 
 	return ret;
 }
@@ -2116,7 +2147,7 @@ static int qcom_qmp_phy_pcie_power_off(struct phy *phy)
 	struct qmp_phy *qphy = phy_get_drvdata(phy);
 	const struct qmp_phy_cfg *cfg = qphy->cfg;
 
-	clk_disable_unprepare(qphy->pipe_clk);
+	pipe_clk_disable(qphy);
 
 	/* PHY reset */
 	qphy_setbits(qphy->pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
@@ -2377,6 +2408,18 @@ int qcom_qmp_phy_pcie_create(struct device *dev, struct device_node *np, int id,
 	if (IS_ERR(qphy->pipe_clk)) {
 		return dev_err_probe(dev, PTR_ERR(qphy->pipe_clk),
 				     "failed to get lane%d pipe clock\n", id);
+	}
+
+	/* Get optional pipediv2 clock. */
+	qphy->pipediv2_clk = devm_get_clk_from_child(dev, np, "pipediv2");
+	if (IS_ERR(qphy->pipediv2_clk)) {
+		ret = PTR_ERR(qphy->pipediv2_clk);
+		if (ret != -ENOENT && ret != -EINVAL) {
+			return dev_err_probe(dev, ret,
+					     "failed to get lane%d pipediv2 clock\n",
+					     id);
+		}
+		qphy->pipediv2_clk = NULL;
 	}
 
 	generic_phy = devm_phy_create(dev, np, &qcom_qmp_phy_pcie_ops);
