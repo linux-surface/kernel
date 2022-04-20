@@ -501,7 +501,7 @@ static void virtblk_free_disk(struct gendisk *disk)
 {
 	struct virtio_blk *vblk = disk->private_data;
 
-	ida_simple_remove(&vd_index_ida, vblk->index);
+	ida_free(&vd_index_ida, vblk->index);
 	mutex_destroy(&vblk->vdev_mutex);
 	kfree(vblk);
 }
@@ -903,8 +903,8 @@ static int virtblk_probe(struct virtio_device *vdev)
 		return -EINVAL;
 	}
 
-	err = ida_simple_get(&vd_index_ida, 0, minor_to_index(1 << MINORBITS),
-			     GFP_KERNEL);
+	err = ida_alloc_max(&vd_index_ida, minor_to_index(1 << MINORBITS),
+			    GFP_KERNEL);
 	if (err < 0)
 		goto out;
 	index = err;
@@ -1099,7 +1099,7 @@ out_free_vq:
 out_free_vblk:
 	kfree(vblk);
 out_free_index:
-	ida_simple_remove(&vd_index_ida, index);
+	ida_free(&vd_index_ida, index);
 out:
 	return err;
 }
