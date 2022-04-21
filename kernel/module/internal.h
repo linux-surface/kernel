@@ -206,20 +206,19 @@ static inline void kmemleak_load_module(const struct module *mod,
 #endif /* CONFIG_DEBUG_KMEMLEAK */
 
 #ifdef CONFIG_KALLSYMS
-void init_build_id(struct module *mod, const struct load_info *info);
 void layout_symtab(struct module *mod, struct load_info *info);
 void add_kallsyms(struct module *mod, const struct load_info *info);
 unsigned long find_kallsyms_symbol_value(struct module *mod, const char *name);
+
+#else /* !CONFIG_KALLSYMS */
+static inline void layout_symtab(struct module *mod, struct load_info *info) { }
+static inline void add_kallsyms(struct module *mod, const struct load_info *info) { }
+#endif /* CONFIG_KALLSYMS */
 
 static inline bool sect_empty(const Elf_Shdr *sect)
 {
 	return !(sect->sh_flags & SHF_ALLOC) || sect->sh_size == 0;
 }
-#else /* !CONFIG_KALLSYMS */
-static inline void init_build_id(struct module *mod, const struct load_info *info) { }
-static inline void layout_symtab(struct module *mod, struct load_info *info) { }
-static inline void add_kallsyms(struct module *mod, const struct load_info *info) { }
-#endif /* CONFIG_KALLSYMS */
 
 #ifdef CONFIG_SYSFS
 int mod_sysfs_setup(struct module *mod, const struct load_info *info,
