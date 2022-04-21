@@ -239,7 +239,7 @@ static irqreturn_t zynq_fpga_isr(int irq, void *data)
  * the correct byte order, and be dword aligned. The input is a Xilinx .bin
  * file with every 32 bit quantity swapped.
  */
-static bool zynq_fpga_has_sync(const u8 *buf, size_t count)
+static bool zynq_fpga_has_sync(const char *buf, size_t count)
 {
 	for (; count >= 4; buf += 4, count -= 4)
 		if (buf[0] == 0x66 && buf[1] == 0x55 && buf[2] == 0x99 &&
