@@ -583,6 +583,21 @@ struct clk *devm_clk_get_optional_enabled(struct device *dev, const char *id);
  */
 struct clk *devm_get_clk_from_child(struct device *dev,
 				    struct device_node *np, const char *con_id);
+
+/**
+ * devm_get_clk_from_child_optional - lookup and obtain a managed reference to a
+ *				      optional clock producer from child node.
+ * @dev: device for clock "consumer"
+ * @np: pointer to clock consumer node
+ * @con_id: clock consumer ID
+ *
+ * Behaves the same as devm_get_clk_from_child() except where there is no
+ * clock producer. In this case, instead of returning -ENOENT, the function
+ * returns NULL.
+ */
+struct clk *devm_get_clk_from_child_optional(struct device *dev,
+					     struct device_node *np, const char *con_id);
+
 /**
  * clk_rate_exclusive_get - get exclusivity over the rate control of a
  *                          producer
@@ -961,6 +976,12 @@ static inline int __must_check devm_clk_bulk_get_all(struct device *dev,
 }
 
 static inline struct clk *devm_get_clk_from_child(struct device *dev,
+				struct device_node *np, const char *con_id)
+{
+	return NULL;
+}
+
+static inline struct clk *devm_get_clk_from_child_optional(struct device *dev,
 				struct device_node *np, const char *con_id)
 {
 	return NULL;

@@ -222,3 +222,17 @@ struct clk *devm_get_clk_from_child(struct device *dev,
 	return clk;
 }
 EXPORT_SYMBOL(devm_get_clk_from_child);
+
+struct clk *devm_get_clk_from_child_optional(struct device *dev,
+					     struct device_node *np,
+					     const char *id)
+{
+	struct clk *clk;
+
+	clk = devm_get_clk_from_child(dev, np, id);
+	if (clk == ERR_PTR(-ENOENT) || clk == ERR_PTR(-EINVAL))
+		return NULL;
+
+	return clk;
+}
+EXPORT_SYMBOL(devm_get_clk_from_child_optional);
