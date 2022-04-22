@@ -46,10 +46,10 @@
 #include <linux/syscore_ops.h>
 
 #include "pxa25x.h"
-#include <mach/audio.h>
+#include <linux/platform_data/asoc-pxa.h>
 #include <linux/platform_data/video-pxafb.h>
-#include <mach/regs-uart.h>
-#include <linux/platform_data/pcmcia-pxa2xx_viper.h>
+#include "regs-uart.h"
+#include "viper-pcmcia.h"
 #include "viper.h"
 
 #include <asm/setup.h>
@@ -851,7 +851,7 @@ static void __init viper_init_vcore_gpios(void)
 		goto err_dir;
 
 	/* c/should assume redboot set the correct level ??? */
-	viper_set_core_cpu_voltage(get_clk_frequency_khz(0), 1);
+	viper_set_core_cpu_voltage(pxa25x_get_clk_frequency_khz(0), 1);
 
 	return;
 
