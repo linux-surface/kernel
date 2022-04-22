@@ -39,17 +39,17 @@
 
 #include "pxa27x.h"
 #include "devices.h"
-#include <mach/regs-uart.h>
+#include "regs-uart.h"
 #include <linux/platform_data/usb-ohci-pxa27x.h>
 #include <linux/platform_data/mmc-pxamci.h>
 #include "pxa27x-udc.h"
 #include "udc.h"
 #include <linux/platform_data/video-pxafb.h>
 #include "pm.h"
-#include <mach/audio.h>
-#include <linux/platform_data/pcmcia-pxa2xx_viper.h>
+#include <linux/platform_data/asoc-pxa.h>
+#include "viper-pcmcia.h"
 #include "zeus.h"
-#include <mach/smemc.h>
+#include "smemc.h"
 
 #include "generic.h"
 
