@@ -842,6 +842,7 @@ retry_under_glock:
 			   IOMAP_DIO_PARTIAL, written);
 	to->nofault = false;
 	pagefault_enable();
+	/* No increment (+=) because iomap_dio_rw returns a cumulative value. */
 	if (ret > 0)
 		written = ret;
 
@@ -861,6 +862,7 @@ retry_under_glock:
 		gfs2_glock_dq(gh);
 out_uninit:
 	gfs2_holder_uninit(gh);
+	/* User space doesn't expect partial success. */
 	if (ret < 0)
 		return ret;
 	return written;
@@ -910,7 +912,9 @@ retry_under_glock:
 	from->nofault = false;
 
 	if (ret == -ENOTBLK)
-		ret = 0;
+		ret = 0;  /* fall back to buffered write */
+
+	/* No increment (+=) because iomap_dio_rw returns a cumulative value. */
 	if (ret > 0)
 		read = ret;
 
@@ -931,6 +935,7 @@ out:
 		gfs2_glock_dq(gh);
 out_uninit:
 	gfs2_holder_uninit(gh);
+	/* User space doesn't expect partial success. */
 	if (ret < 0)
 		return ret;
 	return read;
