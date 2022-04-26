@@ -675,8 +675,9 @@ struct btrfs_fs_info {
 	rwlock_t global_root_lock;
 	struct rb_root global_root_tree;
 
-	spinlock_t fs_roots_radix_lock;
-	struct radix_tree_root fs_roots_radix;
+	/* The xarray that holds all the FS roots */
+	spinlock_t fs_roots_lock;
+	struct xarray fs_roots;
 
 	/* block group cache stuff */
 	rwlock_t block_group_cache_lock;
