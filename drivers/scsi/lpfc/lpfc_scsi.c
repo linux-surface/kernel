@@ -433,7 +433,7 @@ lpfc_new_scsi_buf_s3(struct lpfc_vport *vport, int num_to_alloc)
 		iocb->ulpClass = CLASS3;
 		psb->status = IOSTAT_SUCCESS;
 		/* Put it back into the SCSI buffer list */
-		psb->cur_iocbq.context1  = psb;
+		psb->cur_iocbq.io_buf = psb;
 		spin_lock_init(&psb->buf_lock);
 		lpfc_release_scsi_buf_s3(phba, psb);
 
@@ -3835,7 +3835,7 @@ lpfc_update_cmf_cmpl(struct lpfc_hba *phba,
 		else
 			time = div_u64(time + 500, 1000); /* round it */
 
-		cgs = this_cpu_ptr(phba->cmf_stat);
+		cgs = per_cpu_ptr(phba->cmf_stat, raw_smp_processor_id());
 		atomic64_add(size, &cgs->rcv_bytes);
 		atomic64_add(time, &cgs->rx_latency);
 		atomic_inc(&cgs->rx_io_cnt);
@@ -3879,7 +3879,7 @@ lpfc_update_cmf_cmd(struct lpfc_hba *phba, uint32_t size)
 			atomic_set(&phba->rx_max_read_cnt, size);
 	}
 
-	cgs = this_cpu_ptr(phba->cmf_stat);
+	cgs = per_cpu_ptr(phba->cmf_stat, raw_smp_processor_id());
 	atomic64_add(size, &cgs->total_bytes);
 	return 0;
 }
@@ -4082,8 +4082,7 @@ static void
 lpfc_fcp_io_cmd_wqe_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pwqeIn,
 			 struct lpfc_iocbq *pwqeOut)
 {
-	struct lpfc_io_buf *lpfc_cmd =
-		(struct lpfc_io_buf *)pwqeIn->context1;
+	struct lpfc_io_buf *lpfc_cmd = pwqeIn->io_buf;
 	struct lpfc_wcqe_complete *wcqe = &pwqeOut->wcqe_cmpl;
 	struct lpfc_vport *vport = pwqeIn->vport;
 	struct lpfc_rport_data *rdata;
@@ -4276,6 +4275,7 @@ lpfc_fcp_io_cmd_wqe_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pwqeIn,
 			break;
 		}
 		if (lpfc_cmd->result == IOERR_INVALID_RPI ||
+		    lpfc_cmd->result == IOERR_LINK_DOWN ||
 		    lpfc_cmd->result == IOERR_NO_RESOURCES ||
 		    lpfc_cmd->result == IOERR_ABORT_REQUESTED ||
 		    lpfc_cmd->result == IOERR_RPI_SUSPENDED ||
@@ -4420,7 +4420,7 @@ lpfc_scsi_cmd_iocb_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pIocbIn,
 			struct lpfc_iocbq *pIocbOut)
 {
 	struct lpfc_io_buf *lpfc_cmd =
-		(struct lpfc_io_buf *) pIocbIn->context1;
+		(struct lpfc_io_buf *) pIocbIn->io_buf;
 	struct lpfc_vport      *vport = pIocbIn->vport;
 	struct lpfc_rport_data *rdata = lpfc_cmd->rdata;
 	struct lpfc_nodelist *pnode = rdata->pnode;
@@ -4743,7 +4743,7 @@ static int lpfc_scsi_prep_cmnd_buf_s3(struct lpfc_vport *vport,
 		piocbq->iocb.ulpFCP2Rcvy = 0;
 
 	piocbq->iocb.ulpClass = (pnode->nlp_fcp_info & 0x0f);
-	piocbq->context1  = lpfc_cmd;
+	piocbq->io_buf  = lpfc_cmd;
 	if (!piocbq->cmd_cmpl)
 		piocbq->cmd_cmpl = lpfc_scsi_cmd_iocb_cmpl;
 	piocbq->iocb.ulpTimeout = tmo;
@@ -4855,8 +4855,7 @@ static int lpfc_scsi_prep_cmnd_buf_s4(struct lpfc_vport *vport,
 	bf_set(wqe_reqtag, &wqe->generic.wqe_com, pwqeq->iotag);
 
 	pwqeq->vport = vport;
-	pwqeq->vport = vport;
-	pwqeq->context1 = lpfc_cmd;
+	pwqeq->io_buf = lpfc_cmd;
 	pwqeq->hba_wqidx = lpfc_cmd->hdwq_no;
 	pwqeq->cmd_cmpl = lpfc_fcp_io_cmd_wqe_cmpl;
 
@@ -5097,8 +5096,7 @@ lpfc_tskmgmt_def_cmpl(struct lpfc_hba *phba,
 			struct lpfc_iocbq *cmdiocbq,
 			struct lpfc_iocbq *rspiocbq)
 {
-	struct lpfc_io_buf *lpfc_cmd =
-		(struct lpfc_io_buf *) cmdiocbq->context1;
+	struct lpfc_io_buf *lpfc_cmd = cmdiocbq->io_buf;
 	if (lpfc_cmd)
 		lpfc_release_scsi_buf(phba, lpfc_cmd);
 	return;
@@ -5864,25 +5862,25 @@ lpfc_abort_handler(struct scsi_cmnd *cmnd)
 	if (!lpfc_cmd)
 		return ret;
 
-	spin_lock_irqsave(&phba->hbalock, flags);
+	/* Guard against IO completion being called at same time */
+	spin_lock_irqsave(&lpfc_cmd->buf_lock, flags);
+
+	spin_lock(&phba->hbalock);
 	/* driver queued commands are in process of being flushed */
 	if (phba->hba_flag & HBA_IOQ_FLUSH) {
 		lpfc_printf_vlog(vport, KERN_WARNING, LOG_FCP,
 			"3168 SCSI Layer abort requested I/O has been "
 			"flushed by LLD.\n");
 		ret = FAILED;
-		goto out_unlock;
+		goto out_unlock_hba;
 	}
-
-	/* Guard against IO completion being called at same time */
-	spin_lock(&lpfc_cmd->buf_lock);
 
 	if (!lpfc_cmd->pCmd) {
 		lpfc_printf_vlog(vport, KERN_WARNING, LOG_FCP,
 			 "2873 SCSI Layer I/O Abort Request IO CMPL Status "
 			 "x%x ID %d LUN %llu\n",
 			 SUCCESS, cmnd->device->id, cmnd->device->lun);
-		goto out_unlock_buf;
+		goto out_unlock_hba;
 	}
 
 	iocb = &lpfc_cmd->cur_iocbq;
@@ -5890,7 +5888,7 @@ lpfc_abort_handler(struct scsi_cmnd *cmnd)
 		pring_s4 = phba->sli4_hba.hdwq[iocb->hba_wqidx].io_wq->pring;
 		if (!pring_s4) {
 			ret = FAILED;
-			goto out_unlock_buf;
+			goto out_unlock_hba;
 		}
 		spin_lock(&pring_s4->ring_lock);
 	}
@@ -5915,7 +5913,7 @@ lpfc_abort_handler(struct scsi_cmnd *cmnd)
 		goto out_unlock_ring;
 	}
 
-	BUG_ON(iocb->context1 != lpfc_cmd);
+	WARN_ON(iocb->io_buf != lpfc_cmd);
 
 	/* abort issued in recovery is still in progress */
 	if (iocb->cmd_flag & LPFC_DRIVER_ABORTED) {
@@ -5923,8 +5921,8 @@ lpfc_abort_handler(struct scsi_cmnd *cmnd)
 			 "3389 SCSI Layer I/O Abort Request is pending\n");
 		if (phba->sli_rev == LPFC_SLI_REV4)
 			spin_unlock(&pring_s4->ring_lock);
-		spin_unlock(&lpfc_cmd->buf_lock);
-		spin_unlock_irqrestore(&phba->hbalock, flags);
+		spin_unlock(&phba->hbalock);
+		spin_unlock_irqrestore(&lpfc_cmd->buf_lock, flags);
 		goto wait_for_cmpl;
 	}
 
@@ -5945,15 +5943,13 @@ lpfc_abort_handler(struct scsi_cmnd *cmnd)
 	if (ret_val != IOCB_SUCCESS) {
 		/* Indicate the IO is not being aborted by the driver. */
 		lpfc_cmd->waitq = NULL;
-		spin_unlock(&lpfc_cmd->buf_lock);
-		spin_unlock_irqrestore(&phba->hbalock, flags);
 		ret = FAILED;
-		goto out;
+		goto out_unlock_hba;
 	}
 
 	/* no longer need the lock after this point */
-	spin_unlock(&lpfc_cmd->buf_lock);
-	spin_unlock_irqrestore(&phba->hbalock, flags);
+	spin_unlock(&phba->hbalock);
+	spin_unlock_irqrestore(&lpfc_cmd->buf_lock, flags);
 
 	if (phba->cfg_poll & DISABLE_FCP_RING_INT)
 		lpfc_sli_handle_fast_ring_event(phba,
@@ -5988,10 +5984,9 @@ wait_for_cmpl:
 out_unlock_ring:
 	if (phba->sli_rev == LPFC_SLI_REV4)
 		spin_unlock(&pring_s4->ring_lock);
-out_unlock_buf:
-	spin_unlock(&lpfc_cmd->buf_lock);
-out_unlock:
-	spin_unlock_irqrestore(&phba->hbalock, flags);
+out_unlock_hba:
+	spin_unlock(&phba->hbalock);
+	spin_unlock_irqrestore(&lpfc_cmd->buf_lock, flags);
 out:
 	lpfc_printf_vlog(vport, KERN_WARNING, LOG_FCP,
 			 "0749 SCSI Layer I/O Abort Request Status x%x ID %d "
