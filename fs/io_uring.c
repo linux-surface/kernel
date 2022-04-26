@@ -647,6 +647,7 @@ struct io_sr_msg {
 	int				bgid;
 	size_t				len;
 	size_t				done_io;
+	unsigned int			flags;
 };
 
 struct io_open {
@@ -5661,11 +5662,14 @@ static int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_sr_msg *sr = &req->sr_msg;
 
-	if (unlikely(sqe->addr2 || sqe->file_index))
+	if (unlikely(sqe->file_index))
 		return -EINVAL;
 
 	sr->umsg = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	sr->len = READ_ONCE(sqe->len);
+	sr->flags = READ_ONCE(sqe->addr2);
+	if (sr->flags & ~IORING_RECVSEND_POLL_FIRST)
+		return -EINVAL;
 	sr->msg_flags = READ_ONCE(sqe->msg_flags) | MSG_NOSIGNAL;
 	if (sr->msg_flags & MSG_DONTWAIT)
 		req->flags |= REQ_F_NOWAIT;
@@ -5699,6 +5703,10 @@ static int io_sendmsg(struct io_kiocb *req, unsigned int issue_flags)
 			return ret;
 		kmsg = &iomsg;
 	}
+
+	if (!(req->flags & REQ_F_POLLED) &&
+	    (sr->flags & IORING_RECVSEND_POLL_FIRST))
+		return io_setup_async_msg(req, kmsg);
 
 	flags = req->sr_msg.msg_flags;
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -5741,6 +5749,10 @@ static int io_send(struct io_kiocb *req, unsigned int issue_flags)
 	unsigned flags;
 	int min_ret = 0;
 	int ret;
+
+	if (!(req->flags & REQ_F_POLLED) &&
+	    (sr->flags & IORING_RECVSEND_POLL_FIRST))
+		return -EAGAIN;
 
 	sock = sock_from_file(req->file);
 	if (unlikely(!sock))
@@ -5894,11 +5906,14 @@ static int io_recvmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_sr_msg *sr = &req->sr_msg;
 
-	if (unlikely(sqe->addr2 || sqe->file_index))
+	if (unlikely(sqe->file_index))
 		return -EINVAL;
 
 	sr->umsg = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	sr->len = READ_ONCE(sqe->len);
+	sr->flags = READ_ONCE(sqe->addr2);
+	if (sr->flags & ~IORING_RECVSEND_POLL_FIRST)
+		return -EINVAL;
 	sr->bgid = READ_ONCE(sqe->buf_group);
 	sr->msg_flags = READ_ONCE(sqe->msg_flags) | MSG_NOSIGNAL;
 	if (sr->msg_flags & MSG_DONTWAIT)
@@ -5935,6 +5950,10 @@ static int io_recvmsg(struct io_kiocb *req, unsigned int issue_flags)
 			return ret;
 		kmsg = &iomsg;
 	}
+
+	if (!(req->flags & REQ_F_POLLED) &&
+	    (sr->flags & IORING_RECVSEND_POLL_FIRST))
+		return io_setup_async_msg(req, kmsg);
 
 	if (req->flags & REQ_F_BUFFER_SELECT) {
 		kbuf = io_recv_buffer_select(req, issue_flags);
@@ -5998,6 +6017,10 @@ static int io_recv(struct io_kiocb *req, unsigned int issue_flags)
 	unsigned flags;
 	int ret, min_ret = 0;
 	bool force_nonblock = issue_flags & IO_URING_F_NONBLOCK;
+
+	if (!(req->flags & REQ_F_POLLED) &&
+	    (sr->flags & IORING_RECVSEND_POLL_FIRST))
+		return -EAGAIN;
 
 	sock = sock_from_file(req->file);
 	if (unlikely(!sock))
