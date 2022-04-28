@@ -2017,6 +2017,7 @@ bool btrfs_can_activate_zone(struct btrfs_fs_devices *fs_devices, u64 flags)
 void btrfs_zone_finish_endio(struct btrfs_fs_info *fs_info, u64 logical, u64 length)
 {
 	struct btrfs_block_group *block_group;
+	u64 min_use;
 
 	if (!btrfs_is_zoned(fs_info))
 		return;
@@ -2024,7 +2025,14 @@ void btrfs_zone_finish_endio(struct btrfs_fs_info *fs_info, u64 logical, u64 len
 	block_group = btrfs_lookup_block_group(fs_info, logical);
 	ASSERT(block_group);
 
-	if (logical + length < block_group->start + block_group->zone_capacity)
+	/* No MIXED BG on zoned btrfs. */
+	if (block_group->flags & BTRFS_BLOCK_GROUP_DATA)
+		min_use = fs_info->sectorsize;
+	else
+		min_use = fs_info->nodesize;
+
+	/* Bail out if we can allocate more data from this BG. */
+	if (logical + length + min_use <= block_group->start + block_group->zone_capacity)
 		goto out;
 
 	__btrfs_zone_finish(block_group, true);
