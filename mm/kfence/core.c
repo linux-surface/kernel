@@ -102,7 +102,7 @@ static bool kfence_deferrable __read_mostly = IS_ENABLED(CONFIG_KFENCE_DEFERRABL
 module_param_named(deferrable, kfence_deferrable, bool, 0444);
 
 /* If true, check all canary bytes on panic. */
-static bool kfence_check_on_panic;
+static bool kfence_check_on_panic __read_mostly;
 module_param_named(check_on_panic, kfence_check_on_panic, bool, 0444);
 
 /* The pool of pages used for guard pages and objects. */
