@@ -3010,8 +3010,8 @@ static void *cache_alloc_debugcheck_after(struct kmem_cache *cachep,
 	if (cachep->ctor && cachep->flags & SLAB_POISON)
 		cachep->ctor(objp);
 	if ((unsigned long)objp & (arch_slab_minalign() - 1)) {
-		pr_err("0x%px: not aligned to arch_slab_minalign()=%d\n", objp,
-		       (int)arch_slab_minalign());
+		pr_err("0x%px: not aligned to arch_slab_minalign()=%u\n", objp,
+		       arch_slab_minalign());
 	}
 	return objp;
 }

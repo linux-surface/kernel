@@ -215,7 +215,7 @@ void kmem_dump_obj(void *object);
  * of two and >= ARCH_SLAB_MINALIGN.
  */
 #ifndef arch_slab_minalign
-static inline size_t arch_slab_minalign(void)
+static inline unsigned int arch_slab_minalign(void)
 {
 	return ARCH_SLAB_MINALIGN;
 }
