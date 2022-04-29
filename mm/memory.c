@@ -1234,7 +1234,7 @@ copy_p4d_range(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma,
  * false when we can speed up fork() by allowing lazy page faults later until
  * when the child accesses the memory range.
  */
-bool
+static bool
 vma_needs_copy(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma)
 {
 	/*
