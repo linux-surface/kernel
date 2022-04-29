@@ -4241,7 +4241,7 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 				      vmf->address, &vmf->ptl);
 	ret = 0;
 	/* Re-check under ptl */
-	if (likely(pte_none(*vmf->pte)))
+	if (likely(pte_same(*vmf->pte, vmf->orig_pte)))
 		do_set_pte(vmf, page, vmf->address);
 	else
 		ret = VM_FAULT_NOPAGE;
@@ -4709,6 +4709,13 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 		 * concurrent faults and from rmap lookups.
 		 */
 		vmf->pte = NULL;
+		/*
+		 * Always initialize orig_pte.  This matches with below
+		 * code to have orig_pte to be the none pte if pte==NULL.
+		 * This makes the rest code to be always safe to reference
+		 * it, e.g. in finish_fault() we'll detect pte changes.
+		 */
+		pte_clear(vmf->vma->vm_mm, vmf->address, &vmf->orig_pte);
 	} else {
 		/*
 		 * If a huge pmd materialized under us just retry later.  Use
