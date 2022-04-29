@@ -240,8 +240,12 @@ static inline void userfaultfd_unmap_complete(struct mm_struct *mm,
 
 static inline bool pte_marker_entry_uffd_wp(swp_entry_t entry)
 {
+#ifdef CONFIG_PTE_MARKER_UFFD_WP
 	return is_pte_marker_entry(entry) &&
 	    (pte_marker_get(entry) & PTE_MARKER_UFFD_WP);
+#else
+	return false;
+#endif
 }
 
 static inline bool pte_marker_uffd_wp(pte_t pte)
