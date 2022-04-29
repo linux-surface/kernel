@@ -4960,7 +4960,7 @@ int move_hugetlb_page_tables(struct vm_area_struct *vma,
 
 static void __unmap_hugepage_range(struct mmu_gather *tlb, struct vm_area_struct *vma,
 				   unsigned long start, unsigned long end,
-				   struct page *ref_page, unsigned long zap_flags)
+				   struct page *ref_page, zap_flags_t zap_flags)
 {
 	struct mm_struct *mm = vma->vm_mm;
 	unsigned long address;
@@ -5094,7 +5094,7 @@ static void __unmap_hugepage_range(struct mmu_gather *tlb, struct vm_area_struct
 void __unmap_hugepage_range_final(struct mmu_gather *tlb,
 			  struct vm_area_struct *vma, unsigned long start,
 			  unsigned long end, struct page *ref_page,
-			  unsigned long zap_flags)
+			  zap_flags_t zap_flags)
 {
 	__unmap_hugepage_range(tlb, vma, start, end, ref_page, zap_flags);
 
@@ -5113,7 +5113,7 @@ void __unmap_hugepage_range_final(struct mmu_gather *tlb,
 
 void unmap_hugepage_range(struct vm_area_struct *vma, unsigned long start,
 			  unsigned long end, struct page *ref_page,
-			  unsigned long zap_flags)
+			  zap_flags_t zap_flags)
 {
 	struct mmu_gather tlb;
 

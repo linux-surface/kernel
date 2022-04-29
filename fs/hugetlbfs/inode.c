@@ -406,7 +406,7 @@ static void remove_huge_page(struct page *page)
 
 static void
 hugetlb_vmdelete_list(struct rb_root_cached *root, pgoff_t start, pgoff_t end,
-		      unsigned long zap_flags)
+		      zap_flags_t zap_flags)
 {
 	struct vm_area_struct *vma;
 
