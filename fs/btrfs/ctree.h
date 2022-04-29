@@ -851,11 +851,11 @@ struct btrfs_fs_info {
 	struct btrfs_workqueue *hipri_workers;
 	struct btrfs_workqueue *delalloc_workers;
 	struct btrfs_workqueue *flush_workers;
-	struct btrfs_workqueue *endio_workers;
-	struct btrfs_workqueue *endio_meta_workers;
-	struct btrfs_workqueue *endio_raid56_workers;
+	struct workqueue_struct *endio_workers;
+	struct workqueue_struct *endio_meta_workers;
+	struct workqueue_struct *endio_raid56_workers;
 	struct workqueue_struct *rmw_workers;
-	struct btrfs_workqueue *endio_meta_write_workers;
+	struct workqueue_struct *compressed_write_workers;
 	struct btrfs_workqueue *endio_write_workers;
 	struct btrfs_workqueue *endio_freespace_worker;
 	struct btrfs_workqueue *caching_workers;
@@ -3252,8 +3252,10 @@ void btrfs_inode_safe_disk_i_size_write(struct btrfs_inode *inode, u64 new_i_siz
 u64 btrfs_file_extent_end(const struct btrfs_path *path);
 
 /* inode.c */
-void btrfs_submit_data_bio(struct inode *inode, struct bio *bio,
-			   int mirror_num, unsigned long bio_flags);
+void btrfs_submit_data_write_bio(struct inode *inode, struct bio *bio,
+		int mirror_num, unsigned long bio_flags);
+void btrfs_submit_data_read_bio(struct inode *inode, struct bio *bio,
+		int mirror_num, unsigned long bio_flags);
 unsigned int btrfs_verify_data_csum(struct btrfs_bio *bbio,
 				    u32 bio_offset, struct page *page,
 				    u64 start, u64 end);

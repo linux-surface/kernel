@@ -2554,90 +2554,76 @@ out:
 	return errno_to_blk_status(ret);
 }
 
-/*
- * extent_io.c submission hook. This does the right thing for csum calculation
- * on write, or reading the csums from the tree before a read.
- *
- * Rules about async/sync submit,
- * a) read:				sync submit
- *
- * b) write without checksum:		sync submit
- *
- * c) write with checksum:
- *    c-1) if bio is issued by fsync:	sync submit
- *         (sync_writers != 0)
- *
- *    c-2) if root is reloc root:	sync submit
- *         (only in case of buffered IO)
- *
- *    c-3) otherwise:			async submit
- */
-void btrfs_submit_data_bio(struct inode *inode, struct bio *bio,
+void btrfs_submit_data_write_bio(struct inode *inode, struct bio *bio,
 			   int mirror_num, unsigned long bio_flags)
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
-	struct btrfs_root *root = BTRFS_I(inode)->root;
-	enum btrfs_wq_endio_type metadata = BTRFS_WQ_ENDIO_DATA;
-	blk_status_t ret = 0;
-	int skip_sum;
-	int async = !atomic_read(&BTRFS_I(inode)->sync_writers);
-
-	skip_sum = (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM) ||
-		test_bit(BTRFS_FS_STATE_NO_CSUMS, &fs_info->fs_state);
-
-	if (btrfs_is_free_space_inode(BTRFS_I(inode)))
-		metadata = BTRFS_WQ_ENDIO_FREE_SPACE;
+	struct btrfs_inode *bi = BTRFS_I(inode);
+	blk_status_t ret;
 
 	if (bio_op(bio) == REQ_OP_ZONE_APPEND) {
-		struct page *page = bio_first_bvec_all(bio)->bv_page;
-		loff_t file_offset = page_offset(page);
-
-		ret = extract_ordered_extent(BTRFS_I(inode), bio, file_offset);
+		ret = extract_ordered_extent(bi, bio,
+				page_offset(bio_first_bvec_all(bio)->bv_page));
 		if (ret)
 			goto out;
 	}
 
-	if (btrfs_op(bio) != BTRFS_MAP_WRITE) {
-		ret = btrfs_bio_wq_end_io(fs_info, bio, metadata);
-		if (ret)
-			goto out;
-
-		if (bio_flags & EXTENT_BIO_COMPRESSED) {
-			/*
-			 * btrfs_submit_compressed_read will handle completing
-			 * the bio if there were any errors, so just return
-			 * here.
-			 */
-			btrfs_submit_compressed_read(inode, bio, mirror_num);
-			return;
-		} else {
-			/*
-			 * Lookup bio sums does extra checks around whether we
-			 * need to csum or not, which is why we ignore skip_sum
-			 * here.
-			 */
-			ret = btrfs_lookup_bio_sums(inode, bio, NULL);
+	/*
+	 * Rules for async/sync submit:
+	 *   a) write without checksum:			sync submit
+	 *   b) write with checksum:
+	 *      b-1) if bio is issued by fsync:		sync submit
+	 *           (sync_writers != 0)
+	 *      b-2) if root is reloc root:		sync submit
+	 *           (only in case of buffered IO)
+	 *      b-3) otherwise:				async submit
+	 */
+	if (!(bi->flags & BTRFS_INODE_NODATASUM) &&
+	    !test_bit(BTRFS_FS_STATE_NO_CSUMS, &fs_info->fs_state)) {
+		if (atomic_read(&bi->sync_writers)) {
+			ret = btrfs_csum_one_bio(bi, bio, (u64)-1, false);
 			if (ret)
 				goto out;
-		}
-		goto mapit;
-	} else if (async && !skip_sum) {
-		/* csum items have already been cloned */
-		if (btrfs_is_data_reloc_root(root))
-			goto mapit;
-		/* we're doing a write, do the async checksumming */
-		ret = btrfs_wq_submit_bio(inode, bio, mirror_num, bio_flags,
-					  0, btrfs_submit_bio_start);
-		goto out;
-	} else if (!skip_sum) {
-		ret = btrfs_csum_one_bio(BTRFS_I(inode), bio, (u64)-1, false);
-		if (ret)
+		} else if (btrfs_is_data_reloc_root(bi->root)) {
+			; /* csum items have already been cloned */
+		} else {
+			ret = btrfs_wq_submit_bio(inode, bio,
+					mirror_num, bio_flags, 0,
+					btrfs_submit_bio_start);
 			goto out;
+		}
+	}
+	ret = btrfs_map_bio(fs_info, bio, mirror_num);
+out:
+	if (ret) {
+		bio->bi_status = ret;
+		bio_endio(bio);
+	}
+}
+
+void btrfs_submit_data_read_bio(struct inode *inode, struct bio *bio,
+			   int mirror_num, unsigned long bio_flags)
+{
+	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
+	blk_status_t ret;
+
+	if (bio_flags & EXTENT_BIO_COMPRESSED) {
+		/*
+		 * btrfs_submit_compressed_read will handle completing the bio
+		 * if there were any errors, so just return here.
+		 */
+		btrfs_submit_compressed_read(inode, bio, mirror_num);
+		return;
 	}
 
-mapit:
+	/*
+	 * Lookup bio sums does extra checks around whether we need to csum or
+	 * not, which is why we ignore skip_sum here.
+	 */
+	ret = btrfs_lookup_bio_sums(inode, bio, NULL);
+	if (ret)
+		goto out;
 	ret = btrfs_map_bio(fs_info, bio, mirror_num);
-
 out:
 	if (ret) {
 		bio->bi_status = ret;
@@ -7841,9 +7827,6 @@ static void submit_dio_repair_bio(struct inode *inode, struct bio *bio,
 
 	BUG_ON(bio_op(bio) == REQ_OP_WRITE);
 
-	if (btrfs_bio_wq_end_io(fs_info, bio, BTRFS_WQ_ENDIO_DATA))
-		return;
-
 	refcount_inc(&dip->refs);
 	if (btrfs_map_bio(fs_info, bio, mirror_num))
 		refcount_dec(&dip->refs);
@@ -7944,34 +7927,24 @@ static inline blk_status_t btrfs_submit_dio_bio(struct bio *bio,
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_dio_private *dip = bio->bi_private;
-	bool write = btrfs_op(bio) == BTRFS_MAP_WRITE;
 	blk_status_t ret;
-
-	/* Check btrfs_submit_bio_hook() for rules about async submit. */
-	if (async_submit)
-		async_submit = !atomic_read(&BTRFS_I(inode)->sync_writers);
-
-	if (!write) {
-		ret = btrfs_bio_wq_end_io(fs_info, bio, BTRFS_WQ_ENDIO_DATA);
-		if (ret)
-			goto err;
-	}
 
 	if (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM)
 		goto map;
 
-	if (write && async_submit) {
-		ret = btrfs_wq_submit_bio(inode, bio, 0, 0, file_offset,
-					  btrfs_submit_bio_start_direct_io);
-		goto err;
-	} else if (write) {
+	if (btrfs_op(bio) == BTRFS_MAP_WRITE) {
+		/* check btrfs_submit_data_write_bio() for async submit rules */
+		if (async_submit && !atomic_read(&BTRFS_I(inode)->sync_writers))
+			return btrfs_wq_submit_bio(inode, bio, 0, 0,
+					file_offset,
+					btrfs_submit_bio_start_direct_io);
 		/*
 		 * If we aren't doing async submit, calculate the csum of the
 		 * bio now.
 		 */
 		ret = btrfs_csum_one_bio(BTRFS_I(inode), bio, file_offset, false);
 		if (ret)
-			goto err;
+			return ret;
 	} else {
 		u64 csum_offset;
 
@@ -7981,9 +7954,7 @@ static inline blk_status_t btrfs_submit_dio_bio(struct bio *bio,
 		btrfs_bio(bio)->csum = dip->csums + csum_offset;
 	}
 map:
-	ret = btrfs_map_bio(fs_info, bio, 0);
-err:
-	return ret;
+	return btrfs_map_bio(fs_info, bio, 0);
 }
 
 /*
@@ -10309,12 +10280,6 @@ static blk_status_t submit_encoded_read_bio(struct btrfs_inode *inode,
 		ret = btrfs_lookup_bio_sums(&inode->vfs_inode, bio, NULL);
 		if (ret)
 			return ret;
-	}
-
-	ret = btrfs_bio_wq_end_io(fs_info, bio, BTRFS_WQ_ENDIO_DATA);
-	if (ret) {
-		btrfs_bio_free_csum(bbio);
-		return ret;
 	}
 
 	atomic_inc(&priv->pending);
