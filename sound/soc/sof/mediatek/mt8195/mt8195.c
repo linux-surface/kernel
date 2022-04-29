@@ -302,6 +302,11 @@ exit_clk_disable:
 	return ret;
 }
 
+static int mt8195_dsp_shutdown(struct snd_sof_dev *sdev)
+{
+	return snd_sof_suspend(sdev->dev);
+}
+
 static int mt8195_dsp_remove(struct snd_sof_dev *sdev)
 {
 	struct platform_device *pdev = container_of(sdev->dev, struct platform_device, dev);
@@ -388,10 +393,11 @@ static struct snd_soc_dai_driver mt8195_dai[] = {
 };
 
 /* mt8195 ops */
-static const struct snd_sof_dsp_ops sof_mt8195_ops = {
+static struct snd_sof_dsp_ops sof_mt8195_ops = {
 	/* probe and remove */
 	.probe		= mt8195_dsp_probe,
 	.remove		= mt8195_dsp_remove,
+	.shutdown	= mt8195_dsp_shutdown,
 
 	/* DSP core boot */
 	.run		= mt8195_run,
@@ -409,8 +415,6 @@ static const struct snd_sof_dsp_ops sof_mt8195_ops = {
 	/* misc */
 	.get_bar_index	= mt8195_get_bar_index,
 
-	/* module loading */
-	.load_module	= snd_sof_parse_module_memcpy,
 	/* firmware loading */
 	.load_firmware	= snd_sof_load_firmware_memcpy,
 
@@ -434,11 +438,20 @@ static const struct snd_sof_dsp_ops sof_mt8195_ops = {
 };
 
 static const struct sof_dev_desc sof_of_mt8195_desc = {
-	.default_fw_path = "mediatek/sof",
-	.default_tplg_path = "mediatek/sof-tplg",
-	.default_fw_filename = "sof-mt8195.ri",
+	.ipc_supported_mask	= BIT(SOF_IPC),
+	.ipc_default		= SOF_IPC,
+	.default_fw_path = {
+		[SOF_IPC] = "mediatek/sof",
+	},
+	.default_tplg_path = {
+		[SOF_IPC] = "mediatek/sof-tplg",
+	},
+	.default_fw_filename = {
+		[SOF_IPC] = "sof-mt8195.ri",
+	},
 	.nocodec_tplg_filename = "sof-mt8195-nocodec.tplg",
 	.ops = &sof_mt8195_ops,
+	.ipc_timeout = 1000,
 };
 
 static const struct of_device_id sof_of_mt8195_ids[] = {
@@ -451,6 +464,7 @@ MODULE_DEVICE_TABLE(of, sof_of_mt8195_ids);
 static struct platform_driver snd_sof_of_mt8195_driver = {
 	.probe = sof_of_probe,
 	.remove = sof_of_remove,
+	.shutdown = sof_of_shutdown,
 	.driver = {
 	.name = "sof-audio-of-mt8195",
 		.pm = &sof_of_pm,

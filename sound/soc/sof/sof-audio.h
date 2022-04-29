@@ -86,6 +86,8 @@ struct sof_ipc_tplg_control_ops {
 			     const unsigned int __user *binary_data, unsigned int size);
 	/* update control data based on notification from the DSP */
 	void (*update)(struct snd_sof_dev *sdev, void *ipc_control_message);
+	/* Optional callback to setup kcontrols associated with an swidget */
+	int (*widget_kcontrol_setup)(struct snd_sof_dev *sdev, struct snd_sof_widget *swidget);
 };
 
 /**
@@ -247,7 +249,6 @@ struct snd_sof_control {
 	int max_volume_step; /* max volume step for volume_table */
 	int num_channels;
 	unsigned int access;
-	u32 readback_offset; /* offset to mmapped data if used */
 	int info_type;
 	int index; /* pipeline ID */
 	void *priv; /* private data copied from topology */
@@ -403,8 +404,7 @@ struct snd_sof_pcm *snd_sof_find_spcm_dai(struct snd_soc_component *scomp,
 					  struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
-
-	struct snd_sof_pcm *spcm = NULL;
+	struct snd_sof_pcm *spcm;
 
 	list_for_each_entry(spcm, &sdev->pcm_list, list) {
 		if (le32_to_cpu(spcm->pcm.dai_id) == rtd->dai_link->id)
@@ -430,16 +430,10 @@ static inline void snd_sof_compr_fragment_elapsed(struct snd_compr_stream *cstre
 static inline void snd_sof_compr_init_elapsed_work(struct work_struct *work) { }
 #endif
 
-/*
- * Mixer IPC
- */
-int snd_sof_ipc_set_get_comp_data(struct snd_sof_control *scontrol, bool set);
-
 /* DAI link fixup */
 int sof_pcm_dai_link_fixup(struct snd_soc_pcm_runtime *rtd, struct snd_pcm_hw_params *params);
 
 /* PM */
-int sof_set_hw_params_upon_resume(struct device *dev);
 bool snd_sof_stream_suspend_ignored(struct snd_sof_dev *sdev);
 bool snd_sof_dsp_only_d0i3_compatible_stream_active(struct snd_sof_dev *sdev);
 
