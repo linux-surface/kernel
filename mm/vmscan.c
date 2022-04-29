@@ -1421,7 +1421,7 @@ static enum page_references folio_check_references(struct folio *folio,
 	}
 
 	/* Reclaim if clean, defer dirty folios to writeback */
-	if (referenced_folio && !folio_test_swapbacked(folio))
+	if (referenced_folio && folio_is_file_lru(folio))
 		return PAGEREF_RECLAIM_CLEAN;
 
 	return PAGEREF_RECLAIM;
