@@ -10,7 +10,6 @@
 #include <linux/mount.h>
 #include <linux/xattr.h>
 #include <linux/posix_acl_xattr.h>
-#include <linux/radix-tree.h>
 #include <linux/vmalloc.h>
 #include <linux/string.h>
 #include <linux/compat.h>
@@ -128,7 +127,7 @@ struct send_ctx {
 	struct list_head new_refs;
 	struct list_head deleted_refs;
 
-	struct radix_tree_root name_cache;
+	struct xarray name_cache;
 	struct list_head name_cache_list;
 	int name_cache_size;
 
@@ -262,14 +261,13 @@ struct orphan_dir_info {
 struct name_cache_entry {
 	struct list_head list;
 	/*
-	 * radix_tree has only 32bit entries but we need to handle 64bit inums.
-	 * We use the lower 32bit of the 64bit inum to store it in the tree. If
-	 * more then one inum would fall into the same entry, we use radix_list
-	 * to store the additional entries. radix_list is also used to store
-	 * entries where two entries have the same inum but different
-	 * generations.
+	 * On 32bit kernels, xarray has only 32bit indices, but we need to
+	 * handle 64bit inums. We use the lower 32bit of the 64bit inum to store
+	 * it in the tree. If more than one inum would fall into the same entry,
+	 * we use inum_aliases to store the additional entries. inum_aliases is
+	 * also used to store entries with the same inum but different generations.
 	 */
-	struct list_head radix_list;
+	struct list_head inum_aliases;
 	u64 ino;
 	u64 gen;
 	u64 parent_ino;
@@ -2019,9 +2017,9 @@ out:
 }
 
 /*
- * Insert a name cache entry. On 32bit kernels the radix tree index is 32bit,
+ * Insert a name cache entry. On 32bit kernels the xarray index is 32bit,
  * so we need to do some special handling in case we have clashes. This function
- * takes care of this with the help of name_cache_entry::radix_list.
+ * takes care of this with the help of name_cache_entry::inum_aliases.
  * In case of error, nce is kfreed.
  */
 static int name_cache_insert(struct send_ctx *sctx,
@@ -2030,8 +2028,7 @@ static int name_cache_insert(struct send_ctx *sctx,
 	int ret = 0;
 	struct list_head *nce_head;
 
-	nce_head = radix_tree_lookup(&sctx->name_cache,
-			(unsigned long)nce->ino);
+	nce_head = xa_load(&sctx->name_cache, (unsigned long)nce->ino);
 	if (!nce_head) {
 		nce_head = kmalloc(sizeof(*nce_head), GFP_KERNEL);
 		if (!nce_head) {
@@ -2040,14 +2037,14 @@ static int name_cache_insert(struct send_ctx *sctx,
 		}
 		INIT_LIST_HEAD(nce_head);
 
-		ret = radix_tree_insert(&sctx->name_cache, nce->ino, nce_head);
+		ret = xa_insert(&sctx->name_cache, nce->ino, nce_head, GFP_KERNEL);
 		if (ret < 0) {
 			kfree(nce_head);
 			kfree(nce);
 			return ret;
 		}
 	}
-	list_add_tail(&nce->radix_list, nce_head);
+	list_add_tail(&nce->inum_aliases, nce_head);
 	list_add_tail(&nce->list, &sctx->name_cache_list);
 	sctx->name_cache_size++;
 
@@ -2059,15 +2056,14 @@ static void name_cache_delete(struct send_ctx *sctx,
 {
 	struct list_head *nce_head;
 
-	nce_head = radix_tree_lookup(&sctx->name_cache,
-			(unsigned long)nce->ino);
+	nce_head = xa_load(&sctx->name_cache, (unsigned long)nce->ino);
 	if (!nce_head) {
 		btrfs_err(sctx->send_root->fs_info,
 	      "name_cache_delete lookup failed ino %llu cache size %d, leaking memory",
 			nce->ino, sctx->name_cache_size);
 	}
 
-	list_del(&nce->radix_list);
+	list_del(&nce->inum_aliases);
 	list_del(&nce->list);
 	sctx->name_cache_size--;
 
@@ -2075,7 +2071,7 @@ static void name_cache_delete(struct send_ctx *sctx,
 	 * We may not get to the final release of nce_head if the lookup fails
 	 */
 	if (nce_head && list_empty(nce_head)) {
-		radix_tree_delete(&sctx->name_cache, (unsigned long)nce->ino);
+		xa_erase(&sctx->name_cache, (unsigned long)nce->ino);
 		kfree(nce_head);
 	}
 }
@@ -2086,11 +2082,11 @@ static struct name_cache_entry *name_cache_search(struct send_ctx *sctx,
 	struct list_head *nce_head;
 	struct name_cache_entry *cur;
 
-	nce_head = radix_tree_lookup(&sctx->name_cache, (unsigned long)ino);
+	nce_head = xa_load(&sctx->name_cache, (unsigned long)ino);
 	if (!nce_head)
 		return NULL;
 
-	list_for_each_entry(cur, nce_head, radix_list) {
+	list_for_each_entry(cur, nce_head, inum_aliases) {
 		if (cur->ino == ino && cur->gen == gen)
 			return cur;
 	}
@@ -2675,61 +2671,43 @@ out:
 static int did_create_dir(struct send_ctx *sctx, u64 dir)
 {
 	int ret = 0;
+	int iter_ret = 0;
 	struct btrfs_path *path = NULL;
 	struct btrfs_key key;
 	struct btrfs_key found_key;
 	struct btrfs_key di_key;
-	struct extent_buffer *eb;
 	struct btrfs_dir_item *di;
-	int slot;
 
 	path = alloc_path_for_send();
-	if (!path) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!path)
+		return -ENOMEM;
 
 	key.objectid = dir;
 	key.type = BTRFS_DIR_INDEX_KEY;
 	key.offset = 0;
-	ret = btrfs_search_slot(NULL, sctx->send_root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
 
-	while (1) {
-		eb = path->nodes[0];
-		slot = path->slots[0];
-		if (slot >= btrfs_header_nritems(eb)) {
-			ret = btrfs_next_leaf(sctx->send_root, path);
-			if (ret < 0) {
-				goto out;
-			} else if (ret > 0) {
-				ret = 0;
-				break;
-			}
-			continue;
-		}
+	btrfs_for_each_slot(sctx->send_root, &key, &found_key, path, iter_ret) {
+		struct extent_buffer *eb = path->nodes[0];
 
-		btrfs_item_key_to_cpu(eb, &found_key, slot);
 		if (found_key.objectid != key.objectid ||
 		    found_key.type != key.type) {
 			ret = 0;
-			goto out;
+			break;
 		}
 
-		di = btrfs_item_ptr(eb, slot, struct btrfs_dir_item);
+		di = btrfs_item_ptr(eb, path->slots[0], struct btrfs_dir_item);
 		btrfs_dir_item_key_to_cpu(eb, di, &di_key);
 
 		if (di_key.type != BTRFS_ROOT_ITEM_KEY &&
 		    di_key.objectid < sctx->send_progress) {
 			ret = 1;
-			goto out;
+			break;
 		}
-
-		path->slots[0]++;
 	}
+	/* Catch error found during iteration */
+	if (iter_ret < 0)
+		ret = iter_ret;
 
-out:
 	btrfs_free_path(path);
 	return ret;
 }
@@ -2933,6 +2911,7 @@ static int can_rmdir(struct send_ctx *sctx, u64 dir, u64 dir_gen,
 		     u64 send_progress)
 {
 	int ret = 0;
+	int iter_ret = 0;
 	struct btrfs_root *root = sctx->parent_root;
 	struct btrfs_path *path;
 	struct btrfs_key key;
@@ -2959,23 +2938,9 @@ static int can_rmdir(struct send_ctx *sctx, u64 dir, u64 dir_gen,
 	if (odi)
 		key.offset = odi->last_dir_index_offset;
 
-	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
-
-	while (1) {
+	btrfs_for_each_slot(root, &key, &found_key, path, iter_ret) {
 		struct waiting_dir_move *dm;
 
-		if (path->slots[0] >= btrfs_header_nritems(path->nodes[0])) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0)
-				goto out;
-			else if (ret > 0)
-				break;
-			continue;
-		}
-		btrfs_item_key_to_cpu(path->nodes[0], &found_key,
-				      path->slots[0]);
 		if (found_key.objectid != key.objectid ||
 		    found_key.type != key.type)
 			break;
@@ -3010,8 +2975,10 @@ static int can_rmdir(struct send_ctx *sctx, u64 dir, u64 dir_gen,
 			ret = 0;
 			goto out;
 		}
-
-		path->slots[0]++;
+	}
+	if (iter_ret < 0) {
+		ret = iter_ret;
+		goto out;
 	}
 	free_orphan_dir_info(sctx, odi);
 
@@ -3579,7 +3546,7 @@ static int check_ino_in_path(struct btrfs_root *root,
 }
 
 /*
- * Check if ino ino1 is an ancestor of inode ino2 in the given root for any
+ * Check if inode ino1 is an ancestor of inode ino2 in the given root for any
  * possible path (in case ino2 is not a directory and has multiple hard links).
  * Return 1 if true, 0 if false and < 0 on error.
  */
@@ -3591,6 +3558,7 @@ static int is_ancestor(struct btrfs_root *root,
 {
 	bool free_fs_path = false;
 	int ret = 0;
+	int iter_ret = 0;
 	struct btrfs_path *path = NULL;
 	struct btrfs_key key;
 
@@ -3611,26 +3579,12 @@ static int is_ancestor(struct btrfs_root *root,
 	key.type = BTRFS_INODE_REF_KEY;
 	key.offset = 0;
 
-	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
-
-	while (true) {
+	btrfs_for_each_slot(root, &key, &key, path, iter_ret) {
 		struct extent_buffer *leaf = path->nodes[0];
 		int slot = path->slots[0];
 		u32 cur_offset = 0;
 		u32 item_size;
 
-		if (slot >= btrfs_header_nritems(leaf)) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0)
-				goto out;
-			if (ret > 0)
-				break;
-			continue;
-		}
-
-		btrfs_item_key_to_cpu(leaf, &key, slot);
 		if (key.objectid != ino2)
 			break;
 		if (key.type != BTRFS_INODE_REF_KEY &&
@@ -3668,10 +3622,12 @@ static int is_ancestor(struct btrfs_root *root,
 			if (ret)
 				goto out;
 		}
-		path->slots[0]++;
 	}
 	ret = 0;
- out:
+	if (iter_ret < 0)
+		ret = iter_ret;
+
+out:
 	btrfs_free_path(path);
 	if (free_fs_path)
 		fs_path_free(fs_path);
@@ -4551,13 +4507,12 @@ out:
 static int process_all_refs(struct send_ctx *sctx,
 			    enum btrfs_compare_tree_result cmd)
 {
-	int ret;
+	int ret = 0;
+	int iter_ret = 0;
 	struct btrfs_root *root;
 	struct btrfs_path *path;
 	struct btrfs_key key;
 	struct btrfs_key found_key;
-	struct extent_buffer *eb;
-	int slot;
 	iterate_inode_ref_t cb;
 	int pending_move = 0;
 
@@ -4581,24 +4536,7 @@ static int process_all_refs(struct send_ctx *sctx,
 	key.objectid = sctx->cmp_key->objectid;
 	key.type = BTRFS_INODE_REF_KEY;
 	key.offset = 0;
-	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
-
-	while (1) {
-		eb = path->nodes[0];
-		slot = path->slots[0];
-		if (slot >= btrfs_header_nritems(eb)) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0)
-				goto out;
-			else if (ret > 0)
-				break;
-			continue;
-		}
-
-		btrfs_item_key_to_cpu(eb, &found_key, slot);
-
+	btrfs_for_each_slot(root, &key, &found_key, path, iter_ret) {
 		if (found_key.objectid != key.objectid ||
 		    (found_key.type != BTRFS_INODE_REF_KEY &&
 		     found_key.type != BTRFS_INODE_EXTREF_KEY))
@@ -4607,8 +4545,11 @@ static int process_all_refs(struct send_ctx *sctx,
 		ret = iterate_inode_ref(root, path, &found_key, 0, cb, sctx);
 		if (ret < 0)
 			goto out;
-
-		path->slots[0]++;
+	}
+	/* Catch error found during iteration */
+	if (iter_ret < 0) {
+		ret = iter_ret;
+		goto out;
 	}
 	btrfs_release_path(path);
 
@@ -4870,13 +4811,12 @@ out:
 
 static int process_all_new_xattrs(struct send_ctx *sctx)
 {
-	int ret;
+	int ret = 0;
+	int iter_ret = 0;
 	struct btrfs_root *root;
 	struct btrfs_path *path;
 	struct btrfs_key key;
 	struct btrfs_key found_key;
-	struct extent_buffer *eb;
-	int slot;
 
 	path = alloc_path_for_send();
 	if (!path)
@@ -4887,39 +4827,21 @@ static int process_all_new_xattrs(struct send_ctx *sctx)
 	key.objectid = sctx->cmp_key->objectid;
 	key.type = BTRFS_XATTR_ITEM_KEY;
 	key.offset = 0;
-	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
-
-	while (1) {
-		eb = path->nodes[0];
-		slot = path->slots[0];
-		if (slot >= btrfs_header_nritems(eb)) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0) {
-				goto out;
-			} else if (ret > 0) {
-				ret = 0;
-				break;
-			}
-			continue;
-		}
-
-		btrfs_item_key_to_cpu(eb, &found_key, slot);
+	btrfs_for_each_slot(root, &key, &found_key, path, iter_ret) {
 		if (found_key.objectid != key.objectid ||
 		    found_key.type != key.type) {
 			ret = 0;
-			goto out;
+			break;
 		}
 
 		ret = iterate_dir_item(root, path, __process_new_xattr, sctx);
 		if (ret < 0)
-			goto out;
-
-		path->slots[0]++;
+			break;
 	}
+	/* Catch error found during iteration */
+	if (iter_ret < 0)
+		ret = iter_ret;
 
-out:
 	btrfs_free_path(path);
 	return ret;
 }
@@ -5965,13 +5887,12 @@ out:
 
 static int process_all_extents(struct send_ctx *sctx)
 {
-	int ret;
+	int ret = 0;
+	int iter_ret = 0;
 	struct btrfs_root *root;
 	struct btrfs_path *path;
 	struct btrfs_key key;
 	struct btrfs_key found_key;
-	struct extent_buffer *eb;
-	int slot;
 
 	root = sctx->send_root;
 	path = alloc_path_for_send();
@@ -5981,41 +5902,21 @@ static int process_all_extents(struct send_ctx *sctx)
 	key.objectid = sctx->cmp_key->objectid;
 	key.type = BTRFS_EXTENT_DATA_KEY;
 	key.offset = 0;
-	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
-
-	while (1) {
-		eb = path->nodes[0];
-		slot = path->slots[0];
-
-		if (slot >= btrfs_header_nritems(eb)) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0) {
-				goto out;
-			} else if (ret > 0) {
-				ret = 0;
-				break;
-			}
-			continue;
-		}
-
-		btrfs_item_key_to_cpu(eb, &found_key, slot);
-
+	btrfs_for_each_slot(root, &key, &found_key, path, iter_ret) {
 		if (found_key.objectid != key.objectid ||
 		    found_key.type != key.type) {
 			ret = 0;
-			goto out;
+			break;
 		}
 
 		ret = process_extent(sctx, path, &found_key);
 		if (ret < 0)
-			goto out;
-
-		path->slots[0]++;
+			break;
 	}
+	/* Catch error found during iteration */
+	if (iter_ret < 0)
+		ret = iter_ret;
 
-out:
 	btrfs_free_path(path);
 	return ret;
 }
@@ -6205,8 +6106,11 @@ static int btrfs_unlink_all_paths(struct send_ctx *sctx)
 {
 	LIST_HEAD(deleted_refs);
 	struct btrfs_path *path;
+	struct btrfs_root *root = sctx->parent_root;
 	struct btrfs_key key;
+	struct btrfs_key found_key;
 	struct parent_paths_ctx ctx;
+	int iter_ret = 0;
 	int ret;
 
 	path = alloc_path_for_send();
@@ -6216,39 +6120,26 @@ static int btrfs_unlink_all_paths(struct send_ctx *sctx)
 	key.objectid = sctx->cur_ino;
 	key.type = BTRFS_INODE_REF_KEY;
 	key.offset = 0;
-	ret = btrfs_search_slot(NULL, sctx->parent_root, &key, path, 0, 0);
-	if (ret < 0)
-		goto out;
 
 	ctx.refs = &deleted_refs;
 	ctx.sctx = sctx;
 
-	while (true) {
-		struct extent_buffer *eb = path->nodes[0];
-		int slot = path->slots[0];
-
-		if (slot >= btrfs_header_nritems(eb)) {
-			ret = btrfs_next_leaf(sctx->parent_root, path);
-			if (ret < 0)
-				goto out;
-			else if (ret > 0)
-				break;
-			continue;
-		}
-
-		btrfs_item_key_to_cpu(eb, &key, slot);
-		if (key.objectid != sctx->cur_ino)
+	btrfs_for_each_slot(root, &key, &found_key, path, iter_ret) {
+		if (found_key.objectid != key.objectid)
 			break;
-		if (key.type != BTRFS_INODE_REF_KEY &&
-		    key.type != BTRFS_INODE_EXTREF_KEY)
+		if (found_key.type != key.type &&
+		    found_key.type != BTRFS_INODE_EXTREF_KEY)
 			break;
 
-		ret = iterate_inode_ref(sctx->parent_root, path, &key, 1,
+		ret = iterate_inode_ref(root, path, &found_key, 1,
 					record_parent_ref, &ctx);
 		if (ret < 0)
 			goto out;
-
-		path->slots[0]++;
+	}
+	/* Catch error found during iteration */
+	if (iter_ret < 0) {
+		ret = iter_ret;
+		goto out;
 	}
 
 	while (!list_empty(&deleted_refs)) {
@@ -7534,7 +7425,7 @@ long btrfs_ioctl_send(struct inode *inode, struct btrfs_ioctl_send_args *arg)
 
 	INIT_LIST_HEAD(&sctx->new_refs);
 	INIT_LIST_HEAD(&sctx->deleted_refs);
-	INIT_RADIX_TREE(&sctx->name_cache, GFP_KERNEL);
+	xa_init_flags(&sctx->name_cache, GFP_KERNEL);
 	INIT_LIST_HEAD(&sctx->name_cache_list);
 
 	sctx->flags = arg->flags;
