@@ -1414,7 +1414,7 @@ static enum page_references folio_check_references(struct folio *folio,
 		/*
 		 * Activate file-backed executable folios after first usage.
 		 */
-		if ((vm_flags & VM_EXEC) && !folio_test_swapbacked(folio))
+		if ((vm_flags & VM_EXEC) && folio_is_file_lru(folio))
 			return PAGEREF_ACTIVATE;
 
 		return PAGEREF_KEEP;
