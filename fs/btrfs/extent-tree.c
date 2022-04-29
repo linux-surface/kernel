@@ -2357,14 +2357,9 @@ out:
 }
 
 int btrfs_cross_ref_exist(struct btrfs_root *root, u64 objectid, u64 offset,
-			  u64 bytenr, bool strict)
+			  u64 bytenr, bool strict, struct btrfs_path *path)
 {
-	struct btrfs_path *path;
 	int ret;
-
-	path = btrfs_alloc_path();
-	if (!path)
-		return -ENOMEM;
 
 	do {
 		ret = check_committed_ref(root, path, objectid,
@@ -2376,7 +2371,7 @@ int btrfs_cross_ref_exist(struct btrfs_root *root, u64 objectid, u64 offset,
 	} while (ret == -EAGAIN);
 
 out:
-	btrfs_free_path(path);
+	btrfs_release_path(path);
 	if (btrfs_is_data_reloc_root(root))
 		WARN_ON(ret > 0);
 	return ret;
@@ -2497,24 +2492,21 @@ static u64 get_alloc_profile_by_root(struct btrfs_root *root, int data)
 	return ret;
 }
 
-static u64 first_logical_byte(struct btrfs_fs_info *fs_info, u64 search_start)
+static u64 first_logical_byte(struct btrfs_fs_info *fs_info)
 {
-	struct btrfs_block_group *cache;
-	u64 bytenr;
+	struct rb_node *leftmost;
+	u64 bytenr = 0;
 
-	spin_lock(&fs_info->block_group_cache_lock);
-	bytenr = fs_info->first_logical_byte;
-	spin_unlock(&fs_info->block_group_cache_lock);
+	read_lock(&fs_info->block_group_cache_lock);
+	/* Get the block group with the lowest logical start address. */
+	leftmost = rb_first_cached(&fs_info->block_group_cache_tree);
+	if (leftmost) {
+		struct btrfs_block_group *bg;
 
-	if (bytenr < (u64)-1)
-		return bytenr;
-
-	cache = btrfs_lookup_first_block_group(fs_info, search_start);
-	if (!cache)
-		return 0;
-
-	bytenr = cache->start;
-	btrfs_put_block_group(cache);
+		bg = rb_entry(leftmost, struct btrfs_block_group, cache_node);
+		bytenr = bg->start;
+	}
+	read_unlock(&fs_info->block_group_cache_lock);
 
 	return bytenr;
 }
@@ -4272,7 +4264,7 @@ static noinline int find_free_extent(struct btrfs_root *root,
 		return ret;
 
 	ffe_ctl->search_start = max(ffe_ctl->search_start,
-				    first_logical_byte(fs_info, 0));
+				    first_logical_byte(fs_info));
 	ffe_ctl->search_start = max(ffe_ctl->search_start, ffe_ctl->hint_byte);
 	if (ffe_ctl->search_start == ffe_ctl->hint_byte) {
 		block_group = btrfs_lookup_block_group(fs_info,

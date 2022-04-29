@@ -32,7 +32,6 @@ enum {
 	/* write IO error */
 	EXTENT_BUFFER_WRITE_ERR,
 	EXTENT_BUFFER_NO_CHECK,
-	EXTENT_BUFFER_ZONE_FINISH,
 };
 
 /* these are flags for __process_pages_contig */
@@ -71,7 +70,7 @@ struct btrfs_fs_info;
 struct io_failure_record;
 struct extent_io_tree;
 
-typedef blk_status_t (submit_bio_hook_t)(struct inode *inode, struct bio *bio,
+typedef void (submit_bio_hook_t)(struct inode *inode, struct bio *bio,
 					 int mirror_num,
 					 unsigned long bio_flags);
 
@@ -100,17 +99,6 @@ struct extent_buffer {
 #ifdef CONFIG_BTRFS_DEBUG
 	struct list_head leak_list;
 #endif
-};
-
-/*
- * Structure to record info about the bio being assembled, and other info like
- * how many bytes are there before stripe/ordered extent boundary.
- */
-struct btrfs_bio_ctrl {
-	struct bio *bio;
-	unsigned long bio_flags;
-	u32 len_to_stripe_boundary;
-	u32 len_to_oe_boundary;
 };
 
 /*
@@ -178,11 +166,7 @@ typedef struct extent_map *(get_extent_t)(struct btrfs_inode *inode,
 int try_release_extent_mapping(struct page *page, gfp_t mask);
 int try_release_extent_buffer(struct page *page);
 
-int __must_check submit_one_bio(struct bio *bio, int mirror_num,
-				unsigned long bio_flags);
-int btrfs_do_readpage(struct page *page, struct extent_map **em_cached,
-		      struct btrfs_bio_ctrl *bio_ctrl,
-		      unsigned int read_flags, u64 *prev_em_start);
+int btrfs_readpage(struct file *file, struct page *page);
 int extent_write_full_page(struct page *page, struct writeback_control *wbc);
 int extent_write_locked_range(struct inode *inode, u64 start, u64 end);
 int extent_writepages(struct address_space *mapping,
@@ -277,8 +261,9 @@ void extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end);
 void extent_clear_unlock_delalloc(struct btrfs_inode *inode, u64 start, u64 end,
 				  struct page *locked_page,
 				  u32 bits_to_clear, unsigned long page_ops);
+
+int btrfs_alloc_page_array(unsigned int nr_pages, struct page **page_array);
 struct bio *btrfs_bio_alloc(unsigned int nr_iovecs);
-struct bio *btrfs_bio_clone(struct bio *bio);
 struct bio *btrfs_bio_clone_partial(struct bio *orig, u64 offset, u64 size);
 
 void end_extent_writepage(struct page *page, int err, u64 start, u64 end);
