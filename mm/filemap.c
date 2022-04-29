@@ -2419,7 +2419,7 @@ static int filemap_read_folio(struct file *file, struct address_space *mapping,
 	 */
 	folio_clear_error(folio);
 	/* Start the actual read. The read will unlock the page. */
-	error = mapping->a_ops->readpage(file, &folio->page);
+	error = mapping->a_ops->read_folio(file, folio);
 	if (error)
 		return error;
 
@@ -3447,7 +3447,7 @@ int generic_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct address_space *mapping = file->f_mapping;
 
-	if (!mapping->a_ops->readpage)
+	if (!mapping->a_ops->read_folio)
 		return -ENOEXEC;
 	file_accessed(file);
 	vma->vm_ops = &generic_file_vm_ops;
@@ -3506,7 +3506,7 @@ filler:
 		if (filler)
 			err = filler(data, &folio->page);
 		else
-			err = mapping->a_ops->readpage(data, &folio->page);
+			err = mapping->a_ops->read_folio(data, folio);
 
 		if (err < 0) {
 			folio_put(folio);
