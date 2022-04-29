@@ -1694,7 +1694,7 @@ static struct kobj_type damon_sysfs_attrs_ktype = {
 /* This should match with enum damon_ops_id */
 static const char * const damon_sysfs_ops_strs[] = {
 	"vaddr",
-	"unsupported",	/* fvaddr is not supported by sysfs yet */
+	"fvaddr",
 	"paddr",
 };
 
@@ -1844,9 +1844,6 @@ static ssize_t operations_store(struct kobject *kobj,
 
 	for (id = 0; id < NR_DAMON_OPS; id++) {
 		if (sysfs_streq(buf, damon_sysfs_ops_strs[id])) {
-			/* fvaddr is not supported by sysfs yet */
-			if (id == DAMON_OPS_FVADDR)
-				return -EINVAL;
 			context->ops_id = id;
 			return count;
 		}
@@ -2136,7 +2133,8 @@ static int damon_sysfs_set_targets(struct damon_ctx *ctx,
 			damon_sysfs_destroy_targets(ctx);
 			return -ENOMEM;
 		}
-		if (ctx->ops.id == DAMON_OPS_VADDR) {
+		if (ctx->ops.id == DAMON_OPS_VADDR ||
+				ctx->ops.id == DAMON_OPS_FVADDR) {
 			t->pid = find_get_pid(sys_target->pid);
 			if (!t->pid) {
 				damon_sysfs_destroy_targets(ctx);
