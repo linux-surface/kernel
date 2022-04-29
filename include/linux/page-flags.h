@@ -190,18 +190,18 @@ enum pageflags {
 
 #ifndef __GENERATING_BOUNDS_H
 
-#ifdef CONFIG_HUGETLB_PAGE_FREE_VMEMMAP
-DECLARE_STATIC_KEY_MAYBE(CONFIG_HUGETLB_PAGE_FREE_VMEMMAP_DEFAULT_ON,
-			 hugetlb_free_vmemmap_enabled_key);
+#ifdef CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP
+DECLARE_STATIC_KEY_MAYBE(CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP_DEFAULT_ON,
+			 hugetlb_optimize_vmemmap_key);
 
-static __always_inline bool hugetlb_free_vmemmap_enabled(void)
+static __always_inline bool hugetlb_optimize_vmemmap_enabled(void)
 {
-	return static_branch_maybe(CONFIG_HUGETLB_PAGE_FREE_VMEMMAP_DEFAULT_ON,
-				   &hugetlb_free_vmemmap_enabled_key);
+	return static_branch_maybe(CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP_DEFAULT_ON,
+				   &hugetlb_optimize_vmemmap_key);
 }
 
 /*
- * If the feature of freeing some vmemmap pages associated with each HugeTLB
+ * If the feature of optimizing vmemmap pages associated with each HugeTLB
  * page is enabled, the head vmemmap page frame is reused and all of the tail
  * vmemmap addresses map to the head vmemmap page frame (furture details can
  * refer to the figure at the head of the mm/hugetlb_vmemmap.c).  In other
@@ -218,7 +218,7 @@ static __always_inline bool hugetlb_free_vmemmap_enabled(void)
  */
 static __always_inline const struct page *page_fixed_fake_head(const struct page *page)
 {
-	if (!hugetlb_free_vmemmap_enabled())
+	if (!hugetlb_optimize_vmemmap_enabled())
 		return page;
 
 	/*
@@ -247,7 +247,7 @@ static inline const struct page *page_fixed_fake_head(const struct page *page)
 	return page;
 }
 
-static inline bool hugetlb_free_vmemmap_enabled(void)
+static inline bool hugetlb_optimize_vmemmap_enabled(void)
 {
 	return false;
 }
