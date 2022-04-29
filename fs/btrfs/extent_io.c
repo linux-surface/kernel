@@ -186,11 +186,15 @@ static void submit_one_bio(struct bio *bio, int mirror_num, unsigned long bio_fl
 	/* Caller should ensure the bio has at least some range added */
 	ASSERT(bio->bi_iter.bi_size);
 
-	if (is_data_inode(tree->private_data))
-		btrfs_submit_data_bio(tree->private_data, bio, mirror_num,
+	if (!is_data_inode(tree->private_data))
+		btrfs_submit_metadata_bio(tree->private_data, bio, mirror_num);
+	else if (btrfs_op(bio) == BTRFS_MAP_WRITE)
+		btrfs_submit_data_write_bio(tree->private_data, bio, mirror_num,
 					    bio_flags);
 	else
-		btrfs_submit_metadata_bio(tree->private_data, bio, mirror_num);
+		btrfs_submit_data_read_bio(tree->private_data, bio, mirror_num,
+					    bio_flags);
+
 	/*
 	 * Above submission hooks will handle the error by ending the bio,
 	 * which will do the cleanup properly.  So here we should not return
@@ -2773,7 +2777,7 @@ static blk_status_t submit_data_read_repair(struct inode *inode,
 		ret = btrfs_repair_one_sector(inode, failed_bio,
 				bio_offset + offset,
 				page, pgoff + offset, start + offset,
-				failed_mirror, btrfs_submit_data_bio);
+				failed_mirror, btrfs_submit_data_read_bio);
 		if (!ret) {
 			/*
 			 * We have submitted the read repair, the page release
