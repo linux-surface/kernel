@@ -2607,12 +2607,6 @@ void btrfs_submit_data_read_bio(struct inode *inode, struct bio *bio,
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	blk_status_t ret;
 
-	ret = btrfs_bio_wq_end_io(fs_info, bio,
-			btrfs_is_free_space_inode(BTRFS_I(inode)) ?
-			BTRFS_WQ_ENDIO_FREE_SPACE : BTRFS_WQ_ENDIO_DATA);
-	if (ret)
-		goto out;
-
 	if (bio_flags & EXTENT_BIO_COMPRESSED) {
 		/*
 		 * btrfs_submit_compressed_read will handle completing the bio
@@ -2621,6 +2615,12 @@ void btrfs_submit_data_read_bio(struct inode *inode, struct bio *bio,
 		btrfs_submit_compressed_read(inode, bio, mirror_num);
 		return;
 	}
+
+	ret = btrfs_bio_wq_end_io(fs_info, bio,
+			btrfs_is_free_space_inode(BTRFS_I(inode)) ?
+			BTRFS_WQ_ENDIO_FREE_SPACE : BTRFS_WQ_ENDIO_DATA);
+	if (ret)
+		goto out;
 
 	/*
 	 * Lookup bio sums does extra checks around whether we need to csum or
