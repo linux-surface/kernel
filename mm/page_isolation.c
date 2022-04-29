@@ -367,58 +367,67 @@ static int isolate_single_pageblock(unsigned long boundary_pfn, gfp_t gfp_flags,
 		}
 		/*
 		 * migrate compound pages then let the free page handling code
-		 * above do the rest. If migration is not enabled, just fail.
+		 * above do the rest. If migration is not possible, just fail.
 		 */
-		if (PageHuge(page) || PageTransCompound(page)) {
-#if defined CONFIG_COMPACTION || defined CONFIG_CMA
+		if (PageCompound(page)) {
 			unsigned long nr_pages = compound_nr(page);
-			int order = compound_order(page);
 			struct page *head = compound_head(page);
 			unsigned long head_pfn = page_to_pfn(head);
-			int ret;
-			struct compact_control cc = {
-				.nr_migratepages = 0,
-				.order = -1,
-				.zone = page_zone(pfn_to_page(head_pfn)),
-				.mode = MIGRATE_SYNC,
-				.ignore_skip_hint = true,
-				.no_set_skip_hint = true,
-				.gfp_mask = gfp_flags,
-				.alloc_contig = true,
-			};
-			INIT_LIST_HEAD(&cc.migratepages);
 
 			if (head_pfn + nr_pages < boundary_pfn) {
-				pfn += nr_pages;
+				pfn = head_pfn + nr_pages;
 				continue;
 			}
-
-			ret = __alloc_contig_migrate_range(&cc, head_pfn,
-						head_pfn + nr_pages);
-
-			if (ret)
-				goto failed;
+#if defined CONFIG_COMPACTION || defined CONFIG_CMA
 			/*
-			 * reset pfn, let the free page handling code above
-			 * split the free page to the right migratetype list.
-			 *
-			 * head_pfn is not used here as a hugetlb page order
-			 * can be bigger than MAX_ORDER-1, but after it is
-			 * freed, the free page order is not. Use pfn within
-			 * the range to find the head of the free page and
-			 * reset order to 0 if a hugetlb page with
-			 * >MAX_ORDER-1 order is encountered.
+			 * hugetlb, lru compound (THP), and movable compound pages
+			 * can be migrated. Otherwise, fail the isolation.
 			 */
-			if (order > MAX_ORDER-1)
+			if (PageHuge(page) || PageLRU(page) || __PageMovable(page)) {
+				int order;
+				unsigned long outer_pfn;
+				int ret;
+				struct compact_control cc = {
+					.nr_migratepages = 0,
+					.order = -1,
+					.zone = page_zone(pfn_to_page(head_pfn)),
+					.mode = MIGRATE_SYNC,
+					.ignore_skip_hint = true,
+					.no_set_skip_hint = true,
+					.gfp_mask = gfp_flags,
+					.alloc_contig = true,
+				};
+				INIT_LIST_HEAD(&cc.migratepages);
+
+				ret = __alloc_contig_migrate_range(&cc, head_pfn,
+							head_pfn + nr_pages);
+
+				if (ret)
+					goto failed;
+				/*
+				 * reset pfn to the head of the free page, so
+				 * that the free page handling code above can split
+				 * the free page to the right migratetype list.
+				 *
+				 * head_pfn is not used here as a hugetlb page order
+				 * can be bigger than MAX_ORDER-1, but after it is
+				 * freed, the free page order is not. Use pfn within
+				 * the range to find the head of the free page.
+				 */
 				order = 0;
-			while (!PageBuddy(pfn_to_page(pfn))) {
-				order++;
-				pfn &= ~0UL << order;
-			}
-			continue;
-#else
-			goto failed;
+				outer_pfn = pfn;
+				while (!PageBuddy(pfn_to_page(outer_pfn))) {
+					if (++order >= MAX_ORDER) {
+						outer_pfn = pfn;
+						break;
+					}
+					outer_pfn &= ~0UL << order;
+				}
+				pfn = outer_pfn;
+				continue;
+			} else
 #endif
+				goto failed;
 		}
 
 		pfn++;
