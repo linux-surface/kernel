@@ -216,7 +216,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
 	if (IS_ERR(ac->psy))
 		return PTR_ERR(ac->psy);
 
-	return ssam_device_notifier_register(ac->sdev, &ac->notif);
+	return ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
 }
 
 
@@ -251,7 +251,7 @@ static void surface_ac_remove(struct ssam_device *sdev)
 {
 	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
 
-	ssam_device_notifier_unregister(sdev, &ac->notif);
+	ssam_notifier_unregister(sdev->ctrl, &ac->notif);
 }
 
 static const struct spwr_psy_properties spwr_psy_props_adp1 = {
