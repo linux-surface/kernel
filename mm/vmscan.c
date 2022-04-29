@@ -2574,7 +2574,6 @@ unsigned long reclaim_pages(struct list_head *page_list)
 		page = lru_to_page(page_list);
 		if (nid == NUMA_NO_NODE) {
 			nid = page_to_nid(page);
-			INIT_LIST_HEAD(&node_page_list);
 		}
 
 		if (nid == page_to_nid(page)) {
