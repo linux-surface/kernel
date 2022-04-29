@@ -4185,9 +4185,8 @@ void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
 
 static bool vmf_pte_changed(struct vm_fault *vmf)
 {
-	if (vmf->flags & FAULT_FLAG_ORIG_PTE_VALID) {
+	if (vmf->flags & FAULT_FLAG_ORIG_PTE_VALID)
 		return !pte_same(*vmf->pte, vmf->orig_pte);
-	}
 
 	return !pte_none(*vmf->pte);
 }
