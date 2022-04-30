@@ -34,6 +34,16 @@ arm/fixes
 		MAINTAINERS: add Bug entry for Samsung and memory controller drivers
 	<no branch> (46ff3df87215ff42c0cd2c4bdb7d74540384a69c)
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.18/fixes-take2
+	patch
+		Revert "arm64: dts: tegra: Fix boolean properties with values"
+	<no branch> (fff8c10368e64e7f8960f149375c12ca5f3b30af)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-5.18-1
+	<no branch> (0310b5aa0656a94102344f1e9ae2892e342a665d)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.18-2
+	<no branch> (39ad93d280506f4953a9d0c545cfffa581889326)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.18-arm-defconfig-fixes
+	patch
+		Revert "arm: dts: at91: Fix boolean properties with values"
 
 arm/multiplatform
 	patch
@@ -53,6 +63,14 @@ arm/multiplatform
 		ARM: s3c: fix include path
 	omap1/multiplatform-prep
 		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
 
 arm/multiplatform-late
 	patch
@@ -72,8 +90,18 @@ arm/multiplatform-late
 		ARM: s3c: fix include path
 	omap1/multiplatform-prep
 		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap2: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
 	omap1-multiplatform-5.18
-		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1-multiplatform-5.18
-	<no branch> (7643a9ca9f8e08f71e15f89dd74863635e981e03)
-		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc pxa-multiplatform-5.18
+		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
+	pxa-multiplatform-5.18
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+	arm/multiplatform
+		Merge branch 'arm/multiplatform' into arm/multiplatform-late
 
