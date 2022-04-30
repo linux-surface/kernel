@@ -231,10 +231,7 @@ static void _warn_unseeded_randomness(const char *func_name, void *caller, void 
  *
  *********************************************************************/
 
-enum {
-	CRNG_RESEED_INTERVAL = 300 * HZ,
-	CRNG_INIT_CNT_THRESH = 2 * CHACHA_KEY_SIZE
-};
+enum { CRNG_RESEED_INTERVAL = 300 * HZ };
 
 static struct {
 	u8 key[CHACHA_KEY_SIZE] __aligned(__alignof__(long));
@@ -445,9 +442,8 @@ static void crng_make_state(u32 chacha_state[CHACHA_STATE_WORDS],
  * where we can't trust the buffer passed to it is guaranteed to be
  * unpredictable (so it might not have any entropy at all).
  */
-static void crng_pre_init_inject(const void *input, size_t len, bool account)
+static void crng_pre_init_inject(const void *input, size_t len)
 {
-	static int crng_init_cnt = 0;
 	struct blake2s_state hash;
 	unsigned long flags;
 
@@ -463,18 +459,7 @@ static void crng_pre_init_inject(const void *input, size_t len, bool account)
 	blake2s_update(&hash, input, len);
 	blake2s_final(&hash, base_crng.key);
 
-	if (account) {
-		crng_init_cnt += min_t(size_t, len, CRNG_INIT_CNT_THRESH - crng_init_cnt);
-		if (crng_init_cnt >= CRNG_INIT_CNT_THRESH) {
-			++base_crng.generation;
-			crng_init = 1;
-		}
-	}
-
 	spin_unlock_irqrestore(&base_crng.lock, flags);
-
-	if (crng_init == 1)
-		pr_notice("fast init done\n");
 }
 
 static void _get_random_bytes(void *buf, size_t nbytes)
@@ -779,7 +764,8 @@ EXPORT_SYMBOL(get_random_bytes_arch);
 
 enum {
 	POOL_BITS = BLAKE2S_HASH_SIZE * 8,
-	POOL_MIN_BITS = POOL_BITS /* No point in settling for less. */
+	POOL_MIN_BITS = POOL_BITS, /* No point in settling for less. */
+	POOL_INIT_BITS = POOL_MIN_BITS / 2
 };
 
 /* For notifying userspace should write into /dev/random. */
@@ -819,6 +805,7 @@ static void mix_pool_bytes(const void *in, size_t nbytes)
 static void credit_entropy_bits(size_t nbits)
 {
 	unsigned int entropy_count, orig, add;
+	unsigned long flags;
 
 	if (!nbits)
 		return;
@@ -829,6 +816,15 @@ static void credit_entropy_bits(size_t nbits)
 		orig = READ_ONCE(input_pool.entropy_count);
 		entropy_count = min_t(unsigned int, POOL_BITS, orig + add);
 	} while (cmpxchg(&input_pool.entropy_count, orig, entropy_count) != orig);
+
+	if (unlikely(crng_init == 0 && entropy_count >= POOL_INIT_BITS)) {
+		spin_lock_irqsave(&base_crng.lock, flags);
+		if (crng_init == 0) {
+			++base_crng.generation;
+			crng_init = 1;
+		}
+		spin_unlock_irqrestore(&base_crng.lock, flags);
+	}
 
 	if (!crng_ready() && entropy_count >= POOL_MIN_BITS)
 		crng_reseed(false);
@@ -1031,13 +1027,13 @@ void add_device_randomness(const void *buf, size_t size)
 	unsigned long entropy = random_get_entropy();
 	unsigned long flags;
 
-	if (crng_init == 0 && size)
-		crng_pre_init_inject(buf, size, false);
-
 	spin_lock_irqsave(&input_pool.lock, flags);
 	_mix_pool_bytes(&entropy, sizeof(entropy));
 	_mix_pool_bytes(buf, size);
 	spin_unlock_irqrestore(&input_pool.lock, flags);
+
+	if (unlikely(crng_init == 0 && size))
+		crng_pre_init_inject(buf, size);
 }
 EXPORT_SYMBOL(add_device_randomness);
 
@@ -1149,12 +1145,6 @@ void rand_initialize_disk(struct gendisk *disk)
 void add_hwgenerator_randomness(const void *buffer, size_t count,
 				size_t entropy)
 {
-	if (unlikely(crng_init == 0 && entropy < POOL_MIN_BITS)) {
-		crng_pre_init_inject(buffer, count, true);
-		mix_pool_bytes(buffer, count);
-		return;
-	}
-
 	/*
 	 * Throttle writing if we're above the trickle threshold.
 	 * We'll be woken up again once below POOL_MIN_BITS, when
@@ -1167,6 +1157,8 @@ void add_hwgenerator_randomness(const void *buffer, size_t count,
 			CRNG_RESEED_INTERVAL);
 	mix_pool_bytes(buffer, count);
 	credit_entropy_bits(entropy);
+	if (unlikely(crng_init == 0))
+		crng_pre_init_inject(buffer, count);
 }
 EXPORT_SYMBOL_GPL(add_hwgenerator_randomness);
 
@@ -1321,13 +1313,10 @@ static void mix_interrupt_randomness(struct work_struct *work)
 	fast_pool->last = jiffies;
 	local_irq_enable();
 
-	if (unlikely(crng_init == 0)) {
-		crng_pre_init_inject(pool, sizeof(pool), true);
-		mix_pool_bytes(pool, sizeof(pool));
-	} else {
-		mix_pool_bytes(pool, sizeof(pool));
-		credit_entropy_bits(1);
-	}
+	mix_pool_bytes(pool, sizeof(pool));
+	credit_entropy_bits(1);
+	if (unlikely(crng_init == 0))
+		crng_pre_init_inject(pool, sizeof(pool));
 
 	memzero_explicit(pool, sizeof(pool));
 }
