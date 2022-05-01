@@ -23,15 +23,15 @@
 #include "../../include/linux/license.h"
 
 /* Are we using CONFIG_MODVERSIONS? */
-static int modversions = 0;
+static int modversions;
 /* Is CONFIG_MODULE_SRCVERSION_ALL set? */
-static int all_versions = 0;
+static int all_versions;
 /* If we are modposting external module set to 1 */
-static int external_module = 0;
+static int external_module;
 /* Only warn about unresolved symbols */
-static int warn_unresolved = 0;
+static int warn_unresolved;
 /* How a symbol is exported */
-static int sec_mismatch_count = 0;
+static int sec_mismatch_count;
 static int sec_mismatch_warn_only = true;
 /* ignore missing files */
 static int ignore_missing_files;
@@ -270,6 +270,11 @@ static struct symbol *find_symbol(const char *name)
 	return NULL;
 }
 
+struct namespace_list {
+	struct namespace_list *next;
+	char namespace[];
+};
+
 static bool contains_namespace(struct namespace_list *list,
 			       const char *namespace)
 {
@@ -369,23 +374,6 @@ static enum export export_from_secname(struct elf_info *elf, unsigned int sec)
 		return export_unknown;
 }
 
-static enum export export_from_sec(struct elf_info *elf, unsigned int sec)
-{
-	if (sec == elf->export_sec)
-		return export_plain;
-	else if (sec == elf->export_gpl_sec)
-		return export_gpl;
-	else
-		return export_unknown;
-}
-
-static const char *namespace_from_kstrtabns(const struct elf_info *info,
-					    const Elf_Sym *sym)
-{
-	const char *value = sym_get_data(info, sym);
-	return value[0] ? value : NULL;
-}
-
 static void sym_update_namespace(const char *symname, const char *namespace)
 {
 	struct symbol *s = find_symbol(symname);
@@ -401,14 +389,9 @@ static void sym_update_namespace(const char *symname, const char *namespace)
 	}
 
 	free(s->namespace);
-	s->namespace =
-		namespace && namespace[0] ? NOFAIL(strdup(namespace)) : NULL;
+	s->namespace = namespace[0] ? NOFAIL(strdup(namespace)) : NULL;
 }
 
-/**
- * Add an exported symbol - it may have already been added without a
- * CRC, in this case just update the CRC
- **/
 static struct symbol *sym_add_exported(const char *name, struct module *mod,
 				       enum export export)
 {
@@ -576,10 +559,7 @@ static int parse_elf(struct elf_info *info, const char *filename)
 				fatal("%s has NOBITS .modinfo\n", filename);
 			info->modinfo = (void *)hdr + sechdrs[i].sh_offset;
 			info->modinfo_len = sechdrs[i].sh_size;
-		} else if (strcmp(secname, "__ksymtab") == 0)
-			info->export_sec = i;
-		else if (strcmp(secname, "__ksymtab_gpl") == 0)
-			info->export_gpl_sec = i;
+		}
 
 		if (sechdrs[i].sh_type == SHT_SYMTAB) {
 			unsigned int sh_link_idx;
@@ -697,13 +677,7 @@ static void handle_modversion(const struct module *mod,
 static void handle_symbol(struct module *mod, struct elf_info *info,
 			  const Elf_Sym *sym, const char *symname)
 {
-	enum export export;
 	const char *name;
-
-	if (strstarts(symname, "__ksymtab"))
-		export = export_from_secname(info, get_secindex(info, sym));
-	else
-		export = export_from_sec(info, get_secindex(info, sym));
 
 	switch (sym->st_shndx) {
 	case SHN_COMMON:
@@ -739,7 +713,11 @@ static void handle_symbol(struct module *mod, struct elf_info *info,
 	default:
 		/* All exported symbols */
 		if (strstarts(symname, "__ksymtab_")) {
+			enum export export;
+
 			name = symname + strlen("__ksymtab_");
+			export = export_from_secname(info,
+						     get_secindex(info, sym));
 			sym_add_exported(name, mod, export);
 		}
 		if (strcmp(symname, "init_module") == 0)
@@ -2064,9 +2042,7 @@ static void read_symbols(const char *modname)
 		/* Apply symbol namespaces from __kstrtabns_<symbol> entries. */
 		if (strstarts(symname, "__kstrtabns_"))
 			sym_update_namespace(symname + strlen("__kstrtabns_"),
-					     namespace_from_kstrtabns(&info,
-								      sym));
-
+					     sym_get_data(&info, sym));
 		if (strstarts(symname, "__crc_"))
 			handle_modversion(mod, &info, sym,
 					  symname + strlen("__crc_"));
@@ -2176,13 +2152,23 @@ static void check_exports(struct module *mod)
 	for (s = mod->unres; s; s = s->next) {
 		const char *basename;
 		exp = find_symbol(s->name);
-		if (!exp || exp->module == mod) {
+		if (!exp) {
 			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS)
 				modpost_log(warn_unresolved ? LOG_WARN : LOG_ERROR,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);
 			continue;
 		}
+		if (exp->module == mod) {
+			error("\"%s\" [%s.ko] was exported without definition\n",
+			      s->name, mod->name);
+			continue;
+		}
+
+		s->module = exp->module;
+		s->crc_valid = exp->crc_valid;
+		s->crc = exp->crc;
+
 		basename = strrchr(mod->name, '/');
 		if (basename)
 			basename++;
@@ -2275,16 +2261,7 @@ static void add_staging_flag(struct buffer *b, const char *name)
  **/
 static void add_versions(struct buffer *b, struct module *mod)
 {
-	struct symbol *s, *exp;
-
-	for (s = mod->unres; s; s = s->next) {
-		exp = find_symbol(s->name);
-		if (!exp || exp->module == mod)
-			continue;
-		s->module = exp->module;
-		s->crc_valid = exp->crc_valid;
-		s->crc = exp->crc;
-	}
+	struct symbol *s;
 
 	if (!modversions)
 		return;
@@ -2357,6 +2334,9 @@ static void add_srcversion(struct buffer *b, struct module *mod)
 static void write_buf(struct buffer *b, const char *fname)
 {
 	FILE *file;
+
+	if (error_occurred)
+		return;
 
 	file = fopen(fname, "w");
 	if (!file) {
@@ -2585,6 +2565,7 @@ int main(int argc, char **argv)
 
 	for (mod = modules; mod; mod = mod->next) {
 		char fname[PATH_MAX];
+		int ret;
 
 		if (mod->is_vmlinux || mod->from_dump)
 			continue;
@@ -2603,7 +2584,12 @@ int main(int argc, char **argv)
 		add_moddevtable(&buf, mod);
 		add_srcversion(&buf, mod);
 
-		sprintf(fname, "%s.mod.c", mod->name);
+		ret = snprintf(fname, sizeof(fname), "%s.mod.c", mod->name);
+		if (ret >= sizeof(fname)) {
+			error("%s: too long path was truncated\n", fname);
+			continue;
+		}
+
 		write_if_changed(&buf, fname);
 	}
 
