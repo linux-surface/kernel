@@ -48,25 +48,19 @@
  * Machine specific interrupt handlers
  */
 
-extern void kernel_exception(void);
-extern void user_exception(void);
-
-extern void fast_illegal_instruction_user(void);
-extern void fast_syscall_user(void);
-extern void fast_alloca(void);
-extern void fast_unaligned(void);
-extern void fast_second_level_miss(void);
-extern void fast_store_prohibited(void);
-extern void fast_coprocessor(void);
-
-extern void do_illegal_instruction (struct pt_regs*);
-extern void do_interrupt (struct pt_regs*);
-extern void do_nmi(struct pt_regs *);
-extern void do_unaligned_user (struct pt_regs*);
-extern void do_multihit (struct pt_regs*, unsigned long);
-extern void do_page_fault (struct pt_regs*, unsigned long);
-extern void do_debug (struct pt_regs*);
-extern void system_call (struct pt_regs*);
+static void do_illegal_instruction(struct pt_regs *regs);
+static void do_interrupt(struct pt_regs *regs);
+#if XTENSA_FAKE_NMI
+static void do_nmi(struct pt_regs *regs);
+#endif
+#if XCHAL_UNALIGNED_LOAD_EXCEPTION || XCHAL_UNALIGNED_STORE_EXCEPTION
+static void do_unaligned_user(struct pt_regs *regs);
+#endif
+static void do_multihit(struct pt_regs *regs);
+#if XTENSA_HAVE_COPROCESSORS
+static void do_coprocessor(struct pt_regs *regs);
+#endif
+static void do_debug(struct pt_regs *regs);
 
 /*
  * The vector table must be preceded by a save area (which
@@ -78,7 +72,8 @@ extern void system_call (struct pt_regs*);
 #define USER		0x02
 
 #define COPROCESSOR(x)							\
-{ EXCCAUSE_COPROCESSOR ## x ## _DISABLED, USER, fast_coprocessor }
+{ EXCCAUSE_COPROCESSOR ## x ## _DISABLED, USER|KRNL, fast_coprocessor },\
+{ EXCCAUSE_COPROCESSOR ## x ## _DISABLED, 0, do_coprocessor }
 
 typedef struct {
 	int cause;
@@ -110,21 +105,21 @@ static dispatch_init_table_t __initdata dispatch_init_table[] = {
 { EXCCAUSE_UNALIGNED,		KRNL,	   fast_unaligned },
 #endif
 #ifdef CONFIG_MMU
-{ EXCCAUSE_ITLB_MISS,		0,	   do_page_fault },
-{ EXCCAUSE_ITLB_MISS,		USER|KRNL, fast_second_level_miss},
-{ EXCCAUSE_ITLB_MULTIHIT,		0,	   do_multihit },
-{ EXCCAUSE_ITLB_PRIVILEGE,	0,	   do_page_fault },
-/* EXCCAUSE_SIZE_RESTRICTION unhandled */
-{ EXCCAUSE_FETCH_CACHE_ATTRIBUTE,	0,	   do_page_fault },
-{ EXCCAUSE_DTLB_MISS,		USER|KRNL, fast_second_level_miss},
-{ EXCCAUSE_DTLB_MISS,		0,	   do_page_fault },
-{ EXCCAUSE_DTLB_MULTIHIT,		0,	   do_multihit },
-{ EXCCAUSE_DTLB_PRIVILEGE,	0,	   do_page_fault },
-/* EXCCAUSE_DTLB_SIZE_RESTRICTION unhandled */
+{ EXCCAUSE_ITLB_MISS,			0,	   do_page_fault },
+{ EXCCAUSE_ITLB_MISS,			USER|KRNL, fast_second_level_miss},
+{ EXCCAUSE_DTLB_MISS,			USER|KRNL, fast_second_level_miss},
+{ EXCCAUSE_DTLB_MISS,			0,	   do_page_fault },
 { EXCCAUSE_STORE_CACHE_ATTRIBUTE,	USER|KRNL, fast_store_prohibited },
+#endif /* CONFIG_MMU */
+#ifdef CONFIG_PFAULT
+{ EXCCAUSE_ITLB_MULTIHIT,		0,	   do_multihit },
+{ EXCCAUSE_ITLB_PRIVILEGE,		0,	   do_page_fault },
+{ EXCCAUSE_FETCH_CACHE_ATTRIBUTE,	0,	   do_page_fault },
+{ EXCCAUSE_DTLB_MULTIHIT,		0,	   do_multihit },
+{ EXCCAUSE_DTLB_PRIVILEGE,		0,	   do_page_fault },
 { EXCCAUSE_STORE_CACHE_ATTRIBUTE,	0,	   do_page_fault },
 { EXCCAUSE_LOAD_CACHE_ATTRIBUTE,	0,	   do_page_fault },
-#endif /* CONFIG_MMU */
+#endif
 /* XCCHAL_EXCCAUSE_FLOATING_POINT unhandled */
 #if XTENSA_HAVE_COPROCESSOR(0)
 COPROCESSOR(0),
@@ -179,7 +174,7 @@ __die_if_kernel(const char *str, struct pt_regs *regs, long err)
  * Unhandled Exceptions. Kill user task or panic if in kernel space.
  */
 
-void do_unhandled(struct pt_regs *regs, unsigned long exccause)
+void do_unhandled(struct pt_regs *regs)
 {
 	__die_if_kernel("Caught unhandled exception - should not happen",
 			regs, SIGKILL);
@@ -189,7 +184,7 @@ void do_unhandled(struct pt_regs *regs, unsigned long exccause)
 			    "(pid = %d, pc = %#010lx) - should not happen\n"
 			    "\tEXCCAUSE is %ld\n",
 			    current->comm, task_pid_nr(current), regs->pc,
-			    exccause);
+			    regs->exccause);
 	force_sig(SIGILL);
 }
 
@@ -197,7 +192,7 @@ void do_unhandled(struct pt_regs *regs, unsigned long exccause)
  * Multi-hit exception. This if fatal!
  */
 
-void do_multihit(struct pt_regs *regs, unsigned long exccause)
+static void do_multihit(struct pt_regs *regs)
 {
 	die("Caught multihit exception", regs, SIGKILL);
 }
@@ -205,8 +200,6 @@ void do_multihit(struct pt_regs *regs, unsigned long exccause)
 /*
  * IRQ handler.
  */
-
-extern void do_IRQ(int, struct pt_regs *);
 
 #if XTENSA_FAKE_NMI
 
@@ -240,14 +233,10 @@ irqreturn_t xtensa_pmu_irq_handler(int irq, void *dev_id);
 
 DEFINE_PER_CPU(unsigned long, nmi_count);
 
-void do_nmi(struct pt_regs *regs)
+static void do_nmi(struct pt_regs *regs)
 {
-	struct pt_regs *old_regs;
+	struct pt_regs *old_regs = set_irq_regs(regs);
 
-	if ((regs->ps & PS_INTLEVEL_MASK) < LOCKLEVEL)
-		trace_hardirqs_off();
-
-	old_regs = set_irq_regs(regs);
 	nmi_enter();
 	++*this_cpu_ptr(&nmi_count);
 	check_valid_nmi();
@@ -257,7 +246,7 @@ void do_nmi(struct pt_regs *regs)
 }
 #endif
 
-void do_interrupt(struct pt_regs *regs)
+static void do_interrupt(struct pt_regs *regs)
 {
 	static const unsigned int_level_mask[] = {
 		0,
@@ -269,12 +258,9 @@ void do_interrupt(struct pt_regs *regs)
 		XCHAL_INTLEVEL6_MASK,
 		XCHAL_INTLEVEL7_MASK,
 	};
-	struct pt_regs *old_regs;
+	struct pt_regs *old_regs = set_irq_regs(regs);
 	unsigned unhandled = ~0u;
 
-	trace_hardirqs_off();
-
-	old_regs = set_irq_regs(regs);
 	irq_enter();
 
 	for (;;) {
@@ -310,8 +296,7 @@ void do_interrupt(struct pt_regs *regs)
  * Illegal instruction. Fatal if in kernel space.
  */
 
-void
-do_illegal_instruction(struct pt_regs *regs)
+static void do_illegal_instruction(struct pt_regs *regs)
 {
 	__die_if_kernel("Illegal instruction in kernel", regs, SIGKILL);
 
@@ -331,8 +316,7 @@ do_illegal_instruction(struct pt_regs *regs)
  */
 
 #if XCHAL_UNALIGNED_LOAD_EXCEPTION || XCHAL_UNALIGNED_STORE_EXCEPTION
-void
-do_unaligned_user (struct pt_regs *regs)
+static void do_unaligned_user(struct pt_regs *regs)
 {
 	__die_if_kernel("Unhandled unaligned exception in kernel",
 			regs, SIGKILL);
@@ -347,14 +331,20 @@ do_unaligned_user (struct pt_regs *regs)
 }
 #endif
 
+#if XTENSA_HAVE_COPROCESSORS
+static void do_coprocessor(struct pt_regs *regs)
+{
+	coprocessor_flush_release_all(current_thread_info());
+}
+#endif
+
 /* Handle debug events.
  * When CONFIG_HAVE_HW_BREAKPOINT is on this handler is called with
  * preemption disabled to avoid rescheduling and keep mapping of hardware
  * breakpoint structures to debug registers intact, so that
  * DEBUGCAUSE.DBNUM could be used in case of data breakpoint hit.
  */
-void
-do_debug(struct pt_regs *regs)
+static void do_debug(struct pt_regs *regs)
 {
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 	int ret = check_hw_breakpoint(regs);
@@ -381,7 +371,8 @@ do_debug(struct pt_regs *regs)
 
 /* Set exception C handler - for temporary use when probing exceptions */
 
-void * __init trap_set_handler(int cause, void *handler)
+xtensa_exception_handler *
+__init trap_set_handler(int cause, xtensa_exception_handler *handler)
 {
 	void *previous = per_cpu(exc_table, 0).default_handler[cause];
 
@@ -392,8 +383,7 @@ void * __init trap_set_handler(int cause, void *handler)
 
 static void trap_init_excsave(void)
 {
-	unsigned long excsave1 = (unsigned long)this_cpu_ptr(&exc_table);
-	__asm__ __volatile__("wsr  %0, excsave1\n" : : "a" (excsave1));
+	xtensa_set_sr(this_cpu_ptr(&exc_table), excsave1);
 }
 
 static void trap_init_debug(void)
