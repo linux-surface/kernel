@@ -37,13 +37,10 @@ static struct inode *f2fs_new_inode(struct user_namespace *mnt_userns,
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
-	f2fs_lock_op(sbi);
 	if (!f2fs_alloc_nid(sbi, &ino)) {
-		f2fs_unlock_op(sbi);
 		err = -ENOSPC;
 		goto fail;
 	}
-	f2fs_unlock_op(sbi);
 
 	nid_free = true;
 
@@ -459,6 +456,13 @@ static int __recover_dot_dentries(struct inode *dir, nid_t pino)
 		f2fs_info(sbi, "skip recovering inline_dots inode (ino:%lu, pino:%u) in readonly mountpoint",
 			  dir->i_ino, pino);
 		return 0;
+	}
+
+	if (!S_ISDIR(dir->i_mode)) {
+		f2fs_err(sbi, "inconsistent inode status, skip recovering inline_dots inode (ino:%lu, i_mode:%u, pino:%u)",
+			  dir->i_ino, dir->i_mode, pino);
+		set_sbi_flag(sbi, SBI_NEED_FSCK);
+		return -ENOTDIR;
 	}
 
 	err = f2fs_dquot_initialize(dir);
