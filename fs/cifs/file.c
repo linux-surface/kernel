@@ -3222,6 +3222,7 @@ static ssize_t __cifs_writev(
 	struct kiocb *iocb, struct iov_iter *from, bool direct)
 {
 	struct file *file = iocb->ki_filp;
+	struct inode *inode = file_inode(iocb->ki_filp);
 	ssize_t total_written = 0;
 	struct cifsFileInfo *cfile;
 	struct cifs_tcon *tcon;
@@ -3248,6 +3249,16 @@ static ssize_t __cifs_writev(
 	cifs_sb = CIFS_FILE_SB(file);
 	cfile = file->private_data;
 	tcon = tlink_tcon(cfile->tlink);
+
+	/* We need to be sure that all dirty pages are written to the server. */
+	if (CIFS_CACHE_WRITE(CIFS_I(inode)) &&
+	    inode->i_mapping && inode->i_mapping->nrpages != 0) {
+		rc = filemap_write_and_wait(inode->i_mapping);
+		if (rc) {
+			mapping_set_error(inode->i_mapping, rc);
+			return rc;
+		}
+	}
 
 	if (!tcon->ses->server->ops->async_writev)
 		return -ENOSYS;
@@ -3961,6 +3972,7 @@ static ssize_t __cifs_readv(
 {
 	size_t len;
 	struct file *file = iocb->ki_filp;
+	struct inode *inode = file_inode(iocb->ki_filp);
 	struct cifs_sb_info *cifs_sb;
 	struct cifsFileInfo *cfile;
 	struct cifs_tcon *tcon;
@@ -3985,6 +3997,16 @@ static ssize_t __cifs_readv(
 	cifs_sb = CIFS_FILE_SB(file);
 	cfile = file->private_data;
 	tcon = tlink_tcon(cfile->tlink);
+
+	/* We need to be sure that all dirty pages are written to the server. */
+	if (CIFS_CACHE_WRITE(CIFS_I(inode)) &&
+	    inode->i_mapping && inode->i_mapping->nrpages != 0) {
+		rc = filemap_write_and_wait(inode->i_mapping);
+		if (rc) {
+			mapping_set_error(inode->i_mapping, rc);
+			return rc;
+		}
+	}
 
 	if (!tcon->ses->server->ops->async_readv)
 		return -ENOSYS;
