@@ -1,0 +1,107 @@
+arm/soc
+
+arm/dt
+	patch
+		arm64: dts: synaptics: remove unused DTSI for AS370
+	cleanup/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt-cleanup-5.19
+	samsung/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.19
+	samsung/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.19
+
+arm/drivers
+	drivers/memory
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-5.19
+
+arm/defconfig
+
+arm/newsoc
+
+arm/late
+
+arm/fixes
+	<no branch> (f571e9c9aafed2fbd60fd99aa4b9823221338b98)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.18
+	<no branch> (962dd65e575dde950ef0844568edc37cfb39f302)
+		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux v5.18/fixes
+	<no branch> (b5e22886839ae466fcf03295150094516c0fd8eb)
+		git://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-fix-for-v5.18
+	<no branch> (0c640d9544d0109da3889d71ae77301e556db977)
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-fixes-5.18
+	patch
+		memory: renesas-rpc-if: Fix HF/OSPI data transfer in Manual Mode
+		MAINTAINERS: add Bug entry for Samsung and memory controller drivers
+	<no branch> (46ff3df87215ff42c0cd2c4bdb7d74540384a69c)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.18/fixes-take2
+	patch
+		Revert "arm64: dts: tegra: Fix boolean properties with values"
+	<no branch> (fff8c10368e64e7f8960f149375c12ca5f3b30af)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-5.18-1
+	<no branch> (0310b5aa0656a94102344f1e9ae2892e342a665d)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.18-2
+	<no branch> (39ad93d280506f4953a9d0c545cfffa581889326)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.18-arm-defconfig-fixes
+	patch
+		Revert "arm: dts: at91: Fix boolean properties with values"
+
+arm/multiplatform
+	patch
+		ARM: versatile: move integrator/realview/vexpress to versatile
+		ARM: ep93xx: renumber interrupts
+		ARM: ep93xx: enable SPARSE_IRQ
+		ARM: ep93xx: make mach/ep93xx-regs.h local
+		ARM: ep93xx: multiplatform support
+		ARM: dove: multiplatform support
+		ARM: s3c24xx: remove support for ISA drivers on BAST PC/104
+		ARM: s3c24xx: convert to sparse-irq
+		ARM: s3c: enable s3c24xx multiplatform support
+		ARM: iop32x: enable multiplatform support
+		ARM: rework endianess selection
+		ARM: ixp4xx: enable multiplatform support
+		ARM: s3c: mark as deprecated and schedule removal
+		ARM: s3c: fix include path
+	omap1/multiplatform-prep
+		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
+
+arm/multiplatform-late
+	patch
+		ARM: versatile: move integrator/realview/vexpress to versatile
+		ARM: ep93xx: renumber interrupts
+		ARM: ep93xx: enable SPARSE_IRQ
+		ARM: ep93xx: make mach/ep93xx-regs.h local
+		ARM: ep93xx: multiplatform support
+		ARM: dove: multiplatform support
+		ARM: s3c24xx: remove support for ISA drivers on BAST PC/104
+		ARM: s3c24xx: convert to sparse-irq
+		ARM: s3c: enable s3c24xx multiplatform support
+		ARM: iop32x: enable multiplatform support
+		ARM: rework endianess selection
+		ARM: ixp4xx: enable multiplatform support
+		ARM: s3c: mark as deprecated and schedule removal
+		ARM: s3c: fix include path
+	omap1/multiplatform-prep
+		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap2: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
+	omap1-multiplatform-5.18
+		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
+	pxa-multiplatform-5.18
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+	arm/multiplatform
+		Merge branch 'arm/multiplatform' into arm/multiplatform-late
+
