@@ -654,4 +654,31 @@ int workqueue_offline_cpu(unsigned int cpu);
 void __init workqueue_init_early(void);
 void __init workqueue_init(void);
 
+/*
+ * Detect attempt to flush system-wide workqueues at compile time when possible.
+ * See https://lkml.kernel.org/r/49925af7-78a8-a3dd-bce6-cfc02e1a9236@I-love.SAKURA.ne.jp for
+ * reasons and steps for converting system-wide workqueues into local workqueues.
+ * Checks for system_wq and system_highpri_wq will be added after
+ * all in-tree users stopped flushing these workqueues.
+ */
+#define flush_workqueue(wq)						\
+({									\
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_long_wq) && \
+			 &(wq) == &system_long_wq,			\
+			 "Please avoid flushing system_long_wq.");	\
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_unbound_wq) && \
+			 &(wq) == &system_unbound_wq,			\
+			 "Please avoid flushing system_unbound_wq.");	\
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_freezable_wq) &&	\
+			 &(wq) == &system_freezable_wq,			\
+			 "Please avoid flushing system_freezable_wq."); \
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_power_efficient_wq) && \
+			 &(wq) == &system_power_efficient_wq,		\
+			 "Please avoid flushing system_power_efficient_wq."); \
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_freezable_power_efficient_wq) &&	\
+			 &(wq) == &system_freezable_power_efficient_wq, \
+			 "Please avoid flushing system_freezable_power_efficient_wq."); \
+	flush_workqueue(wq);						\
+})
+
 #endif
