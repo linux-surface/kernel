@@ -653,7 +653,7 @@ static void gfs2_before_commit(struct gfs2_sbd *sdp, unsigned int limit,
 				bool is_databuf)
 {
 	struct gfs2_log_descriptor *ld;
-	struct gfs2_bufdata *bd1 = NULL, *bd2;
+	struct gfs2_bufdata *bd1, *bd2;
 	struct page *page;
 	unsigned int num;
 	unsigned n;
@@ -661,7 +661,8 @@ static void gfs2_before_commit(struct gfs2_sbd *sdp, unsigned int limit,
 
 	gfs2_log_lock(sdp);
 	list_sort(NULL, blist, blocknr_cmp);
-	bd1 = bd2 = list_prepare_entry(bd1, blist, bd_list);
+	/* bd1 and bd2 initially point at the list head */
+	bd1 = bd2 = list_entry(blist, struct gfs2_bufdata, bd_list);
 	while(total) {
 		num = total;
 		if (total > limit)
