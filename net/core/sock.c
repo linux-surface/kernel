@@ -141,8 +141,13 @@
 
 #include <linux/ethtool.h>
 
+#include "dev.h"
+
 static DEFINE_MUTEX(proto_list_mutex);
 static LIST_HEAD(proto_list);
+
+static void sock_def_write_space_wfree(struct sock *sk);
+static void sock_def_write_space(struct sock *sk);
 
 /**
  * sk_ns_capable - General socket capability test
@@ -503,17 +508,35 @@ int __sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 }
 EXPORT_SYMBOL(__sock_queue_rcv_skb);
 
-int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
+int sock_queue_rcv_skb_reason(struct sock *sk, struct sk_buff *skb,
+			      enum skb_drop_reason *reason)
 {
+	enum skb_drop_reason drop_reason;
 	int err;
 
 	err = sk_filter(sk, skb);
-	if (err)
-		return err;
-
-	return __sock_queue_rcv_skb(sk, skb);
+	if (err) {
+		drop_reason = SKB_DROP_REASON_SOCKET_FILTER;
+		goto out;
+	}
+	err = __sock_queue_rcv_skb(sk, skb);
+	switch (err) {
+	case -ENOMEM:
+		drop_reason = SKB_DROP_REASON_SOCKET_RCVBUFF;
+		break;
+	case -ENOBUFS:
+		drop_reason = SKB_DROP_REASON_PROTO_MEM;
+		break;
+	default:
+		drop_reason = SKB_NOT_DROPPED_YET;
+		break;
+	}
+out:
+	if (reason)
+		*reason = drop_reason;
+	return err;
 }
-EXPORT_SYMBOL(sock_queue_rcv_skb);
+EXPORT_SYMBOL(sock_queue_rcv_skb_reason);
 
 int __sk_receive_skb(struct sock *sk, struct sk_buff *skb,
 		     const int nested, unsigned int trim_cap, bool refcounted)
@@ -1291,6 +1314,9 @@ set_sndbuf:
 
 		__sock_set_mark(sk, val);
 		break;
+	case SO_RCVMARK:
+		sock_valbool_flag(sk, SOCK_RCVMARK, valbool);
+		break;
 
 	case SO_RXQ_OVFL:
 		sock_valbool_flag(sk, SOCK_RXQ_OVFL, valbool);
@@ -1717,6 +1743,10 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 		v.val = sk->sk_mark;
 		break;
 
+	case SO_RCVMARK:
+		v.val = sock_flag(sk, SOCK_RCVMARK);
+		break;
+
 	case SO_RXQ_OVFL:
 		v.val = sock_flag(sk, SOCK_RXQ_OVFL);
 		break;
@@ -2062,9 +2092,6 @@ void sk_destruct(struct sock *sk)
 {
 	bool use_call_rcu = sock_flag(sk, SOCK_RCU_FREE);
 
-	WARN_ON_ONCE(!llist_empty(&sk->defer_list));
-	sk_defer_free_flush(sk);
-
 	if (rcu_access_pointer(sk->sk_reuseport_cb)) {
 		reuseport_detach_sock(sk);
 		use_call_rcu = true;
@@ -2300,8 +2327,20 @@ void sock_wfree(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
 	unsigned int len = skb->truesize;
+	bool free;
 
 	if (!sock_flag(sk, SOCK_USE_WRITE_QUEUE)) {
+		if (sock_flag(sk, SOCK_RCU_FREE) &&
+		    sk->sk_write_space == sock_def_write_space) {
+			rcu_read_lock();
+			free = refcount_sub_and_test(len, &sk->sk_wmem_alloc);
+			sock_def_write_space_wfree(sk);
+			rcu_read_unlock();
+			if (unlikely(free))
+				__sk_free(sk);
+			return;
+		}
+
 		/*
 		 * Keep a reference on sk_wmem_alloc, this will be released
 		 * after sk_write_space() call
@@ -2610,13 +2649,6 @@ failure:
 	return NULL;
 }
 EXPORT_SYMBOL(sock_alloc_send_pskb);
-
-struct sk_buff *sock_alloc_send_skb(struct sock *sk, unsigned long size,
-				    int noblock, int *errcode)
-{
-	return sock_alloc_send_pskb(sk, size, 0, noblock, errcode, 0);
-}
-EXPORT_SYMBOL(sock_alloc_send_skb);
 
 int __sock_cmsg_send(struct sock *sk, struct msghdr *msg, struct cmsghdr *cmsg,
 		     struct sockcm_cookie *sockc)
@@ -3174,18 +3206,40 @@ static void sock_def_write_space(struct sock *sk)
 	/* Do not wake up a writer until he can make "significant"
 	 * progress.  --DaveM
 	 */
-	if ((refcount_read(&sk->sk_wmem_alloc) << 1) <= READ_ONCE(sk->sk_sndbuf)) {
+	if (sock_writeable(sk)) {
 		wq = rcu_dereference(sk->sk_wq);
 		if (skwq_has_sleeper(wq))
 			wake_up_interruptible_sync_poll(&wq->wait, EPOLLOUT |
 						EPOLLWRNORM | EPOLLWRBAND);
 
 		/* Should agree with poll, otherwise some programs break */
-		if (sock_writeable(sk))
-			sk_wake_async(sk, SOCK_WAKE_SPACE, POLL_OUT);
+		sk_wake_async(sk, SOCK_WAKE_SPACE, POLL_OUT);
 	}
 
 	rcu_read_unlock();
+}
+
+/* An optimised version of sock_def_write_space(), should only be called
+ * for SOCK_RCU_FREE sockets under RCU read section and after putting
+ * ->sk_wmem_alloc.
+ */
+static void sock_def_write_space_wfree(struct sock *sk)
+{
+	/* Do not wake up a writer until he can make "significant"
+	 * progress.  --DaveM
+	 */
+	if (sock_writeable(sk)) {
+		struct socket_wq *wq = rcu_dereference(sk->sk_wq);
+
+		/* rely on refcount_sub from sock_wfree() */
+		smp_mb__after_atomic();
+		if (wq && waitqueue_active(&wq->wait))
+			wake_up_interruptible_sync_poll(&wq->wait, EPOLLOUT |
+						EPOLLWRNORM | EPOLLWRBAND);
+
+		/* Should agree with poll, otherwise some programs break */
+		sk_wake_async(sk, SOCK_WAKE_SPACE, POLL_OUT);
+	}
 }
 
 static void sock_def_destruct(struct sock *sk)
@@ -3486,8 +3540,7 @@ int sock_common_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	int addr_len = 0;
 	int err;
 
-	err = sk->sk_prot->recvmsg(sk, msg, size, flags & MSG_DONTWAIT,
-				   flags & ~MSG_DONTWAIT, &addr_len);
+	err = sk->sk_prot->recvmsg(sk, msg, size, flags, &addr_len);
 	if (err >= 0)
 		msg->msg_namelen = addr_len;
 	return err;

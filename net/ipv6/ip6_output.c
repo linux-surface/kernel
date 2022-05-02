@@ -119,19 +119,21 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 	rcu_read_lock_bh();
 	nexthop = rt6_nexthop((struct rt6_info *)dst, daddr);
 	neigh = __ipv6_neigh_lookup_noref(dev, nexthop);
-	if (unlikely(!neigh))
-		neigh = __neigh_create(&nd_tbl, nexthop, dev, false);
-	if (!IS_ERR(neigh)) {
-		sock_confirm_neigh(skb, neigh);
-		ret = neigh_output(neigh, skb, false);
-		rcu_read_unlock_bh();
-		return ret;
-	}
-	rcu_read_unlock_bh();
 
-	IP6_INC_STATS(net, idev, IPSTATS_MIB_OUTNOROUTES);
-	kfree_skb_reason(skb, SKB_DROP_REASON_NEIGH_CREATEFAIL);
-	return -EINVAL;
+	if (unlikely(IS_ERR_OR_NULL(neigh))) {
+		if (unlikely(!neigh))
+			neigh = __neigh_create(&nd_tbl, nexthop, dev, false);
+		if (IS_ERR(neigh)) {
+			rcu_read_unlock_bh();
+			IP6_INC_STATS(net, idev, IPSTATS_MIB_OUTNOROUTES);
+			kfree_skb_reason(skb, SKB_DROP_REASON_NEIGH_CREATEFAIL);
+			return -EINVAL;
+		}
+	}
+	sock_confirm_neigh(skb, neigh);
+	ret = neigh_output(neigh, skb, false);
+	rcu_read_unlock_bh();
+	return ret;
 }
 
 static int
@@ -198,7 +200,6 @@ static int ip6_finish_output(struct net *net, struct sock *sk, struct sk_buff *s
 	ret = BPF_CGROUP_RUN_PROG_INET_EGRESS(sk, skb);
 	switch (ret) {
 	case NET_XMIT_SUCCESS:
-		return __ip6_finish_output(net, sk, skb);
 	case NET_XMIT_CN:
 		return __ip6_finish_output(net, sk, skb) ? : ret;
 	default:
@@ -469,6 +470,7 @@ int ip6_forward(struct sk_buff *skb)
 	struct inet6_skb_parm *opt = IP6CB(skb);
 	struct net *net = dev_net(dst->dev);
 	struct inet6_dev *idev;
+	SKB_DR(reason);
 	u32 mtu;
 
 	idev = __in6_dev_get_safely(dev_get_by_index_rcu(net, IP6CB(skb)->iif));
@@ -518,7 +520,7 @@ int ip6_forward(struct sk_buff *skb)
 		icmpv6_send(skb, ICMPV6_TIME_EXCEED, ICMPV6_EXC_HOPLIMIT, 0);
 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
 
-		kfree_skb(skb);
+		kfree_skb_reason(skb, SKB_DROP_REASON_IP_INHDR);
 		return -ETIMEDOUT;
 	}
 
@@ -537,6 +539,7 @@ int ip6_forward(struct sk_buff *skb)
 
 	if (!xfrm6_route_forward(skb)) {
 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INDISCARDS);
+		SKB_DR_SET(reason, XFRM_POLICY);
 		goto drop;
 	}
 	dst = skb_dst(skb);
@@ -596,7 +599,7 @@ int ip6_forward(struct sk_buff *skb)
 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INTOOBIGERRORS);
 		__IP6_INC_STATS(net, ip6_dst_idev(dst),
 				IPSTATS_MIB_FRAGFAILS);
-		kfree_skb(skb);
+		kfree_skb_reason(skb, SKB_DROP_REASON_PKT_TOO_BIG);
 		return -EMSGSIZE;
 	}
 
@@ -618,8 +621,9 @@ int ip6_forward(struct sk_buff *skb)
 
 error:
 	__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
+	SKB_DR_SET(reason, IP_INADDRERRORS);
 drop:
-	kfree_skb(skb);
+	kfree_skb_reason(skb, reason);
 	return -EINVAL;
 }
 

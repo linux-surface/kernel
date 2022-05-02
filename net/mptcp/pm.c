@@ -208,7 +208,7 @@ void mptcp_pm_add_addr_received(struct mptcp_sock *msk,
 
 	spin_lock_bh(&pm->lock);
 
-	if (!READ_ONCE(pm->accept_addr)) {
+	if (!READ_ONCE(pm->accept_addr) || mptcp_pm_is_userspace(msk)) {
 		mptcp_pm_announce_addr(msk, addr, true);
 		mptcp_pm_add_addr_send_ack(msk);
 	} else if (mptcp_pm_schedule_work(msk, MPTCP_PM_ADD_ADDR_RECEIVED)) {
@@ -262,19 +262,52 @@ void mptcp_pm_rm_addr_received(struct mptcp_sock *msk,
 	spin_unlock_bh(&pm->lock);
 }
 
-void mptcp_pm_mp_prio_received(struct sock *sk, u8 bkup)
+void mptcp_pm_mp_prio_received(struct sock *ssk, u8 bkup)
 {
-	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
+	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(ssk);
+	struct sock *sk = subflow->conn;
+	struct mptcp_sock *msk;
 
 	pr_debug("subflow->backup=%d, bkup=%d\n", subflow->backup, bkup);
-	subflow->backup = bkup;
+	msk = mptcp_sk(sk);
+	if (subflow->backup != bkup) {
+		subflow->backup = bkup;
+		mptcp_data_lock(sk);
+		if (!sock_owned_by_user(sk))
+			msk->last_snd = NULL;
+		else
+			__set_bit(MPTCP_RESET_SCHEDULER,  &msk->cb_flags);
+		mptcp_data_unlock(sk);
+	}
 
-	mptcp_event(MPTCP_EVENT_SUB_PRIORITY, mptcp_sk(subflow->conn), sk, GFP_ATOMIC);
+	mptcp_event(MPTCP_EVENT_SUB_PRIORITY, msk, ssk, GFP_ATOMIC);
 }
 
 void mptcp_pm_mp_fail_received(struct sock *sk, u64 fail_seq)
 {
+	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
+	struct mptcp_sock *msk = mptcp_sk(subflow->conn);
+	struct sock *s = (struct sock *)msk;
+
 	pr_debug("fail_seq=%llu", fail_seq);
+
+	if (mptcp_has_another_subflow(sk) || !READ_ONCE(msk->allow_infinite_fallback))
+		return;
+
+	if (!READ_ONCE(subflow->mp_fail_response_expect)) {
+		pr_debug("send MP_FAIL response and infinite map");
+
+		subflow->send_mp_fail = 1;
+		MPTCP_INC_STATS(sock_net(sk), MPTCP_MIB_MPFAILTX);
+		subflow->send_infinite_map = 1;
+	} else if (s && inet_sk_state_load(s) != TCP_CLOSE) {
+		pr_debug("MP_FAIL response received");
+
+		mptcp_data_lock(s);
+		if (inet_sk_state_load(s) != TCP_CLOSE)
+			sk_stop_timer(s, &s->sk_timer);
+		mptcp_data_unlock(s);
+	}
 }
 
 /* path manager helpers */
@@ -382,21 +415,41 @@ void mptcp_pm_subflow_chk_stale(const struct mptcp_sock *msk, struct sock *ssk)
 
 void mptcp_pm_data_reset(struct mptcp_sock *msk)
 {
-	msk->pm.add_addr_signaled = 0;
-	msk->pm.add_addr_accepted = 0;
-	msk->pm.local_addr_used = 0;
-	msk->pm.subflows = 0;
-	msk->pm.rm_list_tx.nr = 0;
-	msk->pm.rm_list_rx.nr = 0;
-	WRITE_ONCE(msk->pm.work_pending, false);
-	WRITE_ONCE(msk->pm.addr_signal, 0);
-	WRITE_ONCE(msk->pm.accept_addr, false);
-	WRITE_ONCE(msk->pm.accept_subflow, false);
-	WRITE_ONCE(msk->pm.remote_deny_join_id0, false);
-	msk->pm.status = 0;
-	bitmap_fill(msk->pm.id_avail_bitmap, MPTCP_PM_MAX_ADDR_ID + 1);
+	u8 pm_type = mptcp_get_pm_type(sock_net((struct sock *)msk));
+	struct mptcp_pm_data *pm = &msk->pm;
 
-	mptcp_pm_nl_data_init(msk);
+	pm->add_addr_signaled = 0;
+	pm->add_addr_accepted = 0;
+	pm->local_addr_used = 0;
+	pm->subflows = 0;
+	pm->rm_list_tx.nr = 0;
+	pm->rm_list_rx.nr = 0;
+	WRITE_ONCE(pm->pm_type, pm_type);
+
+	if (pm_type == MPTCP_PM_TYPE_KERNEL) {
+		bool subflows_allowed = !!mptcp_pm_get_subflows_max(msk);
+
+		/* pm->work_pending must be only be set to 'true' when
+		 * pm->pm_type is set to MPTCP_PM_TYPE_KERNEL
+		 */
+		WRITE_ONCE(pm->work_pending,
+			   (!!mptcp_pm_get_local_addr_max(msk) &&
+			    subflows_allowed) ||
+			   !!mptcp_pm_get_add_addr_signal_max(msk));
+		WRITE_ONCE(pm->accept_addr,
+			   !!mptcp_pm_get_add_addr_accept_max(msk) &&
+			   subflows_allowed);
+		WRITE_ONCE(pm->accept_subflow, subflows_allowed);
+	} else {
+		WRITE_ONCE(pm->work_pending, 0);
+		WRITE_ONCE(pm->accept_addr, 0);
+		WRITE_ONCE(pm->accept_subflow, 0);
+	}
+
+	WRITE_ONCE(pm->addr_signal, 0);
+	WRITE_ONCE(pm->remote_deny_join_id0, false);
+	pm->status = 0;
+	bitmap_fill(msk->pm.id_avail_bitmap, MPTCP_PM_MAX_ADDR_ID + 1);
 }
 
 void mptcp_pm_data_init(struct mptcp_sock *msk)

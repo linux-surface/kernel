@@ -80,7 +80,6 @@
 #include <linux/user_namespace.h>
 #include <linux/indirect_call_wrapper.h>
 
-#include "datagram.h"
 #include "sock_destructor.h"
 
 struct kmem_cache *skbuff_head_cache __ro_after_init;
@@ -204,7 +203,7 @@ static void __build_skb_around(struct sk_buff *skb, void *data,
 	skb_set_end_offset(skb, size);
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
-
+	skb->alloc_cpu = raw_smp_processor_id();
 	/* make sure we initialize shinfo sequentially */
 	shinfo = skb_shinfo(skb);
 	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
@@ -1037,6 +1036,7 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	CHECK_SKB_FIELD(napi_id);
 #endif
+	CHECK_SKB_FIELD(alloc_cpu);
 #ifdef CONFIG_XPS
 	CHECK_SKB_FIELD(sender_cpu);
 #endif
@@ -1338,12 +1338,6 @@ void msg_zerocopy_put_abort(struct ubuf_info *uarg, bool have_uref)
 		msg_zerocopy_callback(NULL, uarg, true);
 }
 EXPORT_SYMBOL_GPL(msg_zerocopy_put_abort);
-
-int skb_zerocopy_iter_dgram(struct sk_buff *skb, struct msghdr *msg, int len)
-{
-	return __zerocopy_sg_from_iter(skb->sk, skb, &msg->msg_iter, len);
-}
-EXPORT_SYMBOL_GPL(skb_zerocopy_iter_dgram);
 
 int skb_zerocopy_iter_stream(struct sock *sk, struct sk_buff *skb,
 			     struct msghdr *msg, int len,
@@ -5601,7 +5595,7 @@ err_free:
 }
 EXPORT_SYMBOL(skb_vlan_untag);
 
-int skb_ensure_writable(struct sk_buff *skb, int write_len)
+int skb_ensure_writable(struct sk_buff *skb, unsigned int write_len)
 {
 	if (!pskb_may_pull(skb, write_len))
 		return -ENOMEM;
@@ -6486,3 +6480,51 @@ free_now:
 }
 EXPORT_SYMBOL(__skb_ext_put);
 #endif /* CONFIG_SKB_EXTENSIONS */
+
+/**
+ * skb_attempt_defer_free - queue skb for remote freeing
+ * @skb: buffer
+ *
+ * Put @skb in a per-cpu list, using the cpu which
+ * allocated the skb/pages to reduce false sharing
+ * and memory zone spinlock contention.
+ */
+void skb_attempt_defer_free(struct sk_buff *skb)
+{
+	int cpu = skb->alloc_cpu;
+	struct softnet_data *sd;
+	unsigned long flags;
+	bool kick;
+
+	if (WARN_ON_ONCE(cpu >= nr_cpu_ids) ||
+	    !cpu_online(cpu) ||
+	    cpu == raw_smp_processor_id()) {
+		__kfree_skb(skb);
+		return;
+	}
+
+	sd = &per_cpu(softnet_data, cpu);
+	/* We do not send an IPI or any signal.
+	 * Remote cpu will eventually call skb_defer_free_flush()
+	 */
+	spin_lock_irqsave(&sd->defer_lock, flags);
+	skb->next = sd->defer_list;
+	/* Paired with READ_ONCE() in skb_defer_free_flush() */
+	WRITE_ONCE(sd->defer_list, skb);
+	sd->defer_count++;
+
+	/* kick every time queue length reaches 128.
+	 * This should avoid blocking in smp_call_function_single_async().
+	 * This condition should hardly be bit under normal conditions,
+	 * unless cpu suddenly stopped to receive NIC interrupts.
+	 */
+	kick = sd->defer_count == 128;
+
+	spin_unlock_irqrestore(&sd->defer_lock, flags);
+
+	/* Make sure to trigger NET_RX_SOFTIRQ on the remote CPU
+	 * if we are unlucky enough (this seems very unlikely).
+	 */
+	if (unlikely(kick))
+		smp_call_function_single_async(cpu, &sd->defer_csd);
+}

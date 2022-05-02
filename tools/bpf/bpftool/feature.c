@@ -567,7 +567,7 @@ probe_prog_type(enum bpf_prog_type prog_type, bool *supported_types,
 
 		res = probe_prog_type_ifindex(prog_type, ifindex);
 	} else {
-		res = libbpf_probe_bpf_prog_type(prog_type, NULL);
+		res = libbpf_probe_bpf_prog_type(prog_type, NULL) > 0;
 	}
 
 #ifdef USE_LIBCAP
@@ -1135,8 +1135,6 @@ static int do_probe(int argc, char **argv)
 	bool supported_types[128] = {};
 	__u32 ifindex = 0;
 	char *ifname;
-
-	set_max_rlimit();
 
 	while (argc) {
 		if (is_prefix(*argv, "kernel")) {

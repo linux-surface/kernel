@@ -39,6 +39,7 @@ properties:
       - description: frame dma based extraction
       - description: analyzer interrupt
       - description: ptp interrupt
+      - description: ptp external interrupt
 
   interrupt-names:
     minItems: 1
@@ -47,16 +48,15 @@ properties:
       - const: fdma
       - const: ana
       - const: ptp
+      - const: ptp-ext
 
   resets:
     items:
       - description: Reset controller used for switch core reset (soft reset)
-      - description: Reset controller used for releasing the phy from reset
 
   reset-names:
     items:
       - const: switch
-      - const: phy
 
   ethernet-ports:
     type: object

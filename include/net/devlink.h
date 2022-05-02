@@ -22,6 +22,7 @@
 #include <linux/firmware.h>
 
 struct devlink;
+struct devlink_linecard;
 
 struct devlink_port_phys_attrs {
 	u32 port_number; /* Same value as "split group".
@@ -135,6 +136,7 @@ struct devlink_port {
 	struct mutex reporters_lock; /* Protects reporter_list */
 
 	struct devlink_rate *devlink_rate;
+	struct devlink_linecard *linecard;
 };
 
 struct devlink_port_new_attrs {
@@ -146,6 +148,51 @@ struct devlink_port_new_attrs {
 	u8 port_index_valid:1,
 	   controller_valid:1,
 	   sfnum_valid:1;
+};
+
+struct devlink_info_req;
+struct devlink_linecard_device;
+
+/**
+ * struct devlink_linecard_ops - Linecard operations
+ * @provision: callback to provision the linecard slot with certain
+ *	       type of linecard. As a result of this operation,
+ *	       driver is expected to eventually (could be after
+ *	       the function call returns) call one of:
+ *	       devlink_linecard_provision_set()
+ *	       devlink_linecard_provision_fail()
+ * @unprovision: callback to unprovision the linecard slot. As a result
+ *		 of this operation, driver is expected to eventually
+ *		 (could be after the function call returns) call
+ *	         devlink_linecard_provision_clear()
+ *	         devlink_linecard_provision_fail()
+ * @same_provision: callback to ask the driver if linecard is already
+ *                  provisioned in the same way user asks this linecard to be
+ *                  provisioned.
+ * @types_count: callback to get number of supported types
+ * @types_get: callback to get next type in list
+ * @info_get: callback to get linecard info
+ * @device_info_get: callback to get linecard device info
+ */
+struct devlink_linecard_ops {
+	int (*provision)(struct devlink_linecard *linecard, void *priv,
+			 const char *type, const void *type_priv,
+			 struct netlink_ext_ack *extack);
+	int (*unprovision)(struct devlink_linecard *linecard, void *priv,
+			   struct netlink_ext_ack *extack);
+	bool (*same_provision)(struct devlink_linecard *linecard, void *priv,
+			       const char *type, const void *type_priv);
+	unsigned int (*types_count)(struct devlink_linecard *linecard,
+				    void *priv);
+	void (*types_get)(struct devlink_linecard *linecard,
+			  void *priv, unsigned int index, const char **type,
+			  const void **type_priv);
+	int (*info_get)(struct devlink_linecard *linecard, void *priv,
+			struct devlink_info_req *req,
+			struct netlink_ext_ack *extack);
+	int (*device_info_get)(struct devlink_linecard_device *device,
+			       void *priv, struct devlink_info_req *req,
+			       struct netlink_ext_ack *extack);
 };
 
 struct devlink_sb_pool_info {
@@ -592,7 +639,6 @@ struct devlink_flash_update_params {
 #define DEVLINK_SUPPORT_FLASH_UPDATE_OVERWRITE_MASK	BIT(1)
 
 struct devlink_region;
-struct devlink_info_req;
 
 /**
  * struct devlink_region_ops - Region operations
@@ -1536,6 +1582,24 @@ void devlink_port_attrs_pci_sf_set(struct devlink_port *devlink_port,
 int devlink_rate_leaf_create(struct devlink_port *port, void *priv);
 void devlink_rate_leaf_destroy(struct devlink_port *devlink_port);
 void devlink_rate_nodes_destroy(struct devlink *devlink);
+void devlink_port_linecard_set(struct devlink_port *devlink_port,
+			       struct devlink_linecard *linecard);
+struct devlink_linecard *
+devlink_linecard_create(struct devlink *devlink, unsigned int linecard_index,
+			const struct devlink_linecard_ops *ops, void *priv);
+void devlink_linecard_destroy(struct devlink_linecard *linecard);
+struct devlink_linecard_device *
+devlink_linecard_device_create(struct devlink_linecard *linecard,
+			       unsigned int device_index, void *priv);
+void
+devlink_linecard_device_destroy(struct devlink_linecard *linecard,
+				struct devlink_linecard_device *linecard_device);
+void devlink_linecard_provision_set(struct devlink_linecard *linecard,
+				    const char *type);
+void devlink_linecard_provision_clear(struct devlink_linecard *linecard);
+void devlink_linecard_provision_fail(struct devlink_linecard *linecard);
+void devlink_linecard_activate(struct devlink_linecard *linecard);
+void devlink_linecard_deactivate(struct devlink_linecard *linecard);
 int devlink_sb_register(struct devlink *devlink, unsigned int sb_index,
 			u32 size, u16 ingress_pools_count,
 			u16 egress_pools_count, u16 ingress_tc_count,

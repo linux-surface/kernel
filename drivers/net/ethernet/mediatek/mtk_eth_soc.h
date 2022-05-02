@@ -24,7 +24,6 @@
 #define MTK_MAX_RX_LENGTH_2K	2048
 #define MTK_TX_DMA_BUF_LEN	0x3fff
 #define MTK_DMA_SIZE		512
-#define MTK_NAPI_WEIGHT		64
 #define MTK_MAC_COUNT		2
 #define MTK_RX_ETH_HLEN		(ETH_HLEN + ETH_FCS_LEN)
 #define MTK_RX_HLEN		(NET_SKB_PAD + MTK_RX_ETH_HLEN + NET_IP_ALIGN)
@@ -295,6 +294,9 @@
 #define MTK_GDM1_TX_GPCNT	0x2438
 #define MTK_STAT_OFFSET		0x40
 
+#define MTK_WDMA0_BASE		0x2800
+#define MTK_WDMA1_BASE		0x2c00
+
 /* QDMA descriptor txd4 */
 #define TX_DMA_CHKSUM		(0x7 << 29)
 #define TX_DMA_TSO		BIT(28)
@@ -464,6 +466,12 @@
 #define ETHSYS_RSTCTRL		0x34
 #define RSTCTRL_FE		BIT(6)
 #define RSTCTRL_PPE		BIT(31)
+
+/* ethernet dma channel agent map */
+#define ETHSYS_DMA_AG_MAP	0x408
+#define ETHSYS_DMA_AG_MAP_PDMA	BIT(0)
+#define ETHSYS_DMA_AG_MAP_QDMA	BIT(1)
+#define ETHSYS_DMA_AG_MAP_PPE	BIT(2)
 
 /* SGMII subsystem config registers */
 /* Register to auto-negotiation restart */
@@ -882,6 +890,7 @@ struct mtk_sgmii {
 /* struct mtk_eth -	This is the main datasructure for holding the state
  *			of the driver
  * @dev:		The device pointer
+ * @dev:		The device pointer used for dma mapping/alloc
  * @base:		The mapped register i/o base
  * @page_lock:		Make sure that register operations are atomic
  * @tx_irq__lock:	Make sure that IRQ register operations are atomic
@@ -925,6 +934,7 @@ struct mtk_sgmii {
 
 struct mtk_eth {
 	struct device			*dev;
+	struct device			*dma_dev;
 	void __iomem			*base;
 	spinlock_t			page_lock;
 	spinlock_t			tx_irq_lock;
@@ -974,7 +984,7 @@ struct mtk_eth {
 	u32				rx_dma_l4_valid;
 	int				ip_align;
 
-	struct mtk_ppe			ppe;
+	struct mtk_ppe			*ppe;
 	struct rhashtable		flow_table;
 };
 
@@ -1023,6 +1033,7 @@ int mtk_gmac_rgmii_path_setup(struct mtk_eth *eth, int mac_id);
 int mtk_eth_offload_init(struct mtk_eth *eth);
 int mtk_eth_setup_tc(struct net_device *dev, enum tc_setup_type type,
 		     void *type_data);
+void mtk_eth_set_dma_device(struct mtk_eth *eth, struct device *dma_dev);
 
 
 #endif /* MTK_ETH_H */
