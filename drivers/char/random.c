@@ -53,6 +53,7 @@
 #include <linux/completion.h>
 #include <linux/uuid.h>
 #include <linux/uaccess.h>
+#include <linux/suspend.h>
 #include <crypto/chacha.h>
 #include <crypto/blake2s.h>
 #include <asm/processor.h>
@@ -231,10 +232,7 @@ static void _warn_unseeded_randomness(const char *func_name, void *caller, void 
  *
  *********************************************************************/
 
-enum {
-	CRNG_RESEED_INTERVAL = 300 * HZ,
-	CRNG_INIT_CNT_THRESH = 2 * CHACHA_KEY_SIZE
-};
+enum { CRNG_RESEED_INTERVAL = 300 * HZ };
 
 static struct {
 	u8 key[CHACHA_KEY_SIZE] __aligned(__alignof__(long));
@@ -445,9 +443,8 @@ static void crng_make_state(u32 chacha_state[CHACHA_STATE_WORDS],
  * where we can't trust the buffer passed to it is guaranteed to be
  * unpredictable (so it might not have any entropy at all).
  */
-static void crng_pre_init_inject(const void *input, size_t len, bool account)
+static void crng_pre_init_inject(const void *input, size_t len)
 {
-	static int crng_init_cnt = 0;
 	struct blake2s_state hash;
 	unsigned long flags;
 
@@ -463,18 +460,7 @@ static void crng_pre_init_inject(const void *input, size_t len, bool account)
 	blake2s_update(&hash, input, len);
 	blake2s_final(&hash, base_crng.key);
 
-	if (account) {
-		crng_init_cnt += min_t(size_t, len, CRNG_INIT_CNT_THRESH - crng_init_cnt);
-		if (crng_init_cnt >= CRNG_INIT_CNT_THRESH) {
-			++base_crng.generation;
-			crng_init = 1;
-		}
-	}
-
 	spin_unlock_irqrestore(&base_crng.lock, flags);
-
-	if (crng_init == 1)
-		pr_notice("fast init done\n");
 }
 
 static void _get_random_bytes(void *buf, size_t nbytes)
@@ -779,7 +765,8 @@ EXPORT_SYMBOL(get_random_bytes_arch);
 
 enum {
 	POOL_BITS = BLAKE2S_HASH_SIZE * 8,
-	POOL_MIN_BITS = POOL_BITS /* No point in settling for less. */
+	POOL_MIN_BITS = POOL_BITS, /* No point in settling for less. */
+	POOL_INIT_BITS = POOL_MIN_BITS / 2
 };
 
 /* For notifying userspace should write into /dev/random. */
@@ -819,6 +806,7 @@ static void mix_pool_bytes(const void *in, size_t nbytes)
 static void credit_entropy_bits(size_t nbits)
 {
 	unsigned int entropy_count, orig, add;
+	unsigned long flags;
 
 	if (!nbits)
 		return;
@@ -829,6 +817,15 @@ static void credit_entropy_bits(size_t nbits)
 		orig = READ_ONCE(input_pool.entropy_count);
 		entropy_count = min_t(unsigned int, POOL_BITS, orig + add);
 	} while (cmpxchg(&input_pool.entropy_count, orig, entropy_count) != orig);
+
+	if (unlikely(crng_init == 0 && entropy_count >= POOL_INIT_BITS)) {
+		spin_lock_irqsave(&base_crng.lock, flags);
+		if (crng_init == 0) {
+			++base_crng.generation;
+			crng_init = 1;
+		}
+		spin_unlock_irqrestore(&base_crng.lock, flags);
+	}
 
 	if (!crng_ready() && entropy_count >= POOL_MIN_BITS)
 		crng_reseed(false);
@@ -970,6 +967,37 @@ static int __init parse_trust_bootloader(char *arg)
 early_param("random.trust_cpu", parse_trust_cpu);
 early_param("random.trust_bootloader", parse_trust_bootloader);
 
+static int random_pm_notification(struct notifier_block *nb, unsigned long action, void *data)
+{
+	unsigned long flags, entropy = random_get_entropy();
+
+	/*
+	 * Encode a representation of how long the system has been suspended,
+	 * in a way that is distinct from prior system suspends.
+	 */
+	ktime_t stamps[] = {
+		ktime_get(),
+		ktime_get_boottime(),
+		ktime_get_real()
+	};
+
+	spin_lock_irqsave(&input_pool.lock, flags);
+	_mix_pool_bytes(&action, sizeof(action));
+	_mix_pool_bytes(stamps, sizeof(stamps));
+	_mix_pool_bytes(&entropy, sizeof(entropy));
+	spin_unlock_irqrestore(&input_pool.lock, flags);
+
+	if (crng_ready() && (action == PM_RESTORE_PREPARE ||
+	    (action == PM_POST_SUSPEND &&
+	     !IS_ENABLED(CONFIG_PM_AUTOSLEEP) && !IS_ENABLED(CONFIG_ANDROID)))) {
+		crng_reseed(true);
+		pr_notice("crng reseeded on system resumption\n");
+	}
+	return 0;
+}
+
+static struct notifier_block pm_notifier = { .notifier_call = random_pm_notification };
+
 /*
  * The first collection of entropy occurs at system boot while interrupts
  * are still turned off. Here we push in RDSEED, a timestamp, and utsname().
@@ -1012,6 +1040,11 @@ int __init rand_initialize(void)
 		urandom_warning.interval = 0;
 		unseeded_warning.interval = 0;
 	}
+
+	WARN_ON(register_pm_notifier(&pm_notifier));
+
+	WARN(!random_get_entropy(), "Missing cycle counter and fallback timer; RNG "
+				    "entropy collection will consequently suffer.");
 	return 0;
 }
 
@@ -1025,17 +1058,16 @@ int __init rand_initialize(void)
  */
 void add_device_randomness(const void *buf, size_t size)
 {
-	unsigned long cycles = random_get_entropy();
-	unsigned long flags, now = jiffies;
-
-	if (crng_init == 0 && size)
-		crng_pre_init_inject(buf, size, false);
+	unsigned long entropy = random_get_entropy();
+	unsigned long flags;
 
 	spin_lock_irqsave(&input_pool.lock, flags);
-	_mix_pool_bytes(&cycles, sizeof(cycles));
-	_mix_pool_bytes(&now, sizeof(now));
+	_mix_pool_bytes(&entropy, sizeof(entropy));
 	_mix_pool_bytes(buf, size);
 	spin_unlock_irqrestore(&input_pool.lock, flags);
+
+	if (unlikely(crng_init == 0 && size))
+		crng_pre_init_inject(buf, size);
 }
 EXPORT_SYMBOL(add_device_randomness);
 
@@ -1056,12 +1088,11 @@ struct timer_rand_state {
  */
 static void add_timer_randomness(struct timer_rand_state *state, unsigned int num)
 {
-	unsigned long cycles = random_get_entropy(), now = jiffies, flags;
+	unsigned long entropy = random_get_entropy(), now = jiffies, flags;
 	long delta, delta2, delta3;
 
 	spin_lock_irqsave(&input_pool.lock, flags);
-	_mix_pool_bytes(&cycles, sizeof(cycles));
-	_mix_pool_bytes(&now, sizeof(now));
+	_mix_pool_bytes(&entropy, sizeof(entropy));
 	_mix_pool_bytes(&num, sizeof(num));
 	spin_unlock_irqrestore(&input_pool.lock, flags);
 
@@ -1148,12 +1179,6 @@ void rand_initialize_disk(struct gendisk *disk)
 void add_hwgenerator_randomness(const void *buffer, size_t count,
 				size_t entropy)
 {
-	if (unlikely(crng_init == 0 && entropy < POOL_MIN_BITS)) {
-		crng_pre_init_inject(buffer, count, true);
-		mix_pool_bytes(buffer, count);
-		return;
-	}
-
 	/*
 	 * Throttle writing if we're above the trickle threshold.
 	 * We'll be woken up again once below POOL_MIN_BITS, when
@@ -1166,6 +1191,8 @@ void add_hwgenerator_randomness(const void *buffer, size_t count,
 			CRNG_RESEED_INTERVAL);
 	mix_pool_bytes(buffer, count);
 	credit_entropy_bits(entropy);
+	if (unlikely(crng_init == 0))
+		crng_pre_init_inject(buffer, count);
 }
 EXPORT_SYMBOL_GPL(add_hwgenerator_randomness);
 
@@ -1186,6 +1213,9 @@ EXPORT_SYMBOL_GPL(add_bootloader_randomness);
 
 #if IS_ENABLED(CONFIG_VMGENID)
 static BLOCKING_NOTIFIER_HEAD(vmfork_chain);
+#ifdef CONFIG_SYSCTL
+static DEFINE_CTL_TABLE_POLL(sysctl_fork_event_poll);
+#endif
 
 /*
  * Handle a new unique VM ID, which is unique, not secret, so we
@@ -1200,6 +1230,9 @@ void add_vmfork_randomness(const void *unique_vm_id, size_t size)
 		pr_notice("crng reseeded due to virtual machine fork\n");
 	}
 	blocking_notifier_call_chain(&vmfork_chain, 0, NULL);
+#ifdef CONFIG_SYSCTL
+	proc_sys_poll_notify(&sysctl_fork_event_poll);
+#endif
 }
 #if IS_MODULE(CONFIG_VMGENID)
 EXPORT_SYMBOL_GPL(add_vmfork_randomness);
@@ -1223,7 +1256,6 @@ struct fast_pool {
 	unsigned long pool[4];
 	unsigned long last;
 	unsigned int count;
-	u16 reg_idx;
 };
 
 static DEFINE_PER_CPU(struct fast_pool, irq_randomness) = {
@@ -1241,13 +1273,13 @@ static DEFINE_PER_CPU(struct fast_pool, irq_randomness) = {
  * This is [Half]SipHash-1-x, starting from an empty key. Because
  * the key is fixed, it assumes that its inputs are non-malicious,
  * and therefore this has no security on its own. s represents the
- * 128 or 256-bit SipHash state, while v represents a 128-bit input.
+ * four-word SipHash state, while v represents a two-word input.
  */
-static void fast_mix(unsigned long s[4], const unsigned long *v)
+static void fast_mix(unsigned long s[4], const unsigned long v[2])
 {
 	size_t i;
 
-	for (i = 0; i < 16 / sizeof(long); ++i) {
+	for (i = 0; i < 2; ++i) {
 		s[3] ^= v[i];
 #ifdef CONFIG_64BIT
 		s[0] += s[1]; s[1] = rol64(s[1], 13); s[1] ^= s[0]; s[0] = rol64(s[0], 32);
@@ -1287,33 +1319,17 @@ int random_online_cpu(unsigned int cpu)
 }
 #endif
 
-static unsigned long get_reg(struct fast_pool *f, struct pt_regs *regs)
-{
-	unsigned long *ptr = (unsigned long *)regs;
-	unsigned int idx;
-
-	if (regs == NULL)
-		return 0;
-	idx = READ_ONCE(f->reg_idx);
-	if (idx >= sizeof(struct pt_regs) / sizeof(unsigned long))
-		idx = 0;
-	ptr += idx++;
-	WRITE_ONCE(f->reg_idx, idx);
-	return *ptr;
-}
-
 static void mix_interrupt_randomness(struct work_struct *work)
 {
 	struct fast_pool *fast_pool = container_of(work, struct fast_pool, mix);
 	/*
-	 * The size of the copied stack pool is explicitly 16 bytes so that we
-	 * tax mix_pool_byte()'s compression function the same amount on all
-	 * platforms. This means on 64-bit we copy half the pool into this,
-	 * while on 32-bit we copy all of it. The entropy is supposed to be
-	 * sufficiently dispersed between bits that in the sponge-like
-	 * half case, on average we don't wind up "losing" some.
+	 * The size of the copied stack pool is explicitly 2 longs so that we
+	 * only ever ingest half of the siphash output each time, retaining
+	 * the other half as the next "key" that carries over. The entropy is
+	 * supposed to be sufficiently dispersed between bits so on average
+	 * we don't wind up "losing" some.
 	 */
-	u8 pool[16];
+	unsigned long pool[2];
 
 	/* Check to see if we're running on the wrong CPU due to hotplug. */
 	local_irq_disable();
@@ -1331,13 +1347,10 @@ static void mix_interrupt_randomness(struct work_struct *work)
 	fast_pool->last = jiffies;
 	local_irq_enable();
 
-	if (unlikely(crng_init == 0)) {
-		crng_pre_init_inject(pool, sizeof(pool), true);
-		mix_pool_bytes(pool, sizeof(pool));
-	} else {
-		mix_pool_bytes(pool, sizeof(pool));
-		credit_entropy_bits(1);
-	}
+	mix_pool_bytes(pool, sizeof(pool));
+	credit_entropy_bits(1);
+	if (unlikely(crng_init == 0))
+		crng_pre_init_inject(pool, sizeof(pool));
 
 	memzero_explicit(pool, sizeof(pool));
 }
@@ -1345,36 +1358,21 @@ static void mix_interrupt_randomness(struct work_struct *work)
 void add_interrupt_randomness(int irq)
 {
 	enum { MIX_INFLIGHT = 1U << 31 };
-	unsigned long cycles = random_get_entropy(), now = jiffies;
+	unsigned long cycles = random_get_entropy();
 	struct fast_pool *fast_pool = this_cpu_ptr(&irq_randomness);
 	struct pt_regs *regs = get_irq_regs();
 	unsigned int new_count;
-	union {
-		u32 u32[4];
-		u64 u64[2];
-		unsigned long longs[16 / sizeof(long)];
-	} irq_data;
 
-	if (cycles == 0)
-		cycles = get_reg(fast_pool, regs);
-
-	if (sizeof(unsigned long) == 8) {
-		irq_data.u64[0] = cycles ^ rol64(now, 32) ^ irq;
-		irq_data.u64[1] = regs ? instruction_pointer(regs) : _RET_IP_;
-	} else {
-		irq_data.u32[0] = cycles ^ irq;
-		irq_data.u32[1] = now;
-		irq_data.u32[2] = regs ? instruction_pointer(regs) : _RET_IP_;
-		irq_data.u32[3] = get_reg(fast_pool, regs);
-	}
-
-	fast_mix(fast_pool->pool, irq_data.longs);
+	fast_mix(fast_pool->pool, (unsigned long[2]){
+		(regs ? instruction_pointer(regs) : _RET_IP_) ^ swab(irq),
+		cycles
+	});
 	new_count = ++fast_pool->count;
 
 	if (new_count & MIX_INFLIGHT)
 		return;
 
-	if (new_count < 64 && (!time_after(now, fast_pool->last + HZ) ||
+	if (new_count < 64 && (!time_is_before_jiffies(fast_pool->last + HZ) ||
 			       unlikely(crng_init == 0)))
 		return;
 
@@ -1384,6 +1382,12 @@ void add_interrupt_randomness(int irq)
 	queue_work_on(raw_smp_processor_id(), system_highpri_wq, &fast_pool->mix);
 }
 EXPORT_SYMBOL_GPL(add_interrupt_randomness);
+
+struct entropy_timer_state {
+	unsigned long entropy;
+	struct timer_list timer;
+	unsigned int samples, samples_per_bit;
+};
 
 /*
  * Each time the timer fires, we expect that we got an unpredictable
@@ -1398,9 +1402,14 @@ EXPORT_SYMBOL_GPL(add_interrupt_randomness);
  *
  * So the re-arming always happens in the entropy loop itself.
  */
-static void entropy_timer(struct timer_list *t)
+static void entropy_timer(struct timer_list *timer)
 {
-	credit_entropy_bits(1);
+	struct entropy_timer_state *state = container_of(timer, struct entropy_timer_state, timer);
+
+	if (++state->samples == state->samples_per_bit) {
+		credit_entropy_bits(1);
+		state->samples = 0;
+	}
 }
 
 /*
@@ -1409,29 +1418,34 @@ static void entropy_timer(struct timer_list *t)
  */
 static void try_to_generate_entropy(void)
 {
-	struct {
-		unsigned long cycles;
-		struct timer_list timer;
-	} stack;
+	enum { NUM_TRIAL_SAMPLES = 8192, MAX_SAMPLES_PER_BIT = 32 };
+	struct entropy_timer_state stack;
+	unsigned int i, num_different = 0;
+	unsigned long last = random_get_entropy();
 
-	stack.cycles = random_get_entropy();
-
-	/* Slow counter - or none. Don't even bother */
-	if (stack.cycles == random_get_entropy())
+	for (i = 0; i < NUM_TRIAL_SAMPLES - 1; ++i) {
+		stack.entropy = random_get_entropy();
+		if (stack.entropy != last)
+			++num_different;
+		last = stack.entropy;
+	}
+	stack.samples_per_bit = DIV_ROUND_UP(NUM_TRIAL_SAMPLES, num_different + 1);
+	if (stack.samples_per_bit > MAX_SAMPLES_PER_BIT)
 		return;
 
+	stack.samples = 0;
 	timer_setup_on_stack(&stack.timer, entropy_timer, 0);
 	while (!crng_ready() && !signal_pending(current)) {
 		if (!timer_pending(&stack.timer))
 			mod_timer(&stack.timer, jiffies + 1);
-		mix_pool_bytes(&stack.cycles, sizeof(stack.cycles));
+		mix_pool_bytes(&stack.entropy, sizeof(stack.entropy));
 		schedule();
-		stack.cycles = random_get_entropy();
+		stack.entropy = random_get_entropy();
 	}
 
 	del_timer_sync(&stack.timer);
 	destroy_timer_on_stack(&stack.timer);
-	mix_pool_bytes(&stack.cycles, sizeof(stack.cycles));
+	mix_pool_bytes(&stack.entropy, sizeof(stack.entropy));
 }
 
 
@@ -1686,6 +1700,8 @@ const struct file_operations urandom_fops = {
  *   It is writable to avoid breaking old userspaces, but writing
  *   to it does not change any behavior of the RNG.
  *
+ * - fork_event - an unreadable file that can be poll()'d on for VM forks.
+ *
  ********************************************************************/
 
 #ifdef CONFIG_SYSCTL
@@ -1739,6 +1755,14 @@ static int proc_do_rointvec(struct ctl_table *table, int write, void *buffer,
 	return write ? 0 : proc_dointvec(table, 0, buffer, lenp, ppos);
 }
 
+#if IS_ENABLED(CONFIG_VMGENID)
+static int proc_do_nodata(struct ctl_table *table, int write, void *buffer,
+			  size_t *lenp, loff_t *ppos)
+{
+	return -ENODATA;
+}
+#endif
+
 static struct ctl_table random_table[] = {
 	{
 		.procname	= "poolsize",
@@ -1779,6 +1803,14 @@ static struct ctl_table random_table[] = {
 		.mode		= 0444,
 		.proc_handler	= proc_do_uuid,
 	},
+#if IS_ENABLED(CONFIG_VMGENID)
+	{
+		.procname	= "fork_event",
+		.mode		= 0444,
+		.poll		= &sysctl_fork_event_poll,
+		.proc_handler	= proc_do_nodata,
+	},
+#endif
 	{ }
 };
 
