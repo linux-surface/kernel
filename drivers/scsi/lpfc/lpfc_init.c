@@ -12669,7 +12669,7 @@ lpfc_cpuhp_get_eq(struct lpfc_hba *phba, unsigned int cpu,
 		 * gone offline yet, we need >1.
 		 */
 		cpumask_and(tmp, maskp, cpu_online_mask);
-		if (cpumask_weight(tmp) > 1)
+		if (cpumask_weight_gt(tmp, 1))
 			continue;
 
 		/* Now that we have an irq to shutdown, get the eq
