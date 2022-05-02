@@ -443,14 +443,6 @@ struct kvm_mmu {
 	u8 shadow_root_level;
 	u8 ept_ad;
 	bool direct_map;
-	struct kvm_mmu_root_info prev_roots[KVM_MMU_NUM_PREV_ROOTS];
-
-	/*
-	 * Bitmap; bit set = permission fault
-	 * Byte index: page fault error code [4:1]
-	 * Bit index: pte permissions in ACC_* format
-	 */
-	u8 permissions[16];
 
 	/*
 	* The pkru_mask indicates if protection key checks are needed.  It
@@ -459,6 +451,15 @@ struct kvm_mmu {
 	* Each domain has 2 bits which are ANDed with AD and WD from PKRU.
 	*/
 	u32 pkru_mask;
+
+	struct kvm_mmu_root_info prev_roots[KVM_MMU_NUM_PREV_ROOTS];
+
+	/*
+	 * Bitmap; bit set = permission fault
+	 * Byte index: page fault error code [4:1]
+	 * Bit index: pte permissions in ACC_* format
+	 */
+	u8 permissions[16];
 
 	u64 *pae_root;
 	u64 *pml4_root;
@@ -607,16 +608,21 @@ struct kvm_vcpu_hv {
 struct kvm_vcpu_xen {
 	u64 hypercall_rip;
 	u32 current_runstate;
-	bool vcpu_info_set;
-	bool vcpu_time_info_set;
-	bool runstate_set;
-	struct gfn_to_hva_cache vcpu_info_cache;
-	struct gfn_to_hva_cache vcpu_time_info_cache;
-	struct gfn_to_hva_cache runstate_cache;
+	u8 upcall_vector;
+	struct gfn_to_pfn_cache vcpu_info_cache;
+	struct gfn_to_pfn_cache vcpu_time_info_cache;
+	struct gfn_to_pfn_cache runstate_cache;
 	u64 last_steal;
 	u64 runstate_entry_time;
 	u64 runstate_times[4];
 	unsigned long evtchn_pending_sel;
+	u32 vcpu_id; /* The Xen / ACPI vCPU ID */
+	u32 timer_virq;
+	u64 timer_expires; /* In guest epoch */
+	atomic_t timer_pending;
+	struct hrtimer timer;
+	int poll_evtchn;
+	struct timer_list poll_timer;
 };
 
 struct kvm_vcpu_arch {
@@ -753,8 +759,7 @@ struct kvm_vcpu_arch {
 	gpa_t time;
 	struct pvclock_vcpu_time_info hv_clock;
 	unsigned int hw_tsc_khz;
-	struct gfn_to_hva_cache pv_time;
-	bool pv_time_enabled;
+	struct gfn_to_pfn_cache pv_time;
 	/* set guest stopped flag in pvclock flags field */
 	bool pvclock_set_guest_stopped_request;
 
@@ -1024,9 +1029,12 @@ struct msr_bitmap_range {
 
 /* Xen emulation context */
 struct kvm_xen {
+	u32 xen_version;
 	bool long_mode;
 	u8 upcall_vector;
 	struct gfn_to_pfn_cache shinfo_cache;
+	struct idr evtchn_ports;
+	unsigned long poll_mask[BITS_TO_LONGS(KVM_MAX_VCPUS)];
 };
 
 enum kvm_irqchip_mode {
@@ -1118,6 +1126,8 @@ struct kvm_arch {
 	u64 cur_tsc_offset;
 	u64 cur_tsc_generation;
 	int nr_vcpus_matched_tsc;
+
+	u32 default_tsc_khz;
 
 	seqcount_raw_spinlock_t pvclock_sc;
 	bool use_master_clock;
@@ -1455,8 +1465,6 @@ struct kvm_x86_ops {
 	int cpu_dirty_log_size;
 	void (*update_cpu_dirty_logging)(struct kvm_vcpu *vcpu);
 
-	/* pmu operations of sub-arch */
-	const struct kvm_pmu_ops *pmu_ops;
 	const struct kvm_x86_nested_ops *nested_ops;
 
 	void (*vcpu_blocking)(struct kvm_vcpu *vcpu);
@@ -1499,6 +1507,11 @@ struct kvm_x86_ops {
 	int (*complete_emulated_msr)(struct kvm_vcpu *vcpu, int err);
 
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
+
+	/*
+	 * Returns vCPU specific APICv inhibit reasons
+	 */
+	unsigned long (*vcpu_get_apicv_inhibit_reasons)(struct kvm_vcpu *vcpu);
 };
 
 struct kvm_x86_nested_ops {
@@ -1528,6 +1541,7 @@ struct kvm_x86_init_ops {
 	unsigned int (*handle_intel_pt_intr)(void);
 
 	struct kvm_x86_ops *runtime_ops;
+	struct kvm_pmu_ops *pmu_ops;
 };
 
 struct kvm_arch_async_pf {
@@ -1548,20 +1562,6 @@ extern struct kvm_x86_ops kvm_x86_ops;
 #define KVM_X86_OP_OPTIONAL KVM_X86_OP
 #define KVM_X86_OP_OPTIONAL_RET0 KVM_X86_OP
 #include <asm/kvm-x86-ops.h>
-
-static inline void kvm_ops_static_call_update(void)
-{
-#define __KVM_X86_OP(func) \
-	static_call_update(kvm_x86_##func, kvm_x86_ops.func);
-#define KVM_X86_OP(func) \
-	WARN_ON(!kvm_x86_ops.func); __KVM_X86_OP(func)
-#define KVM_X86_OP_OPTIONAL __KVM_X86_OP
-#define KVM_X86_OP_OPTIONAL_RET0(func) \
-	static_call_update(kvm_x86_##func, (void *)kvm_x86_ops.func ? : \
-					   (void *)__static_call_return0);
-#include <asm/kvm-x86-ops.h>
-#undef __KVM_X86_OP
-}
 
 #define __KVM_HAVE_ARCH_VM_ALLOC
 static inline struct kvm *kvm_arch_alloc_vm(void)
@@ -1800,6 +1800,7 @@ gpa_t kvm_mmu_gva_to_gpa_system(struct kvm_vcpu *vcpu, gva_t gva,
 				struct x86_exception *exception);
 
 bool kvm_apicv_activated(struct kvm *kvm);
+bool kvm_vcpu_apicv_activated(struct kvm_vcpu *vcpu);
 void kvm_vcpu_update_apicv(struct kvm_vcpu *vcpu);
 void __kvm_set_or_clear_apicv_inhibit(struct kvm *kvm,
 				      enum kvm_apicv_inhibit reason, bool set);
@@ -1989,6 +1990,7 @@ int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
 	 KVM_X86_QUIRK_CD_NW_CLEARED |		\
 	 KVM_X86_QUIRK_LAPIC_MMIO_HOLE |	\
 	 KVM_X86_QUIRK_OUT_7E_INC_RIP |		\
-	 KVM_X86_QUIRK_MISC_ENABLE_NO_MWAIT)
+	 KVM_X86_QUIRK_MISC_ENABLE_NO_MWAIT |	\
+	 KVM_X86_QUIRK_FIX_HYPERCALL_INSN)
 
 #endif /* _ASM_X86_KVM_HOST_H */
