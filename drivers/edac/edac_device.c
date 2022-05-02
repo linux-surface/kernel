@@ -76,9 +76,7 @@ edac_device_alloc_ctl_info(unsigned pvt_sz, char *dev_name, unsigned nr_instance
 
 	dev_ctl->instances = dev_inst;
 
-	dev_blk = kmalloc_array(nr_instances * nr_blocks,
-				sizeof(struct edac_device_block),
-				GFP_KERNEL | __GFP_ZERO);
+	dev_blk = kcalloc(nr_instances * nr_blocks, sizeof(struct edac_device_block), GFP_KERNEL);
 	if (!dev_blk)
 		goto free;
 
