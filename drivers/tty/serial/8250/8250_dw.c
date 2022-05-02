@@ -19,6 +19,7 @@
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/workqueue.h>
 #include <linux/notifier.h>
 #include <linux/slab.h>
@@ -33,30 +34,28 @@
 
 /* Offsets for the DesignWare specific registers */
 #define DW_UART_USR	0x1f /* UART Status Register */
+#define DW_UART_DMASA	0xa8 /* DMA Software Ack */
+
+#define OCTEON_UART_USR	0x27 /* UART Status Register */
+
+#define RZN1_UART_TDMACR 0x10c /* DMA Control Register Transmit Mode */
+#define RZN1_UART_RDMACR 0x110 /* DMA Control Register Receive Mode */
 
 /* DesignWare specific register fields */
 #define DW_UART_MCR_SIRE		BIT(6)
 
-struct dw8250_data {
-	struct dw8250_port_data	data;
+/* Renesas specific register fields */
+#define RZN1_UART_xDMACR_DMA_EN		BIT(0)
+#define RZN1_UART_xDMACR_1_WORD_BURST	(0 << 1)
+#define RZN1_UART_xDMACR_4_WORD_BURST	(1 << 1)
+#define RZN1_UART_xDMACR_8_WORD_BURST	(3 << 1)
+#define RZN1_UART_xDMACR_BLK_SZ(x)	((x) << 3)
 
-	u8			usr_reg;
-	int			msr_mask_on;
-	int			msr_mask_off;
-	struct clk		*clk;
-	struct clk		*pclk;
-	struct notifier_block	clk_notifier;
-	struct work_struct	clk_work;
-	struct reset_control	*rst;
-
-	unsigned int		skip_autocfg:1;
-	unsigned int		uart_16550_compatible:1;
-};
-
-static inline struct dw8250_data *to_dw8250_data(struct dw8250_port_data *data)
-{
-	return container_of(data, struct dw8250_data, data);
-}
+/* Quirks */
+#define DW_UART_QUIRK_OCTEON		BIT(0)
+#define DW_UART_QUIRK_ARMADA_38X	BIT(1)
+#define DW_UART_QUIRK_SKIP_SET_RATE	BIT(2)
+#define DW_UART_QUIRK_IS_DMA_FC		BIT(3)
 
 static inline struct dw8250_data *clk_to_dw8250_data(struct notifier_block *nb)
 {
@@ -238,6 +237,8 @@ static int dw8250_handle_irq(struct uart_port *p)
 	struct uart_8250_port *up = up_to_u8250p(p);
 	struct dw8250_data *d = to_dw8250_data(p->private_data);
 	unsigned int iir = p->serial_in(p, UART_IIR);
+	bool rx_timeout = (iir & 0x3f) == UART_IIR_RX_TIMEOUT;
+	unsigned int quirks = d->pdata->quirks;
 	unsigned int status;
 	unsigned long flags;
 
@@ -251,7 +252,7 @@ static int dw8250_handle_irq(struct uart_port *p)
 	 * This problem has only been observed so far when not in DMA mode
 	 * so we limit the workaround only to non-DMA mode.
 	 */
-	if (!up->dma && ((iir & 0x3f) == UART_IIR_RX_TIMEOUT)) {
+	if (!up->dma && rx_timeout) {
 		spin_lock_irqsave(&p->lock, flags);
 		status = p->serial_in(p, UART_LSR);
 
@@ -261,12 +262,21 @@ static int dw8250_handle_irq(struct uart_port *p)
 		spin_unlock_irqrestore(&p->lock, flags);
 	}
 
+	/* Manually stop the Rx DMA transfer when acting as flow controller */
+	if (quirks & DW_UART_QUIRK_IS_DMA_FC && up->dma && up->dma->rx_running && rx_timeout) {
+		status = p->serial_in(p, UART_LSR);
+		if (status & (UART_LSR_DR | UART_LSR_BI)) {
+			dw8250_writel_ext(p, RZN1_UART_RDMACR, 0);
+			dw8250_writel_ext(p, DW_UART_DMASA, 1);
+		}
+	}
+
 	if (serial8250_handle_irq(p, iir))
 		return 1;
 
 	if ((iir & UART_IIR_BUSY) == UART_IIR_BUSY) {
 		/* Clear the USR */
-		(void)p->serial_in(p, d->usr_reg);
+		(void)p->serial_in(p, d->pdata->usr_reg);
 
 		return 1;
 	}
@@ -384,9 +394,46 @@ static bool dw8250_idma_filter(struct dma_chan *chan, void *param)
 	return param == chan->device->dev;
 }
 
+static u32 dw8250_rzn1_get_dmacr_burst(int max_burst)
+{
+	if (max_burst >= 8)
+		return RZN1_UART_xDMACR_8_WORD_BURST;
+	else if (max_burst >= 4)
+		return RZN1_UART_xDMACR_4_WORD_BURST;
+	else
+		return RZN1_UART_xDMACR_1_WORD_BURST;
+}
+
+static void dw8250_prepare_tx_dma(struct uart_8250_port *p)
+{
+	struct uart_port *up = &p->port;
+	struct uart_8250_dma *dma = p->dma;
+	u32 val;
+
+	dw8250_writel_ext(up, RZN1_UART_TDMACR, 0);
+	val = dw8250_rzn1_get_dmacr_burst(dma->txconf.dst_maxburst) |
+	      RZN1_UART_xDMACR_BLK_SZ(dma->tx_size) |
+	      RZN1_UART_xDMACR_DMA_EN;
+	dw8250_writel_ext(up, RZN1_UART_TDMACR, val);
+}
+
+static void dw8250_prepare_rx_dma(struct uart_8250_port *p)
+{
+	struct uart_port *up = &p->port;
+	struct uart_8250_dma *dma = p->dma;
+	u32 val;
+
+	dw8250_writel_ext(up, RZN1_UART_RDMACR, 0);
+	val = dw8250_rzn1_get_dmacr_burst(dma->rxconf.src_maxburst) |
+	      RZN1_UART_xDMACR_BLK_SZ(dma->rx_size) |
+	      RZN1_UART_xDMACR_DMA_EN;
+	dw8250_writel_ext(up, RZN1_UART_RDMACR, val);
+}
+
 static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 {
 	struct device_node *np = p->dev->of_node;
+	unsigned int quirks = data->pdata->quirks;
 
 	if (np) {
 		int id;
@@ -396,12 +443,11 @@ static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 		if (id >= 0)
 			p->line = id;
 #ifdef CONFIG_64BIT
-		if (of_device_is_compatible(np, "cavium,octeon-3860-uart")) {
+		if (quirks & DW_UART_QUIRK_OCTEON) {
 			p->serial_in = dw8250_serial_inq;
 			p->serial_out = dw8250_serial_outq;
 			p->flags = UPF_SKIP_TEST | UPF_SHARE_IRQ | UPF_FIXED_TYPE;
 			p->type = PORT_OCTEON;
-			data->usr_reg = 0x27;
 			data->skip_autocfg = true;
 		}
 #endif
@@ -412,10 +458,16 @@ static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 			p->serial_out = dw8250_serial_out32be;
 		}
 
-		if (of_device_is_compatible(np, "marvell,armada-38x-uart"))
+		if (quirks & DW_UART_QUIRK_ARMADA_38X)
 			p->serial_out = dw8250_serial_out38x;
-		if (of_device_is_compatible(np, "starfive,jh7100-uart"))
+		if (quirks & DW_UART_QUIRK_SKIP_SET_RATE)
 			p->set_termios = dw8250_do_set_termios;
+		if (quirks & DW_UART_QUIRK_IS_DMA_FC) {
+			data->data.dma.txconf.device_fc = 1;
+			data->data.dma.rxconf.device_fc = 1;
+			data->data.dma.prepare_tx_dma = dw8250_prepare_tx_dma;
+			data->data.dma.prepare_rx_dma = dw8250_prepare_rx_dma;
+		}
 
 	} else if (acpi_dev_present("APMC0D08", NULL, -1)) {
 		p->iotype = UPIO_MEM32;
@@ -476,7 +528,7 @@ static int dw8250_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	data->data.dma.fn = dw8250_fallback_dma_filter;
-	data->usr_reg = DW_UART_USR;
+	data->pdata = device_get_match_data(p->dev);
 	p->private_data = &data->data;
 
 	data->uart_16550_compatible = device_property_read_bool(dev,
@@ -693,12 +745,37 @@ static const struct dev_pm_ops dw8250_pm_ops = {
 	SET_RUNTIME_PM_OPS(dw8250_runtime_suspend, dw8250_runtime_resume, NULL)
 };
 
+static const struct dw8250_platform_data dw8250_dw_apb = {
+	.usr_reg = DW_UART_USR,
+};
+
+static const struct dw8250_platform_data dw8250_octeon_3860_data = {
+	.usr_reg = OCTEON_UART_USR,
+	.quirks = DW_UART_QUIRK_OCTEON,
+};
+
+static const struct dw8250_platform_data dw8250_armada_38x_data = {
+	.usr_reg = DW_UART_USR,
+	.quirks = DW_UART_QUIRK_ARMADA_38X,
+};
+
+static const struct dw8250_platform_data dw8250_renesas_rzn1_data = {
+	.usr_reg = DW_UART_USR,
+	.cpr_val = 0x00012f32,
+	.quirks = DW_UART_QUIRK_IS_DMA_FC,
+};
+
+static const struct dw8250_platform_data dw8250_starfive_jh7100_data = {
+	.usr_reg = DW_UART_USR,
+	.quirks = DW_UART_QUIRK_SKIP_SET_RATE,
+};
+
 static const struct of_device_id dw8250_of_match[] = {
-	{ .compatible = "snps,dw-apb-uart" },
-	{ .compatible = "cavium,octeon-3860-uart" },
-	{ .compatible = "marvell,armada-38x-uart" },
-	{ .compatible = "renesas,rzn1-uart" },
-	{ .compatible = "starfive,jh7100-uart" },
+	{ .compatible = "snps,dw-apb-uart", .data = &dw8250_dw_apb },
+	{ .compatible = "cavium,octeon-3860-uart", .data = &dw8250_octeon_3860_data },
+	{ .compatible = "marvell,armada-38x-uart", .data = &dw8250_armada_38x_data },
+	{ .compatible = "renesas,rzn1-uart", .data = &dw8250_renesas_rzn1_data },
+	{ .compatible = "starfive,jh7100-uart", .data = &dw8250_starfive_jh7100_data },
 	{ /* Sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, dw8250_of_match);
