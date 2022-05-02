@@ -8,7 +8,7 @@
  * Baseline and extended sequential jpeg decoding is supported.
  * Progressive jpeg decoding is not supported by the IP.
  * Supports encode and decode of various formats:
- *     YUV444, YUV422, YUV420, RGB, ARGB, Gray
+ *     YUV444, YUV422, YUV420, BGR, ABGR, Gray
  * YUV420 is the only multi-planar format supported.
  * Minimum resolution is 64 x 64, maximum 8192 x 8192.
  * To achieve 8192 x 8192, modify in defconfig: CONFIG_CMA_SIZE_MBYTES=320
@@ -73,8 +73,8 @@ static const struct mxc_jpeg_fmt mxc_formats[] = {
 		.flags		= MXC_JPEG_FMT_TYPE_ENC,
 	},
 	{
-		.name		= "RGB", /*RGBRGB packed format*/
-		.fourcc		= V4L2_PIX_FMT_RGB24,
+		.name		= "BGR", /*BGR packed format*/
+		.fourcc		= V4L2_PIX_FMT_BGR24,
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 		.nc		= 3,
 		.depth		= 24,
@@ -84,8 +84,8 @@ static const struct mxc_jpeg_fmt mxc_formats[] = {
 		.flags		= MXC_JPEG_FMT_TYPE_RAW,
 	},
 	{
-		.name		= "ARGB", /* ARGBARGB packed format */
-		.fourcc		= V4L2_PIX_FMT_ARGB32,
+		.name		= "ABGR", /* ABGR packed format */
+		.fourcc		= V4L2_PIX_FMT_ABGR32,
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 		.nc		= 4,
 		.depth		= 32,
@@ -408,10 +408,10 @@ static enum mxc_jpeg_image_format mxc_jpeg_fourcc_to_imgfmt(u32 fourcc)
 		return MXC_JPEG_YUV420;
 	case V4L2_PIX_FMT_YUV24:
 		return MXC_JPEG_YUV444;
-	case V4L2_PIX_FMT_RGB24:
-		return MXC_JPEG_RGB;
-	case V4L2_PIX_FMT_ARGB32:
-		return MXC_JPEG_ARGB;
+	case V4L2_PIX_FMT_BGR24:
+		return MXC_JPEG_BGR;
+	case V4L2_PIX_FMT_ABGR32:
+		return MXC_JPEG_ABGR;
 	default:
 		return MXC_JPEG_INVALID;
 	}
@@ -684,11 +684,11 @@ static int mxc_jpeg_fixup_sof(struct mxc_jpeg_sof *sof,
 		sof->comp[0].h = 0x2;
 		break;
 	case V4L2_PIX_FMT_YUV24:
-	case V4L2_PIX_FMT_RGB24:
+	case V4L2_PIX_FMT_BGR24:
 	default:
 		sof->components_no = 3;
 		break;
-	case V4L2_PIX_FMT_ARGB32:
+	case V4L2_PIX_FMT_ABGR32:
 		sof->components_no = 4;
 		break;
 	case V4L2_PIX_FMT_GREY:
@@ -716,11 +716,11 @@ static int mxc_jpeg_fixup_sos(struct mxc_jpeg_sos *sos,
 		sos->components_no = 3;
 		break;
 	case V4L2_PIX_FMT_YUV24:
-	case V4L2_PIX_FMT_RGB24:
+	case V4L2_PIX_FMT_BGR24:
 	default:
 		sos->components_no = 3;
 		break;
-	case V4L2_PIX_FMT_ARGB32:
+	case V4L2_PIX_FMT_ABGR32:
 		sos->components_no = 4;
 		break;
 	case V4L2_PIX_FMT_GREY:
@@ -751,8 +751,8 @@ static unsigned int mxc_jpeg_setup_cfg_stream(void *cfg_stream_vaddr,
 	memcpy(cfg + offset, jpeg_soi, ARRAY_SIZE(jpeg_soi));
 	offset += ARRAY_SIZE(jpeg_soi);
 
-	if (fourcc == V4L2_PIX_FMT_RGB24 ||
-	    fourcc == V4L2_PIX_FMT_ARGB32) {
+	if (fourcc == V4L2_PIX_FMT_BGR24 ||
+	    fourcc == V4L2_PIX_FMT_ABGR32) {
 		memcpy(cfg + offset, jpeg_app14, sizeof(jpeg_app14));
 		offset += sizeof(jpeg_app14);
 	} else {
@@ -1190,9 +1190,9 @@ static u32 mxc_jpeg_get_image_format(struct device *dev,
 	 * encoded with 3 components have RGB colorspace, see Recommendation
 	 * ITU-T T.872 chapter 6.5.3 APP14 marker segment for colour encoding
 	 */
-	if (fourcc == V4L2_PIX_FMT_YUV24 || fourcc == V4L2_PIX_FMT_RGB24) {
+	if (fourcc == V4L2_PIX_FMT_YUV24 || fourcc == V4L2_PIX_FMT_BGR24) {
 		if (header->app14_tf == V4L2_JPEG_APP14_TF_CMYK_RGB)
-			fourcc = V4L2_PIX_FMT_RGB24;
+			fourcc = V4L2_PIX_FMT_BGR24;
 		else
 			fourcc = V4L2_PIX_FMT_YUV24;
 	}
@@ -1422,7 +1422,6 @@ static int mxc_jpeg_buf_prepare(struct vb2_buffer *vb)
 				i, vb2_plane_size(vb, i), sizeimage);
 			return -EINVAL;
 		}
-		vb2_set_plane_payload(vb, i, sizeimage);
 	}
 	return 0;
 }
@@ -1470,7 +1469,6 @@ static int mxc_jpeg_queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	src_vq->lock = &ctx->mxc_jpeg->lock;
 	src_vq->dev = ctx->mxc_jpeg->dev;
-	src_vq->allow_zero_bytesused = 1; /* keep old userspace apps working */
 
 	ret = vb2_queue_init(src_vq);
 	if (ret)
@@ -1569,12 +1567,8 @@ free:
 static int mxc_jpeg_querycap(struct file *file, void *priv,
 			     struct v4l2_capability *cap)
 {
-	struct mxc_jpeg_dev *mxc_jpeg = video_drvdata(file);
-
 	strscpy(cap->driver, MXC_JPEG_NAME " codec", sizeof(cap->driver));
 	strscpy(cap->card, MXC_JPEG_NAME " codec", sizeof(cap->card));
-	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s",
-		 dev_name(mxc_jpeg->dev));
 	cap->device_caps = V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_M2M_MPLANE;
 	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 
@@ -2213,9 +2207,33 @@ static int mxc_jpeg_runtime_suspend(struct device *dev)
 }
 #endif
 
+#ifdef CONFIG_PM_SLEEP
+static int mxc_jpeg_suspend(struct device *dev)
+{
+	struct mxc_jpeg_dev *jpeg = dev_get_drvdata(dev);
+
+	v4l2_m2m_suspend(jpeg->m2m_dev);
+	return pm_runtime_force_suspend(dev);
+}
+
+static int mxc_jpeg_resume(struct device *dev)
+{
+	struct mxc_jpeg_dev *jpeg = dev_get_drvdata(dev);
+	int ret;
+
+	ret = pm_runtime_force_resume(dev);
+	if (ret < 0)
+		return ret;
+
+	v4l2_m2m_resume(jpeg->m2m_dev);
+	return ret;
+}
+#endif
+
 static const struct dev_pm_ops	mxc_jpeg_pm_ops = {
 	SET_RUNTIME_PM_OPS(mxc_jpeg_runtime_suspend,
 			   mxc_jpeg_runtime_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(mxc_jpeg_suspend, mxc_jpeg_resume)
 };
 
 static int mxc_jpeg_remove(struct platform_device *pdev)
