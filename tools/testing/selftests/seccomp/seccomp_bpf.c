@@ -46,6 +46,7 @@
 #include <sys/ioctl.h>
 #include <linux/kcmp.h>
 #include <sys/resource.h>
+#include <sys/capability.h>
 
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -955,7 +956,7 @@ TEST(ERRNO_valid)
 	ASSERT_EQ(0, ret);
 
 	EXPECT_EQ(parent, syscall(__NR_getppid));
-	EXPECT_EQ(-1, read(0, NULL, 0));
+	EXPECT_EQ(-1, read(-1, NULL, 0));
 	EXPECT_EQ(E2BIG, errno);
 }
 
@@ -974,7 +975,7 @@ TEST(ERRNO_zero)
 
 	EXPECT_EQ(parent, syscall(__NR_getppid));
 	/* "errno" of 0 is ok. */
-	EXPECT_EQ(0, read(0, NULL, 0));
+	EXPECT_EQ(0, read(-1, NULL, 0));
 }
 
 /*
@@ -995,7 +996,7 @@ TEST(ERRNO_capped)
 	ASSERT_EQ(0, ret);
 
 	EXPECT_EQ(parent, syscall(__NR_getppid));
-	EXPECT_EQ(-1, read(0, NULL, 0));
+	EXPECT_EQ(-1, read(-1, NULL, 0));
 	EXPECT_EQ(4095, errno);
 }
 
@@ -1026,7 +1027,7 @@ TEST(ERRNO_order)
 	ASSERT_EQ(0, ret);
 
 	EXPECT_EQ(parent, syscall(__NR_getppid));
-	EXPECT_EQ(-1, read(0, NULL, 0));
+	EXPECT_EQ(-1, read(-1, NULL, 0));
 	EXPECT_EQ(12, errno);
 }
 
@@ -2623,7 +2624,7 @@ void *tsync_sibling(void *data)
 	ret = prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0);
 	if (!ret)
 		return (void *)SIBLING_EXIT_NEWPRIVS;
-	read(0, NULL, 0);
+	read(-1, NULL, 0);
 	return (void *)SIBLING_EXIT_UNKILLED;
 }
 
@@ -3742,7 +3743,10 @@ TEST(user_notification_fault_recv)
 	struct seccomp_notif req = {};
 	struct seccomp_notif_resp resp = {};
 
-	ASSERT_EQ(unshare(CLONE_NEWUSER), 0);
+	ASSERT_EQ(unshare(CLONE_NEWUSER), 0) {
+		if (errno == EINVAL)
+			SKIP(return, "kernel missing CLONE_NEWUSER support");
+	}
 
 	listener = user_notif_syscall(__NR_getppid,
 				      SECCOMP_FILTER_FLAG_NEW_LISTENER);
@@ -4229,6 +4233,177 @@ TEST(user_notification_addfd_rlimit)
 	EXPECT_EQ(0, WEXITSTATUS(status));
 
 	close(memfd);
+}
+
+/* Make sure PTRACE_O_SUSPEND_SECCOMP requires CAP_SYS_ADMIN. */
+FIXTURE(O_SUSPEND_SECCOMP) {
+	pid_t pid;
+};
+
+FIXTURE_SETUP(O_SUSPEND_SECCOMP)
+{
+	ERRNO_FILTER(block_read, E2BIG);
+	cap_value_t cap_list[] = { CAP_SYS_ADMIN };
+	cap_t caps;
+
+	self->pid = 0;
+
+	/* make sure we don't have CAP_SYS_ADMIN */
+	caps = cap_get_proc();
+	ASSERT_NE(NULL, caps);
+	ASSERT_EQ(0, cap_set_flag(caps, CAP_EFFECTIVE, 1, cap_list, CAP_CLEAR));
+	ASSERT_EQ(0, cap_set_proc(caps));
+	cap_free(caps);
+
+	ASSERT_EQ(0, prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+	ASSERT_EQ(0, prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog_block_read));
+
+	self->pid = fork();
+	ASSERT_GE(self->pid, 0);
+
+	if (self->pid == 0) {
+		while (1)
+			pause();
+		_exit(127);
+	}
+}
+
+FIXTURE_TEARDOWN(O_SUSPEND_SECCOMP)
+{
+	if (self->pid)
+		kill(self->pid, SIGKILL);
+}
+
+TEST_F(O_SUSPEND_SECCOMP, setoptions)
+{
+	int wstatus;
+
+	ASSERT_EQ(0, ptrace(PTRACE_ATTACH, self->pid, NULL, 0));
+	ASSERT_EQ(self->pid, wait(&wstatus));
+	ASSERT_EQ(-1, ptrace(PTRACE_SETOPTIONS, self->pid, NULL, PTRACE_O_SUSPEND_SECCOMP));
+	if (errno == EINVAL)
+		SKIP(return, "Kernel does not support PTRACE_O_SUSPEND_SECCOMP (missing CONFIG_CHECKPOINT_RESTORE?)");
+	ASSERT_EQ(EPERM, errno);
+}
+
+TEST_F(O_SUSPEND_SECCOMP, seize)
+{
+	int ret;
+
+	ret = ptrace(PTRACE_SEIZE, self->pid, NULL, PTRACE_O_SUSPEND_SECCOMP);
+	ASSERT_EQ(-1, ret);
+	if (errno == EINVAL)
+		SKIP(return, "Kernel does not support PTRACE_O_SUSPEND_SECCOMP (missing CONFIG_CHECKPOINT_RESTORE?)");
+	ASSERT_EQ(EPERM, errno);
+}
+
+static char get_proc_stat(int pid)
+{
+	char proc_path[100] = {0};
+	char *line = NULL;
+	size_t len = 0;
+	ssize_t nread;
+	char status;
+	FILE *f;
+	int i;
+
+	snprintf(proc_path, sizeof(proc_path), "/proc/%d/stat", pid);
+	f = fopen(proc_path, "r");
+	if (f == NULL)
+		ksft_exit_fail_msg("%s - Could not open %s\n",
+				   strerror(errno), proc_path);
+
+	for (i = 0; i < 3; i++) {
+		nread = getdelim(&line, &len, ' ', f);
+		if (nread <= 0)
+			ksft_exit_fail_msg("Failed to read status: %s\n",
+					   strerror(errno));
+	}
+
+	status = *line;
+	free(line);
+	fclose(f);
+
+	return status;
+}
+
+TEST(user_notification_fifo)
+{
+	struct seccomp_notif_resp resp = {};
+	struct seccomp_notif req = {};
+	int i, status, listener;
+	pid_t pid, pids[3];
+	__u64 baseid;
+	long ret;
+	/* 100 ms */
+	struct timespec delay = { .tv_nsec = 100000000 };
+
+	ret = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+	ASSERT_EQ(0, ret) {
+		TH_LOG("Kernel does not support PR_SET_NO_NEW_PRIVS!");
+	}
+
+	/* Setup a listener */
+	listener = user_notif_syscall(__NR_getppid,
+				      SECCOMP_FILTER_FLAG_NEW_LISTENER);
+	ASSERT_GE(listener, 0);
+
+	pid = fork();
+	ASSERT_GE(pid, 0);
+
+	if (pid == 0) {
+		ret = syscall(__NR_getppid);
+		exit(ret != USER_NOTIF_MAGIC);
+	}
+
+	EXPECT_EQ(ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, &req), 0);
+	baseid = req.id + 1;
+
+	resp.id = req.id;
+	resp.error = 0;
+	resp.val = USER_NOTIF_MAGIC;
+
+	/* check that we make sure flags == 0 */
+	EXPECT_EQ(ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &resp), 0);
+
+	EXPECT_EQ(waitpid(pid, &status, 0), pid);
+	EXPECT_EQ(true, WIFEXITED(status));
+	EXPECT_EQ(0, WEXITSTATUS(status));
+
+	/* Start children, and generate notifications */
+	for (i = 0; i < ARRAY_SIZE(pids); i++) {
+		pid = fork();
+		if (pid == 0) {
+			ret = syscall(__NR_getppid);
+			exit(ret != USER_NOTIF_MAGIC);
+		}
+		pids[i] = pid;
+	}
+
+	/* This spins until all of the children are sleeping */
+restart_wait:
+	for (i = 0; i < ARRAY_SIZE(pids); i++) {
+		if (get_proc_stat(pids[i]) != 'S') {
+			nanosleep(&delay, NULL);
+			goto restart_wait;
+		}
+	}
+
+	/* Read the notifications in order (and respond) */
+	for (i = 0; i < ARRAY_SIZE(pids); i++) {
+		memset(&req, 0, sizeof(req));
+		EXPECT_EQ(ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, &req), 0);
+		EXPECT_EQ(req.id, baseid + i);
+		resp.id = req.id;
+		EXPECT_EQ(ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &resp), 0);
+	}
+
+	/* Make sure notifications were received */
+	for (i = 0; i < ARRAY_SIZE(pids); i++) {
+		EXPECT_EQ(waitpid(pids[i], &status, 0), pids[i]);
+		EXPECT_EQ(true, WIFEXITED(status));
+		EXPECT_EQ(0, WEXITSTATUS(status));
+	}
 }
 
 /*
