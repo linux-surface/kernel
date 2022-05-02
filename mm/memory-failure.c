@@ -59,6 +59,7 @@
 #include <linux/page-isolation.h>
 #include <linux/pagewalk.h>
 #include <linux/shmem_fs.h>
+#include "swap.h"
 #include "internal.h"
 #include "ras/ras_event.h"
 
@@ -2189,7 +2190,7 @@ static bool isolate_page(struct page *page, struct list_head *pagelist)
 	bool lru = PageLRU(page);
 
 	if (PageHuge(page)) {
-		isolated = isolate_huge_page(page, pagelist);
+		isolated = !isolate_huge_page(page, pagelist);
 	} else {
 		if (lru)
 			isolated = !isolate_lru_page(page);

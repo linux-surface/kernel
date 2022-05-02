@@ -21,7 +21,9 @@ void hugetlb_vmemmap_init(struct hstate *h);
  */
 static inline unsigned int hugetlb_optimize_vmemmap_pages(struct hstate *h)
 {
-	return h->optimize_vmemmap_pages;
+	if (hugetlb_optimize_vmemmap_enabled())
+		return h->optimize_vmemmap_pages;
+	return 0;
 }
 #else
 static inline int hugetlb_vmemmap_alloc(struct hstate *h, struct page *head)
