@@ -1296,7 +1296,8 @@ static int __hns_roce_cmq_send(struct hns_roce_dev *hr_dev,
 	} while (++timeout < priv->cmq.tx_timeout);
 
 	if (hns_roce_cmq_csq_done(hr_dev)) {
-		for (ret = 0, i = 0; i < num; i++) {
+		ret = 0;
+		for (i = 0; i < num; i++) {
 			/* check the result of hardware write back */
 			desc[i] = csq->desc[tail++];
 			if (tail == csq->desc_num)
@@ -1510,7 +1511,7 @@ out:
 	hns_roce_func_clr_rst_proc(hr_dev, ret, fclr_write_fail_flag);
 }
 
-static void hns_roce_free_vf_resource(struct hns_roce_dev *hr_dev, int vf_id)
+static int hns_roce_free_vf_resource(struct hns_roce_dev *hr_dev, int vf_id)
 {
 	enum hns_roce_opcode_type opcode = HNS_ROCE_OPC_ALLOC_VF_RES;
 	struct hns_roce_cmq_desc desc[2];
@@ -1521,17 +1522,26 @@ static void hns_roce_free_vf_resource(struct hns_roce_dev *hr_dev, int vf_id)
 	desc[0].flag |= cpu_to_le16(HNS_ROCE_CMD_FLAG_NEXT);
 	hns_roce_cmq_setup_basic_desc(&desc[1], opcode, false);
 	hr_reg_write(req_a, FUNC_RES_A_VF_ID, vf_id);
-	hns_roce_cmq_send(hr_dev, desc, 2);
+
+	return hns_roce_cmq_send(hr_dev, desc, 2);
 }
 
 static void hns_roce_function_clear(struct hns_roce_dev *hr_dev)
 {
+	int ret;
 	int i;
 
 	for (i = hr_dev->func_num - 1; i >= 0; i--) {
 		__hns_roce_function_clear(hr_dev, i);
-		if (i != 0)
-			hns_roce_free_vf_resource(hr_dev, i);
+
+		if (i == 0)
+			continue;
+
+		ret = hns_roce_free_vf_resource(hr_dev, i);
+		if (ret)
+			ibdev_err(&hr_dev->ib_dev,
+				  "failed to free vf resource, vf_id = %d, ret = %d.\n",
+				  i, ret);
 	}
 }
 
@@ -3257,7 +3267,6 @@ static int hns_roce_v2_write_mtpt(struct hns_roce_dev *hr_dev,
 				  void *mb_buf, struct hns_roce_mr *mr)
 {
 	struct hns_roce_v2_mpt_entry *mpt_entry;
-	int ret;
 
 	mpt_entry = mb_buf;
 	memset(mpt_entry, 0, sizeof(*mpt_entry));
@@ -3296,9 +3305,7 @@ static int hns_roce_v2_write_mtpt(struct hns_roce_dev *hr_dev,
 		     to_hr_hw_page_shift(mr->pbl_mtr.hem_cfg.ba_pg_shift));
 	hr_reg_enable(mpt_entry, MPT_INNER_PA_VLD);
 
-	ret = set_mtpt_pbl(hr_dev, mpt_entry, mr);
-
-	return ret;
+	return set_mtpt_pbl(hr_dev, mpt_entry, mr);
 }
 
 static int hns_roce_v2_rereg_write_mtpt(struct hns_roce_dev *hr_dev,
@@ -4966,9 +4973,7 @@ static int hns_roce_v2_set_path(struct ib_qp *ibqp,
 		if (ret)
 			return ret;
 
-		if (gid_attr)
-			is_udp = (gid_attr->gid_type ==
-				 IB_GID_TYPE_ROCE_UDP_ENCAP);
+		is_udp = (gid_attr->gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP);
 	}
 
 	/* Only HIP08 needs to set the vlan_en bits in QPC */
