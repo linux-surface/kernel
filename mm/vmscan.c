@@ -587,7 +587,7 @@ unsigned long zone_reclaimable_pages(struct zone *zone)
  * lruvec_lru_size -  Returns the number of pages on the given LRU list.
  * @lruvec: lru vector
  * @lru: lru to use
- * @zone_idx: zones to consider (use MAX_NR_ZONES for the whole LRU list)
+ * @zone_idx: zones to consider (use MAX_NR_ZONES - 1 for the whole LRU list)
  */
 static unsigned long lruvec_lru_size(struct lruvec *lruvec, enum lru_list lru,
 				     int zone_idx)
@@ -595,7 +595,7 @@ static unsigned long lruvec_lru_size(struct lruvec *lruvec, enum lru_list lru,
 	unsigned long size = 0;
 	int zid;
 
-	for (zid = 0; zid <= zone_idx && zid < MAX_NR_ZONES; zid++) {
+	for (zid = 0; zid <= zone_idx; zid++) {
 		struct zone *zone = &lruvec_pgdat(lruvec)->node_zones[zid];
 
 		if (!managed_zone(zone))
@@ -1031,7 +1031,7 @@ static bool skip_throttle_noprogress(pg_data_t *pgdat)
 	for (i = 0; i < MAX_NR_ZONES; i++) {
 		struct zone *zone = pgdat->node_zones + i;
 
-		if (!populated_zone(zone))
+		if (!managed_zone(zone))
 			continue;
 
 		reclaimable += zone_reclaimable_pages(zone);
@@ -2117,8 +2117,8 @@ move:
 	 * Splice any skipped pages to the start of the LRU list. Note that
 	 * this disrupts the LRU order when reclaiming for lower zones but
 	 * we cannot splice to the tail. If we did then the SWAP_CLUSTER_MAX
-	 * scanning would soon rescan the same pages to skip and put the
-	 * system at risk of premature OOM.
+	 * scanning would soon rescan the same pages to skip and waste lots
+	 * of cpu cycles.
 	 */
 	if (!list_empty(&pages_skipped)) {
 		int zid;
@@ -2297,10 +2297,9 @@ static unsigned int move_pages_to_lru(struct lruvec *lruvec,
 }
 
 /*
- * If a kernel thread (such as nfsd for loop-back mounts) services
- * a backing device by writing to the page cache it sets PF_LOCAL_THROTTLE.
- * In that case we should only throttle if the backing device it is
- * writing to is congested.  In other cases it is safe to throttle.
+ * If a kernel thread (such as nfsd for loop-back mounts) services a backing
+ * device by writing to the page cache it sets PF_LOCAL_THROTTLE. In this case
+ * we should not throttle.  Otherwise it is safe to do so.
  */
 static int current_may_throttle(void)
 {
@@ -2646,9 +2645,7 @@ enum scan_balance {
 
 /*
  * Determine how aggressively the anon and file LRU lists should be
- * scanned.  The relative value of each set of LRU lists is determined
- * by looking at the fraction of the pages scanned we did rotate back
- * onto the active list instead of evict.
+ * scanned.
  *
  * nr[0] = anon inactive pages to scan; nr[1] = anon active pages to scan
  * nr[2] = file inactive pages to scan; nr[3] = file active pages to scan
@@ -3912,7 +3909,7 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int highest_zoneidx)
 	}
 
 	/*
-	 * If a node has no populated zone within highest_zoneidx, it does not
+	 * If a node has no managed zone within highest_zoneidx, it does not
 	 * need balancing by definition. This can happen if a zone-restricted
 	 * allocation tries to wake a remote kswapd.
 	 */
