@@ -1787,31 +1787,28 @@ retry:
 			}
 		}
 
-		if (folio_test_dirty(folio)) {
+		if (PageDirty(page)) {
 			/*
-			 * Only kswapd can writeback filesystem folios
+			 * Only kswapd can writeback filesystem pages
 			 * to avoid risk of stack overflow. But avoid
-			 * injecting inefficient single-folio I/O into
+			 * injecting inefficient single-page IO into
 			 * flusher writeback as much as possible: only
-			 * write folios when we've encountered many
-			 * dirty folios, and when we've already scanned
-			 * the rest of the LRU for clean folios and see
-			 * the same dirty folios again (with the reclaim
-			 * flag set).
+			 * write pages when we've encountered many
+			 * dirty pages, and when we've already scanned
+			 * the rest of the LRU for clean pages and see
+			 * the same dirty pages again (PageReclaim).
 			 */
-			if (folio_is_file_lru(folio) &&
-			    (!current_is_kswapd() ||
-			     !folio_test_reclaim(folio) ||
+			if (page_is_file_lru(page) &&
+			    (!current_is_kswapd() || !PageReclaim(page) ||
 			     !test_bit(PGDAT_DIRTY, &pgdat->flags))) {
 				/*
 				 * Immediately reclaim when written back.
-				 * Similar in principle to deactivate_page()
-				 * except we already have the folio isolated
+				 * Similar in principal to deactivate_page()
+				 * except we already have the page isolated
 				 * and know it's dirty
 				 */
-				node_stat_mod_folio(folio, NR_VMSCAN_IMMEDIATE,
-						nr_pages);
-				folio_set_reclaim(folio);
+				inc_node_page_state(page, NR_VMSCAN_IMMEDIATE);
+				SetPageReclaim(page);
 
 				goto activate_locked;
 			}
@@ -1824,8 +1821,8 @@ retry:
 				goto keep_locked;
 
 			/*
-			 * Folio is dirty. Flush the TLB if a writable entry
-			 * potentially exists to avoid CPU writes after I/O
+			 * Page is dirty. Flush the TLB if a writable entry
+			 * potentially exists to avoid CPU writes after IO
 			 * starts and then write it out here.
 			 */
 			try_to_unmap_flush_dirty();
@@ -1837,24 +1834,23 @@ retry:
 			case PAGE_SUCCESS:
 				stat->nr_pageout += nr_pages;
 
-				if (folio_test_writeback(folio))
+				if (PageWriteback(page))
 					goto keep;
-				if (folio_test_dirty(folio))
+				if (PageDirty(page))
 					goto keep;
 
 				/*
 				 * A synchronous write - probably a ramdisk.  Go
-				 * ahead and try to reclaim the folio.
+				 * ahead and try to reclaim the page.
 				 */
-				if (!folio_trylock(folio))
+				if (!trylock_page(page))
 					goto keep;
-				if (folio_test_dirty(folio) ||
-				    folio_test_writeback(folio))
+				if (PageDirty(page) || PageWriteback(page))
 					goto keep_locked;
-				mapping = folio_mapping(folio);
+				mapping = page_mapping(page);
 				fallthrough;
 			case PAGE_CLEAN:
-				; /* try to free the folio below */
+				; /* try to free the page below */
 			}
 		}
 
