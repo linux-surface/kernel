@@ -554,7 +554,7 @@ static unsigned long shmem_unused_huge_shrink(struct shmem_sb_info *sbinfo,
 	LIST_HEAD(to_remove);
 	struct inode *inode;
 	struct shmem_inode_info *info;
-	struct folio *folio;
+	struct page *page;
 	unsigned long batch = sc ? sc->nr_to_scan : 128;
 	int split = 0;
 
@@ -598,7 +598,6 @@ next:
 
 	list_for_each_safe(pos, next, &list) {
 		int ret;
-		pgoff_t index;
 
 		info = list_entry(pos, struct shmem_inode_info, shrinklist);
 		inode = &info->vfs_inode;
@@ -606,14 +605,14 @@ next:
 		if (nr_to_split && split >= nr_to_split)
 			goto move_back;
 
-		index = (inode->i_size & HPAGE_PMD_MASK) >> PAGE_SHIFT;
-		folio = filemap_get_folio(inode->i_mapping, index);
-		if (!folio)
+		page = find_get_page(inode->i_mapping,
+				(inode->i_size & HPAGE_PMD_MASK) >> PAGE_SHIFT);
+		if (!page)
 			goto drop;
 
 		/* No huge page at the end of the file: nothing to split */
-		if (!folio_test_large(folio)) {
-			folio_put(folio);
+		if (!PageTransHuge(page)) {
+			put_page(page);
 			goto drop;
 		}
 
@@ -624,14 +623,14 @@ next:
 		 * Waiting for the lock may lead to deadlock in the
 		 * reclaim path.
 		 */
-		if (!folio_trylock(folio)) {
-			folio_put(folio);
+		if (!trylock_page(page)) {
+			put_page(page);
 			goto move_back;
 		}
 
-		ret = split_huge_page(&folio->page);
-		folio_unlock(folio);
-		folio_put(folio);
+		ret = split_huge_page(page);
+		unlock_page(page);
+		put_page(page);
 
 		/* If split failed move the inode on the list back to shrinklist */
 		if (ret)
