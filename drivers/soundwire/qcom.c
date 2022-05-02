@@ -1452,7 +1452,7 @@ static bool swrm_wait_for_frame_gen_enabled(struct qcom_swrm_ctrl *swrm)
 	} while (retry--);
 
 	dev_err(swrm->dev, "%s: link status not %s\n", __func__,
-		comp_sts && SWRM_FRM_GEN_ENABLED ? "connected" : "disconnected");
+		comp_sts & SWRM_FRM_GEN_ENABLED ? "connected" : "disconnected");
 
 	return false;
 }
@@ -1549,6 +1549,7 @@ static const struct dev_pm_ops swrm_dev_pm_ops = {
 static const struct of_device_id qcom_swrm_of_match[] = {
 	{ .compatible = "qcom,soundwire-v1.3.0", .data = &swrm_v1_3_data },
 	{ .compatible = "qcom,soundwire-v1.5.1", .data = &swrm_v1_5_data },
+	{ .compatible = "qcom,soundwire-v1.6.0", .data = &swrm_v1_5_data },
 	{/* sentinel */},
 };
 
