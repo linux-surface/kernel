@@ -68,7 +68,7 @@ static int create_endpoint(struct cxl_memdev *cxlmd,
 }
 
 /**
- * cxl_dvsec_decode_init() - Setup HDM decoding for the endpoint
+ * cxl_hdm_decode_init() - Setup HDM decoding for the endpoint
  * @cxlds: Device state
  *
  * Additionally, enables global HDM decoding. Warning: don't call this outside
@@ -79,14 +79,17 @@ static int create_endpoint(struct cxl_memdev *cxlmd,
  * decoders, or if it can not be determined if DVSEC Ranges are in use.
  * Otherwise, returns true.
  */
-__mock bool cxl_dvsec_decode_init(struct cxl_dev_state *cxlds)
+__mock bool cxl_hdm_decode_init(struct cxl_dev_state *cxlds)
 {
 	struct cxl_endpoint_dvsec_info *info = &cxlds->info;
 	struct cxl_register_map map;
 	struct cxl_component_reg_map *cmap = &map.component_map;
-	bool global_enable, do_hdm_init = false;
+	bool global_enable, retval = false;
 	void __iomem *crb;
 	u32 global_ctrl;
+
+	if (info->ranges < 0)
+		return false;
 
 	/* map hdm decoder */
 	crb = ioremap(cxlds->component_reg_phys, CXL_COMPONENT_REG_BLOCK_SIZE);
@@ -104,13 +107,19 @@ __mock bool cxl_dvsec_decode_init(struct cxl_dev_state *cxlds)
 	global_ctrl = readl(crb + cmap->hdm_decoder.offset +
 			    CXL_HDM_DECODER_CTRL_OFFSET);
 	global_enable = global_ctrl & CXL_HDM_DECODER_ENABLE;
-	if (!global_enable && info->ranges) {
-		dev_dbg(cxlds->dev,
-			"DVSEC ranges already programmed and HDM decoders not enabled.\n");
-		goto out;
-	}
 
-	do_hdm_init = true;
+	/*
+	 * Per CXL 2.0 Section 8.1.3.8.3 and 8.1.3.8.4 DVSEC CXL Range 1 Base
+	 * [High,Low] when HDM operation is enabled the range register values
+	 * are ignored by the device, but the spec also recommends matching the
+	 * DVSEC Range 1,2 to HDM Decoder Range 0,1. So, non-zero info->ranges
+	 * are expected even though Linux does not require or maintain that
+	 * match.
+	 */
+	if (!global_enable && info->ranges)
+		goto out;
+
+	retval = true;
 
 	/*
 	 * Permanently (for this boot at least) opt the device into HDM
@@ -126,7 +135,12 @@ __mock bool cxl_dvsec_decode_init(struct cxl_dev_state *cxlds)
 
 out:
 	iounmap(crb);
-	return do_hdm_init;
+	return retval;
+}
+
+static void enable_suspend(void *data)
+{
+	cxl_mem_active_dec();
 }
 
 static int cxl_mem_probe(struct device *dev)
@@ -157,31 +171,9 @@ static int cxl_mem_probe(struct device *dev)
 	 * If DVSEC ranges are being used instead of HDM decoder registers there
 	 * is no use in trying to manage those.
 	 */
-	if (!cxl_dvsec_decode_init(cxlds)) {
-		struct cxl_endpoint_dvsec_info *info = &cxlds->info;
-		int i;
-
-		/* */
-		for (i = 0; i < 2; i++) {
-			u64 base, size;
-
-			/*
-			 * Give a nice warning to the user that BIOS has really
-			 * botched things for them if it didn't place DVSEC
-			 * ranges in the memory map.
-			 */
-			base = info->dvsec_range[i].start;
-			size = range_len(&info->dvsec_range[i]);
-			if (size && !region_intersects(base, size,
-						       IORESOURCE_SYSTEM_RAM,
-						       IORES_DESC_NONE)) {
-				dev_err(dev,
-					"DVSEC range %#llx-%#llx must be reserved by BIOS, but isn't\n",
-					base, base + size - 1);
-			}
-		}
+	if (!cxl_hdm_decode_init(cxlds)) {
 		dev_err(dev,
-			"Active DVSEC range registers in use. Will not bind.\n");
+			"Legacy range registers configuration prevents HDM operation.\n");
 		return -EBUSY;
 	}
 
@@ -207,7 +199,22 @@ static int cxl_mem_probe(struct device *dev)
 out:
 	cxl_device_unlock(&parent_port->dev);
 	put_device(&parent_port->dev);
-	return rc;
+
+	/*
+	 * The kernel may be operating out of CXL memory on this device,
+	 * there is no spec defined way to determine whether this device
+	 * preserves contents over suspend, and there is no simple way
+	 * to arrange for the suspend image to avoid CXL memory which
+	 * would setup a circular dependency between PCI resume and save
+	 * state restoration.
+	 *
+	 * TODO: support suspend when all the regions this device is
+	 * hosting are locked and covered by the system address map,
+	 * i.e. platform firmware owns restoring the HDM configuration
+	 * that it locked.
+	 */
+	cxl_mem_active_inc();
+	return devm_add_action_or_reset(dev, enable_suspend, NULL);
 }
 
 static struct cxl_driver cxl_mem_driver = {
