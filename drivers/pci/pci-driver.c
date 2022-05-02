@@ -551,10 +551,6 @@ static void pci_pm_default_resume(struct pci_dev *pci_dev)
 	pci_enable_wake(pci_dev, PCI_D0, false);
 }
 
-#endif
-
-#ifdef CONFIG_PM_SLEEP
-
 static void pci_pm_default_resume_early(struct pci_dev *pci_dev)
 {
 	pci_power_up(pci_dev);
@@ -562,6 +558,10 @@ static void pci_pm_default_resume_early(struct pci_dev *pci_dev)
 	pci_restore_state(pci_dev);
 	pci_pme_restore(pci_dev);
 }
+
+#endif
+
+#ifdef CONFIG_PM_SLEEP
 
 /*
  * Default "suspend" method for devices that have no driver provided suspend,
@@ -1312,7 +1312,7 @@ static int pci_pm_runtime_resume(struct device *dev)
 	 * to a driver because although we left it in D0, it may have gone to
 	 * D3cold when the bridge above it runtime suspended.
 	 */
-	pci_restore_standard_config(pci_dev);
+	pci_pm_default_resume_early(pci_dev);
 
 	if (!pci_dev->driver)
 		return 0;
