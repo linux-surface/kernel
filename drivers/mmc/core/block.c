@@ -609,11 +609,11 @@ static int __mmc_blk_ioctl_cmd(struct mmc_card *card, struct mmc_blk_data *md,
 
 	if (idata->rpmb || (cmd.flags & MMC_RSP_R1B) == MMC_RSP_R1B) {
 		/*
-		 * Ensure RPMB/R1B command has completed by polling CMD13
-		 * "Send Status".
+		 * Ensure RPMB/R1B command has completed by polling CMD13 "Send Status". Here we
+		 * allow to override the default timeout value if a custom timeout is specified.
 		 */
-		err = mmc_poll_for_busy(card, MMC_BLK_TIMEOUT_MS, false,
-					MMC_BUSY_IO);
+		err = mmc_poll_for_busy(card, idata->ic.cmd_timeout_ms ? : MMC_BLK_TIMEOUT_MS,
+					false, MMC_BUSY_IO);
 	}
 
 	return err;
@@ -676,8 +676,9 @@ static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
 	struct mmc_ioc_cmd __user *cmds = user->cmds;
 	struct mmc_card *card;
 	struct mmc_queue *mq;
-	int i, err = 0, ioc_err = 0;
+	int err = 0, ioc_err = 0;
 	__u64 num_of_cmds;
+	unsigned int i, n;
 	struct request *req;
 
 	if (copy_from_user(&num_of_cmds, &user->num_of_cmds,
@@ -690,15 +691,16 @@ static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
 	if (num_of_cmds > MMC_IOC_MAX_CMDS)
 		return -EINVAL;
 
-	idata = kcalloc(num_of_cmds, sizeof(*idata), GFP_KERNEL);
+	n = num_of_cmds;
+	idata = kcalloc(n, sizeof(*idata), GFP_KERNEL);
 	if (!idata)
 		return -ENOMEM;
 
-	for (i = 0; i < num_of_cmds; i++) {
+	for (i = 0; i < n; i++) {
 		idata[i] = mmc_blk_ioctl_copy_from_user(&cmds[i]);
 		if (IS_ERR(idata[i])) {
 			err = PTR_ERR(idata[i]);
-			num_of_cmds = i;
+			n = i;
 			goto cmd_err;
 		}
 		/* This will be NULL on non-RPMB ioctl():s */
@@ -725,18 +727,18 @@ static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
 	req_to_mmc_queue_req(req)->drv_op =
 		rpmb ? MMC_DRV_OP_IOCTL_RPMB : MMC_DRV_OP_IOCTL;
 	req_to_mmc_queue_req(req)->drv_op_data = idata;
-	req_to_mmc_queue_req(req)->ioc_count = num_of_cmds;
+	req_to_mmc_queue_req(req)->ioc_count = n;
 	blk_execute_rq(req, false);
 	ioc_err = req_to_mmc_queue_req(req)->drv_op_result;
 
 	/* copy to user if data and response */
-	for (i = 0; i < num_of_cmds && !err; i++)
+	for (i = 0; i < n && !err; i++)
 		err = mmc_blk_ioctl_copy_to_user(&cmds[i], idata[i]);
 
 	blk_mq_free_request(req);
 
 cmd_err:
-	for (i = 0; i < num_of_cmds; i++) {
+	for (i = 0; i < n; i++) {
 		kfree(idata[i]->buf);
 		kfree(idata[i]);
 	}
