@@ -2627,6 +2627,33 @@ static int pmbus_debugfs_get_status(void *data, u64 *val)
 DEFINE_DEBUGFS_ATTRIBUTE(pmbus_debugfs_ops_status, pmbus_debugfs_get_status,
 			 NULL, "0x%04llx\n");
 
+static ssize_t pmbus_debugfs_mfr_read(struct file *file, char __user *buf,
+				       size_t count, loff_t *ppos)
+{
+	int rc;
+	struct pmbus_debugfs_entry *entry = file->private_data;
+	char data[I2C_SMBUS_BLOCK_MAX + 2] = { 0 };
+
+	rc = i2c_smbus_read_block_data(entry->client, entry->reg, data);
+	if (rc < 0)
+		return rc;
+
+	/* Add newline at the end of a read data */
+	data[rc] = '\n';
+
+	/* Include newline into the length */
+	rc += 1;
+
+	return simple_read_from_buffer(buf, count, ppos, data, rc);
+}
+
+static const struct file_operations pmbus_debugfs_ops_mfr = {
+	.llseek = noop_llseek,
+	.read = pmbus_debugfs_mfr_read,
+	.write = NULL,
+	.open = simple_open,
+};
+
 static int pmbus_debugfs_get_pec(void *data, u64 *val)
 {
 	struct i2c_client *client = data;
@@ -2693,7 +2720,7 @@ static int pmbus_init_debugfs(struct i2c_client *client,
 
 	/* Allocate the max possible entries we need. */
 	entries = devm_kcalloc(data->dev,
-			       data->info->pages * 10, sizeof(*entries),
+			       data->info->pages * 16, sizeof(*entries),
 			       GFP_KERNEL);
 	if (!entries)
 		return -ENOMEM;
@@ -2802,6 +2829,66 @@ static int pmbus_init_debugfs(struct i2c_client *client,
 			debugfs_create_file(name, 0444, data->debugfs,
 					    &entries[idx++],
 					    &pmbus_debugfs_ops);
+		}
+
+		if (pmbus_check_byte_register(client, i, PMBUS_MFR_ID)) {
+			entries[idx].client = client;
+			entries[idx].page = i;
+			entries[idx].reg = PMBUS_MFR_ID;
+			scnprintf(name, PMBUS_NAME_SIZE, "mfr%d_id", i);
+			debugfs_create_file(name, 0444, data->debugfs,
+					    &entries[idx++],
+					    &pmbus_debugfs_ops_mfr);
+		}
+
+		if (pmbus_check_byte_register(client, i, PMBUS_MFR_MODEL)) {
+			entries[idx].client = client;
+			entries[idx].page = i;
+			entries[idx].reg = PMBUS_MFR_MODEL;
+			scnprintf(name, PMBUS_NAME_SIZE, "mfr%d_model", i);
+			debugfs_create_file(name, 0444, data->debugfs,
+					    &entries[idx++],
+					    &pmbus_debugfs_ops_mfr);
+		}
+
+		if (pmbus_check_byte_register(client, i, PMBUS_MFR_REVISION)) {
+			entries[idx].client = client;
+			entries[idx].page = i;
+			entries[idx].reg = PMBUS_MFR_REVISION;
+			scnprintf(name, PMBUS_NAME_SIZE, "mfr%d_revision", i);
+			debugfs_create_file(name, 0444, data->debugfs,
+					    &entries[idx++],
+					    &pmbus_debugfs_ops_mfr);
+		}
+
+		if (pmbus_check_byte_register(client, i, PMBUS_MFR_LOCATION)) {
+			entries[idx].client = client;
+			entries[idx].page = i;
+			entries[idx].reg = PMBUS_MFR_LOCATION;
+			scnprintf(name, PMBUS_NAME_SIZE, "mfr%d_location", i);
+			debugfs_create_file(name, 0444, data->debugfs,
+					    &entries[idx++],
+					    &pmbus_debugfs_ops_mfr);
+		}
+
+		if (pmbus_check_byte_register(client, i, PMBUS_MFR_DATE)) {
+			entries[idx].client = client;
+			entries[idx].page = i;
+			entries[idx].reg = PMBUS_MFR_DATE;
+			scnprintf(name, PMBUS_NAME_SIZE, "mfr%d_date", i);
+			debugfs_create_file(name, 0444, data->debugfs,
+					    &entries[idx++],
+					    &pmbus_debugfs_ops_mfr);
+		}
+
+		if (pmbus_check_byte_register(client, i, PMBUS_MFR_SERIAL)) {
+			entries[idx].client = client;
+			entries[idx].page = i;
+			entries[idx].reg = PMBUS_MFR_SERIAL;
+			scnprintf(name, PMBUS_NAME_SIZE, "mfr%d_serial", i);
+			debugfs_create_file(name, 0444, data->debugfs,
+					    &entries[idx++],
+					    &pmbus_debugfs_ops_mfr);
 		}
 	}
 

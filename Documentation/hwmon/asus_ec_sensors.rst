@@ -6,6 +6,7 @@ Kernel driver asus_ec_sensors
 Supported boards:
  * PRIME X570-PRO,
  * Pro WS X570-ACE,
+ * ProArt X570-CREATOR WIFI
  * ROG CROSSHAIR VIII DARK HERO,
  * ROG CROSSHAIR VIII HERO (WI-FI)
  * ROG CROSSHAIR VIII FORMULA,
@@ -52,3 +53,5 @@ Module Parameters
 		the path is mostly identical for them). If ASUS changes this path
 		in a future BIOS update, this parameter can be used to override
 		the stored in the driver value until it gets updated.
+		A special string ":GLOBAL_LOCK" can be passed to use the ACPI
+		global lock instead of a dedicated mutex.
