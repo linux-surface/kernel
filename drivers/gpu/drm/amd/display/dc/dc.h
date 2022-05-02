@@ -47,7 +47,7 @@ struct aux_payload;
 struct set_config_cmd_payload;
 struct dmub_notification;
 
-#define DC_VER "3.2.177"
+#define DC_VER "3.2.181"
 
 #define MAX_SURFACES 3
 #define MAX_PLANES 6
@@ -417,6 +417,7 @@ struct dc_clocks {
 #if defined(CONFIG_DRM_AMD_DC_DCN)
 	enum dcn_zstate_support_state zstate_support;
 	bool dtbclk_en;
+	int dtbclk_khz;
 #endif
 	enum dcn_pwr_state pwr_state;
 	/*
@@ -666,6 +667,7 @@ struct dc_debug_options {
 	uint32_t edid_read_retry_times;
 	bool remove_disconnect_edp;
 	unsigned int force_odm_combine; //bit vector based on otg inst
+	unsigned int seamless_boot_odm_combine;
 #if defined(CONFIG_DRM_AMD_DC_DCN)
 	unsigned int force_odm_combine_4to1; //bit vector based on otg inst
 	bool disable_z9_mpc;
