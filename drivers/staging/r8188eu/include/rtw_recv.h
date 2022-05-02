@@ -80,7 +80,6 @@ struct rx_pkt_attrib {
 	u8	drvinfo_sz;
 	u8	shift_sz;
 	u8	hdrlen; /* the WLAN Header Len */
-	u8	to_fr_ds;
 	u8	amsdu;
 	bool	qos;
 	u8	priority;
@@ -230,7 +229,6 @@ struct recv_buf {
 struct recv_frame {
 	struct list_head list;
 	struct sk_buff	 *pkt;
-	struct sk_buff	 *pkt_newalloc;
 	struct adapter  *adapter;
 	u8 fragcnt;
 	int frame_tag;

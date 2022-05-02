@@ -24,36 +24,12 @@
 
 #define REAUTH_LIMIT	(4)
 #define REASSOC_LIMIT	(4)
-#define READDBA_LIMIT	(2)
-
-#define ROAMING_LIMIT	8
 
 #define	DYNAMIC_FUNC_DISABLE			(0x0)
 
 /*  ====== ODM_ABILITY_E ======== */
 /*  BB ODM section BIT 0-15 */
 #define	DYNAMIC_BB_DIG				BIT(0)
-#define	DYNAMIC_BB_RA_MASK			BIT(1)
-#define	DYNAMIC_BB_DYNAMIC_TXPWR	BIT(2)
-#define	DYNAMIC_BB_BB_FA_CNT			BIT(3)
-
-#define		DYNAMIC_BB_RSSI_MONITOR		BIT(4)
-#define		DYNAMIC_BB_CCK_PD			BIT(5)
-#define		DYNAMIC_BB_ANT_DIV			BIT(6)
-#define		DYNAMIC_BB_PWR_SAVE			BIT(7)
-#define		DYNAMIC_BB_PWR_TRA			BIT(8)
-#define		DYNAMIC_BB_RATE_ADAPTIVE		BIT(9)
-#define		DYNAMIC_BB_PATH_DIV			BIT(10)
-#define		DYNAMIC_BB_PSD				BIT(11)
-
-/*  MAC DM section BIT 16-23 */
-#define		DYNAMIC_MAC_EDCA_TURBO		BIT(16)
-#define		DYNAMIC_MAC_EARLY_MODE		BIT(17)
-
-/*  RF ODM section BIT 24-31 */
-#define		DYNAMIC_RF_TX_PWR_TRACK		BIT(24)
-#define		DYNAMIC_RF_RX_GAIN_TRACK		BIT(25)
-#define		DYNAMIC_RF_CALIBRATION		BIT(26)
 
 #define		DYNAMIC_ALL_FUNC_ENABLE		0xFFFFFFF
 
@@ -208,11 +184,7 @@ enum SCAN_STATE {
 	SCAN_STATE_MAX,
 };
 
-struct mlme_handler {
-	unsigned int   num;
-	char *str;
-	unsigned int (*func)(struct adapter *adapt, struct recv_frame *frame);
-};
+typedef unsigned int (*mlme_handler)(struct adapter *adapt, struct recv_frame *frame);
 
 struct action_handler {
 	unsigned int   num;
@@ -419,7 +391,7 @@ struct mlme_ext_priv {
 	u8 active_keep_alive_check;
 };
 
-int init_mlme_ext_priv(struct adapter *adapter);
+void init_mlme_ext_priv(struct adapter *adapter);
 int init_hw_mlme_ext(struct adapter *padapter);
 void free_mlme_ext_priv (struct mlme_ext_priv *pmlmeext);
 extern void init_mlme_ext_timer(struct adapter *padapter);
@@ -434,7 +406,6 @@ void UpdateBrateTblForSoftAP(u8 *bssrateset, u32 bssratelen);
 
 void Save_DM_Func_Flag(struct adapter *padapter);
 void Restore_DM_Func_Flag(struct adapter *padapter);
-void Switch_DM_Func(struct adapter *padapter, u32 mode, u8 enable);
 
 void Set_MSR(struct adapter *padapter, u8 type);
 
@@ -563,6 +534,8 @@ void issue_action_BA(struct adapter *padapter, unsigned char *raddr,
 		     unsigned char action, unsigned short status);
 unsigned int send_delba(struct adapter *padapter, u8 initiator, u8 *addr);
 unsigned int send_beacon(struct adapter *padapter);
+bool get_beacon_valid_bit(struct adapter *adapter);
+void clear_beacon_valid_bit(struct adapter *adapter);
 
 void start_clnt_assoc(struct adapter *padapter);
 void start_clnt_auth(struct adapter *padapter);
@@ -769,9 +742,6 @@ struct C2HEvent_Header {
 	unsigned int rsvd;
 };
 
-void rtw_dummy_event_callback(struct adapter *adapter, u8 *pbuf);
-void rtw_fwdbg_event_callback(struct adapter *adapter, u8 *pbuf);
-
 enum rtw_c2h_event {
 	GEN_EVT_CODE(_Read_MACREG) = 0, /*0*/
 	GEN_EVT_CODE(_Read_BBREG),
@@ -806,7 +776,7 @@ enum rtw_c2h_event {
 #ifdef _RTW_MLME_EXT_C_
 
 static struct fwevent wlanevents[] = {
-	{0, rtw_dummy_event_callback},	/*0*/
+	{0, NULL},	/*0*/
 	{0, NULL},
 	{0, NULL},
 	{0, NULL},
@@ -820,12 +790,12 @@ static struct fwevent wlanevents[] = {
 	{sizeof(struct stassoc_event), &rtw_stassoc_event_callback},
 	{sizeof(struct stadel_event), &rtw_stadel_event_callback},
 	{0, NULL},
-	{0, rtw_dummy_event_callback},
+	{0, NULL},
 	{0, NULL},	/*15*/
 	{0, NULL},
 	{0, NULL},
 	{0, NULL},
-	{0, rtw_fwdbg_event_callback},
+	{0, NULL},
 	{0, NULL},	 /*20*/
 	{0, NULL},
 	{0, NULL},
