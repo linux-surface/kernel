@@ -10,6 +10,7 @@
  */
 
 #include <linux/cache.h>
+#include <linux/kthread.h>
 #include <linux/spinlock.h>
 #include <linux/rtmutex.h>
 #include <linux/threads.h>
@@ -23,7 +24,11 @@
 /* Communicate arguments to a workqueue handler. */
 struct rcu_exp_work {
 	unsigned long rew_s;
+#ifdef CONFIG_RCU_EXP_KTHREAD
+	struct kthread_work rew_work;
+#else
 	struct work_struct rew_work;
+#endif /* CONFIG_RCU_EXP_KTHREAD */
 };
 
 /* RCU's kthread states for tracing. */
@@ -128,6 +133,10 @@ struct rcu_node {
 	wait_queue_head_t exp_wq[4];
 	struct rcu_exp_work rew;
 	bool exp_need_flush;	/* Need to flush workitem? */
+	raw_spinlock_t exp_poll_lock;
+				/* Lock and data for polled expedited grace periods. */
+	unsigned long exp_seq_poll_rq;
+	struct work_struct exp_poll_wq;
 } ____cacheline_internodealigned_in_smp;
 
 /*
@@ -230,6 +239,7 @@ struct rcu_data {
 					 * if rdp_gp.
 					 */
 	struct list_head nocb_entry_rdp; /* rcu_data node in wakeup chain. */
+	struct rcu_data *nocb_toggling_rdp; /* rdp queued for (de-)offloading */
 
 	/* The following fields are used by CB kthread, hence new cacheline. */
 	struct rcu_data *nocb_gp_rdp ____cacheline_internodealigned_in_smp;
@@ -254,6 +264,7 @@ struct rcu_data {
 	unsigned long rcu_onl_gp_seq;	/* ->gp_seq at last online. */
 	short rcu_onl_gp_flags;		/* ->gp_flags at last online. */
 	unsigned long last_fqs_resched;	/* Time of last rcu_resched(). */
+	unsigned long last_sched_clock;	/* Jiffies of last rcu_sched_clock_irq(). */
 
 	int cpu;
 };
@@ -317,6 +328,9 @@ struct rcu_state {
 	short gp_state;				/* GP kthread sleep state. */
 	unsigned long gp_wake_time;		/* Last GP kthread wake. */
 	unsigned long gp_wake_seq;		/* ->gp_seq at ^^^. */
+	unsigned long gp_seq_polled;		/* GP seq for polled API. */
+	unsigned long gp_seq_polled_snap;	/* ->gp_seq_polled at normal GP start. */
+	unsigned long gp_seq_polled_exp_snap;	/* ->gp_seq_polled at expedited GP start. */
 
 	/* End of fields guarded by root rcu_node's lock. */
 
@@ -364,6 +378,7 @@ struct rcu_state {
 	arch_spinlock_t ofl_lock ____cacheline_internodealigned_in_smp;
 						/* Synchronize offline with */
 						/*  GP pre-initialization. */
+	int nocb_is_setup;			/* nocb is setup from boot */
 };
 
 /* Values for rcu_state structure's gp_flags field. */
@@ -421,7 +436,6 @@ static void rcu_preempt_boost_start_gp(struct rcu_node *rnp);
 static bool rcu_is_callbacks_kthread(void);
 static void rcu_cpu_kthread_setup(unsigned int cpu);
 static void rcu_spawn_one_boost_kthread(struct rcu_node *rnp);
-static void __init rcu_spawn_boost_kthreads(void);
 static bool rcu_preempt_has_tasks(struct rcu_node *rnp);
 static bool rcu_preempt_need_deferred_qs(struct task_struct *t);
 static void rcu_preempt_deferred_qs(struct task_struct *t);
@@ -439,7 +453,6 @@ static int rcu_nocb_need_deferred_wakeup(struct rcu_data *rdp, int level);
 static bool do_nocb_deferred_wakeup(struct rcu_data *rdp);
 static void rcu_boot_init_nocb_percpu_data(struct rcu_data *rdp);
 static void rcu_spawn_cpu_nocb_kthread(int cpu);
-static void __init rcu_spawn_nocb_kthreads(void);
 static void show_rcu_nocb_state(struct rcu_data *rdp);
 static void rcu_nocb_lock(struct rcu_data *rdp);
 static void rcu_nocb_unlock(struct rcu_data *rdp);
@@ -476,3 +489,6 @@ static void rcu_iw_handler(struct irq_work *iwp);
 static void check_cpu_stall(struct rcu_data *rdp);
 static void rcu_check_gp_start_stall(struct rcu_node *rnp, struct rcu_data *rdp,
 				     const unsigned long gpssdelay);
+
+/* Forward declarations for tree_exp.h. */
+static void sync_rcu_do_polled_gp(struct work_struct *wp);

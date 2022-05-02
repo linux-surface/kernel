@@ -1679,6 +1679,8 @@ static bool __note_gp_changes(struct rcu_node *rnp, struct rcu_data *rdp)
 	rdp->gp_seq = rnp->gp_seq;  /* Remember new grace-period state. */
 	if (ULONG_CMP_LT(rdp->gp_seq_needed, rnp->gp_seq_needed) || rdp->gpwrap)
 		WRITE_ONCE(rdp->gp_seq_needed, rnp->gp_seq_needed);
+	if (IS_ENABLED(CONFIG_PROVE_RCU) && READ_ONCE(rdp->gpwrap))
+		WRITE_ONCE(rdp->last_sched_clock, jiffies);
 	WRITE_ONCE(rdp->gpwrap, false);
 	rcu_gpnum_ovf(rnp, rdp);
 	return ret;
@@ -1705,11 +1707,37 @@ static void note_gp_changes(struct rcu_data *rdp)
 		rcu_gp_kthread_wake();
 }
 
+static atomic_t *rcu_gp_slow_suppress;
+
+/* Register a counter to suppress debugging grace-period delays. */
+void rcu_gp_slow_register(atomic_t *rgssp)
+{
+	WARN_ON_ONCE(rcu_gp_slow_suppress);
+
+	WRITE_ONCE(rcu_gp_slow_suppress, rgssp);
+}
+EXPORT_SYMBOL_GPL(rcu_gp_slow_register);
+
+/* Unregister a counter, with NULL for not caring which. */
+void rcu_gp_slow_unregister(atomic_t *rgssp)
+{
+	WARN_ON_ONCE(rgssp && rgssp != rcu_gp_slow_suppress);
+
+	WRITE_ONCE(rcu_gp_slow_suppress, NULL);
+}
+EXPORT_SYMBOL_GPL(rcu_gp_slow_unregister);
+
+static bool rcu_gp_slow_is_suppressed(void)
+{
+	atomic_t *rgssp = READ_ONCE(rcu_gp_slow_suppress);
+
+	return rgssp && atomic_read(rgssp);
+}
+
 static void rcu_gp_slow(int delay)
 {
-	if (delay > 0 &&
-	    !(rcu_seq_ctr(rcu_state.gp_seq) %
-	      (rcu_num_nodes * PER_RCU_NODE_PERIOD * delay)))
+	if (!rcu_gp_slow_is_suppressed() && delay > 0 &&
+	    !(rcu_seq_ctr(rcu_state.gp_seq) % (rcu_num_nodes * PER_RCU_NODE_PERIOD * delay)))
 		schedule_timeout_idle(delay);
 }
 
@@ -1747,6 +1775,79 @@ static void rcu_strict_gp_boundary(void *unused)
 	invoke_rcu_core();
 }
 
+// Has rcu_init() been invoked?  This is used (for example) to determine
+// whether spinlocks may be acquired safely.
+static bool rcu_init_invoked(void)
+{
+	return !!rcu_state.n_online_cpus;
+}
+
+// Make the polled API aware of the beginning of a grace period.
+static void rcu_poll_gp_seq_start(unsigned long *snap)
+{
+	struct rcu_node *rnp = rcu_get_root();
+
+	if (rcu_init_invoked())
+		raw_lockdep_assert_held_rcu_node(rnp);
+
+	// If RCU was idle, note beginning of GP.
+	if (!rcu_seq_state(rcu_state.gp_seq_polled))
+		rcu_seq_start(&rcu_state.gp_seq_polled);
+
+	// Either way, record current state.
+	*snap = rcu_state.gp_seq_polled;
+}
+
+// Make the polled API aware of the end of a grace period.
+static void rcu_poll_gp_seq_end(unsigned long *snap)
+{
+	struct rcu_node *rnp = rcu_get_root();
+
+	if (rcu_init_invoked())
+		raw_lockdep_assert_held_rcu_node(rnp);
+
+	// If the the previously noted GP is still in effect, record the
+	// end of that GP.  Either way, zero counter to avoid counter-wrap
+	// problems.
+	if (*snap && *snap == rcu_state.gp_seq_polled) {
+		rcu_seq_end(&rcu_state.gp_seq_polled);
+		rcu_state.gp_seq_polled_snap = 0;
+		rcu_state.gp_seq_polled_exp_snap = 0;
+	} else {
+		*snap = 0;
+	}
+}
+
+// Make the polled API aware of the beginning of a grace period, but
+// where caller does not hold the root rcu_node structure's lock.
+static void rcu_poll_gp_seq_start_unlocked(unsigned long *snap)
+{
+	struct rcu_node *rnp = rcu_get_root();
+
+	if (rcu_init_invoked()) {
+		lockdep_assert_irqs_enabled();
+		raw_spin_lock_irq_rcu_node(rnp);
+	}
+	rcu_poll_gp_seq_start(snap);
+	if (rcu_init_invoked())
+		raw_spin_unlock_irq_rcu_node(rnp);
+}
+
+// Make the polled API aware of the end of a grace period, but where
+// caller does not hold the root rcu_node structure's lock.
+static void rcu_poll_gp_seq_end_unlocked(unsigned long *snap)
+{
+	struct rcu_node *rnp = rcu_get_root();
+
+	if (rcu_init_invoked()) {
+		lockdep_assert_irqs_enabled();
+		raw_spin_lock_irq_rcu_node(rnp);
+	}
+	rcu_poll_gp_seq_end(snap);
+	if (rcu_init_invoked())
+		raw_spin_unlock_irq_rcu_node(rnp);
+}
+
 /*
  * Initialize a new grace period.  Return false if no grace period required.
  */
@@ -1782,6 +1883,7 @@ static noinline_for_stack bool rcu_gp_init(void)
 	rcu_seq_start(&rcu_state.gp_seq);
 	ASSERT_EXCLUSIVE_WRITER(rcu_state.gp_seq);
 	trace_rcu_grace_period(rcu_state.name, rcu_state.gp_seq, TPS("start"));
+	rcu_poll_gp_seq_start(&rcu_state.gp_seq_polled_snap);
 	raw_spin_unlock_irq_rcu_node(rnp);
 
 	/*
@@ -1965,6 +2067,11 @@ static noinline_for_stack void rcu_gp_fqs_loop(void)
 			WRITE_ONCE(rcu_state.jiffies_kick_kthreads,
 				   jiffies + (j ? 3 * j : 2));
 		}
+		if (rcu_state.cbovld) {
+			j = (j + 2) / 3;
+			if (j <= 0)
+				j = 1;
+		}
 		trace_rcu_grace_period(rcu_state.name, rcu_state.gp_seq,
 				       TPS("fqswait"));
 		WRITE_ONCE(rcu_state.gp_state, RCU_GP_WAIT_FQS);
@@ -2041,6 +2148,7 @@ static noinline void rcu_gp_cleanup(void)
 	 * safe for us to drop the lock in order to mark the grace
 	 * period as completed in all of the rcu_node structures.
 	 */
+	rcu_poll_gp_seq_end(&rcu_state.gp_seq_polled_snap);
 	raw_spin_unlock_irq_rcu_node(rnp);
 
 	/*
@@ -2096,14 +2204,29 @@ static noinline void rcu_gp_cleanup(void)
 	/* Advance CBs to reduce false positives below. */
 	offloaded = rcu_rdp_is_offloaded(rdp);
 	if ((offloaded || !rcu_accelerate_cbs(rnp, rdp)) && needgp) {
+
+		// We get here if a grace period was needed (“needgp”)
+		// and the above call to rcu_accelerate_cbs() did not set
+		// the RCU_GP_FLAG_INIT bit in ->gp_state (which records
+		// the need for another grace period).  The purpose
+		// of the “offloaded” check is to avoid invoking
+		// rcu_accelerate_cbs() on an offloaded CPU because we do not
+		// hold the ->nocb_lock needed to safely access an offloaded
+		// ->cblist.  We do not want to acquire that lock because
+		// it can be heavily contended during callback floods.
+
 		WRITE_ONCE(rcu_state.gp_flags, RCU_GP_FLAG_INIT);
 		WRITE_ONCE(rcu_state.gp_req_activity, jiffies);
-		trace_rcu_grace_period(rcu_state.name,
-				       rcu_state.gp_seq,
-				       TPS("newreq"));
+		trace_rcu_grace_period(rcu_state.name, rcu_state.gp_seq, TPS("newreq"));
 	} else {
-		WRITE_ONCE(rcu_state.gp_flags,
-			   rcu_state.gp_flags & RCU_GP_FLAG_INIT);
+
+		// We get here either if there is no need for an
+		// additional grace period or if rcu_accelerate_cbs() has
+		// already set the RCU_GP_FLAG_INIT bit in ->gp_flags. 
+		// So all we need to do is to clear all of the other
+		// ->gp_flags bits.
+
+		WRITE_ONCE(rcu_state.gp_flags, rcu_state.gp_flags & RCU_GP_FLAG_INIT);
 	}
 	raw_spin_unlock_irq_rcu_node(rnp);
 
@@ -2609,6 +2732,13 @@ static void rcu_do_batch(struct rcu_data *rdp)
  */
 void rcu_sched_clock_irq(int user)
 {
+	unsigned long j;
+
+	if (IS_ENABLED(CONFIG_PROVE_RCU)) {
+		j = jiffies;
+		WARN_ON_ONCE(time_before(j, __this_cpu_read(rcu_data.last_sched_clock)));
+		__this_cpu_write(rcu_data.last_sched_clock, j);
+	}
 	trace_rcu_utilization(TPS("Start scheduler-tick"));
 	lockdep_assert_irqs_disabled();
 	raw_cpu_inc(rcu_data.ticks_this_gp);
@@ -2624,6 +2754,8 @@ void rcu_sched_clock_irq(int user)
 	rcu_flavor_sched_clock_irq(user);
 	if (rcu_pending(user))
 		invoke_rcu_core();
+	if (user)
+		rcu_tasks_classic_qs(current, false);
 	lockdep_assert_irqs_disabled();
 
 	trace_rcu_utilization(TPS("End scheduler-tick"));
@@ -3717,7 +3849,9 @@ static int rcu_blocking_is_gp(void)
 {
 	int ret;
 
-	if (IS_ENABLED(CONFIG_PREEMPTION))
+	// Invoking preempt_model_*() too early gets a splat.
+	if (rcu_scheduler_active == RCU_SCHEDULER_INACTIVE ||
+	    preempt_model_full() || preempt_model_rt())
 		return rcu_scheduler_active == RCU_SCHEDULER_INACTIVE;
 	might_sleep();  /* Check for RCU read-side critical section. */
 	preempt_disable();
@@ -3783,8 +3917,18 @@ void synchronize_rcu(void)
 			 lock_is_held(&rcu_lock_map) ||
 			 lock_is_held(&rcu_sched_lock_map),
 			 "Illegal synchronize_rcu() in RCU read-side critical section");
-	if (rcu_blocking_is_gp())
+	if (rcu_blocking_is_gp()) {
+		// Note well that this code runs with !PREEMPT && !SMP.
+		// In addition, all code that advances grace periods runs at
+		// process level.  Therefore, this normal GP overlaps with
+		// other normal GPs only by being fully nested within them,
+		// which allows reuse of ->gp_seq_polled_snap.
+		rcu_poll_gp_seq_start_unlocked(&rcu_state.gp_seq_polled_snap);
+		rcu_poll_gp_seq_end_unlocked(&rcu_state.gp_seq_polled_snap);
+		if (rcu_init_invoked())
+			cond_resched_tasks_rcu_qs();
 		return;  // Context allows vacuous grace periods.
+	}
 	if (rcu_gp_is_expedited())
 		synchronize_rcu_expedited();
 	else
@@ -3806,7 +3950,7 @@ unsigned long get_state_synchronize_rcu(void)
 	 * before the load from ->gp_seq.
 	 */
 	smp_mb();  /* ^^^ */
-	return rcu_seq_snap(&rcu_state.gp_seq);
+	return rcu_seq_snap(&rcu_state.gp_seq_polled);
 }
 EXPORT_SYMBOL_GPL(get_state_synchronize_rcu);
 
@@ -3857,7 +4001,7 @@ EXPORT_SYMBOL_GPL(start_poll_synchronize_rcu);
  *
  * Yes, this function does not take counter wrap into account.
  * But counter wrap is harmless.  If the counter wraps, we have waited for
- * more than 2 billion grace periods (and way more on a 64-bit system!).
+ * more than a billion grace periods (and way more on a 64-bit system!).
  * Those needing to keep oldstate values for very long time periods
  * (many hours even on 32-bit systems) should check them occasionally
  * and either refresh them or set a flag indicating that the grace period
@@ -3870,7 +4014,8 @@ EXPORT_SYMBOL_GPL(start_poll_synchronize_rcu);
  */
 bool poll_state_synchronize_rcu(unsigned long oldstate)
 {
-	if (rcu_seq_done(&rcu_state.gp_seq, oldstate)) {
+	if (oldstate == RCU_GET_STATE_COMPLETED ||
+	    rcu_seq_done_exact(&rcu_state.gp_seq_polled, oldstate)) {
 		smp_mb(); /* Ensure GP ends before subsequent accesses. */
 		return true;
 	}
@@ -3881,20 +4026,20 @@ EXPORT_SYMBOL_GPL(poll_state_synchronize_rcu);
 /**
  * cond_synchronize_rcu - Conditionally wait for an RCU grace period
  *
- * @oldstate: value from get_state_synchronize_rcu() or start_poll_synchronize_rcu()
+ * @oldstate: value from get_state_synchronize_rcu(), start_poll_synchronize_rcu(), or start_poll_synchronize_rcu_expedited()
  *
  * If a full RCU grace period has elapsed since the earlier call to
  * get_state_synchronize_rcu() or start_poll_synchronize_rcu(), just return.
  * Otherwise, invoke synchronize_rcu() to wait for a full grace period.
  *
- * Yes, this function does not take counter wrap into account.  But
- * counter wrap is harmless.  If the counter wraps, we have waited for
+ * Yes, this function does not take counter wrap into account.
+ * But counter wrap is harmless.  If the counter wraps, we have waited for
  * more than 2 billion grace periods (and way more on a 64-bit system!),
- * so waiting for one additional grace period should be just fine.
+ * so waiting for a couple of additional grace periods should be just fine.
  *
  * This function provides the same memory-ordering guarantees that
  * would be provided by a synchronize_rcu() that was invoked at the call
- * to the function that provided @oldstate, and that returned at the end
+ * to the function that provided @oldstate and that returned at the end
  * of this function.
  */
 void cond_synchronize_rcu(unsigned long oldstate)
@@ -4179,6 +4324,7 @@ rcu_boot_init_percpu_data(int cpu)
 	rdp->rcu_ofl_gp_flags = RCU_GP_CLEANED;
 	rdp->rcu_onl_gp_seq = rcu_state.gp_seq;
 	rdp->rcu_onl_gp_flags = RCU_GP_CLEANED;
+	rdp->last_sched_clock = jiffies;
 	rdp->cpu = cpu;
 	rcu_boot_init_nocb_percpu_data(rdp);
 }
@@ -4471,6 +4617,51 @@ static int rcu_pm_notify(struct notifier_block *self,
 	return NOTIFY_OK;
 }
 
+#ifdef CONFIG_RCU_EXP_KTHREAD
+struct kthread_worker *rcu_exp_gp_kworker;
+struct kthread_worker *rcu_exp_par_gp_kworker;
+
+static void __init rcu_start_exp_gp_kworkers(void)
+{
+	const char *par_gp_kworker_name = "rcu_exp_par_gp_kthread_worker";
+	const char *gp_kworker_name = "rcu_exp_gp_kthread_worker";
+	struct sched_param param = { .sched_priority = kthread_prio };
+
+	rcu_exp_gp_kworker = kthread_create_worker(0, gp_kworker_name);
+	if (IS_ERR_OR_NULL(rcu_exp_gp_kworker)) {
+		pr_err("Failed to create %s!\n", gp_kworker_name);
+		return;
+	}
+
+	rcu_exp_par_gp_kworker = kthread_create_worker(0, par_gp_kworker_name);
+	if (IS_ERR_OR_NULL(rcu_exp_par_gp_kworker)) {
+		pr_err("Failed to create %s!\n", par_gp_kworker_name);
+		kthread_destroy_worker(rcu_exp_gp_kworker);
+		return;
+	}
+
+	sched_setscheduler_nocheck(rcu_exp_gp_kworker->task, SCHED_FIFO, &param);
+	sched_setscheduler_nocheck(rcu_exp_par_gp_kworker->task, SCHED_FIFO,
+				   &param);
+}
+
+static inline void rcu_alloc_par_gp_wq(void)
+{
+}
+#else /* !CONFIG_RCU_EXP_KTHREAD */
+struct workqueue_struct *rcu_par_gp_wq;
+
+static void __init rcu_start_exp_gp_kworkers(void)
+{
+}
+
+static inline void rcu_alloc_par_gp_wq(void)
+{
+	rcu_par_gp_wq = alloc_workqueue("rcu_par_gp", WQ_MEM_RECLAIM, 0);
+	WARN_ON(!rcu_par_gp_wq);
+}
+#endif /* CONFIG_RCU_EXP_KTHREAD */
+
 /*
  * Spawn the kthreads that handle RCU's grace periods.
  */
@@ -4480,6 +4671,7 @@ static int __init rcu_spawn_gp_kthread(void)
 	struct rcu_node *rnp;
 	struct sched_param sp;
 	struct task_struct *t;
+	struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
 
 	rcu_scheduler_fully_active = 1;
 	t = kthread_create(rcu_gp_kthread, NULL, "%s", rcu_state.name);
@@ -4497,9 +4689,17 @@ static int __init rcu_spawn_gp_kthread(void)
 	smp_store_release(&rcu_state.gp_kthread, t);  /* ^^^ */
 	raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
 	wake_up_process(t);
-	rcu_spawn_nocb_kthreads();
-	rcu_spawn_boost_kthreads();
+	/* This is a pre-SMP initcall, we expect a single CPU */
+	WARN_ON(num_online_cpus() > 1);
+	/*
+	 * Those kthreads couldn't be created on rcu_init() -> rcutree_prepare_cpu()
+	 * due to rcu_scheduler_fully_active.
+	 */
+	rcu_spawn_cpu_nocb_kthread(smp_processor_id());
+	rcu_spawn_one_boost_kthread(rdp->mynode);
 	rcu_spawn_core_kthreads();
+	/* Create kthread worker for expedited GPs */
+	rcu_start_exp_gp_kworkers();
 	return 0;
 }
 early_initcall(rcu_spawn_gp_kthread);
@@ -4592,6 +4792,9 @@ static void __init rcu_init_one(void)
 			init_waitqueue_head(&rnp->exp_wq[3]);
 			spin_lock_init(&rnp->exp_lock);
 			mutex_init(&rnp->boost_kthread_mutex);
+			raw_spin_lock_init(&rnp->exp_poll_lock);
+			rnp->exp_seq_poll_rq = RCU_GET_STATE_COMPLETED;
+			INIT_WORK(&rnp->exp_poll_wq, sync_rcu_do_polled_gp);
 		}
 	}
 
@@ -4745,7 +4948,6 @@ static void __init rcu_dump_rcu_node_tree(void)
 }
 
 struct workqueue_struct *rcu_gp_wq;
-struct workqueue_struct *rcu_par_gp_wq;
 
 static void __init kfree_rcu_batch_init(void)
 {
@@ -4782,7 +4984,7 @@ static void __init kfree_rcu_batch_init(void)
 
 void __init rcu_init(void)
 {
-	int cpu;
+	int cpu = smp_processor_id();
 
 	rcu_early_boot_tests();
 
@@ -4802,17 +5004,15 @@ void __init rcu_init(void)
 	 * or the scheduler are operational.
 	 */
 	pm_notifier(rcu_pm_notify, 0);
-	for_each_online_cpu(cpu) {
-		rcutree_prepare_cpu(cpu);
-		rcu_cpu_starting(cpu);
-		rcutree_online_cpu(cpu);
-	}
+	WARN_ON(num_online_cpus() > 1); // Only one CPU this early in boot.
+	rcutree_prepare_cpu(cpu);
+	rcu_cpu_starting(cpu);
+	rcutree_online_cpu(cpu);
 
 	/* Create workqueue for Tree SRCU and for expedited GPs. */
 	rcu_gp_wq = alloc_workqueue("rcu_gp", WQ_MEM_RECLAIM, 0);
 	WARN_ON(!rcu_gp_wq);
-	rcu_par_gp_wq = alloc_workqueue("rcu_par_gp", WQ_MEM_RECLAIM, 0);
-	WARN_ON(!rcu_par_gp_wq);
+	rcu_alloc_par_gp_wq();
 
 	/* Fill in default value for rcutree.qovld boot parameter. */
 	/* -After- the rcu_node ->lock fields are initialized! */
@@ -4820,6 +5020,10 @@ void __init rcu_init(void)
 		qovld_calc = DEFAULT_RCU_QOVLD_MULT * qhimark;
 	else
 		qovld_calc = qovld;
+
+	// Kick-start any polled grace periods that started early.
+	if (!(per_cpu_ptr(&rcu_data, cpu)->mynode->exp_seq_poll_rq & 0x1))
+		(void)start_poll_synchronize_rcu_expedited();
 }
 
 #include "tree_stall.h"
