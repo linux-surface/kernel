@@ -981,10 +981,10 @@ static inline void arch_swap_invalidate_area(int type)
 }
 
 #define __HAVE_ARCH_SWAP_RESTORE
-static inline void arch_swap_restore(swp_entry_t entry, struct folio *folio)
+static inline void arch_swap_restore(swp_entry_t entry, struct page *page)
 {
-	if (system_supports_mte() && mte_restore_tags(entry, &folio->page))
-		set_bit(PG_mte_tagged, &folio->flags);
+	if (system_supports_mte() && mte_restore_tags(entry, page))
+		set_bit(PG_mte_tagged, &page->flags);
 }
 
 #endif /* CONFIG_ARM64_MTE */
