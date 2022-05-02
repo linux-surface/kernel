@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * SM4 Cipher Algorithm, using ARMv8 Crypto Extensions
+ * SM4 Cipher Algorithm, using ARMv8 NEON
  * as specified in
  * https://tools.ietf.org/id/draft-ribose-cfrg-sm4-10.html
  *
@@ -19,34 +19,25 @@
 #include <crypto/sm4.h>
 
 #define BYTES2BLKS(nbytes)	((nbytes) >> 4)
+#define BYTES2BLK8(nbytes)	(((nbytes) >> 4) & ~(8 - 1))
 
-asmlinkage void sm4_ce_expand_key(const u8 *key, u32 *rkey_enc, u32 *rkey_dec,
-				  const u32 *fk, const u32 *ck);
-asmlinkage void sm4_ce_crypt_block(const u32 *rkey, u8 *dst, const u8 *src);
-asmlinkage void sm4_ce_crypt(const u32 *rkey, u8 *dst, const u8 *src,
-			     unsigned int nblks);
-asmlinkage void sm4_ce_cbc_enc(const u32 *rkey, u8 *dst, const u8 *src,
-			       u8 *iv, unsigned int nblks);
-asmlinkage void sm4_ce_cbc_dec(const u32 *rkey, u8 *dst, const u8 *src,
-			       u8 *iv, unsigned int nblks);
-asmlinkage void sm4_ce_cfb_enc(const u32 *rkey, u8 *dst, const u8 *src,
-			       u8 *iv, unsigned int nblks);
-asmlinkage void sm4_ce_cfb_dec(const u32 *rkey, u8 *dst, const u8 *src,
-			       u8 *iv, unsigned int nblks);
-asmlinkage void sm4_ce_ctr_enc(const u32 *rkey, u8 *dst, const u8 *src,
-			       u8 *iv, unsigned int nblks);
+asmlinkage void sm4_neon_crypt_blk1_8(const u32 *rkey, u8 *dst, const u8 *src,
+				      unsigned int nblks);
+asmlinkage void sm4_neon_crypt_blk8(const u32 *rkey, u8 *dst, const u8 *src,
+				    unsigned int nblks);
+asmlinkage void sm4_neon_cbc_dec_blk8(const u32 *rkey, u8 *dst, const u8 *src,
+				      u8 *iv, unsigned int nblks);
+asmlinkage void sm4_neon_cfb_dec_blk8(const u32 *rkey, u8 *dst, const u8 *src,
+				      u8 *iv, unsigned int nblks);
+asmlinkage void sm4_neon_ctr_enc_blk8(const u32 *rkey, u8 *dst, const u8 *src,
+				      u8 *iv, unsigned int nblks);
 
 static int sm4_setkey(struct crypto_skcipher *tfm, const u8 *key,
 		      unsigned int key_len)
 {
 	struct sm4_ctx *ctx = crypto_skcipher_ctx(tfm);
 
-	if (key_len != SM4_KEY_SIZE)
-		return -EINVAL;
-
-	sm4_ce_expand_key(key, ctx->rkey_enc, ctx->rkey_dec,
-			  crypto_sm4_fk, crypto_sm4_ck);
-	return 0;
+	return sm4_expandkey(ctx, key, key_len);
 }
 
 static int sm4_ecb_do_crypt(struct skcipher_request *req, const u32 *rkey)
@@ -64,9 +55,17 @@ static int sm4_ecb_do_crypt(struct skcipher_request *req, const u32 *rkey)
 
 		kernel_neon_begin();
 
+		nblks = BYTES2BLK8(nbytes);
+		if (nblks) {
+			sm4_neon_crypt_blk8(rkey, dst, src, nblks);
+			dst += nblks * SM4_BLOCK_SIZE;
+			src += nblks * SM4_BLOCK_SIZE;
+			nbytes -= nblks * SM4_BLOCK_SIZE;
+		}
+
 		nblks = BYTES2BLKS(nbytes);
 		if (nblks) {
-			sm4_ce_crypt(rkey, dst, src, nblks);
+			sm4_neon_crypt_blk1_8(rkey, dst, src, nblks);
 			nbytes -= nblks * SM4_BLOCK_SIZE;
 		}
 
@@ -105,19 +104,20 @@ static int sm4_cbc_encrypt(struct skcipher_request *req)
 	err = skcipher_walk_virt(&walk, req, false);
 
 	while ((nbytes = walk.nbytes) > 0) {
+		const u8 *iv = walk.iv;
 		const u8 *src = walk.src.virt.addr;
 		u8 *dst = walk.dst.virt.addr;
-		unsigned int nblks;
 
-		kernel_neon_begin();
-
-		nblks = BYTES2BLKS(nbytes);
-		if (nblks) {
-			sm4_ce_cbc_enc(ctx->rkey_enc, dst, src, walk.iv, nblks);
-			nbytes -= nblks * SM4_BLOCK_SIZE;
+		while (nbytes >= SM4_BLOCK_SIZE) {
+			crypto_xor_cpy(dst, src, iv, SM4_BLOCK_SIZE);
+			sm4_crypt_block(ctx->rkey_enc, dst, dst);
+			iv = dst;
+			src += SM4_BLOCK_SIZE;
+			dst += SM4_BLOCK_SIZE;
+			nbytes -= SM4_BLOCK_SIZE;
 		}
-
-		kernel_neon_end();
+		if (iv != walk.iv)
+			memcpy(walk.iv, iv, SM4_BLOCK_SIZE);
 
 		err = skcipher_walk_done(&walk, nbytes);
 	}
@@ -142,9 +142,38 @@ static int sm4_cbc_decrypt(struct skcipher_request *req)
 
 		kernel_neon_begin();
 
+		nblks = BYTES2BLK8(nbytes);
+		if (nblks) {
+			sm4_neon_cbc_dec_blk8(ctx->rkey_dec, dst, src,
+					walk.iv, nblks);
+			dst += nblks * SM4_BLOCK_SIZE;
+			src += nblks * SM4_BLOCK_SIZE;
+			nbytes -= nblks * SM4_BLOCK_SIZE;
+		}
+
 		nblks = BYTES2BLKS(nbytes);
 		if (nblks) {
-			sm4_ce_cbc_dec(ctx->rkey_dec, dst, src, walk.iv, nblks);
+			u8 keystream[SM4_BLOCK_SIZE * 8];
+			u8 iv[SM4_BLOCK_SIZE];
+			int i;
+
+			sm4_neon_crypt_blk1_8(ctx->rkey_dec, keystream,
+					src, nblks);
+
+			src += ((int)nblks - 2) * SM4_BLOCK_SIZE;
+			dst += (nblks - 1) * SM4_BLOCK_SIZE;
+			memcpy(iv, src + SM4_BLOCK_SIZE, SM4_BLOCK_SIZE);
+
+			for (i = nblks - 1; i > 0; i--) {
+				crypto_xor_cpy(dst, src,
+					&keystream[i * SM4_BLOCK_SIZE],
+					SM4_BLOCK_SIZE);
+				src -= SM4_BLOCK_SIZE;
+				dst -= SM4_BLOCK_SIZE;
+			}
+			crypto_xor_cpy(dst, walk.iv,
+					keystream, SM4_BLOCK_SIZE);
+			memcpy(walk.iv, iv, SM4_BLOCK_SIZE);
 			nbytes -= nblks * SM4_BLOCK_SIZE;
 		}
 
@@ -167,30 +196,28 @@ static int sm4_cfb_encrypt(struct skcipher_request *req)
 	err = skcipher_walk_virt(&walk, req, false);
 
 	while ((nbytes = walk.nbytes) > 0) {
+		u8 keystream[SM4_BLOCK_SIZE];
+		const u8 *iv = walk.iv;
 		const u8 *src = walk.src.virt.addr;
 		u8 *dst = walk.dst.virt.addr;
-		unsigned int nblks;
 
-		kernel_neon_begin();
-
-		nblks = BYTES2BLKS(nbytes);
-		if (nblks) {
-			sm4_ce_cfb_enc(ctx->rkey_enc, dst, src, walk.iv, nblks);
-			dst += nblks * SM4_BLOCK_SIZE;
-			src += nblks * SM4_BLOCK_SIZE;
-			nbytes -= nblks * SM4_BLOCK_SIZE;
+		while (nbytes >= SM4_BLOCK_SIZE) {
+			sm4_crypt_block(ctx->rkey_enc, keystream, iv);
+			crypto_xor_cpy(dst, src, keystream, SM4_BLOCK_SIZE);
+			iv = dst;
+			src += SM4_BLOCK_SIZE;
+			dst += SM4_BLOCK_SIZE;
+			nbytes -= SM4_BLOCK_SIZE;
 		}
+		if (iv != walk.iv)
+			memcpy(walk.iv, iv, SM4_BLOCK_SIZE);
 
 		/* tail */
 		if (walk.nbytes == walk.total && nbytes > 0) {
-			u8 keystream[SM4_BLOCK_SIZE];
-
-			sm4_ce_crypt_block(ctx->rkey_enc, keystream, walk.iv);
+			sm4_crypt_block(ctx->rkey_enc, keystream, walk.iv);
 			crypto_xor_cpy(dst, src, keystream, nbytes);
 			nbytes = 0;
 		}
-
-		kernel_neon_end();
 
 		err = skcipher_walk_done(&walk, nbytes);
 	}
@@ -215,24 +242,46 @@ static int sm4_cfb_decrypt(struct skcipher_request *req)
 
 		kernel_neon_begin();
 
-		nblks = BYTES2BLKS(nbytes);
+		nblks = BYTES2BLK8(nbytes);
 		if (nblks) {
-			sm4_ce_cfb_dec(ctx->rkey_enc, dst, src, walk.iv, nblks);
+			sm4_neon_cfb_dec_blk8(ctx->rkey_enc, dst, src,
+					walk.iv, nblks);
 			dst += nblks * SM4_BLOCK_SIZE;
 			src += nblks * SM4_BLOCK_SIZE;
 			nbytes -= nblks * SM4_BLOCK_SIZE;
 		}
 
+		nblks = BYTES2BLKS(nbytes);
+		if (nblks) {
+			u8 keystream[SM4_BLOCK_SIZE * 8];
+
+			memcpy(keystream, walk.iv, SM4_BLOCK_SIZE);
+			if (nblks > 1)
+				memcpy(&keystream[SM4_BLOCK_SIZE], src,
+					(nblks - 1) * SM4_BLOCK_SIZE);
+			memcpy(walk.iv, src + (nblks - 1) * SM4_BLOCK_SIZE,
+				SM4_BLOCK_SIZE);
+
+			sm4_neon_crypt_blk1_8(ctx->rkey_enc, keystream,
+					keystream, nblks);
+
+			crypto_xor_cpy(dst, src, keystream,
+					nblks * SM4_BLOCK_SIZE);
+			dst += nblks * SM4_BLOCK_SIZE;
+			src += nblks * SM4_BLOCK_SIZE;
+			nbytes -= nblks * SM4_BLOCK_SIZE;
+		}
+
+		kernel_neon_end();
+
 		/* tail */
 		if (walk.nbytes == walk.total && nbytes > 0) {
 			u8 keystream[SM4_BLOCK_SIZE];
 
-			sm4_ce_crypt_block(ctx->rkey_enc, keystream, walk.iv);
+			sm4_crypt_block(ctx->rkey_enc, keystream, walk.iv);
 			crypto_xor_cpy(dst, src, keystream, nbytes);
 			nbytes = 0;
 		}
-
-		kernel_neon_end();
 
 		err = skcipher_walk_done(&walk, nbytes);
 	}
@@ -257,25 +306,46 @@ static int sm4_ctr_crypt(struct skcipher_request *req)
 
 		kernel_neon_begin();
 
-		nblks = BYTES2BLKS(nbytes);
+		nblks = BYTES2BLK8(nbytes);
 		if (nblks) {
-			sm4_ce_ctr_enc(ctx->rkey_enc, dst, src, walk.iv, nblks);
+			sm4_neon_ctr_enc_blk8(ctx->rkey_enc, dst, src,
+					walk.iv, nblks);
 			dst += nblks * SM4_BLOCK_SIZE;
 			src += nblks * SM4_BLOCK_SIZE;
 			nbytes -= nblks * SM4_BLOCK_SIZE;
 		}
 
+		nblks = BYTES2BLKS(nbytes);
+		if (nblks) {
+			u8 keystream[SM4_BLOCK_SIZE * 8];
+			int i;
+
+			for (i = 0; i < nblks; i++) {
+				memcpy(&keystream[i * SM4_BLOCK_SIZE],
+					walk.iv, SM4_BLOCK_SIZE);
+				crypto_inc(walk.iv, SM4_BLOCK_SIZE);
+			}
+			sm4_neon_crypt_blk1_8(ctx->rkey_enc, keystream,
+					keystream, nblks);
+
+			crypto_xor_cpy(dst, src, keystream,
+					nblks * SM4_BLOCK_SIZE);
+			dst += nblks * SM4_BLOCK_SIZE;
+			src += nblks * SM4_BLOCK_SIZE;
+			nbytes -= nblks * SM4_BLOCK_SIZE;
+		}
+
+		kernel_neon_end();
+
 		/* tail */
 		if (walk.nbytes == walk.total && nbytes > 0) {
 			u8 keystream[SM4_BLOCK_SIZE];
 
-			sm4_ce_crypt_block(ctx->rkey_enc, keystream, walk.iv);
+			sm4_crypt_block(ctx->rkey_enc, keystream, walk.iv);
 			crypto_inc(walk.iv, SM4_BLOCK_SIZE);
 			crypto_xor_cpy(dst, src, keystream, nbytes);
 			nbytes = 0;
 		}
-
-		kernel_neon_end();
 
 		err = skcipher_walk_done(&walk, nbytes);
 	}
@@ -287,8 +357,8 @@ static struct skcipher_alg sm4_algs[] = {
 	{
 		.base = {
 			.cra_name		= "ecb(sm4)",
-			.cra_driver_name	= "ecb-sm4-ce",
-			.cra_priority		= 400,
+			.cra_driver_name	= "ecb-sm4-neon",
+			.cra_priority		= 200,
 			.cra_blocksize		= SM4_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct sm4_ctx),
 			.cra_module		= THIS_MODULE,
@@ -301,8 +371,8 @@ static struct skcipher_alg sm4_algs[] = {
 	}, {
 		.base = {
 			.cra_name		= "cbc(sm4)",
-			.cra_driver_name	= "cbc-sm4-ce",
-			.cra_priority		= 400,
+			.cra_driver_name	= "cbc-sm4-neon",
+			.cra_priority		= 200,
 			.cra_blocksize		= SM4_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct sm4_ctx),
 			.cra_module		= THIS_MODULE,
@@ -316,8 +386,8 @@ static struct skcipher_alg sm4_algs[] = {
 	}, {
 		.base = {
 			.cra_name		= "cfb(sm4)",
-			.cra_driver_name	= "cfb-sm4-ce",
-			.cra_priority		= 400,
+			.cra_driver_name	= "cfb-sm4-neon",
+			.cra_priority		= 200,
 			.cra_blocksize		= 1,
 			.cra_ctxsize		= sizeof(struct sm4_ctx),
 			.cra_module		= THIS_MODULE,
@@ -332,8 +402,8 @@ static struct skcipher_alg sm4_algs[] = {
 	}, {
 		.base = {
 			.cra_name		= "ctr(sm4)",
-			.cra_driver_name	= "ctr-sm4-ce",
-			.cra_priority		= 400,
+			.cra_driver_name	= "ctr-sm4-neon",
+			.cra_priority		= 200,
 			.cra_blocksize		= 1,
 			.cra_ctxsize		= sizeof(struct sm4_ctx),
 			.cra_module		= THIS_MODULE,
@@ -358,11 +428,11 @@ static void __exit sm4_exit(void)
 	crypto_unregister_skciphers(sm4_algs, ARRAY_SIZE(sm4_algs));
 }
 
-module_cpu_feature_match(SM4, sm4_init);
+module_init(sm4_init);
 module_exit(sm4_exit);
 
-MODULE_DESCRIPTION("SM4 ECB/CBC/CFB/CTR using ARMv8 Crypto Extensions");
-MODULE_ALIAS_CRYPTO("sm4-ce");
+MODULE_DESCRIPTION("SM4 ECB/CBC/CFB/CTR using ARMv8 NEON");
+MODULE_ALIAS_CRYPTO("sm4-neon");
 MODULE_ALIAS_CRYPTO("sm4");
 MODULE_ALIAS_CRYPTO("ecb(sm4)");
 MODULE_ALIAS_CRYPTO("cbc(sm4)");
