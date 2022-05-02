@@ -3707,7 +3707,6 @@ lpfc_sli_process_sol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 			  struct lpfc_iocbq *saveq)
 {
 	struct lpfc_iocbq *cmdiocbp;
-	int rc = 1;
 	unsigned long iflag;
 	u32 ulp_command, ulp_status, ulp_word4, ulp_context, iotag;
 
@@ -3847,7 +3846,7 @@ lpfc_sli_process_sol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 		}
 	}
 
-	return rc;
+	return 1;
 }
 
 /**
@@ -18123,7 +18122,6 @@ lpfc_fc_frame_check(struct lpfc_hba *phba, struct fc_frame_header *fc_hdr)
 	case FC_RCTL_ELS_REP:	/* extended link services reply */
 	case FC_RCTL_ELS4_REQ:	/* FC-4 ELS request */
 	case FC_RCTL_ELS4_REP:	/* FC-4 ELS reply */
-	case FC_RCTL_BA_NOP:  	/* basic link service NOP */
 	case FC_RCTL_BA_ABTS: 	/* basic link service abort */
 	case FC_RCTL_BA_RMC: 	/* remove connection */
 	case FC_RCTL_BA_ACC:	/* basic accept */
@@ -18144,6 +18142,7 @@ lpfc_fc_frame_check(struct lpfc_hba *phba, struct fc_frame_header *fc_hdr)
 		fc_vft_hdr = (struct fc_vft_header *)fc_hdr;
 		fc_hdr = &((struct fc_frame_header *)fc_vft_hdr)[1];
 		return lpfc_fc_frame_check(phba, fc_hdr);
+	case FC_RCTL_BA_NOP:	/* basic link service NOP */
 	default:
 		goto drop;
 	}
@@ -18690,13 +18689,11 @@ lpfc_sli4_seq_abort_rsp(struct lpfc_vport *vport,
 	       phba->sli4_hba.rpi_ids[ndlp->nlp_rpi]);
 	bf_set(wqe_cmnd, &icmd->generic.wqe_com, CMD_XMIT_BLS_RSP64_CX);
 
-
 	/* Xmit CT abts response on exchange <xid> */
 	lpfc_printf_vlog(vport, KERN_INFO, LOG_ELS,
 			 "1200 Send BLS cmd x%x on oxid x%x Data: x%x\n",
 			 ctiocb->abort_rctl, oxid, phba->link_state);
 
-	lpfc_sli_prep_wqe(phba, ctiocb);
 	rc = lpfc_sli_issue_iocb(phba, LPFC_ELS_RING, ctiocb, 0);
 	if (rc == IOCB_ERROR) {
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_TRACE_EVENT,
@@ -18955,12 +18952,14 @@ lpfc_sli4_send_seq_to_ulp(struct lpfc_vport *vport,
 	if (!lpfc_complete_unsol_iocb(phba,
 				      phba->sli4_hba.els_wq->pring,
 				      iocbq, fc_hdr->fh_r_ctl,
-				      fc_hdr->fh_type))
+				      fc_hdr->fh_type)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"2540 Ring %d handler: unexpected Rctl "
 				"x%x Type x%x received\n",
 				LPFC_ELS_RING,
 				fc_hdr->fh_r_ctl, fc_hdr->fh_type);
+		lpfc_in_buf_free(phba, &seq_dmabuf->dbuf);
+	}
 
 	/* Free iocb created in lpfc_prep_seq */
 	list_for_each_entry_safe(curr_iocb, next_iocb,
@@ -22284,7 +22283,7 @@ lpfc_sli_prep_wqe(struct lpfc_hba *phba, struct lpfc_iocbq *job)
 				bf_set(wqe_ct, &wqe->els_req.wqe_com, 1);
 				bf_set(wqe_ctxt_tag, &wqe->els_req.wqe_com,
 				       phba->vpi_ids[job->vport->vpi]);
-			} else if (pcmd && ndlp) {
+			} else if (pcmd) {
 				bf_set(wqe_ct, &wqe->els_req.wqe_com, 0);
 				bf_set(wqe_ctxt_tag, &wqe->els_req.wqe_com,
 				       phba->sli4_hba.rpi_ids[ndlp->nlp_rpi]);

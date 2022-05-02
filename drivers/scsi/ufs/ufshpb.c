@@ -10,8 +10,12 @@
  */
 
 #include <asm/unaligned.h>
+#include <linux/delay.h>
+#include <linux/device.h>
+#include <linux/module.h>
+#include <scsi/scsi_cmnd.h>
 
-#include "ufshcd.h"
+#include "ufshcd-priv.h"
 #include "ufshpb.h"
 #include "../sd.h"
 
@@ -90,12 +94,8 @@ static bool ufshpb_is_general_lun(int lun)
 
 static bool ufshpb_is_pinned_region(struct ufshpb_lu *hpb, int rgn_idx)
 {
-	if (hpb->lu_pinned_end != PINNED_NOT_SET &&
-	    rgn_idx >= hpb->lu_pinned_start &&
-	    rgn_idx <= hpb->lu_pinned_end)
-		return true;
-
-	return false;
+	return hpb->lu_pinned_end != PINNED_NOT_SET &&
+	       rgn_idx >= hpb->lu_pinned_start && rgn_idx <= hpb->lu_pinned_end;
 }
 
 static void ufshpb_kick_map_work(struct ufshpb_lu *hpb)

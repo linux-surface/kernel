@@ -5,6 +5,9 @@
 
 #include <linux/acpi.h>
 #include <linux/time.h>
+#include <linux/clk.h>
+#include <linux/delay.h>
+#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/phy/phy.h>
@@ -18,6 +21,7 @@
 #include "ufs-qcom.h"
 #include "ufshci.h"
 #include "ufs_quirks.h"
+
 #define UFS_QCOM_DEFAULT_DBG_PRINT_EN	\
 	(UFS_QCOM_DBG_PRINT_REGS_EN | UFS_QCOM_DBG_PRINT_TEST_BUS_EN)
 
@@ -299,8 +303,7 @@ static int ufs_qcom_power_up_sequence(struct ufs_hba *hba)
 	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
 	struct phy *phy = host->generic_phy;
 	int ret = 0;
-	bool is_rate_B = (UFS_QCOM_LIMIT_HS_RATE == PA_HS_MODE_B)
-							? true : false;
+	bool is_rate_B = UFS_QCOM_LIMIT_HS_RATE == PA_HS_MODE_B;
 
 	/* Reset UFS Host Controller and PHY */
 	ret = ufs_qcom_host_reset(hba);
@@ -641,12 +644,7 @@ static int ufs_qcom_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 			return err;
 	}
 
-	err = ufs_qcom_ice_resume(host);
-	if (err)
-		return err;
-
-	hba->is_sys_suspended = false;
-	return 0;
+	return ufs_qcom_ice_resume(host);
 }
 
 static void ufs_qcom_dev_ref_clk_ctrl(struct ufs_qcom_host *host, bool enable)
@@ -1449,23 +1447,17 @@ static int ufs_qcom_device_reset(struct ufs_hba *hba)
 
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND)
 static void ufs_qcom_config_scaling_param(struct ufs_hba *hba,
-					  struct devfreq_dev_profile *p,
-					  void *data)
+					struct devfreq_dev_profile *p,
+					struct devfreq_simple_ondemand_data *d)
 {
-	static struct devfreq_simple_ondemand_data *d;
-
-	if (!data)
-		return;
-
-	d = (struct devfreq_simple_ondemand_data *)data;
 	p->polling_ms = 60;
 	d->upthreshold = 70;
 	d->downdifferential = 5;
 }
 #else
 static void ufs_qcom_config_scaling_param(struct ufs_hba *hba,
-					  struct devfreq_dev_profile *p,
-					  void *data)
+		struct devfreq_dev_profile *p,
+		struct devfreq_simple_ondemand_data *data)
 {
 }
 #endif
