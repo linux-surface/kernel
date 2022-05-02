@@ -467,6 +467,7 @@ static int stuffed_readpage(struct gfs2_inode *ip, struct page *page)
 
 static int __gfs2_readpage(void *file, struct page *page)
 {
+	struct folio *folio = page_folio(page);
 	struct inode *inode = page->mapping->host;
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
@@ -474,12 +475,12 @@ static int __gfs2_readpage(void *file, struct page *page)
 
 	if (!gfs2_is_jdata(ip) ||
 	    (i_blocksize(inode) == PAGE_SIZE && !page_has_buffers(page))) {
-		error = iomap_readpage(page, &gfs2_iomap_ops);
+		error = iomap_read_folio(folio, &gfs2_iomap_ops);
 	} else if (gfs2_is_stuffed(ip)) {
 		error = stuffed_readpage(ip, page);
 		unlock_page(page);
 	} else {
-		error = mpage_readpage(page, gfs2_block_map);
+		error = mpage_read_folio(folio, gfs2_block_map);
 	}
 
 	if (unlikely(gfs2_withdrawn(sdp)))
@@ -489,14 +490,13 @@ static int __gfs2_readpage(void *file, struct page *page)
 }
 
 /**
- * gfs2_readpage - read a page of a file
+ * gfs2_read_folio - read a folio from a file
  * @file: The file to read
- * @page: The page of the file
+ * @folio: The folio in the file
  */
-
-static int gfs2_readpage(struct file *file, struct page *page)
+static int gfs2_read_folio(struct file *file, struct folio *folio)
 {
-	return __gfs2_readpage(file, page);
+	return __gfs2_readpage(file, &folio->page);
 }
 
 /**
@@ -772,7 +772,7 @@ cannot_release:
 static const struct address_space_operations gfs2_aops = {
 	.writepage = gfs2_writepage,
 	.writepages = gfs2_writepages,
-	.readpage = gfs2_readpage,
+	.read_folio = gfs2_read_folio,
 	.readahead = gfs2_readahead,
 	.dirty_folio = filemap_dirty_folio,
 	.releasepage = iomap_releasepage,
@@ -787,7 +787,7 @@ static const struct address_space_operations gfs2_aops = {
 static const struct address_space_operations gfs2_jdata_aops = {
 	.writepage = gfs2_jdata_writepage,
 	.writepages = gfs2_jdata_writepages,
-	.readpage = gfs2_readpage,
+	.read_folio = gfs2_read_folio,
 	.readahead = gfs2_readahead,
 	.dirty_folio = jdata_dirty_folio,
 	.bmap = gfs2_bmap,

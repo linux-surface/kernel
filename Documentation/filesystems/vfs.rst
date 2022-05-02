@@ -656,7 +656,7 @@ by memory-mapping the page.  Data is written into the address space by
 the application, and then written-back to storage typically in whole
 pages, however the address_space has finer control of write sizes.
 
-The read process essentially only requires 'readpage'.  The write
+The read process essentially only requires 'read_folio'.  The write
 process is more complicated and uses write_begin/write_end or
 dirty_folio to write data into the address_space, and writepage and
 writepages to writeback data to storage.
@@ -722,12 +722,12 @@ cache in your filesystem.  The following members are defined:
 
 	struct address_space_operations {
 		int (*writepage)(struct page *page, struct writeback_control *wbc);
-		int (*readpage)(struct file *, struct page *);
+		int (*read_folio)(struct file *, struct folio *);
 		int (*writepages)(struct address_space *, struct writeback_control *);
 		bool (*dirty_folio)(struct address_space *, struct folio *);
 		void (*readahead)(struct readahead_control *);
 		int (*write_begin)(struct file *, struct address_space *mapping,
-				   loff_t pos, unsigned len, unsigned flags,
+				   loff_t pos, unsigned len,
 				struct page **pagep, void **fsdata);
 		int (*write_end)(struct file *, struct address_space *mapping,
 				 loff_t pos, unsigned len, unsigned copied,
@@ -747,7 +747,7 @@ cache in your filesystem.  The following members are defined:
 
 		bool (*is_partially_uptodate) (struct folio *, size_t from,
 					       size_t count);
-		void (*is_dirty_writeback) (struct page *, bool *, bool *);
+		void (*is_dirty_writeback)(struct folio *, bool *, bool *);
 		int (*error_remove_page) (struct mapping *mapping, struct page *page);
 		int (*swap_activate)(struct file *);
 		int (*swap_deactivate)(struct file *);
@@ -772,14 +772,14 @@ cache in your filesystem.  The following members are defined:
 
 	See the file "Locking" for more details.
 
-``readpage``
-	called by the VM to read a page from backing store.  The page
-	will be Locked when readpage is called, and should be unlocked
-	and marked uptodate once the read completes.  If ->readpage
-	discovers that it needs to unlock the page for some reason, it
-	can do so, and then return AOP_TRUNCATED_PAGE.  In this case,
-	the page will be relocated, relocked and if that all succeeds,
-	->readpage will be called again.
+``read_folio``
+	called by the VM to read a folio from backing store.  The folio
+	will be locked when read_folio is called, and should be unlocked
+	and marked uptodate once the read completes.  If ->read_folio
+	discovers that it cannot perform the I/O at this time, it can
+        unlock the folio and return AOP_TRUNCATED_PAGE.  In this case,
+	the folio will be looked up again, relocked and if that all succeeds,
+	->read_folio will be called again.
 
 ``writepages``
 	called by the VM to write out pages associated with the
@@ -831,9 +831,6 @@ cache in your filesystem.  The following members are defined:
 	It must be able to cope with short writes (where the length
 	passed to write_begin is greater than the number of bytes copied
 	into the page).
-
-	flags is a field for AOP_FLAG_xxx flags, described in
-	include/linux/fs.h.
 
 	A void * may be returned in fsdata, which then gets passed into
 	write_end.
@@ -935,14 +932,14 @@ cache in your filesystem.  The following members are defined:
 	without needing I/O to bring the whole page up to date.
 
 ``is_dirty_writeback``
-	Called by the VM when attempting to reclaim a page.  The VM uses
+	Called by the VM when attempting to reclaim a folio.  The VM uses
 	dirty and writeback information to determine if it needs to
 	stall to allow flushers a chance to complete some IO.
-	Ordinarily it can use PageDirty and PageWriteback but some
-	filesystems have more complex state (unstable pages in NFS
+	Ordinarily it can use folio_test_dirty and folio_test_writeback but
+	some filesystems have more complex state (unstable folios in NFS
 	prevent reclaim) or do not set those flags due to locking
 	problems.  This callback allows a filesystem to indicate to the
-	VM if a page should be treated as dirty or writeback for the
+	VM if a folio should be treated as dirty or writeback for the
 	purposes of stalling.
 
 ``error_remove_page``

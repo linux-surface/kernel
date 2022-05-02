@@ -59,10 +59,9 @@ out:
 	return ret;
 }
 
-static int erofs_fscache_meta_readpage(struct file *data, struct page *page)
+static int erofs_fscache_meta_read_folio(struct file *data, struct folio *folio)
 {
 	int ret;
-	struct folio *folio = page_folio(page);
 	struct super_block *sb = folio_mapping(folio)->host->i_sb;
 	struct erofs_map_dev mdev = {
 		.m_deviceid = 0,
@@ -110,9 +109,8 @@ static int erofs_fscache_readpage_inline(struct folio *folio,
 	return 0;
 }
 
-static int erofs_fscache_readpage(struct file *file, struct page *page)
+static int erofs_fscache_read_folio(struct file *file, struct folio *folio)
 {
-	struct folio *folio = page_folio(page);
 	struct inode *inode = folio_mapping(folio)->host;
 	struct super_block *sb = inode->i_sb;
 	struct erofs_map_blocks map;
@@ -252,11 +250,11 @@ static void erofs_fscache_readahead(struct readahead_control *rac)
 }
 
 static const struct address_space_operations erofs_fscache_meta_aops = {
-	.readpage = erofs_fscache_meta_readpage,
+	.read_folio = erofs_fscache_meta_read_folio,
 };
 
 const struct address_space_operations erofs_fscache_access_aops = {
-	.readpage = erofs_fscache_readpage,
+	.read_folio = erofs_fscache_read_folio,
 	.readahead = erofs_fscache_readahead,
 };
 

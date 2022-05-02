@@ -4908,11 +4908,12 @@ static int put_file_data(struct send_ctx *sctx, u64 offset, u32 len)
 
 		if (PageReadahead(page)) {
 			page_cache_async_readahead(inode->i_mapping, &sctx->ra,
-				NULL, page, index, last_index + 1 - index);
+						NULL, page_folio(page), index,
+						last_index + 1 - index);
 		}
 
 		if (!PageUptodate(page)) {
-			btrfs_readpage(NULL, page);
+			btrfs_read_folio(NULL, page_folio(page));
 			lock_page(page);
 			if (!PageUptodate(page)) {
 				unlock_page(page);

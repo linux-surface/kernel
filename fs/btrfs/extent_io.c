@@ -3792,8 +3792,9 @@ out:
 	return ret;
 }
 
-int btrfs_readpage(struct file *file, struct page *page)
+int btrfs_read_folio(struct file *file, struct folio *folio)
 {
+	struct page *page = &folio->page;
 	struct btrfs_inode *inode = BTRFS_I(page->mapping->host);
 	u64 start = page_offset(page);
 	u64 end = start + PAGE_SIZE - 1;
