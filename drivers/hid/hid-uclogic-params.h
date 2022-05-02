@@ -73,8 +73,8 @@ struct uclogic_params_pen {
 	unsigned int desc_size;
 	/* Report ID, if reports should be tweaked, zero if not */
 	unsigned int id;
-	/* The list of subreports */
-	struct uclogic_params_pen_subreport subreport_list[1];
+	/* The list of subreports, only valid if "id" is not zero */
+	struct uclogic_params_pen_subreport subreport_list[3];
 	/* Type of in-range reporting, only valid if "id" is not zero */
 	enum uclogic_params_pen_inrange inrange;
 	/*
@@ -115,6 +115,10 @@ struct uclogic_params_frame {
 	 */
 	unsigned int id;
 	/*
+	 * The suffix to add to the input device name, if not NULL.
+	 */
+	const char *suffix;
+	/*
 	 * Number of the least-significant bit of the 2-bit state of a rotary
 	 * encoder, in the report. Cannot point to a 2-bit field crossing a
 	 * byte boundary. Zero if not present. Only valid if "id" is not zero.
@@ -123,10 +127,39 @@ struct uclogic_params_frame {
 	/*
 	 * Offset of the Wacom-style device ID byte in the report, to be set
 	 * to pad device ID (0xf), for compatibility with Wacom drivers. Zero
-	 * if no changes to the report should be made. Only valid if "id" is
-	 * not zero.
+	 * if no changes to the report should be made. The ID byte will be set
+	 * to zero whenever the byte pointed by "touch_ring_byte" is zero, if
+	 * the latter is valid. Only valid if "id" is not zero.
 	 */
 	unsigned int dev_id_byte;
+	/*
+	 * Offset of the touch ring state byte, in the report.
+	 * Zero if not present. If dev_id_byte is also valid and non-zero,
+	 * then the device ID byte will be cleared when the byte pointed to by
+	 * this offset is zero. Only valid if "id" is not zero.
+	 */
+	unsigned int touch_ring_byte;
+
+	/*
+	 * Maximum value of the touch ring report.
+	 * The minimum valid value is considered to be one,
+	 * with zero being out-of-proximity (finger lift) value.
+	 */
+	__s8 touch_ring_max;
+
+	/*
+	 * The value to anchor the reversed reports at.
+	 * I.e. one, if the reports should be flipped without offset.
+	 * Zero if no reversal should be done.
+	 */
+	__s8 touch_ring_flip_at;
+	/*
+	 * Offset of the bitmap dial byte, in the report. Zero if not present.
+	 * Only valid if "id" is not zero. A bitmap dial sends reports with a
+	 * dedicated bit per direction: 1 means clockwise rotation, 2 means
+	 * counterclockwise, as opposed to the normal 1 and -1.
+	 */
+	unsigned int bitmap_dial_byte;
 };
 
 /*
@@ -168,7 +201,7 @@ struct uclogic_params {
 	 * The list of frame control parameters and optional report descriptor
 	 * parts. Only valid, if "invalid" is false.
 	 */
-	struct uclogic_params_frame frame_list[1];
+	struct uclogic_params_frame frame_list[3];
 };
 
 /* Initialize a tablet interface and discover its parameters */
@@ -177,40 +210,108 @@ extern int uclogic_params_init(struct uclogic_params *params,
 
 /* Tablet interface parameters *printf format string */
 #define UCLOGIC_PARAMS_FMT_STR \
-		".invalid = %s\n"                               \
-		".desc_ptr = %p\n"                              \
-		".desc_size = %u\n"                             \
-		".pen.desc_ptr = %p\n"                          \
-		".pen.desc_size = %u\n"                         \
-		".pen.id = %u\n"                                \
-		".pen.subreport_list[0] = {0x%02hhx, %hhu}\n"   \
-		".pen.inrange = %s\n"                           \
-		".pen.fragmented_hires = %s\n"                  \
-		".pen.tilt_y_flipped = %s\n"                    \
-		".frame_list[0].desc_ptr = %p\n"                \
-		".frame_list[0].desc_size = %u\n"               \
-		".frame_list[0].id = %u\n"                      \
-		".frame_list[0].re_lsb = %u\n"                  \
-		".frame_list[0].dev_id_byte = %u\n"
+	".invalid = %s\n"                   \
+	".desc_ptr = %p\n"                  \
+	".desc_size = %u\n"                 \
+	".pen = {\n"                        \
+	"\t.desc_ptr = %p\n"                \
+	"\t.desc_size = %u\n"               \
+	"\t.id = %u\n"                      \
+	"\t.subreport_list = {\n"           \
+	"\t\t{0x%02hhx, %hhu},\n"           \
+	"\t\t{0x%02hhx, %hhu},\n"           \
+	"\t\t{0x%02hhx, %hhu},\n"           \
+	"\t}\n"                             \
+	"\t.inrange = %s\n"                 \
+	"\t.fragmented_hires = %s\n"        \
+	"\t.tilt_y_flipped = %s\n"          \
+	"}\n"                               \
+	".frame_list = {\n"                 \
+	"\t{\n"                             \
+	"\t\t.desc_ptr = %p\n"              \
+	"\t\t.desc_size = %u\n"             \
+	"\t\t.id = %u\n"                    \
+	"\t\t.suffix = %s\n"                \
+	"\t\t.re_lsb = %u\n"                \
+	"\t\t.dev_id_byte = %u\n"           \
+	"\t\t.touch_ring_byte = %u\n"       \
+	"\t\t.touch_ring_max = %hhd\n"      \
+	"\t\t.touch_ring_flip_at = %hhd\n"  \
+	"\t\t.bitmap_dial_byte = %u\n"      \
+	"\t},\n"                            \
+	"\t{\n"                             \
+	"\t\t.desc_ptr = %p\n"              \
+	"\t\t.desc_size = %u\n"             \
+	"\t\t.id = %u\n"                    \
+	"\t\t.suffix = %s\n"                \
+	"\t\t.re_lsb = %u\n"                \
+	"\t\t.dev_id_byte = %u\n"           \
+	"\t\t.touch_ring_byte = %u\n"       \
+	"\t\t.touch_ring_max = %hhd\n"      \
+	"\t\t.touch_ring_flip_at = %hhd\n"  \
+	"\t\t.bitmap_dial_byte = %u\n"      \
+	"\t},\n"                            \
+	"\t{\n"                             \
+	"\t\t.desc_ptr = %p\n"              \
+	"\t\t.desc_size = %u\n"             \
+	"\t\t.id = %u\n"                    \
+	"\t\t.suffix = %s\n"                \
+	"\t\t.re_lsb = %u\n"                \
+	"\t\t.dev_id_byte = %u\n"           \
+	"\t\t.touch_ring_byte = %u\n"       \
+	"\t\t.touch_ring_max = %hhd\n"      \
+	"\t\t.touch_ring_flip_at = %hhd\n"  \
+	"\t\t.bitmap_dial_byte = %u\n"      \
+	"\t},\n"                            \
+	"}\n"
 
 /* Tablet interface parameters *printf format arguments */
 #define UCLOGIC_PARAMS_FMT_ARGS(_params) \
-		((_params)->invalid ? "true" : "false"),                    \
-		(_params)->desc_ptr,                                        \
-		(_params)->desc_size,                                       \
-		(_params)->pen.desc_ptr,                                    \
-		(_params)->pen.desc_size,                                   \
-		(_params)->pen.id,                                          \
-		(_params)->pen.subreport_list[0].value,                     \
-		(_params)->pen.subreport_list[0].id,                        \
-		uclogic_params_pen_inrange_to_str((_params)->pen.inrange),  \
-		((_params)->pen.fragmented_hires ? "true" : "false"),       \
-		((_params)->pen.tilt_y_flipped ? "true" : "false"),         \
-		(_params)->frame_list[0].desc_ptr,                          \
-		(_params)->frame_list[0].desc_size,                         \
-		(_params)->frame_list[0].id,                                \
-		(_params)->frame_list[0].re_lsb,                            \
-		(_params)->frame_list[0].dev_id_byte
+	((_params)->invalid ? "true" : "false"),                    \
+	(_params)->desc_ptr,                                        \
+	(_params)->desc_size,                                       \
+	(_params)->pen.desc_ptr,                                    \
+	(_params)->pen.desc_size,                                   \
+	(_params)->pen.id,                                          \
+	(_params)->pen.subreport_list[0].value,                     \
+	(_params)->pen.subreport_list[0].id,                        \
+	(_params)->pen.subreport_list[1].value,                     \
+	(_params)->pen.subreport_list[1].id,                        \
+	(_params)->pen.subreport_list[2].value,                     \
+	(_params)->pen.subreport_list[2].id,                        \
+	uclogic_params_pen_inrange_to_str((_params)->pen.inrange),  \
+	((_params)->pen.fragmented_hires ? "true" : "false"),       \
+	((_params)->pen.tilt_y_flipped ? "true" : "false"),         \
+	(_params)->frame_list[0].desc_ptr,                          \
+	(_params)->frame_list[0].desc_size,                         \
+	(_params)->frame_list[0].id,                                \
+	(_params)->frame_list[0].suffix,                            \
+	(_params)->frame_list[0].re_lsb,                            \
+	(_params)->frame_list[0].dev_id_byte,                       \
+	(_params)->frame_list[0].touch_ring_byte,                   \
+	(_params)->frame_list[0].touch_ring_max,                    \
+	(_params)->frame_list[0].touch_ring_flip_at,                \
+	(_params)->frame_list[0].bitmap_dial_byte,                  \
+	(_params)->frame_list[1].desc_ptr,                          \
+	(_params)->frame_list[1].desc_size,                         \
+	(_params)->frame_list[1].id,                                \
+	(_params)->frame_list[1].suffix,                            \
+	(_params)->frame_list[1].re_lsb,                            \
+	(_params)->frame_list[1].dev_id_byte,                       \
+	(_params)->frame_list[1].touch_ring_byte,                   \
+	(_params)->frame_list[1].touch_ring_max,                    \
+	(_params)->frame_list[1].touch_ring_flip_at,                \
+	(_params)->frame_list[1].bitmap_dial_byte,                  \
+	(_params)->frame_list[2].desc_ptr,                          \
+	(_params)->frame_list[2].desc_size,                         \
+	(_params)->frame_list[2].id,                                \
+	(_params)->frame_list[2].suffix,                            \
+	(_params)->frame_list[2].re_lsb,                            \
+	(_params)->frame_list[2].dev_id_byte,                       \
+	(_params)->frame_list[2].touch_ring_byte,                   \
+	(_params)->frame_list[2].touch_ring_max,                    \
+	(_params)->frame_list[2].touch_ring_flip_at,                \
+	(_params)->frame_list[2].bitmap_dial_byte
 
 /* Get a replacement report descriptor for a tablet's interface. */
 extern int uclogic_params_get_desc(const struct uclogic_params *params,
