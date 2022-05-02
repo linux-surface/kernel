@@ -1544,17 +1544,17 @@ static struct page *shmem_alloc_hugepage(gfp_t gfp,
 	return &folio->page;
 }
 
-static struct folio *shmem_alloc_folio(gfp_t gfp,
+static struct page *shmem_alloc_page(gfp_t gfp,
 			struct shmem_inode_info *info, pgoff_t index)
 {
 	struct vm_area_struct pvma;
-	struct folio *folio;
+	struct page *page;
 
 	shmem_pseudo_vma_init(&pvma, info, index);
-	folio = vma_alloc_folio(gfp, 0, &pvma, 0, false);
+	page = alloc_page_vma(gfp, &pvma, 0);
 	shmem_pseudo_vma_destroy(&pvma);
 
-	return folio;
+	return page;
 }
 
 static struct page *shmem_alloc_and_acct_page(gfp_t gfp,
@@ -1576,7 +1576,7 @@ static struct page *shmem_alloc_and_acct_page(gfp_t gfp,
 	if (huge)
 		page = shmem_alloc_hugepage(gfp, info, index);
 	else
-		page = &shmem_alloc_folio(gfp, info, index)->page;
+		page = shmem_alloc_page(gfp, info, index);
 	if (page) {
 		__SetPageLocked(page);
 		__SetPageSwapBacked(page);
@@ -1626,7 +1626,7 @@ static int shmem_replace_page(struct page **pagep, gfp_t gfp,
 	 * limit chance of success by further cpuset and node constraints.
 	 */
 	gfp &= ~GFP_CONSTRAINT_MASK;
-	newpage = &shmem_alloc_folio(gfp, info, index)->page;
+	newpage = shmem_alloc_page(gfp, info, index);
 	if (!newpage)
 		return -ENOMEM;
 
@@ -2351,6 +2351,7 @@ int shmem_mfill_atomic_pte(struct mm_struct *dst_mm,
 
 	if (!*pagep) {
 		ret = -ENOMEM;
+		page = shmem_alloc_page(gfp, info, pgoff);
 		if (!page)
 			goto out_unacct_blocks;
 
