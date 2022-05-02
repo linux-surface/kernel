@@ -77,7 +77,7 @@ as you intend it to.
 
 The maintainer will thank you if you write your patch description in a
 form which can be easily pulled into Linux's source code management
-system, ``git``, as a "commit log".  See :ref:`explicit_in_reply_to`.
+system, ``git``, as a "commit log".  See :ref:`the_canonical_patch_format`.
 
 Solve only one problem per patch.  If your description starts to get
 long, that's a sign that you probably need to split up your patch.
@@ -318,7 +318,10 @@ understands what is going on.
 Be sure to tell the reviewers what changes you are making and to thank them
 for their time.  Code review is a tiring and time-consuming process, and
 reviewers sometimes get grumpy.  Even in that case, though, respond
-politely and address the problems they have pointed out.
+politely and address the problems they have pointed out.  When sending a next
+version, add a ``patch changelog`` to the cover letter or to individual patches
+explaining difference aganst previous submission (see
+:ref:`the_canonical_patch_format`).
 
 See Documentation/process/email-clients.rst for recommendations on email
 clients and mailing list etiquette.
