@@ -1,0 +1,80 @@
+arm/soc
+
+arm/dt
+	patch
+		arm64: dts: synaptics: remove unused DTSI for AS370
+	cleanup/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt-cleanup-5.19
+	samsung/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.19
+	samsung/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.19
+
+arm/drivers
+	drivers/memory
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-5.19
+
+arm/defconfig
+
+arm/newsoc
+
+arm/late
+
+arm/fixes
+
+arm/multiplatform
+	patch
+		ARM: versatile: move integrator/realview/vexpress to versatile
+		ARM: ep93xx: renumber interrupts
+		ARM: ep93xx: enable SPARSE_IRQ
+		ARM: ep93xx: make mach/ep93xx-regs.h local
+		ARM: ep93xx: multiplatform support
+		ARM: dove: multiplatform support
+		ARM: s3c24xx: remove support for ISA drivers on BAST PC/104
+		ARM: s3c24xx: convert to sparse-irq
+		ARM: s3c: enable s3c24xx multiplatform support
+		ARM: iop32x: enable multiplatform support
+		ARM: rework endianess selection
+		ARM: ixp4xx: enable multiplatform support
+		ARM: s3c: mark as deprecated and schedule removal
+		ARM: s3c: fix include path
+	omap1/multiplatform-prep
+		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
+
+arm/multiplatform-late
+	patch
+		ARM: versatile: move integrator/realview/vexpress to versatile
+		ARM: ep93xx: renumber interrupts
+		ARM: ep93xx: enable SPARSE_IRQ
+		ARM: ep93xx: make mach/ep93xx-regs.h local
+		ARM: ep93xx: multiplatform support
+		ARM: dove: multiplatform support
+		ARM: s3c24xx: remove support for ISA drivers on BAST PC/104
+		ARM: s3c24xx: convert to sparse-irq
+		ARM: s3c: enable s3c24xx multiplatform support
+		ARM: iop32x: enable multiplatform support
+		ARM: rework endianess selection
+		ARM: ixp4xx: enable multiplatform support
+		ARM: s3c: mark as deprecated and schedule removal
+		ARM: s3c: fix include path
+	omap1/multiplatform-prep
+		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
+	pxa-multiplatform-5.18
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+
