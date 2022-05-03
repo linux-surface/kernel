@@ -2813,6 +2813,7 @@ static void warn_flush_attempt(struct workqueue_struct *wq)
  * This function sleeps until all work items which were queued on entry
  * have finished execution, but it is not livelocked by new incoming ones.
  */
+#undef flush_workqueue
 void flush_workqueue(struct workqueue_struct *wq)
 {
 	struct wq_flusher this_flusher = {
