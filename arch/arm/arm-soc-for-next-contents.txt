@@ -1,4 +1,6 @@
 arm/soc
+	omap/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/soc-signed
 
 arm/dt
 	patch
@@ -9,18 +11,49 @@ arm/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.19
 	samsung/dt64
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.19
+	renesas/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-dt-for-v5.19-tag1
+	renesas/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v5.19-tag1
+	omap/dt-binding
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/bindings-signed
+	omap/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/dt-signed
+	ux500/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik tags/ux500-dts-v5.19
+	amlogic/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm64-dt-for-v5.19
+	amlogic/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm-dt-for-v5.19
 
 arm/drivers
 	drivers/memory
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-5.19
+	drivers/memory-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-5.19-2
+	renesas/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v5.19-tag1
+	omap/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/ti-sysc-signed
 
 arm/defconfig
+	patch
+		arm: nomadik: drop selecting obsolete CLKSRC_NOMADIK_MTU_SCHED_CLOCK
+		arm64: defconfig: Enable modules for arm displays
+	renesas/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v5.19-tag1
+	omap/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/defconfig-signed
 
 arm/newsoc
 
 arm/late
 
 arm/fixes
+	omap/maintainers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/maintainers-signed-take2
+	aspeed/fixes
+		git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc tags/aspeed-v5.18-fixes
 
 arm/multiplatform
 	patch
@@ -48,6 +81,7 @@ arm/multiplatform
 		ARM: omap: fix address space warnings from sparse
 		ARM: omap: fix missing declaration warnings
 		ARM: omap1: add back omap_set_dma_priority() stub
+		ARM: config: Refresh IXP4xx config after multiplatform
 
 arm/multiplatform-late
 	patch
@@ -77,4 +111,6 @@ arm/multiplatform-late
 		ARM: omap1: add back omap_set_dma_priority() stub
 	pxa-multiplatform-5.18
 		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+	omap1-multiplatform-5.18
+		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
 
