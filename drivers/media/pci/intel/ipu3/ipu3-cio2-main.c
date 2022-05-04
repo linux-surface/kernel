@@ -1383,7 +1383,10 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
 {
 	struct cio2_device *cio2 = to_cio2_device(notifier);
 	struct sensor_async_subdev *s_asd = to_sensor_asd(asd);
+	struct device *dev = &cio2->pci_dev->dev;
 	struct cio2_queue *q;
+	unsigned int pad;
+	int ret;
 
 	if (cio2->queue[s_asd->csi2.port].sensor)
 		return -EBUSY;
@@ -1394,7 +1397,26 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
 	q->sensor = sd;
 	q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
 
-	return 0;
+	for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
+		if (q->sensor->entity.pads[pad].flags &
+					MEDIA_PAD_FL_SOURCE)
+			break;
+
+	if (pad == q->sensor->entity.num_pads) {
+		dev_err(dev, "failed to find src pad for %s\n",
+			q->sensor->name);
+		return -ENXIO;
+	}
+
+	ret = media_create_pad_link(&q->sensor->entity, pad, &q->subdev.entity,
+				    CIO2_PAD_SINK, 0);
+	if (ret) {
+		dev_err(dev, "failed to create link for %s\n",
+			q->sensor->name);
+		return ret;
+	}
+
+	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
 }
 
 /* The .unbind callback */
@@ -1408,50 +1430,9 @@ static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
 	cio2->queue[s_asd->csi2.port].sensor = NULL;
 }
 
-/* .complete() is called after all subdevices have been located */
-static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
-{
-	struct cio2_device *cio2 = to_cio2_device(notifier);
-	struct device *dev = &cio2->pci_dev->dev;
-	struct sensor_async_subdev *s_asd;
-	struct v4l2_async_subdev *asd;
-	struct cio2_queue *q;
-	unsigned int pad;
-	int ret;
-
-	list_for_each_entry(asd, &cio2->notifier.asd_list, asd_list) {
-		s_asd = to_sensor_asd(asd);
-		q = &cio2->queue[s_asd->csi2.port];
-
-		for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
-			if (q->sensor->entity.pads[pad].flags &
-						MEDIA_PAD_FL_SOURCE)
-				break;
-
-		if (pad == q->sensor->entity.num_pads) {
-			dev_err(dev, "failed to find src pad for %s\n",
-				q->sensor->name);
-			return -ENXIO;
-		}
-
-		ret = media_create_pad_link(
-				&q->sensor->entity, pad,
-				&q->subdev.entity, CIO2_PAD_SINK,
-				0);
-		if (ret) {
-			dev_err(dev, "failed to create link for %s\n",
-				q->sensor->name);
-			return ret;
-		}
-	}
-
-	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
-}
-
 static const struct v4l2_async_notifier_operations cio2_async_ops = {
 	.bound = cio2_notifier_bound,
 	.unbind = cio2_notifier_unbind,
-	.complete = cio2_notifier_complete,
 };
 
 static int cio2_parse_firmware(struct cio2_device *cio2)
