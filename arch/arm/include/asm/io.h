@@ -174,7 +174,7 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
 #define PCI_IO_VIRT_BASE	0xfee00000
 #define PCI_IOBASE		((void __iomem *)PCI_IO_VIRT_BASE)
 
-#if defined(CONFIG_PCI) || defined(CONFIG_PCMCIA)
+#if defined(CONFIG_PCI) || IS_ENABLED(CONFIG_PCMCIA)
 void pci_ioremap_set_mem_type(int mem_type);
 #else
 static inline void pci_ioremap_set_mem_type(int mem_type) {}
@@ -201,7 +201,7 @@ void __iomem *pci_remap_cfgspace(resource_size_t res_cookie, size_t size);
 #ifdef CONFIG_NEED_MACH_IO_H
 #include <mach/io.h>
 #else
-#if defined(CONFIG_PCMCIA) || defined(CONFIG_PCI)
+#if IS_ENABLED(CONFIG_PCMCIA) || defined(CONFIG_PCI)
 #define IO_SPACE_LIMIT	((resource_size_t)0xfffff)
 #else
 #define IO_SPACE_LIMIT ((resource_size_t)0)

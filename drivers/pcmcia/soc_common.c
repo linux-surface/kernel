@@ -791,7 +791,7 @@ void soc_pcmcia_remove_one(struct soc_pcmcia_socket *skt)
 	/* should not be required; violates some lowlevel drivers */
 	soc_common_pcmcia_config_skt(skt, &dead_socket);
 
-	soc_pcmcia_unmap_iospace(&skt->res_io_io);
+	iounmap(PCI_IOBASE + skt->res_io_io.start);
 	release_resource(&skt->res_attr);
 	release_resource(&skt->res_mem);
 	release_resource(&skt->res_io);
@@ -881,7 +881,11 @@ int soc_pcmcia_add_one(struct soc_pcmcia_socket *skt)
  out_err_7:
 	soc_pcmcia_hw_shutdown(skt);
  out_err_6:
+<<<<<<< HEAD
 	soc_pcmcia_unmap_iospace(&skt->res_io_io);
+=======
+	iounmap(PCI_IOBASE + skt->res_io_io.start);
+>>>>>>> arm/multiplatform-late
  out_err_5:
 	release_resource(&skt->res_attr);
  out_err_4:

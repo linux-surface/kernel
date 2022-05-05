@@ -79,7 +79,7 @@ static const struct snd_soc_ops hx4700_ops = {
 static int hx4700_spk_power(struct snd_soc_dapm_widget *w,
 			    struct snd_kcontrol *k, int event)
 {
-	gpiod_set_value(gpiod_spk_sd, !!SND_SOC_DAPM_EVENT_ON(event));
+	gpiod_set_value(gpiod_spk_sd, !SND_SOC_DAPM_EVENT_ON(event));
 	return 0;
 }
 
@@ -167,11 +167,11 @@ static int hx4700_audio_probe(struct platform_device *pdev)
 	if (!machine_is_h4700())
 		return -ENODEV;
 
-	gpiod_hp_driver = devm_gpiod_get(&pdev->dev, "hp-driver", GPIOD_OUT_HIGH);
+	gpiod_hp_driver = devm_gpiod_get(&pdev->dev, "hp-driver", GPIOD_ASIS);
 	ret = PTR_ERR_OR_ZERO(gpiod_hp_driver);
 	if (ret)
 		return ret;
-	gpiod_spk_sd = devm_gpiod_get(&pdev->dev, "spk-sd", GPIOD_OUT_LOW);
+	gpiod_spk_sd = devm_gpiod_get(&pdev->dev, "spk-sd", GPIOD_ASIS);
 	ret = PTR_ERR_OR_ZERO(gpiod_spk_sd);
 	if (ret)
 		return ret;
