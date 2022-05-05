@@ -119,7 +119,7 @@ enum {
  */
 #define IORING_SETUP_TASKRUN_FLAG	(1U << 9)
 
-enum {
+enum io_uring_op {
 	IORING_OP_NOP,
 	IORING_OP_READV,
 	IORING_OP_WRITEV,
@@ -165,6 +165,7 @@ enum {
 	IORING_OP_SETXATTR,
 	IORING_OP_FGETXATTR,
 	IORING_OP_GETXATTR,
+	IORING_OP_SOCKET,
 
 	/* this goes last, obviously */
 	IORING_OP_LAST,
