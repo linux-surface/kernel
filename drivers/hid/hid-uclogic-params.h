@@ -62,8 +62,13 @@ struct uclogic_params_pen_subreport {
  */
 struct uclogic_params_pen {
 	/*
-	 * Pointer to report descriptor describing the inputs.
-	 * Allocated with kmalloc.
+	 * True if pen usage is invalid for this interface and should be
+	 * ignored, false otherwise.
+	 */
+	bool usage_invalid;
+	/*
+	 * Pointer to report descriptor part describing the pen inputs.
+	 * Allocated with kmalloc. NULL if the part is not specified.
 	 */
 	__u8 *desc_ptr;
 	/*
@@ -101,8 +106,8 @@ struct uclogic_params_pen {
  */
 struct uclogic_params_frame {
 	/*
-	 * Pointer to report descriptor describing the inputs.
-	 * Allocated with kmalloc.
+	 * Pointer to report descriptor part describing the frame inputs.
+	 * Allocated with kmalloc. NULL if the part is not specified.
 	 */
 	__u8 *desc_ptr;
 	/*
@@ -189,7 +194,7 @@ struct uclogic_params {
 	__u8 *desc_ptr;
 	/*
 	 * Size of the common part of the replacement report descriptor.
-	 * Only valid, if "desc_ptr" is not NULL.
+	 * Only valid, if "desc_ptr" is valid and not NULL.
 	 */
 	unsigned int desc_size;
 	/*
@@ -214,6 +219,7 @@ extern int uclogic_params_init(struct uclogic_params *params,
 	".desc_ptr = %p\n"                  \
 	".desc_size = %u\n"                 \
 	".pen = {\n"                        \
+	"\t.usage_invalid = %s\n"           \
 	"\t.desc_ptr = %p\n"                \
 	"\t.desc_size = %u\n"               \
 	"\t.id = %u\n"                      \
@@ -270,6 +276,7 @@ extern int uclogic_params_init(struct uclogic_params *params,
 	((_params)->invalid ? "true" : "false"),                    \
 	(_params)->desc_ptr,                                        \
 	(_params)->desc_size,                                       \
+	((_params)->pen.usage_invalid ? "true" : "false"),          \
 	(_params)->pen.desc_ptr,                                    \
 	(_params)->pen.desc_size,                                   \
 	(_params)->pen.id,                                          \
