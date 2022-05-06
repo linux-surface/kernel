@@ -1,6 +1,14 @@
 arm/soc
 	omap/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/soc-signed
+	broadcom/soc
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/soc
+	<no branch> (c270a59bc4d7537c3e6bab080c65e669e459fc53)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/maintainers
+	samsung/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-5.19
+	renesas/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-soc-for-v5.19-tag1
 
 arm/dt
 	patch
@@ -25,6 +33,34 @@ arm/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm64-dt-for-v5.19
 	amlogic/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm-dt-for-v5.19
+	stm32/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32 tags/stm32-dt-for-v5.19-1
+	juno/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/juno-updates-5.19
+	broadcom/dt
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/devicetree
+	broadcom/dt64
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/devicetree-arm64
+	omap/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/dt-part2-signed
+	arm/dt-cleanup
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt64-cleanup-5.19
+	arm/dt32-cleanup
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt-cleanup-5.19-2
+	samsung/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.19-2
+	samsung/dt64-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.19-2
+	renesas/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-dt-for-v5.19-tag2
+	renesas/dt-bindings-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v5.19-tag2
+	tegra/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-dt-bindings
+	tegra/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm64-dt
+	sunxi/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-5.19-1
 
 arm/drivers
 	drivers/memory
@@ -35,6 +71,34 @@ arm/drivers
 		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v5.19-tag1
 	omap/drivers
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/ti-sysc-signed
+	drivers/reset
+		git://git.pengutronix.de/pza/linux tags/reset-for-v5.19
+	drivers/tee-menu
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-menu-for-v5.19
+	drivers/tee-vmalloc
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-shm-vmalloc-for-v5.19
+	drivers/arm_ffa
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/ffa-updates-5.19
+	drivers/scmi
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-5.19
+	drivers/optee-rpc
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-rpc-arg-for-v5.19
+	broadcom/drivers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/drivers
+	apple/drivers
+		https://github.com/AsahiLinux/linux tags/asahi-soc-rtkit-sart-nvme-for-5.19
+	patch
+		nvme-apple: fix sparse endianess warnings
+	drivers/tee-cleanup
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-cleanup-for-v5.19
+	samsung/driver-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-drivers-5.19
+	samsung/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-5.19
+	renesas/drivers-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v5.19-tag2
+	tegra/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-soc
 
 arm/defconfig
 	patch
@@ -44,6 +108,16 @@ arm/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v5.19-tag1
 	omap/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/defconfig-signed
+	broadcom/defconfig
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/defconfig
+	at91/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-defconfig-5.19
+	renesas/defconfig-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v5.19-tag2
+	tegra/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm-defconfig
+	tegra/defconfig64
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm64-defconfig
 
 arm/newsoc
 
@@ -82,6 +156,7 @@ arm/multiplatform
 		ARM: omap: fix missing declaration warnings
 		ARM: omap1: add back omap_set_dma_priority() stub
 		ARM: config: Refresh IXP4xx config after multiplatform
+		ARM: versatile: Add missing of_node_put in dcscb_init
 
 arm/multiplatform-late
 	patch
@@ -109,8 +184,8 @@ arm/multiplatform-late
 		ARM: omap: fix address space warnings from sparse
 		ARM: omap: fix missing declaration warnings
 		ARM: omap1: add back omap_set_dma_priority() stub
-	pxa-multiplatform-5.18
-		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
 	omap1-multiplatform-5.18
 		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
+	<no branch> (3153bb15dd5c5f9986f8a6f79b97e3309aecd7da)
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
 
