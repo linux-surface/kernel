@@ -766,14 +766,6 @@ void soc_pcmcia_init_one(struct soc_pcmcia_socket *skt,
 }
 EXPORT_SYMBOL(soc_pcmcia_init_one);
 
-static void soc_pcmcia_unmap_iospace(const struct resource *res)
-{
-	/* same as pci_unmap_iospace, but works without CONFIG_PCI */
-	unsigned long vaddr = PCI_IO_VIRT_BASE + res->start;
-
-	vunmap_range(vaddr, vaddr + resource_size(res));
-}
-
 void soc_pcmcia_remove_one(struct soc_pcmcia_socket *skt)
 {
 	del_timer_sync(&skt->poll_timer);
@@ -881,11 +873,7 @@ int soc_pcmcia_add_one(struct soc_pcmcia_socket *skt)
  out_err_7:
 	soc_pcmcia_hw_shutdown(skt);
  out_err_6:
-<<<<<<< HEAD
-	soc_pcmcia_unmap_iospace(&skt->res_io_io);
-=======
 	iounmap(PCI_IOBASE + skt->res_io_io.start);
->>>>>>> arm/multiplatform-late
  out_err_5:
 	release_resource(&skt->res_attr);
  out_err_4:

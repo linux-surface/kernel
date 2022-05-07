@@ -32,9 +32,9 @@
 #define TOSA_SPK_ON    0
 #define TOSA_SPK_OFF   1
 
+static struct gpio_desc *tosa_mute;
 static int tosa_jack_func;
 static int tosa_spk_func;
-static struct gpio_desc *l_mute_gpio;
 
 static void tosa_ext_control(struct snd_soc_dapm_context *dapm)
 {
@@ -128,7 +128,7 @@ static int tosa_set_spk(struct snd_kcontrol *kcontrol,
 static int tosa_hp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *k, int event)
 {
-	gpiod_set_value(l_mute_gpio, SND_SOC_DAPM_EVENT_ON(event) ? 1 : 0);
+	gpiod_set_value(tosa_mute, SND_SOC_DAPM_EVENT_ON(event) ? 1 : 0);
 	return 0;
 }
 
@@ -222,24 +222,20 @@ static int tosa_probe(struct platform_device *pdev)
 	struct snd_soc_card *card = &tosa;
 	int ret;
 
-	l_mute_gpio = devm_gpiod_get(&pdev->dev, "l-mute", GPIOD_OUT_LOW);
-	ret = PTR_ERR_OR_ZERO(l_mute_gpio);
-	if (ret)
-		return ret;
+	tosa_mute = devm_gpiod_get(&pdev->dev, NULL, GPIOD_OUT_LOW);
+	if (IS_ERR(tosa_mute))
+		return dev_err_probe(&pdev->dev, PTR_ERR(tosa_mute),
+				     "failed to get L_MUTE GPIO\n");
+	gpiod_set_consumer_name(tosa_mute, "Headphone Jack");
 
 	card->dev = &pdev->dev;
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
-	if (ret)
+	if (ret) {
 		dev_err(&pdev->dev, "snd_soc_register_card() failed: %d\n",
 			ret);
-
+	}
 	return ret;
-}
-
-static int tosa_remove(struct platform_device *pdev)
-{
-	return 0;
 }
 
 static struct platform_driver tosa_driver = {
@@ -248,7 +244,6 @@ static struct platform_driver tosa_driver = {
 		.pm     = &snd_soc_pm_ops,
 	},
 	.probe		= tosa_probe,
-	.remove		= tosa_remove,
 };
 
 module_platform_driver(tosa_driver);

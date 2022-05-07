@@ -19,12 +19,6 @@
 static DEFINE_MUTEX(bat_lock); /* protects gpio pins */
 static struct work_struct bat_work;
 
-struct tosa_gpio {
-	const char *con;
-	enum gpiod_flags flags;
-	struct gpio_desc *desc;
-};
-
 struct tosa_bat {
 	int status;
 	struct power_supply *psy;
@@ -33,42 +27,39 @@ struct tosa_bat {
 	struct mutex work_lock; /* protects data */
 
 	bool (*is_present)(struct tosa_bat *bat);
-	struct tosa_gpio gpio_full;
-	struct tosa_gpio gpio_charge_off;
+	struct gpio_desc *gpiod_full;
+	struct gpio_desc *gpiod_charge_off;
 
 	int technology;
 
-	struct tosa_gpio gpio_bat;
+	struct gpio_desc *gpiod_bat;
 	int adc_bat;
 	int adc_bat_divider;
 	int bat_max;
 	int bat_min;
 
-	struct tosa_gpio gpio_temp;
+	struct gpio_desc *gpiod_temp;
 	int adc_temp;
 	int adc_temp_divider;
 };
 
+static struct gpio_desc *jacket_detect;
 static struct tosa_bat tosa_bat_main;
 static struct tosa_bat tosa_bat_jacket;
-static struct tosa_gpio gpiod_jacket_det = { "jacket detect", GPIOD_IN };
-static struct tosa_gpio gpiod_battery_switch = { "battery switch", GPIOD_OUT_LOW };
-static struct tosa_gpio gpiod_main_battery_low = { "main battery low", GPIOD_IN };
-static struct tosa_gpio gpiod_jacket_battery_low = { "jacket battery low", GPIOD_IN };
 
 static unsigned long tosa_read_bat(struct tosa_bat *bat)
 {
 	unsigned long value = 0;
 
-	if (!bat->gpio_bat.desc || bat->adc_bat < 0)
+	if (!bat->gpiod_bat || bat->adc_bat < 0)
 		return 0;
 
 	mutex_lock(&bat_lock);
-	gpiod_set_value(bat->gpio_bat.desc, 1);
+	gpiod_set_value(bat->gpiod_bat, 1);
 	msleep(5);
 	value = wm97xx_read_aux_adc(dev_get_drvdata(bat->psy->dev.parent),
 			bat->adc_bat);
-	gpiod_set_value(bat->gpio_bat.desc, 0);
+	gpiod_set_value(bat->gpiod_bat, 0);
 	mutex_unlock(&bat_lock);
 
 	value = value * 1000000 / bat->adc_bat_divider;
@@ -80,15 +71,15 @@ static unsigned long tosa_read_temp(struct tosa_bat *bat)
 {
 	unsigned long value = 0;
 
-	if (!bat->gpio_temp.desc || bat->adc_temp < 0)
+	if (!bat->gpiod_temp || bat->adc_temp < 0)
 		return 0;
 
 	mutex_lock(&bat_lock);
-	gpiod_set_value(bat->gpio_temp.desc, 1);
+	gpiod_set_value(bat->gpiod_temp, 1);
 	msleep(5);
 	value = wm97xx_read_aux_adc(dev_get_drvdata(bat->psy->dev.parent),
 			bat->adc_temp);
-	gpiod_set_value(bat->gpio_temp.desc, 0);
+	gpiod_set_value(bat->gpiod_temp, 0);
 	mutex_unlock(&bat_lock);
 
 	value = value * 10000 / bat->adc_temp_divider;
@@ -145,7 +136,7 @@ static int tosa_bat_get_property(struct power_supply *psy,
 
 static bool tosa_jacket_bat_is_present(struct tosa_bat *bat)
 {
-	return gpiod_get_value(gpiod_jacket_det.desc) == 0;
+	return gpiod_get_value(jacket_detect) == 0;
 }
 
 static void tosa_bat_external_power_changed(struct power_supply *psy)
@@ -175,23 +166,23 @@ static void tosa_bat_update(struct tosa_bat *bat)
 		bat->full_chrg = -1;
 	} else if (power_supply_am_i_supplied(psy)) {
 		if (bat->status == POWER_SUPPLY_STATUS_DISCHARGING) {
-			gpiod_set_value(bat->gpio_charge_off.desc, 0);
+			gpiod_set_value(bat->gpiod_charge_off, 0);
 			mdelay(15);
 		}
 
-		if (gpiod_get_value(bat->gpio_full.desc)) {
+		if (gpiod_get_value(bat->gpiod_full)) {
 			if (old == POWER_SUPPLY_STATUS_CHARGING ||
 					bat->full_chrg == -1)
 				bat->full_chrg = tosa_read_bat(bat);
 
-			gpiod_set_value(bat->gpio_charge_off.desc, 1);
+			gpiod_set_value(bat->gpiod_charge_off, 1);
 			bat->status = POWER_SUPPLY_STATUS_FULL;
 		} else {
-			gpiod_set_value(bat->gpio_charge_off.desc, 0);
+			gpiod_set_value(bat->gpiod_charge_off, 0);
 			bat->status = POWER_SUPPLY_STATUS_CHARGING;
 		}
 	} else {
-		gpiod_set_value(bat->gpio_charge_off.desc, 1);
+		gpiod_set_value(bat->gpiod_charge_off, 1);
 		bat->status = POWER_SUPPLY_STATUS_DISCHARGING;
 	}
 
@@ -260,18 +251,18 @@ static struct tosa_bat tosa_bat_main = {
 	.full_chrg = -1,
 	.psy = NULL,
 
-	.gpio_full = { "main battery full", GPIOD_IN },
-	.gpio_charge_off = { "main charge off" , GPIOD_OUT_HIGH },
+	.gpiod_full = NULL,
+	.gpiod_charge_off = NULL,
 
 	.technology = POWER_SUPPLY_TECHNOLOGY_LIPO,
 
-	.gpio_bat = { "main battery", GPIOD_OUT_LOW },
+	.gpiod_bat = NULL,
 	.adc_bat = WM97XX_AUX_ID3,
 	.adc_bat_divider = 414,
 	.bat_max = 4310000,
 	.bat_min = 1551 * 1000000 / 414,
 
-	.gpio_temp = { "main battery temp", GPIOD_OUT_LOW },
+	.gpiod_temp = NULL,
 	.adc_temp = WM97XX_AUX_ID2,
 	.adc_temp_divider = 10000,
 };
@@ -282,18 +273,18 @@ static struct tosa_bat tosa_bat_jacket = {
 	.psy = NULL,
 
 	.is_present = tosa_jacket_bat_is_present,
-	.gpio_full = { "jacket battery full", GPIOD_IN },
-	.gpio_charge_off = { "jacket charge off", GPIOD_OUT_HIGH },
+	.gpiod_full = NULL,
+	.gpiod_charge_off = NULL,
 
 	.technology = POWER_SUPPLY_TECHNOLOGY_LIPO,
 
-	.gpio_bat = { "jacket battery", GPIOD_OUT_LOW },
+	.gpiod_bat = NULL,
 	.adc_bat = WM97XX_AUX_ID3,
 	.adc_bat_divider = 414,
 	.bat_max = 4310000,
 	.bat_min = 1551 * 1000000 / 414,
 
-	.gpio_temp = { "jacket battery temp", GPIOD_OUT_LOW },
+	.gpiod_temp = NULL,
 	.adc_temp = WM97XX_AUX_ID2,
 	.adc_temp_divider = 10000,
 };
@@ -303,12 +294,16 @@ static struct tosa_bat tosa_bat_bu = {
 	.full_chrg = -1,
 	.psy = NULL,
 
+	.gpiod_full = NULL,
+	.gpiod_charge_off = NULL,
+
 	.technology = POWER_SUPPLY_TECHNOLOGY_LiMn,
 
-	.gpio_bat = { "backup battery", GPIOD_OUT_LOW },
+	.gpiod_bat = NULL,
 	.adc_bat = WM97XX_AUX_ID4,
 	.adc_bat_divider = 1266,
 
+	.gpiod_temp = NULL,
 	.adc_temp = -1,
 	.adc_temp_divider = -1,
 };
@@ -332,102 +327,130 @@ static int tosa_bat_resume(struct platform_device *dev)
 #define tosa_bat_resume NULL
 #endif
 
-static int tosa_bat_gpio_get(struct device *dev, struct tosa_gpio *gpio)
-{
-	int ret;
-
-	if (!gpio->con)
-		return 0;
-
-	gpio->desc = devm_gpiod_get(dev, gpio->con, gpio->flags);
-	ret = PTR_ERR_OR_ZERO(gpio->desc);
-	if (ret)
-		dev_warn(dev, "failed to get gpio \"%s\"\n", gpio->con);
-
-	return ret;
-}
-
-static int tosa_power_supply_register(struct device *dev,
-			struct tosa_bat *bat,
-			const struct power_supply_desc *desc)
-{
-	struct power_supply_config cfg = {
-		.drv_data = bat,
-	};
-	int ret;
-
-	ret = tosa_bat_gpio_get(dev, &bat->gpio_full);
-	if (ret)
-		return ret;
-
-	ret = tosa_bat_gpio_get(dev, &bat->gpio_charge_off);
-	if (ret)
-		return ret;
-
-	ret = tosa_bat_gpio_get(dev, &bat->gpio_bat);
-	if (ret)
-		return ret;
-
-	ret = tosa_bat_gpio_get(dev, &bat->gpio_temp);
-	if (ret)
-		return ret;
-
-	mutex_init(&bat->work_lock);
-	bat->psy = power_supply_register(dev, desc, &cfg);
-
-	return PTR_ERR_OR_ZERO(bat->psy);
-}
-
-
 static int tosa_bat_probe(struct platform_device *pdev)
 {
-	struct device *dev = &pdev->dev;
 	int ret;
+	struct power_supply_config main_psy_cfg = {},
+				   jacket_psy_cfg = {},
+				   bu_psy_cfg = {};
+	struct device *dev = &pdev->dev;
+	struct gpio_desc *dummy;
 
 	if (!machine_is_tosa())
 		return -ENODEV;
 
-	ret = tosa_bat_gpio_get(dev, &gpiod_jacket_det);
-	if (ret)
-		return ret;
+	/* Main charging control GPIOs */
+	tosa_bat_main.gpiod_charge_off = devm_gpiod_get(dev, "main charge off", GPIOD_OUT_HIGH);
+	if (IS_ERR(tosa_bat_main.gpiod_charge_off))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_main.gpiod_charge_off),
+				     "no main charger GPIO\n");
+	tosa_bat_jacket.gpiod_charge_off = devm_gpiod_get(dev, "jacket charge off", GPIOD_OUT_HIGH);
+	if (IS_ERR(tosa_bat_jacket.gpiod_charge_off))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_jacket.gpiod_charge_off),
+				     "no jacket charger GPIO\n");
 
-	/* these are not used anywhere, continue on failure */
-	tosa_bat_gpio_get(dev, &gpiod_battery_switch);
-	tosa_bat_gpio_get(dev, &gpiod_main_battery_low);
-	tosa_bat_gpio_get(dev, &gpiod_jacket_battery_low);
+	/* Per-battery output check (routes battery voltage to ADC) */
+	tosa_bat_main.gpiod_bat = devm_gpiod_get(dev, "main battery", GPIOD_OUT_LOW);
+	if (IS_ERR(tosa_bat_main.gpiod_bat))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_main.gpiod_bat),
+				     "no main battery GPIO\n");
+	tosa_bat_jacket.gpiod_bat = devm_gpiod_get(dev, "jacket battery", GPIOD_OUT_LOW);
+	if (IS_ERR(tosa_bat_jacket.gpiod_bat))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_jacket.gpiod_bat),
+				     "no jacket battery GPIO\n");
+	tosa_bat_bu.gpiod_bat = devm_gpiod_get(dev, "backup battery", GPIOD_OUT_LOW);
+	if (IS_ERR(tosa_bat_bu.gpiod_bat))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_bu.gpiod_bat),
+				     "no backup battery GPIO\n");
+
+	/* Battery full detect GPIOs (using PXA SoC GPIOs) */
+	tosa_bat_main.gpiod_full = devm_gpiod_get(dev, "main battery full", GPIOD_IN);
+	if (IS_ERR(tosa_bat_main.gpiod_full))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_main.gpiod_full),
+				     "no main battery full GPIO\n");
+	tosa_bat_jacket.gpiod_full = devm_gpiod_get(dev, "jacket battery full", GPIOD_IN);
+	if (IS_ERR(tosa_bat_jacket.gpiod_full))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_jacket.gpiod_full),
+				     "no jacket battery full GPIO\n");
+
+	/* Battery temperature GPIOs (routes thermistor voltage to ADC) */
+	tosa_bat_main.gpiod_temp = devm_gpiod_get(dev, "main battery temp", GPIOD_OUT_LOW);
+	if (IS_ERR(tosa_bat_main.gpiod_temp))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_main.gpiod_temp),
+				     "no main battery temp GPIO\n");
+	tosa_bat_jacket.gpiod_temp = devm_gpiod_get(dev, "jacket battery temp", GPIOD_OUT_LOW);
+	if (IS_ERR(tosa_bat_jacket.gpiod_temp))
+		return dev_err_probe(dev, PTR_ERR(tosa_bat_jacket.gpiod_temp),
+				     "no jacket battery temp GPIO\n");
+
+	/* Jacket detect GPIO */
+	jacket_detect = devm_gpiod_get(dev, "jacket detect", GPIOD_IN);
+	if (IS_ERR(jacket_detect))
+		return dev_err_probe(dev, PTR_ERR(jacket_detect),
+				     "no jacket detect GPIO\n");
+
+	/* Battery low indication GPIOs (not used, we just request them) */
+	dummy = devm_gpiod_get(dev, "main battery low", GPIOD_IN);
+	if (IS_ERR(dummy))
+		return dev_err_probe(dev, PTR_ERR(dummy),
+				     "no main battery low GPIO\n");
+	dummy = devm_gpiod_get(dev, "jacket battery low", GPIOD_IN);
+	if (IS_ERR(dummy))
+		return dev_err_probe(dev, PTR_ERR(dummy),
+				     "no jacket battery low GPIO\n");
+
+	/* Battery switch GPIO (not used just requested) */
+	dummy = devm_gpiod_get(dev, "battery switch", GPIOD_OUT_LOW);
+	if (IS_ERR(dummy))
+		return dev_err_probe(dev, PTR_ERR(dummy),
+				     "no battery switch GPIO\n");
+
+	mutex_init(&tosa_bat_main.work_lock);
+	mutex_init(&tosa_bat_jacket.work_lock);
 
 	INIT_WORK(&bat_work, tosa_bat_work);
 
-	ret = tosa_power_supply_register(dev, &tosa_bat_main,
-					 &tosa_bat_main_desc);
-	if (ret)
+	main_psy_cfg.drv_data = &tosa_bat_main;
+	tosa_bat_main.psy = power_supply_register(dev,
+						  &tosa_bat_main_desc,
+						  &main_psy_cfg);
+	if (IS_ERR(tosa_bat_main.psy)) {
+		ret = PTR_ERR(tosa_bat_main.psy);
 		goto err_psy_reg_main;
+	}
 
-	ret = tosa_power_supply_register(dev, &tosa_bat_jacket,
-					 &tosa_bat_jacket_desc);
-	if (ret)
+	jacket_psy_cfg.drv_data = &tosa_bat_jacket;
+	tosa_bat_jacket.psy = power_supply_register(dev,
+						    &tosa_bat_jacket_desc,
+						    &jacket_psy_cfg);
+	if (IS_ERR(tosa_bat_jacket.psy)) {
+		ret = PTR_ERR(tosa_bat_jacket.psy);
 		goto err_psy_reg_jacket;
+	}
 
-	ret = tosa_power_supply_register(dev, &tosa_bat_bu,
-					 &tosa_bat_bu_desc);
-	if (ret)
+	bu_psy_cfg.drv_data = &tosa_bat_bu;
+	tosa_bat_bu.psy = power_supply_register(dev, &tosa_bat_bu_desc,
+						&bu_psy_cfg);
+	if (IS_ERR(tosa_bat_bu.psy)) {
+		ret = PTR_ERR(tosa_bat_bu.psy);
 		goto err_psy_reg_bu;
+	}
 
-	ret = request_irq(gpiod_to_irq(tosa_bat_main.gpio_full.desc),
+	ret = request_irq(gpiod_to_irq(tosa_bat_main.gpiod_full),
 				tosa_bat_gpio_isr,
 				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 				"main full", &tosa_bat_main);
 	if (ret)
 		goto err_req_main;
 
-	ret = request_irq(gpiod_to_irq(tosa_bat_jacket.gpio_full.desc),
+	ret = request_irq(gpiod_to_irq(tosa_bat_jacket.gpiod_full),
 				tosa_bat_gpio_isr,
 				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 				"jacket full", &tosa_bat_jacket);
 	if (ret)
 		goto err_req_jacket;
 
-	ret = request_irq(gpiod_to_irq(gpiod_jacket_det.desc),
+	ret = request_irq(gpiod_to_irq(jacket_detect),
 				tosa_bat_gpio_isr,
 				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 				"jacket detect", &tosa_bat_jacket);
@@ -436,9 +459,9 @@ static int tosa_bat_probe(struct platform_device *pdev)
 		return 0;
 	}
 
-	free_irq(gpiod_to_irq(tosa_bat_jacket.gpio_full.desc), &tosa_bat_jacket);
+	free_irq(gpiod_to_irq(tosa_bat_jacket.gpiod_full), &tosa_bat_jacket);
 err_req_jacket:
-	free_irq(gpiod_to_irq(tosa_bat_main.gpio_full.desc), &tosa_bat_main);
+	free_irq(gpiod_to_irq(tosa_bat_main.gpiod_full), &tosa_bat_main);
 err_req_main:
 	power_supply_unregister(tosa_bat_bu.psy);
 err_psy_reg_bu:
@@ -455,9 +478,9 @@ err_psy_reg_main:
 
 static int tosa_bat_remove(struct platform_device *dev)
 {
-	free_irq(gpiod_to_irq(gpiod_jacket_det.desc), &tosa_bat_jacket);
-	free_irq(gpiod_to_irq(tosa_bat_jacket.gpio_full.desc), &tosa_bat_jacket);
-	free_irq(gpiod_to_irq(tosa_bat_main.gpio_full.desc), &tosa_bat_main);
+	free_irq(gpiod_to_irq(jacket_detect), &tosa_bat_jacket);
+	free_irq(gpiod_to_irq(tosa_bat_jacket.gpiod_full), &tosa_bat_jacket);
+	free_irq(gpiod_to_irq(tosa_bat_main.gpiod_full), &tosa_bat_main);
 
 	power_supply_unregister(tosa_bat_bu.psy);
 	power_supply_unregister(tosa_bat_jacket.psy);

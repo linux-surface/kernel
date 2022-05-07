@@ -29,12 +29,12 @@ static struct snd_soc_jack_pin hs_jack_pin[] = {
 	{
 		.pin	= "Headphone Jack",
 		.mask	= SND_JACK_HEADPHONE,
+		.invert	= 1,
 	},
 	{
 		.pin	= "Speaker",
 		/* disable speaker when hp jack is inserted */
 		.mask   = SND_JACK_HEADPHONE,
-		.invert	= 1,
 	},
 };
 
