@@ -347,6 +347,9 @@ static int __init efisubsys_init(void)
 	if (!efi_enabled(EFI_RUNTIME_SERVICES))
 		efi.runtime_supported_mask = 0;
 
+	/* HACK: disable unsupported reset service */
+	efi.runtime_supported_mask &= ~EFI_RT_SUPPORTED_RESET_SYSTEM;
+
 	if (!efi_enabled(EFI_BOOT))
 		return 0;
 
