@@ -26,7 +26,6 @@
 #include <linux/security.h>
 #include <linux/signal.h>
 #include <linux/smp.h>
-#include <linux/tracehook.h>
 #include <linux/uaccess.h>
 
 #define CREATE_TRACE_POINTS
@@ -226,12 +225,12 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 
 void user_enable_single_step(struct task_struct *child)
 {
-	child->ptrace |= PT_SINGLESTEP;
+	set_tsk_thread_flag(child, TIF_SINGLESTEP);
 }
 
 void user_disable_single_step(struct task_struct *child)
 {
-	child->ptrace &= ~PT_SINGLESTEP;
+	clear_tsk_thread_flag(child, TIF_SINGLESTEP);
 }
 
 /*
@@ -550,7 +549,7 @@ int do_syscall_trace_enter(struct pt_regs *regs)
 		regs->areg[2] = -ENOSYS;
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
-	    tracehook_report_syscall_entry(regs)) {
+	    ptrace_report_syscall_entry(regs)) {
 		regs->areg[2] = -ENOSYS;
 		regs->syscall = NO_SYSCALL;
 		return 0;
@@ -583,5 +582,5 @@ void do_syscall_trace_leave(struct pt_regs *regs)
 	step = test_thread_flag(TIF_SINGLESTEP);
 
 	if (step || test_thread_flag(TIF_SYSCALL_TRACE))
-		tracehook_report_syscall_exit(regs, step);
+		ptrace_report_syscall_exit(regs, step);
 }

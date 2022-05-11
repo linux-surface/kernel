@@ -276,40 +276,37 @@ EXPORT_SYMBOL(__hci_cmd_sync_status);
 static void hci_cmd_sync_work(struct work_struct *work)
 {
 	struct hci_dev *hdev = container_of(work, struct hci_dev, cmd_sync_work);
-	struct hci_cmd_sync_work_entry *entry;
-	hci_cmd_sync_work_func_t func;
-	hci_cmd_sync_work_destroy_t destroy;
-	void *data;
 
 	bt_dev_dbg(hdev, "");
 
-	mutex_lock(&hdev->cmd_sync_work_lock);
-	entry = list_first_entry(&hdev->cmd_sync_work_list,
-				 struct hci_cmd_sync_work_entry, list);
-	if (entry) {
-		list_del(&entry->list);
-		func = entry->func;
-		data = entry->data;
-		destroy = entry->destroy;
+	/* Dequeue all entries and run them */
+	while (1) {
+		struct hci_cmd_sync_work_entry *entry;
+
+		mutex_lock(&hdev->cmd_sync_work_lock);
+		entry = list_first_entry_or_null(&hdev->cmd_sync_work_list,
+						 struct hci_cmd_sync_work_entry,
+						 list);
+		if (entry)
+			list_del(&entry->list);
+		mutex_unlock(&hdev->cmd_sync_work_lock);
+
+		if (!entry)
+			break;
+
+		bt_dev_dbg(hdev, "entry %p", entry);
+
+		if (entry->func) {
+			int err;
+
+			hci_req_sync_lock(hdev);
+			err = entry->func(hdev, entry->data);
+			if (entry->destroy)
+				entry->destroy(hdev, entry->data, err);
+			hci_req_sync_unlock(hdev);
+		}
+
 		kfree(entry);
-	} else {
-		func = NULL;
-		data = NULL;
-		destroy = NULL;
-	}
-	mutex_unlock(&hdev->cmd_sync_work_lock);
-
-	if (func) {
-		int err;
-
-		hci_req_sync_lock(hdev);
-
-		err = func(hdev, data);
-
-		if (destroy)
-			destroy(hdev, data, err);
-
-		hci_req_sync_unlock(hdev);
 	}
 }
 
@@ -381,6 +378,9 @@ int hci_cmd_sync_queue(struct hci_dev *hdev, hci_cmd_sync_work_func_t func,
 		       void *data, hci_cmd_sync_work_destroy_t destroy)
 {
 	struct hci_cmd_sync_work_entry *entry;
+
+	if (hci_dev_test_flag(hdev, HCI_UNREGISTER))
+		return -ENODEV;
 
 	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry)
@@ -2809,6 +2809,9 @@ static int hci_set_event_filter_sync(struct hci_dev *hdev, u8 flt_type,
 	if (!hci_dev_test_flag(hdev, HCI_BREDR_ENABLED))
 		return 0;
 
+	if (test_bit(HCI_QUIRK_BROKEN_FILTER_CLEAR_ALL, &hdev->quirks))
+		return 0;
+
 	memset(&cp, 0, sizeof(cp));
 	cp.flt_type = flt_type;
 
@@ -2827,6 +2830,13 @@ static int hci_set_event_filter_sync(struct hci_dev *hdev, u8 flt_type,
 static int hci_clear_event_filter_sync(struct hci_dev *hdev)
 {
 	if (!hci_dev_test_flag(hdev, HCI_EVENT_FILTER_CONFIGURED))
+		return 0;
+
+	/* In theory the state machine should not reach here unless
+	 * a hci_set_event_filter_sync() call succeeds, but we do
+	 * the check both for parity and as a future reminder.
+	 */
+	if (test_bit(HCI_QUIRK_BROKEN_FILTER_CLEAR_ALL, &hdev->quirks))
 		return 0;
 
 	return hci_set_event_filter_sync(hdev, HCI_FLT_CLEAR_ALL, 0x00,
@@ -4425,7 +4435,7 @@ static int hci_disconnect_all_sync(struct hci_dev *hdev, u8 reason)
 			return err;
 	}
 
-	return err;
+	return 0;
 }
 
 /* This function perform power off HCI command sequence as follows:
@@ -4828,6 +4838,12 @@ static int hci_update_event_filter_sync(struct hci_dev *hdev)
 	if (!hci_dev_test_flag(hdev, HCI_BREDR_ENABLED))
 		return 0;
 
+	/* Some fake CSR controllers lock up after setting this type of
+	 * filter, so avoid sending the request altogether.
+	 */
+	if (test_bit(HCI_QUIRK_BROKEN_FILTER_CLEAR_ALL, &hdev->quirks))
+		return 0;
+
 	/* Always clear event filter when starting */
 	hci_clear_event_filter_sync(hdev);
 
@@ -5143,8 +5159,8 @@ static void set_ext_conn_params(struct hci_conn *conn,
 	p->max_ce_len = cpu_to_le16(0x0000);
 }
 
-int hci_le_ext_create_conn_sync(struct hci_dev *hdev, struct hci_conn *conn,
-				u8 own_addr_type)
+static int hci_le_ext_create_conn_sync(struct hci_dev *hdev,
+				       struct hci_conn *conn, u8 own_addr_type)
 {
 	struct hci_cp_le_ext_create_conn *cp;
 	struct hci_cp_le_ext_conn_param *p;
