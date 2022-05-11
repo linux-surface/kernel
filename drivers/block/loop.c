@@ -1,54 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- *  linux/drivers/block/loop.c
- *
- *  Written by Theodore Ts'o, 3/29/93
- *
- * Copyright 1993 by Theodore Ts'o.  Redistribution of this file is
- * permitted under the GNU General Public License.
- *
- * DES encryption plus some minor changes by Werner Almesberger, 30-MAY-1993
- * more DES encryption plus IDEA encryption by Nicholas J. Leon, June 20, 1996
- *
- * Modularized and updated for 1.1.16 kernel - Mitch Dsouza 28th May 1994
- * Adapted for 1.3.59 kernel - Andries Brouwer, 1 Feb 1996
- *
- * Fixed do_loop_request() re-entrancy - Vincent.Renardias@waw.com Mar 20, 1997
- *
- * Added devfs support - Richard Gooch <rgooch@atnf.csiro.au> 16-Jan-1998
- *
- * Handle sparse backing files correctly - Kenn Humborg, Jun 28, 1998
- *
- * Loadable modules and other fixes by AK, 1998
- *
- * Make real block number available to downstream transfer functions, enables
- * CBC (and relatives) mode encryption requiring unique IVs per data block.
- * Reed H. Petty, rhp@draper.net
- *
- * Maximum number of loop devices now dynamic via max_loop module parameter.
- * Russell Kroll <rkroll@exploits.org> 19990701
- *
- * Maximum number of loop devices when compiled-in now selectable by passing
- * max_loop=<1-255> to the kernel on boot.
- * Erik I. Bolsø, <eriki@himolde.no>, Oct 31, 1999
- *
- * Completely rewrite request handling to be make_request_fn style and
- * non blocking, pushing work to a helper thread. Lots of fixes from
- * Al Viro too.
- * Jens Axboe <axboe@suse.de>, Nov 2000
- *
- * Support up to 256 loop devices
- * Heinz Mauelshagen <mge@sistina.com>, Feb 2002
- *
- * Support for falling back on the write file operation when the address space
- * operations write_begin is not available on the backing filesystem.
- * Anton Altaparmakov, 16 Feb 2005
- *
- * Still To Fix:
- * - Advisory locking is ignored here.
- * - Should use an own CAP_* category instead of CAP_SYS_ADMIN
- *
+ * Copyright 1993 by Theodore Ts'o.
  */
-
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/sched.h>
@@ -59,7 +12,6 @@
 #include <linux/errno.h>
 #include <linux/major.h>
 #include <linux/wait.h>
-#include <linux/blkdev.h>
 #include <linux/blkpg.h>
 #include <linux/init.h>
 #include <linux/swap.h>
@@ -80,10 +32,62 @@
 #include <linux/blk-cgroup.h>
 #include <linux/sched/mm.h>
 #include <linux/statfs.h>
-
-#include "loop.h"
-
 #include <linux/uaccess.h>
+#include <linux/blk-mq.h>
+#include <linux/spinlock.h>
+#include <uapi/linux/loop.h>
+
+/* Possible states of device */
+enum {
+	Lo_unbound,
+	Lo_bound,
+	Lo_rundown,
+	Lo_deleting,
+};
+
+struct loop_func_table;
+
+struct loop_device {
+	int		lo_number;
+	loff_t		lo_offset;
+	loff_t		lo_sizelimit;
+	int		lo_flags;
+	char		lo_file_name[LO_NAME_SIZE];
+
+	struct file *	lo_backing_file;
+	struct block_device *lo_device;
+
+	gfp_t		old_gfp_mask;
+
+	spinlock_t		lo_lock;
+	int			lo_state;
+	spinlock_t              lo_work_lock;
+	struct workqueue_struct *workqueue;
+	struct work_struct      rootcg_work;
+	struct list_head        rootcg_cmd_list;
+	struct list_head        idle_worker_list;
+	struct rb_root          worker_tree;
+	struct timer_list       timer;
+	bool			use_dio;
+	bool			sysfs_inited;
+
+	struct request_queue	*lo_queue;
+	struct blk_mq_tag_set	tag_set;
+	struct gendisk		*lo_disk;
+	struct mutex		lo_mutex;
+	bool			idr_visible;
+};
+
+struct loop_cmd {
+	struct list_head list_entry;
+	bool use_aio; /* use AIO interface to handle I/O */
+	atomic_t ref; /* only for aio */
+	long ret;
+	struct kiocb iocb;
+	struct bio_vec *bvec;
+	struct cgroup_subsys_state *blkcg_css;
+	struct cgroup_subsys_state *memcg_css;
+};
 
 #define LOOP_IDLE_WORKER_TIMEOUT (60 * HZ)
 #define LOOP_DEFAULT_HW_Q_DEPTH (128)
