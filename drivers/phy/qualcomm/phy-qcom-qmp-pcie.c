@@ -948,7 +948,7 @@ static const struct qmp_phy_init_tbl sc8280xp_qmp_pcie_serdes_tbl[] = {
 };
 
 static const struct qmp_phy_init_tbl sc8280xp_qmp_pcie_serdes_sec_tbl[] = {
-	QMP_PHY_INIT_CFG(QSERDES_V5_COM_BIAS_EN_CLKBUFLR_EN, 0x14),		// new
+	QMP_PHY_INIT_CFG(QSERDES_V5_COM_BIAS_EN_CLKBUFLR_EN, 0x1c),		// new
 };
 
 static const struct qmp_phy_init_tbl sc8280xp_qmp_modem_pcie_serdes_tbl_sec[] = {
