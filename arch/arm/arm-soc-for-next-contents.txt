@@ -17,6 +17,10 @@ arm/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-soc32-1
 	mediatek/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-soc
+	at91/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-soc-5.19
+	mvebu/arm
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-arm-5.19-1
 
 arm/dt
 	patch
@@ -95,6 +99,16 @@ arm/dt
 		dt-bindings: clock: stm32mp1: adapt example for "st,stm32mp1-rcc-secure"
 	visconti/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/iwamatsu/linux-visconti tags/visconti-arm-dt-for-v5.19
+	mvebu/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt64-5.19-1
+	mvebu/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt-5.19-1
+	at91/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-dt-5.19
+	mediatek/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-dts32
+	mediatek/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-dts64
 
 arm/drivers
 	drivers/memory
