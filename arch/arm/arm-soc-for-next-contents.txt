@@ -13,6 +13,8 @@ arm/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm-core
 	hisilicon/soc
 		https://github.com/hisilicon/linux-hisi tags/hisi-armv7soc-for-5.19
+	<no branch> (2946aa908bb63539b566fc3ba0b867022787602b)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-soc32-1
 
 arm/dt
 	patch
@@ -71,12 +73,26 @@ arm/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-dt-for-v5.19
 	imx/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-bindings-5.19
-	<no branch> (092b3ace58d9049bcd0381c32f2cd69302e199bc)
+	sunxi/dt-2
 		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-5.19-2
 	qcom/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-5.19
 	qcom/dt64
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-5.19
+	imx/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt-5.19
+	imx/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt64-5.19
+	patch
+		Revert "ARM: dts: BCM5301X: Fix DTC warning for NAND node"
+	rockchip/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts64-1
+	rockchip/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts32-1
+	patch
+		dt-bindings: clock: stm32mp1: adapt example for "st,stm32mp1-rcc-secure"
+	<no branch> (5d3b6ede2c6c80304944cdb5bc653957390afcf4)
+		git://git.kernel.org/pub/scm/linux/kernel/git/iwamatsu/linux-visconti tags/visconti-arm-dt-for-v5.19
 
 arm/drivers
 	drivers/memory
@@ -123,6 +139,8 @@ arm/drivers
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-tegra-5.19
 	qcom/drivers
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-5.19
+	rockchip/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-drivers1
 
 arm/defconfig
 	patch
@@ -164,6 +182,8 @@ arm/fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc tags/aspeed-v5.18-fixes
 	<no branch> (18019eb62efb68c9b365acca9c4fcb2e0d459487)
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-fixes-for-5.18
+	<no branch> (77047ed73dd8b80c209bf5b5c215b858f1f5b14a)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.18-rockchip-dtsfixes1
 
 arm/multiplatform
 	patch
