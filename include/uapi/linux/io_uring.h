@@ -75,6 +75,15 @@ struct io_uring_sqe {
 	};
 };
 
+/*
+ * If sqe->file_index is set to this for opcodes that instantiate a new
+ * direct descriptor (like openat/openat2/accept), then io_uring will allocate
+ * an available direct descriptor instead of having the application pass one
+ * in. The picked direct descriptor will be returned in cqe->res, or -ENFILE
+ * if the space is full.
+ */
+#define IORING_FILE_INDEX_ALLOC		(~0U)
+
 enum {
 	IOSQE_FIXED_FILE_BIT,
 	IOSQE_IO_DRAIN_BIT,
@@ -416,9 +425,15 @@ struct io_uring_files_update {
 	__aligned_u64 /* __s32 * */ fds;
 };
 
+/*
+ * Register a fully sparse file space, rather than pass in an array of all
+ * -1 file descriptors.
+ */
+#define IORING_RSRC_REGISTER_SPARSE	(1U << 0)
+
 struct io_uring_rsrc_register {
 	__u32 nr;
-	__u32 resv;
+	__u32 flags;
 	__u64 resv2;
 	__aligned_u64 data;
 	__aligned_u64 tags;
