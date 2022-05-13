@@ -175,6 +175,7 @@ nfsd_file_alloc(struct inode *inode, unsigned int may, unsigned int hashval,
 	if (nf) {
 		INIT_HLIST_NODE(&nf->nf_node);
 		INIT_LIST_HEAD(&nf->nf_lru);
+		INIT_LIST_HEAD(&nf->nf_putfile);
 		nf->nf_file = NULL;
 		nf->nf_cred = get_current_cred();
 		nf->nf_net = net;
@@ -313,6 +314,18 @@ nfsd_file_put(struct nfsd_file *nf)
 	}
 	if (atomic_long_read(&nfsd_filecache_count) >= NFSD_FILE_LRU_LIMIT)
 		nfsd_file_gc();
+}
+
+void
+nfsd_file_bulk_put(struct list_head *putlist)
+{
+	struct nfsd_file *nf;
+
+	while (!list_empty(putlist)) {
+		nf = list_first_entry(putlist, struct nfsd_file, nf_putfile);
+		list_del_init(&nf->nf_putfile);
+		nfsd_file_put(nf);
+	}
 }
 
 struct nfsd_file *

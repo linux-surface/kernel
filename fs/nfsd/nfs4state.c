@@ -80,7 +80,7 @@ static u64 current_sessionid = 1;
 #define CLOSE_STATEID(stateid)  (!memcmp((stateid), &close_stateid, sizeof(stateid_t)))
 
 /* forward declarations */
-static bool check_for_locks(struct nfs4_file *fp, struct nfs4_lockowner *lowner);
+static bool check_for_locks(struct nfsd_file *nf, struct nfs4_lockowner *lowner);
 static void nfs4_free_ol_stateid(struct nfs4_stid *stid);
 void nfsd4_end_grace(struct nfsd_net *nn);
 static void _free_cpntf_state_locked(struct nfsd_net *nn, struct nfs4_cpntf_state *cps);
@@ -6318,6 +6318,7 @@ static __be32
 nfsd4_free_lock_stateid(stateid_t *stateid, struct nfs4_stid *s)
 {
 	struct nfs4_ol_stateid *stp = openlockstateid(s);
+	struct nfsd_file *nf;
 	__be32 ret;
 
 	ret = nfsd4_lock_ol_stateid(stp);
@@ -6329,9 +6330,14 @@ nfsd4_free_lock_stateid(stateid_t *stateid, struct nfs4_stid *s)
 		goto out;
 
 	ret = nfserr_locks_held;
-	if (check_for_locks(stp->st_stid.sc_file,
-			    lockowner(stp->st_stateowner)))
-		goto out;
+	nf = find_any_file(stp->st_stid.sc_file);
+	if (nf) {
+		if (check_for_locks(nf, lockowner(stp->st_stateowner))) {
+			nfsd_file_put(nf);
+			goto out;
+		}
+		nfsd_file_put(nf);
+	}
 
 	release_lock_stateid(stp);
 	ret = nfs_ok;
@@ -7471,19 +7477,12 @@ out_nfserr:
  * 	false: no locks held by lockowner
  */
 static bool
-check_for_locks(struct nfs4_file *fp, struct nfs4_lockowner *lowner)
+check_for_locks(struct nfsd_file *nf, struct nfs4_lockowner *lowner)
 {
 	struct file_lock *fl;
 	int status = false;
-	struct nfsd_file *nf = find_any_file(fp);
 	struct inode *inode;
 	struct file_lock_context *flctx;
-
-	if (!nf) {
-		/* Any valid lock stateid should have some sort of access */
-		WARN_ON_ONCE(1);
-		return status;
-	}
 
 	inode = locks_inode(nf->nf_file);
 	flctx = inode->i_flctx;
@@ -7498,7 +7497,6 @@ check_for_locks(struct nfs4_file *fp, struct nfs4_lockowner *lowner)
 		}
 		spin_unlock(&flctx->flc_lock);
 	}
-	nfsd_file_put(nf);
 	return status;
 }
 
@@ -7518,6 +7516,8 @@ nfsd4_release_lockowner(struct svc_rqst *rqstp,
 	struct nfsd_net *nn = net_generic(SVC_NET(rqstp), nfsd_net_id);
 	struct nfs4_client *clp;
 	LIST_HEAD (reaplist);
+	LIST_HEAD(putlist);
+	struct nfsd_file *nf;
 
 	dprintk("nfsd4_release_lockowner clientid: (%08x/%08x):\n",
 		clid->cl_boot, clid->cl_id);
@@ -7538,13 +7538,17 @@ nfsd4_release_lockowner(struct svc_rqst *rqstp,
 		/* see if there are still any locks associated with it */
 		lo = lockowner(sop);
 		list_for_each_entry(stp, &sop->so_stateids, st_perstateowner) {
-			if (check_for_locks(stp->st_stid.sc_file, lo)) {
-				status = nfserr_locks_held;
-				spin_unlock(&clp->cl_lock);
-				return status;
+			nf = find_any_file(stp->st_stid.sc_file);
+			if (nf) {
+				list_add(&nf->nf_putfile, &putlist);
+				if (check_for_locks(nf, lo)) {
+					status = nfserr_locks_held;
+					spin_unlock(&clp->cl_lock);
+					nfsd_file_bulk_put(&putlist);
+					return status;
+				}
 			}
 		}
-
 		nfs4_get_stateowner(sop);
 		break;
 	}
@@ -7562,6 +7566,7 @@ nfsd4_release_lockowner(struct svc_rqst *rqstp,
 		put_ol_stateid_locked(stp, &reaplist);
 	}
 	spin_unlock(&clp->cl_lock);
+	nfsd_file_bulk_put(&putlist);
 	free_ol_stateid_reaplist(&reaplist);
 	remove_blocked_locks(lo);
 	nfs4_put_stateowner(&lo->lo_owner);
