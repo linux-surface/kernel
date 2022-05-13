@@ -13,8 +13,10 @@ arm/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm-core
 	hisilicon/soc
 		https://github.com/hisilicon/linux-hisi tags/hisi-armv7soc-for-5.19
-	<no branch> (2946aa908bb63539b566fc3ba0b867022787602b)
+	sockchip/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-soc32-1
+	mediatek/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-soc
 
 arm/dt
 	patch
@@ -91,7 +93,7 @@ arm/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts32-1
 	patch
 		dt-bindings: clock: stm32mp1: adapt example for "st,stm32mp1-rcc-secure"
-	<no branch> (5d3b6ede2c6c80304944cdb5bc653957390afcf4)
+	visconti/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/iwamatsu/linux-visconti tags/visconti-arm-dt-for-v5.19
 
 arm/drivers
@@ -170,6 +172,10 @@ arm/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-defconfig-for-5.19
 	qcom/defconfig32
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-defconfig-for-5.19
+	mediatek/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-defconfig
+	patch
+		ARM: configs: Enable ASoC AC'97 glue
 
 arm/newsoc
 
