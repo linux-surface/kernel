@@ -2412,7 +2412,7 @@ do_mas_align_munmap(struct ma_state *mas, struct vm_area_struct *vma,
 		return -ENOMEM;
 
 	if (mas_preallocate(&mas_detach, vma, GFP_KERNEL))
-		return -ENOMEM;
+		goto detach_alloc_fail;
 
 	mas->last = end - 1;
 	/*
@@ -2551,6 +2551,8 @@ do_mas_align_munmap(struct ma_state *mas, struct vm_area_struct *vma,
 map_count_exceeded:
 split_failed:
 userfaultfd_error:
+	mas_destroy(&mas_detach);
+detach_alloc_fail:
 	mas_destroy(mas);
 	return error;
 }
