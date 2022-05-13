@@ -6,6 +6,7 @@
  *
  *   Copyright(c) 2015 Intel Corporation. All rights reserved.
  *   Copyright(c) 2017 T-Platforms. All Rights Reserved.
+ *   Copyright(c) 2022 YADRO. All Rights Reserved.
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of version 2 of the GNU General Public License as
@@ -15,6 +16,7 @@
  *
  *   Copyright(c) 2015 Intel Corporation. All rights reserved.
  *   Copyright(c) 2017 T-Platforms. All Rights Reserved.
+ *   Copyright(c) 2022 YADRO. All Rights Reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -85,7 +87,7 @@
 #include <linux/ntb.h>
 
 #define DRIVER_NAME		"ntb_perf"
-#define DRIVER_VERSION		"2.0"
+#define DRIVER_VERSION		"2.1"
 
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_VERSION(DRIVER_VERSION);
@@ -106,6 +108,9 @@ MODULE_DESCRIPTION("PCIe NTB Performance Measurement Tool");
 
 #define PERF_BUF_LEN 1024
 
+#define LAT_MIN_TRIES	20
+#define RESCHEDULE_RATIO	10000
+
 static unsigned long max_mw_size;
 module_param(max_mw_size, ulong, 0644);
 MODULE_PARM_DESC(max_mw_size, "Upper limit of memory window size");
@@ -121,6 +126,14 @@ MODULE_PARM_DESC(total_order, "Total data order [2^n] to transfer");
 static bool use_dma; /* default to 0 */
 module_param(use_dma, bool, 0644);
 MODULE_PARM_DESC(use_dma, "Use DMA engine to measure performance");
+
+static bool perf_latency = true;
+module_param(perf_latency, bool, 0644);
+MODULE_PARM_DESC(perf_latency, "Measure burst latency");
+
+static unsigned long lat_time_ms = 1000; /* default 1s */
+module_param(lat_time_ms, ulong, 0644);
+MODULE_PARM_DESC(lat_time_ms, "Time (in ms) to test latency");
 
 /*==============================================================================
  *                         Perf driver data definition
@@ -178,6 +191,8 @@ struct perf_thread {
 	void *src;
 	u64 copied;
 	ktime_t duration;
+	ktime_t latency;
+	u64 tries;
 	int status;
 	struct work_struct work;
 };
@@ -783,7 +798,7 @@ static void perf_dma_copy_callback(void *data)
 }
 
 static int perf_copy_chunk(struct perf_thread *pthr,
-			   void __iomem *dst, void *src, size_t len)
+			   void __iomem *dst, void *src, size_t len, bool _use_dma)
 {
 	struct dma_async_tx_descriptor *tx;
 	struct dmaengine_unmap_data *unmap;
@@ -794,7 +809,7 @@ static int perf_copy_chunk(struct perf_thread *pthr,
 	void __iomem *dst_vaddr;
 	dma_addr_t dst_dma_addr;
 
-	if (!use_dma) {
+	if (!_use_dma) {
 		memcpy_toio(dst, src, len);
 		goto ret_check_tsync;
 	}
@@ -940,7 +955,7 @@ static int perf_run_test(struct perf_thread *pthr)
 
 	/* Copied field is cleared on test launch stage */
 	while (pthr->copied < total_size) {
-		ret = perf_copy_chunk(pthr, flt_dst, flt_src, chunk_size);
+		ret = perf_copy_chunk(pthr, flt_dst, flt_src, chunk_size, use_dma);
 		if (ret) {
 			dev_err(&perf->ntb->dev, "%d: Got error %d on test\n",
 				pthr->tidx, ret);
@@ -1018,6 +1033,67 @@ no_dma_notify:
 	kfree(pthr->src);
 }
 
+static int perf_run_latency(struct perf_thread *pthr)
+{
+	struct perf_peer *peer = pthr->perf->test_peer;
+	struct ntb_dev *ntb = pthr->perf->ntb;
+	void __iomem *flt_dst, *bnd_dst;
+	void *flt_src;
+	u64 stop_at;
+	int ret;
+
+	pthr->tries = 0;
+	pthr->latency = ktime_get();
+	flt_src = pthr->src;
+	flt_dst = peer->outbuf;
+	bnd_dst = peer->outbuf + peer->outbuf_size;
+
+	stop_at = ktime_get_real_fast_ns() + lat_time_ms * NSEC_PER_MSEC;
+	while (ktime_get_real_fast_ns() < stop_at) {
+		ret = perf_copy_chunk(pthr, flt_dst, flt_src, 1, false);
+		if (ret) {
+			dev_err(&ntb->dev, "%d: Latency testing error %d\n",
+				pthr->tidx, ret);
+			pthr->latency = ktime_set(0, 0);
+			return ret;
+		}
+
+		pthr->tries++;
+		flt_dst++;
+		flt_src++;
+
+		if (flt_dst >= bnd_dst || flt_dst < peer->outbuf) {
+			flt_dst = peer->outbuf;
+			flt_src = pthr->src;
+		}
+
+		/* Avoid processor soft lock-ups */
+		if (!(pthr->tries % RESCHEDULE_RATIO))
+			schedule();
+	}
+
+	/* Stop timer */
+	pthr->latency = ktime_sub(ktime_get(), pthr->latency);
+
+	if (pthr->tries < LAT_MIN_TRIES) {
+		dev_err(&ntb->dev,
+			"%d: Too few steps (%llu) to measure Latency, recommended > %d. Increase value of 'lat_time_ms' parameter\n",
+			pthr->tidx, pthr->tries, LAT_MIN_TRIES);
+		pthr->latency = ktime_set(0, 0);
+		return -EINVAL;
+	}
+
+	dev_dbg(&ntb->dev, "%d: made %llu tries, lasted %llu usecs\n",
+		pthr->tidx, pthr->tries, ktime_to_us(pthr->latency));
+
+	pthr->latency = ns_to_ktime(ktime_divns(pthr->latency, pthr->tries));
+
+	dev_dbg(&ntb->dev, "%d: latency %llu us (%llu ns)\n", pthr->tidx,
+		ktime_to_us(pthr->latency), ktime_to_ns(pthr->latency));
+
+	return 0;
+}
+
 static void perf_thread_work(struct work_struct *work)
 {
 	struct perf_thread *pthr = to_thread_work(work);
@@ -1043,6 +1119,11 @@ static void perf_thread_work(struct work_struct *work)
 	}
 
 	pthr->status = perf_sync_test(pthr);
+	if (pthr->status)
+		goto err_clear_test;
+
+	if (perf_latency)
+		pthr->status = perf_run_latency(pthr);
 
 err_clear_test:
 	perf_clear_test(pthr);
@@ -1142,6 +1223,18 @@ static int perf_read_stats(struct perf_ctx *perf, char *buf,
 			"%d: copied %llu bytes in %llu usecs, %llu MBytes/s\n",
 			tidx, pthr->copied, ktime_to_us(pthr->duration),
 			div64_u64(pthr->copied, ktime_to_us(pthr->duration)));
+
+		if (perf_latency && ktime_compare(pthr->latency, ktime_set(0, 0))) {
+			if (ktime_to_us(pthr->latency) < 10) {
+				(*pos) += scnprintf(buf + *pos, size - *pos,
+						"%d: latency %llu ns\n",
+						tidx, ktime_to_ns(pthr->latency));
+			} else {
+				(*pos) += scnprintf(buf + *pos, size - *pos,
+						"%d: latency %llu us\n",
+						tidx, ktime_to_us(pthr->latency));
+			}
+		}
 	}
 
 	clear_bit_unlock(0, &perf->busy_flag);
@@ -1344,10 +1437,46 @@ static ssize_t perf_dbgfs_write_tcnt(struct file *filep,
 	return size;
 }
 
+static ssize_t perf_dbgfs_read_lattrs(struct file *filep, char __user *ubuf,
+				    size_t size, loff_t *offp)
+{
+	size_t buf_size = min_t(size_t, size, PERF_BUF_LEN);
+	struct perf_ctx *perf = filep->private_data;
+	ssize_t pos, ret;
+	char *buf;
+	int tidx;
+
+	buf = kmalloc(buf_size, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	pos = scnprintf(buf, buf_size, "    Peer %d latency try count:\n",
+			perf->test_peer->pidx);
+
+	for (tidx = 0; tidx < perf->tcnt; tidx++) {
+		struct perf_thread *pthr = &perf->threads[tidx];
+
+		pos += scnprintf(buf + pos, buf_size - pos,
+			"%d: made %llu tries\n",
+			tidx, pthr->tries);
+	}
+
+	ret = simple_read_from_buffer(ubuf, size, offp, buf, pos);
+
+	kfree(buf);
+
+	return ret;
+}
+
 static const struct file_operations perf_dbgfs_tcnt = {
 	.open = simple_open,
 	.read = perf_dbgfs_read_tcnt,
 	.write = perf_dbgfs_write_tcnt
+};
+
+static const struct file_operations perf_dbgfs_lattrs = {
+	.open = simple_open,
+	.read = perf_dbgfs_read_lattrs
 };
 
 static void perf_setup_dbgfs(struct perf_ctx *perf)
@@ -1375,6 +1504,9 @@ static void perf_setup_dbgfs(struct perf_ctx *perf)
 	debugfs_create_u8("total_order", 0500, perf->dbgfs_dir, &total_order);
 
 	debugfs_create_bool("use_dma", 0500, perf->dbgfs_dir, &use_dma);
+
+	debugfs_create_file("latency_tries", 0400, perf->dbgfs_dir, perf,
+			    &perf_dbgfs_lattrs);
 }
 
 static void perf_clear_dbgfs(struct perf_ctx *perf)
