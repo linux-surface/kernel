@@ -308,7 +308,7 @@ static enum oom_constraint constrained_alloc(struct oom_control *oc)
 static int oom_evaluate_task(struct task_struct *task, void *arg)
 {
 	struct oom_control *oc = arg;
-	long points;
+	long points = 0;
 
 	if (oom_unkillable_task(task))
 		goto next;
@@ -349,7 +349,7 @@ select:
 	oc->chosen = task;
 	oc->chosen_points = points;
 next:
-	return 0;
+	return points == LONG_MAX;
 abort:
 	if (oc->chosen)
 		put_task_struct(oc->chosen);
