@@ -236,6 +236,12 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l5e_0p88: ldo5 {
+			regulator-min-microvolt = <880000>;
+			regulator-max-microvolt = <880000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l9e_0p88: ldo9 {
 			regulator-min-microvolt = <880000>;
 			regulator-max-microvolt = <880000>;
@@ -301,6 +307,48 @@
 
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <47 4>;
+
+	pcie1_default_state: pcie1-default-state {
+		clkreq {
+			pins = "gpio176";
+			function = "pci_e2";
+			bias-pull-up;
+		};
+
+		reset-n {
+			pins = "gpio102";
+			function = "gpio";
+
+			drive-strength = <2>;
+			output-low;
+			bias-pull-down;
+		};
+
+		wake-n {
+			pins = "gpio104";
+			function = "gpio";
+
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	pcie3_default_state: pcie3-default-state {
+		clkreq {
+			pins = "gpio178";
+			function = "pci_e3";
+			bias-pull-up;
+		};
+
+		reset-n {
+			pins = "gpio179";
+			function = "gpio";
+
+			drive-strength = <2>;
+			output-low;
+			bias-pull-down;
+		};
+	};
 };
 
 
@@ -344,6 +392,44 @@
 
 &usb_sec_dwc3 {
 	dr_mode = "host";
+};
+
+
+// TODO:
+// - PCIe has some sleep mode via a dedicated GPIO for all devices/ports
+// - PCIe 3 has pin connections, but hot-plug commands time out.
+//   pcieport 0003:00:00.0: pciehp: Timeout on hotplug command 0x03c0 (issued 3030 msec ago)
+// - PCIe 1 and 2 work together? How do we express this here?
+//   - apparently 2 phys can work with one controller (each providing 2 lanes)
+//   - support for this is WIP (by Johan Hovold)
+//   - right now, there seem to be two options:
+//     - rely on UEFI to configure the second phy for us, which may cause problems with suspend
+//     - use 2 lanes only, which _hopefully_ lets us avoid the second phy for now
+
+&pcie2 {
+	status = "okay";
+
+	num-lanes = <2>;
+
+	perst-gpio = <&tlmm 102 GPIO_ACTIVE_LOW>;
+	wake-gpio = <&tlmm 104 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_default_state>;
+
+	// phys = <&pcie1_lane>, <&pcie1_lane>;
+	// phy-names = "pciephy0", "pciephy1";
+};
+
+// &pcie1_phy {
+// 	status = "okay";
+// 	vdda-phy-supply = <&vreg_l5e_0p88>;
+// 	vdda-pll-supply = <&vreg_l3c_1p2>;
+// };
+
+&pcie2_phy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l5e_0p88>;
+	vdda-pll-supply = <&vreg_l3c_1p2>;
 };
 
 
