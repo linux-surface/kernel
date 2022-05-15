@@ -236,6 +236,12 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l5e_0p88: ldo5 {
+			regulator-min-microvolt = <880000>;
+			regulator-max-microvolt = <880000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l9e_0p88: ldo9 {
 			regulator-min-microvolt = <880000>;
 			regulator-max-microvolt = <880000>;
@@ -301,6 +307,23 @@
 
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <47 4>;
+
+	pcie1_default_state: pcie1-default-state {
+		clkreq {
+			pins = "gpio176";
+			function = "pci_e2";
+			bias-pull-up;
+		};
+
+		reset-n {
+			pins = "gpio102";
+			function = "gpio";
+
+			drive-strength = <2>;
+			output-low;
+			bias-pull-down;
+		};
+	};
 };
 
 
@@ -344,6 +367,26 @@
 
 &usb_sec_dwc3 {
 	dr_mode = "host";
+};
+
+
+// TODO:
+// - VReg for NVME (vreg_s8c_1p8)? Doesn't seem to be required?
+//   - Parts of doc only show 3.3 enabled via Silego or SAM.
+// - PCIe 1 and 2 work together? How do we express this here?
+// - PCIe 3 uses one lane for "MTE" (whatever that is...), describe it?
+
+&pcie2 {
+	status = "okay";
+	perst-gpio = <&tlmm 102 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_default_state>;
+};
+
+&pcie2_phy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l5e_0p88>;
+	vdda-pll-supply = <&vreg_l3c_1p2>;
 };
 
 
