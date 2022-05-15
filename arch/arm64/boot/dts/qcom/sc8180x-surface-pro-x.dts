@@ -1,0 +1,366 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Based on:
+ % - sc8180x-primus.dts
+ % - sc8180x-lenovo-flex-5g.dts
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/gpio/gpio.h>
+#include "sc8180x.dtsi"
+
+
+/ {
+	model = "Microsoft Surface Pro X (SQ2)";
+	compatible = "microsoft,surface-pro-x", "qcom,sc8180x";
+
+	aliases {
+	};
+
+	chosen {
+	};
+
+	reserved-memory {
+		// Sources for memory regions:
+		// - Windows Device Manager/ACPI
+		// - Windows Registry/driver .inf files
+
+		// Windows Registry entries:
+		//
+		// - ADSP:
+		//   - alignment:     0x100000
+		//   - reservation:  0x1a00000
+		//
+		// - CDSP:
+		//   - alignment:     0x100000
+		//   - reservation:   0x800000
+		//
+		// - GFXSUC:
+		//   - alignment:       0x1000
+		//   - reservation:     0x5000
+		//
+		// - MPSS/MODEM:
+		//   - address:     0x8d800000
+		//   - alignment:     0x400000
+		//   - reservation:  0x9600000
+		//
+		// - SCSS/SLPI:
+		//   - alignment:     0x100000
+		//   - reservation:  0x1400000
+		//
+		// - IPA (no firmware?):
+		//   - alignment:     0x100000
+		//   - reservation:   0x100000
+		//
+		// - SPSS (no firmware?):
+		//   - alignment:     0x100000
+		//   - reservation:   0x100000
+		//
+		// - MBA (bogus?):
+		//   - alignment:     0x100000
+		//
+		// - VENUS (bogus?):
+		//   - alignment:          0x0
+		//   - reservation:   0x500000
+		//
+		// - WCNSS (bogus?):
+		//   - alignment:     0x100000
+		//   - reservation:        0x0
+
+		// Windows Device Manager memory map:
+		//
+		// [...]
+		// 0x85d00000 ++  0x200000	RMTFS
+		// 0x85f00000 ++ 0x5d00000	<free>
+		// 0x8b700000 ++  0x500000	CAMERA
+		// 0x8bc00000 ++  0x180000	WLAN
+		// 0x8bd80000 ++ 0xe780000	<free for image loader>
+		// 0x9a500000 ++  0x600000	QSM
+		// [...]
+
+		// Resulting memory map:
+		//
+		// [...]
+		// 0x85500000 ++  0x200000	RMTFS
+		// 0x85700000
+		// 0x85f00000 ++ 0x5d00000	<reserved>
+		// 0x8b700000 ++  0x500000	CAMERA
+		// 0x8bc00000 ++  0x180000	WLAN
+		// 0x8bd80000 ++ 0x1a80000	<free>
+		// 0x8d800000 ++ 0x9600000	MPSS
+		// 0x96e00000 ++ 0x1a00000	ADSP
+		// 0x98800000 ++  0x800000	CDSP
+		// 0x99000000 ++ 0x1400000	SCSS
+		// 0x9a400000 ++    0x5000	GFXSUC
+		// 0x9a405000 ++   0xfb000	<free>
+		// 0x9a500000 ++  0x600000	QSM
+		// [...]
+
+		// Notes:
+		// - RMTFS doesn't work at 0x85d00000, but does work at
+		//   0x85500000 (same as Lenovo Flex 5G).
+		// - An 8MB region for CDSP seems a bit small. Similarly, the
+		//   MPSS region seems to be a bit large... do we need to resize
+		//   things?
+
+		rmtfs_mem: memory@85500000 {
+			compatible = "qcom,rmtfs-mem";
+			reg = <0x0 0x85500000 0x0 0x200000>;
+			no-map;
+
+			qcom,client-id = <1>;
+			qcom,vmid = <15>;
+		};
+
+		wlan_mem: memory@8bc00000 {
+			reg = <0x0 0x8bc00000 0x0 0x180000>;
+			no-map;
+		};
+
+		mpss_mem: memory@8d800000 {
+			reg = <0x0 0x8d800000 0x0 0x9600000>;
+			no-map;
+		};
+
+		adsp_mem: memory@96e00000 {
+			reg = <0x0 0x96e00000 0x0 0x1a00000>;
+			no-map;
+		};
+
+		cdsp_mem: memory@98800000 {
+			reg = <0x0 0x98800000 0x0 0x800000>;
+			no-map;
+		};
+
+		scss_mem: memory@99000000 {
+			reg = <0x0 0x99000000 0x0 0x1400000>;
+			no-map;
+		};
+
+		gfxsuc_mem: memory@9a400000 {
+			reg = <0x0 0x9a400000 0x0 0x5000>;
+			no-map;
+		};
+	};
+
+	vph_pwr: vph-pwr-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vph_pwr";
+		regulator-min-microvolt = <3300000>;	// TODO: measure this (see pm660.dtsi/vadc_vph_pwr)
+		regulator-max-microvolt = <3300000>;
+	};
+
+	vreg_s4a_1p8: pm8150-s4 {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_s4a_1p8";
+
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+
+		regulator-always-on;
+		regulator-boot-on;
+
+		vin-supply = <&vph_pwr>;
+	};
+};
+
+
+&apps_rsc {
+	pmc8180-a-rpmh-regulators {
+		compatible = "qcom,pmc8180-rpmh-regulators";
+		qcom,pmic-id = "a";
+
+		vdd-s1-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vph_pwr>;
+		vdd-s3-supply = <&vph_pwr>;
+		vdd-s4-supply = <&vph_pwr>;
+		vdd-s5-supply = <&vph_pwr>;
+		vdd-s6-supply = <&vph_pwr>;
+		vdd-s7-supply = <&vph_pwr>;
+		vdd-s8-supply = <&vph_pwr>;
+		vdd-s9-supply = <&vph_pwr>;
+		vdd-s10-supply = <&vph_pwr>;
+
+		vdd-l1-l8-l11-supply = <&vreg_s6c_1p37>;
+		vdd-l2-l10-supply = <&vreg_bob>;
+		vdd-l3-l4-l5-l18-supply = <&vreg_s7c_0p96>;
+		vdd-l6-l9-supply = <&vreg_s6c_1p37>;
+		vdd-l7-l12-l14-l15-supply = <&vreg_s5a_2p04>;
+		vdd-l13-l16-l17-supply = <&vreg_bob>;
+
+		vreg_s5a_2p04: smps5 {
+			regulator-min-microvolt = <2040000>;
+			regulator-max-microvolt = <2040000>;
+		};
+
+		vreg_l12a_1p8: ldo12 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	pmc8180-e-rpmh-regulators {
+		compatible = "qcom,pmc8180-rpmh-regulators";
+		qcom,pmic-id = "e";
+
+		vdd-s1-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vph_pwr>;
+		vdd-s3-supply = <&vph_pwr>;
+		vdd-s4-supply = <&vph_pwr>;
+		vdd-s5-supply = <&vph_pwr>;
+		vdd-s6-supply = <&vph_pwr>;
+		vdd-s7-supply = <&vph_pwr>;
+		vdd-s8-supply = <&vph_pwr>;
+		vdd-s9-supply = <&vph_pwr>;
+		vdd-s10-supply = <&vph_pwr>;
+
+		vdd-l1-l8-l11-supply = <&vreg_s4e_0p99>;
+		vdd-l2-l10-supply = <&vreg_bob>;
+		vdd-l3-l4-l5-l18-supply = <&vreg_s4e_0p99>;
+		vdd-l6-l9-supply = <&vreg_s4e_0p99>;
+		vdd-l7-l12-l14-l15-supply = <&vreg_s5e_2p04>;
+		vdd-l13-l16-l17-supply = <&vreg_bob>;
+
+		vreg_s4e_0p99: smps4 {
+			regulator-min-microvolt = <992000>;
+			regulator-max-microvolt = <992000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_s5e_2p04: smps5 {
+			regulator-min-microvolt = <2040000>;
+			regulator-max-microvolt = <2040000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l9e_0p88: ldo9 {
+			regulator-min-microvolt = <880000>;
+			regulator-max-microvolt = <880000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l16e_3p1: ldo16 {
+			regulator-min-microvolt = <3072000>;
+			regulator-max-microvolt = <3072000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	pmc8180c-rpmh-regulators {
+		compatible = "qcom,pmc8180c-rpmh-regulators";
+		qcom,pmic-id = "c";
+
+		vdd-s1-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vph_pwr>;
+		vdd-s3-supply = <&vph_pwr>;
+		vdd-s4-supply = <&vph_pwr>;
+		vdd-s5-supply = <&vph_pwr>;
+		vdd-s6-supply = <&vph_pwr>;
+		vdd-s7-supply = <&vph_pwr>;
+		vdd-s8-supply = <&vph_pwr>;
+
+		vdd-l1-l8-supply = <&vreg_s4a_1p8>;
+		vdd-l2-l3-supply = <&vreg_s6c_1p37>;
+		vdd-l4-l5-l6-supply = <&vreg_bob>;
+		vdd-l7-l11-supply = <&vreg_bob>;
+		vdd-l9-l10-supply = <&vreg_bob>;
+
+		vdd-bob-supply = <&vph_pwr>;
+		vdd-flash-supply = <&vreg_bob>;
+		vdd-rgb-supply = <&vreg_bob>;
+
+		vreg_s6c_1p37: smps6 {
+			regulator-min-microvolt = <1350000>;
+			regulator-max-microvolt = <1372000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_s7c_0p96: smps7 {
+			regulator-min-microvolt = <960000>;
+			regulator-max-microvolt = <960000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l3c_1p2: ldo3 {
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_bob: bob {
+			regulator-min-microvolt = <3296000>;
+			regulator-max-microvolt = <3350000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+};
+
+
+&tlmm {
+	gpio-reserved-ranges = <0 4>, <47 4>;
+};
+
+
+&usb_prim_hsphy {
+	status = "okay";
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+	vdda18-supply = <&vreg_l12a_1p8>;
+	vdda33-supply = <&vreg_l16e_3p1>;
+};
+
+&usb_prim_qmpphy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l3c_1p2>;
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+};
+
+&usb_prim {
+	status = "okay";
+};
+
+&usb_prim_dwc3 {
+	dr_mode = "host";
+};
+
+&usb_sec_hsphy {
+	status = "okay";
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+	vdda18-supply = <&vreg_l12a_1p8>;
+	vdda33-supply = <&vreg_l16e_3p1>;
+};
+
+&usb_sec_qmpphy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l3c_1p2>;
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+};
+
+&usb_sec {
+	status = "okay";
+};
+
+&usb_sec_dwc3 {
+	dr_mode = "host";
+};
+
+
+&remoteproc_adsp {
+	status = "okay";
+	memory-region = <&adsp_mem>;
+	firmware-name = "qcom/msft/surface/pro-x-sq2/qcadsp8180.mbn";
+};
+
+&remoteproc_cdsp {
+	status = "okay";
+	memory-region = <&cdsp_mem>;
+	firmware-name = "qcom/msft/surface/pro-x-sq2/qccdsp8180.mbn";
+};
+
+&remoteproc_mpss {
+	status = "okay";
+	memory-region = <&mpss_mem>;
+	firmware-name = "qcom/msft/surface/pro-x-sq2/qcmpss8180.mbn";
+};
