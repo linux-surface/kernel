@@ -6,6 +6,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/of.h>
 #include <linux/property.h>
 #include <linux/slab.h>
 
@@ -411,15 +412,26 @@ static int ssam_device_uid_from_string(const char *str, struct ssam_device_uid *
 static int ssam_get_uid_for_node(struct fwnode_handle *node, struct ssam_device_uid *uid)
 {
 	const char *str = fwnode_get_name(node);
+	int status;
 
 	/*
 	 * To simplify definitions of firmware nodes, we set the device name
-	 * based on the UID of the device, prefixed with "ssam:".
+	 * based on the UID of the device, prefixed with "ssam:". In device
+	 * trees, however, we use a dedicated "ssam-uid" property. Therefore we
+	 * check for the name prefix first and then decide where to get the UID
+	 * from.
 	 */
-	if (strncmp(str, "ssam:", strlen("ssam:")) != 0)
-		return -ENODEV;
 
-	str += strlen("ssam:");
+	if (strncmp(str, "ssam:", strlen("ssam:")) == 0) {
+		str += strlen("ssam:");
+	} else {
+		status = fwnode_property_read_string(node, "ssam-uid", &str);
+		if (status == -EINVAL)
+			return -ENODEV;
+		if (status)
+			return status;
+	}
+
 	return ssam_device_uid_from_string(str, uid);
 }
 
@@ -440,6 +452,7 @@ static int ssam_add_client_device(struct device *parent, struct ssam_controller 
 
 	sdev->dev.parent = parent;
 	sdev->dev.fwnode = fwnode_handle_get(node);
+	sdev->dev.of_node = to_of_node(node);
 
 	status = ssam_device_add(sdev);
 	if (status)
