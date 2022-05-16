@@ -751,11 +751,17 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	 */
 	device_set_wakeup_capable(&serdev->dev, true);
 
+	status = ssam_register_clients(&serdev->dev, ctrl);
+	if (status)
+		goto err_clients;
+
 	if (ssh)
 		acpi_dev_clear_dependencies(ssh);
 
 	return 0;
 
+err_clients:
+	ssam_clear_controller();
 err_mainref:
 	ssam_irq_free(ctrl);
 err_irq:
