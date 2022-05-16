@@ -508,5 +508,33 @@
 
 		ssh-d3-closes-handle;
 		ssh-buffer-size = <0x30>;
+
+		ac {
+			ssam-uid = "01:02:01:01:01";
+		};
+
+		battery {
+			ssam-uid = "01:02:01:01:00";
+		};
+
+		kip-hub {
+			ssam-uid = "00:00:01:0e:00";
+
+			hid-keyboard {
+				ssam-uid = "01:15:02:01:00";
+			};
+
+			hid-pen-stash {
+				ssam-uid = "01:15:02:02:00";
+			};
+
+			hid-touchpad {
+				ssam-uid = "01:15:02:03:00";
+			};
+		};
+
+		kip-tablet-mode-switch {
+			ssam-uid = "01:0e:01:00:01";
+		};
 	};
 };
