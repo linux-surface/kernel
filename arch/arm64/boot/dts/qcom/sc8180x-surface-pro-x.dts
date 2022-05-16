@@ -17,6 +17,7 @@
 	compatible = "microsoft,surface-pro-x", "qcom,sc8180x";
 
 	aliases {
+		serial0 = &uart15;
 	};
 
 	chosen {
@@ -341,6 +342,35 @@
 			bias-pull-down;
 		};
 	};
+
+	uart15_state: uart15-state {
+		cts {
+			pins = "gpio27";
+			function = "qup15";
+			bias-pull-down;
+		};
+
+		rts-tx {
+			pins = "gpio28", "gpio29";
+			function = "qup15";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		rx {
+			pins = "gpio30";
+			function = "qup15";
+			bias-pull-up;
+		};
+	};
+
+	ssam_state: ssam-state {
+		wake-int {
+			pins = "gpio180";
+			function = "gpio";
+			bias-disable;
+		};
+	};
 };
 
 
@@ -450,4 +480,33 @@
 	status = "okay";
 	memory-region = <&mpss_mem>;
 	firmware-name = "qcom/msft/surface/pro-x-sq2/qcmpss8180.mbn";
+};
+
+
+&qupv3_id_2 {
+	status = "okay";
+};
+
+&uart15 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart15_state>;
+
+	surface-aggregator {
+		compatible = "surface,aggregator";
+
+		current-speed = <4000000>;
+		uart-has-rtscts;
+		uart-parity = "n";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&ssam_state>;
+
+		ssam_wakeup-int-gpios = <&tlmm 180 GPIO_ACTIVE_HIGH>;
+		// Note: 133 is used in ACPI as an alternative for some boards.
+
+		ssh-d3-closes-handle;
+		ssh-buffer-size = <0x30>;
+	};
 };
