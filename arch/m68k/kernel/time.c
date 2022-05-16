@@ -63,6 +63,10 @@ void timer_heartbeat(void)
 #endif /* CONFIG_HEARTBEAT */
 
 #ifdef CONFIG_M68KCLASSIC
+/* machine dependent timer functions */
+int (*mach_hwclk) (int, struct rtc_time*);
+EXPORT_SYMBOL(mach_hwclk);
+
 #if !IS_BUILTIN(CONFIG_RTC_DRV_GENERIC)
 void read_persistent_clock64(struct timespec64 *ts)
 {
@@ -82,6 +86,11 @@ void read_persistent_clock64(struct timespec64 *ts)
 #endif
 
 #if IS_ENABLED(CONFIG_RTC_DRV_GENERIC)
+int (*mach_get_rtc_pll)(struct rtc_pll_info *);
+int (*mach_set_rtc_pll)(struct rtc_pll_info *);
+EXPORT_SYMBOL(mach_get_rtc_pll);
+EXPORT_SYMBOL(mach_set_rtc_pll);
+
 static int rtc_generic_get_time(struct device *dev, struct rtc_time *tm)
 {
 	mach_hwclk(0, tm);
