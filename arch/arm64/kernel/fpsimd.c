@@ -1382,7 +1382,7 @@ static void sve_init_regs(void)
  * would have disabled the SVE access trap for userspace during
  * ret_to_user, making an SVE access trap impossible in that case.
  */
-void do_sve_acc(unsigned int esr, struct pt_regs *regs)
+void do_sve_acc(unsigned long esr, struct pt_regs *regs)
 {
 	/* Even if we chose not to use SVE, the hardware could still trap: */
 	if (unlikely(!system_supports_sve()) || WARN_ON(is_compat_task())) {
@@ -1424,7 +1424,7 @@ void do_sve_acc(unsigned int esr, struct pt_regs *regs)
  * would have disabled the SME access trap for userspace during
  * ret_to_user, making an SVE access trap impossible in that case.
  */
-void do_sme_acc(unsigned int esr, struct pt_regs *regs)
+void do_sme_acc(unsigned long esr, struct pt_regs *regs)
 {
 	/* Even if we chose not to use SME, the hardware could still trap: */
 	if (unlikely(!system_supports_sme()) || WARN_ON(is_compat_task())) {
@@ -1479,7 +1479,7 @@ void do_sme_acc(unsigned int esr, struct pt_regs *regs)
 /*
  * Trapped FP/ASIMD access.
  */
-void do_fpsimd_acc(unsigned int esr, struct pt_regs *regs)
+void do_fpsimd_acc(unsigned long esr, struct pt_regs *regs)
 {
 	/* TODO: implement lazy context saving/restoring */
 	WARN_ON(1);
@@ -1488,7 +1488,7 @@ void do_fpsimd_acc(unsigned int esr, struct pt_regs *regs)
 /*
  * Raise a SIGFPE for the current process.
  */
-void do_fpsimd_exc(unsigned int esr, struct pt_regs *regs)
+void do_fpsimd_exc(unsigned long esr, struct pt_regs *regs)
 {
 	unsigned int si_code = FPE_FLTUNK;
 
