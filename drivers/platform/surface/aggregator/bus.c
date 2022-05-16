@@ -6,6 +6,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/of.h>
 #include <linux/slab.h>
 
 #include <linux/surface_aggregator/controller.h>
@@ -13,6 +14,9 @@
 
 #include "bus.h"
 #include "controller.h"
+
+
+/* -- Device and bus functions. --------------------------------------------- */
 
 static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
@@ -363,6 +367,134 @@ void ssam_device_driver_unregister(struct ssam_device_driver *sdrv)
 }
 EXPORT_SYMBOL_GPL(ssam_device_driver_unregister);
 
+
+/* -- Bus registration. ----------------------------------------------------- */
+
+/**
+ * ssam_bus_register() - Register and set-up the SSAM client device bus.
+ */
+int ssam_bus_register(void)
+{
+	return bus_register(&ssam_bus_type);
+}
+
+/**
+ * ssam_bus_unregister() - Unregister the SSAM client device bus.
+ */
+void ssam_bus_unregister(void)
+{
+	return bus_unregister(&ssam_bus_type);
+}
+
+
+/* -- Helpers for controller and hub devices. ------------------------------- */
+
+static int ssam_device_uid_from_string(const char *str, struct ssam_device_uid *uid)
+{
+	u8 d, tc, tid, iid, fn;
+	int n;
+
+	n = sscanf(str, "%hhx:%hhx:%hhx:%hhx:%hhx", &d, &tc, &tid, &iid, &fn);
+	if (n != 5)
+		return -EINVAL;
+
+	uid->domain = d;
+	uid->category = tc;
+	uid->target = tid;
+	uid->instance = iid;
+	uid->function = fn;
+
+	return 0;
+}
+
+static int ssam_get_uid_for_node(struct fwnode_handle *node, struct ssam_device_uid *uid)
+{
+	const char* str = fwnode_get_name(node);
+	int status;
+
+	/*
+	 * To simplify definitions of firmware nodes, we set the device name
+	 * based on the UID of the device, prefixed with "ssam:". In device
+	 * trees, however, we use a dedicated "ssam-uid" property. Therefore we
+	 * check for the name prefix first and then decide where to get the UID
+	 * from.
+	 */
+
+	if (strncmp(str, "ssam:", strlen("ssam:")) == 0) {
+		str += strlen("ssam:");
+	} else {
+		status = fwnode_property_read_string(node, "ssam-uid", &str);
+		if (status)
+			return status;
+	}
+
+	return ssam_device_uid_from_string(str, uid);
+}
+
+static int ssam_add_client_device(struct device *parent, struct ssam_controller *ctrl,
+				  struct fwnode_handle *node)
+{
+	struct ssam_device_uid uid;
+	struct ssam_device *sdev;
+	int status;
+
+	status = ssam_get_uid_for_node(node, &uid);
+	if (status)
+		return status;
+
+	sdev = ssam_device_alloc(ctrl, uid);
+	if (!sdev)
+		return -ENOMEM;
+
+	sdev->dev.parent = parent;
+	sdev->dev.fwnode = node;
+	sdev->dev.of_node = to_of_node(node);
+
+	status = ssam_device_add(sdev);
+	if (status)
+		ssam_device_put(sdev);
+
+	return status;
+}
+
+int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
+			    struct fwnode_handle *node)
+{
+	struct fwnode_handle *child;
+	int status;
+
+	fwnode_for_each_child_node(node, child) {
+		/*
+		 * Try to add the device specified in the firmware node. If
+		 * this fails with -EINVAL, the node does not specify any SSAM
+		 * device, so ignore it and continue with the next one.
+		 */
+
+		status = ssam_add_client_device(parent, ctrl, child);
+		if (status && status != -EINVAL)
+			goto err;
+	}
+
+	return 0;
+err:
+	ssam_remove_clients(parent);
+	return status;
+}
+EXPORT_SYMBOL_GPL(__ssam_register_clients);
+
+int ssam_register_clients(struct device *dev, struct ssam_controller *ctrl)
+{
+	struct fwnode_handle *node;
+	int status;
+
+	node = fwnode_handle_get(dev_fwnode(dev));
+	status = __ssam_register_clients(dev, ctrl, node);
+	fwnode_handle_put(node);
+
+	return status;
+}
+EXPORT_SYMBOL_GPL(ssam_register_clients);
+
 static int ssam_remove_device(struct device *dev, void *_data)
 {
 	struct ssam_device *sdev = to_ssam_device(dev);
@@ -387,22 +519,3 @@ void ssam_remove_clients(struct device *dev)
 	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
 }
 EXPORT_SYMBOL_GPL(ssam_remove_clients);
-
-
-/* -- Bus registration. ----------------------------------------------------- */
-
-/**
- * ssam_bus_register() - Register and set-up the SSAM client device bus.
- */
-int ssam_bus_register(void)
-{
-	return bus_register(&ssam_bus_type);
-}
-
-/**
- * ssam_bus_unregister() - Unregister the SSAM client device bus.
- */
-void ssam_bus_unregister(void)
-{
-	return bus_unregister(&ssam_bus_type);
-}

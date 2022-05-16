@@ -364,10 +364,25 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
 /* -- Helpers for controller and hub devices. ------------------------------- */
 
 #ifdef CONFIG_SURFACE_AGGREGATOR_BUS
+
+int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
+			    struct fwnode_handle *node);
+int ssam_register_clients(struct device *dev, struct ssam_controller *ctrl);
 void ssam_remove_clients(struct device *dev);
+
 #else /* CONFIG_SURFACE_AGGREGATOR_BUS */
+
+static inline int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
+					  struct fwnode_handle *node) {}
+static inline int ssam_register_clients(struct device *dev, struct ssam_controller *ctrl) {}
 static inline void ssam_remove_clients(struct device *dev) {}
+
 #endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
+
+static inline int ssam_device_register_clients(struct ssam_device *sdev)
+{
+	return ssam_register_clients(&sdev->dev, sdev->ctrl);
+}
 
 
 /* -- Helpers for client-device requests. ----------------------------------- */
