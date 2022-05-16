@@ -17,6 +17,7 @@
 	compatible = "microsoft,surface-pro-x", "qcom,sc8180x";
 
 	aliases {
+		serial0 = &uart13;
 	};
 
 	chosen {
@@ -195,6 +196,18 @@
 			regulator-max-microvolt = <2040000>;
 		};
 
+		vreg_l7a_1p8: ldo7 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l9a_1p3: ldo9 {
+			regulator-min-microvolt = <1296000>;
+			regulator-max-microvolt = <1304000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l12a_1p8: ldo12 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
@@ -296,6 +309,12 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l11c_3p3: ldo11 {
+			regulator-min-microvolt = <3296000>;
+			regulator-max-microvolt = <3304000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_bob: bob {
 			regulator-min-microvolt = <3296000>;
 			regulator-max-microvolt = <3350000>;
@@ -347,6 +366,27 @@
 			drive-strength = <2>;
 			output-low;
 			bias-pull-down;
+		};
+	};
+
+	uart13_state: uart13-state {
+		cts {
+			pins = "gpio43";
+			function = "qup13";
+			bias-pull-down;
+		};
+
+		rts-tx {
+			pins = "gpio44", "gpio45";
+			function = "qup13";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		rx {
+			pins = "gpio46";
+			function = "qup13";
+			bias-pull-up;
 		};
 	};
 };
@@ -483,4 +523,36 @@
 	status = "okay";
 	memory-region = <&mpss_mem>;
 	firmware-name = "qcom/msft/surface/pro-x-sq2/qcmpss8180.mbn";
+};
+
+
+&qupv3_id_2 {
+	status = "okay";
+};
+
+&uart13 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart13_state>;
+
+	bluetooth {
+		// Note: For some reason, the ROM version is given as 0x01
+		//       whereas it should be 0x21. This prevents the firmware
+		//       from being found, as these file names depend on the
+		//       rom version. Symlinking
+		//        - qca/crbtfw01.tlv to qca/crbtfw21.tlv
+		//        - qca/crnv01.bin to qca/crnv21.bin
+		//       fixes them. Windows is confirmed to use the 0x21
+		//       files.
+
+		compatible = "qcom,wcn3998-bt";
+
+		vddio-supply = <&vreg_s4a_1p8>;
+		vddxo-supply = <&vreg_l7a_1p8>;
+		vddrf-supply = <&vreg_l9a_1p3>;
+		vddch0-supply = <&vreg_l11c_3p3>;
+
+		max-speed = <3200000>;
+	};
 };
