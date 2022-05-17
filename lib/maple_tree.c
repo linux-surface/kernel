@@ -4547,6 +4547,9 @@ static inline void *mas_next_nentry(struct ma_state *mas,
 		return NULL;
 
 	count = ma_data_end(node, type, pivots, mas->max);
+	if (mas->offset > count)
+		return NULL;
+
 	while (mas->offset < count) {
 		pivot = pivots[mas->offset];
 		entry = mas_slot(mas, slots, mas->offset);
