@@ -369,6 +369,22 @@
 		};
 	};
 
+	i2c2_active: i2c2-active-state {
+		pins = "gpio126", "gpio127";
+		function = "qup2";
+
+		bias-pull-up;
+		drive-strength = <2>;
+	};
+
+	i2c2_als_active: i2c2-als-active-state {
+		pins = "gpio24";
+		function = "gpio";
+
+		input-enable;
+		bias-disable;
+	};
+
 	uart13_state: uart13-state {
 		cts {
 			pins = "gpio43";
@@ -523,6 +539,27 @@
 	status = "okay";
 	memory-region = <&mpss_mem>;
 	firmware-name = "qcom/msft/surface/pro-x-sq2/qcmpss8180.mbn";
+};
+
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&i2c2 {
+	status = "okay";
+	clock-frequency = <400000>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c2_active>, <&i2c2_als_active>;
+
+	als@39 {
+		// TODO: this should actually be a TCS3430
+		compatible = "avago,apds9960";
+		reg = <0x39>;
+
+		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
+	};
 };
 
 
