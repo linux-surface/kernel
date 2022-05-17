@@ -354,7 +354,7 @@ static inline bool mt_is_alloc(struct maple_tree *mt)
 /*
  * The Parent Pointer
  * Excluding root, the parent pointer is 256B aligned like all other tree nodes.
- * When storing a 32 or 64 bit values, the offset can fit into 4 bits.  The 16
+ * When storing a 32 or 64 bit values, the offset can fit into 5 bits.  The 16
  * bit values need an extra bit to store the offset.  This extra bit comes from
  * a reuse of the last bit in the node type.  This is possible by using bit 1 to
  * indicate if bit 2 is part of the type or the slot.
@@ -366,19 +366,19 @@ static inline bool mt_is_alloc(struct maple_tree *mt)
  *  0x110 = 64 bit nodes
  *
  * Slot size and alignment
- *  0x??1 : Root
- *  0x?00 : 16 bit values, type in 0-1, slot in 2-6
- *  0x010 : 32 bit values, type in 0-2, slot in 3-6
- *  0x110 : 64 bit values, type in 0-2, slot in 3-6
+ *  0b??1 : Root
+ *  0b?00 : 16 bit values, type in 0-1, slot in 2-7
+ *  0b010 : 32 bit values, type in 0-2, slot in 3-7
+ *  0b110 : 64 bit values, type in 0-2, slot in 3-7
  */
 
 #define MAPLE_PARENT_ROOT		0x01
 
 #define MAPLE_PARENT_SLOT_SHIFT		0x03
-#define MAPLE_PARENT_SLOT_MASK		0x78
+#define MAPLE_PARENT_SLOT_MASK		0xF8
 
 #define MAPLE_PARENT_16B_SLOT_SHIFT	0x02
-#define MAPLE_PARENT_16B_SLOT_MASK	0x7C
+#define MAPLE_PARENT_16B_SLOT_MASK	0xFC
 
 #define MAPLE_PARENT_RANGE64		0x06
 #define MAPLE_PARENT_RANGE32		0x04
