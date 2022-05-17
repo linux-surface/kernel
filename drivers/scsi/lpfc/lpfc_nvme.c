@@ -1401,8 +1401,8 @@ lpfc_nvme_prep_io_dma(struct lpfc_vport *vport,
 				if ((nseg - 1) == i)
 					bf_set(lpfc_sli4_sge_last, sgl, 1);
 
-				physaddr = data_sg->dma_address;
-				dma_len = data_sg->length;
+				physaddr = sg_dma_address(data_sg);
+				dma_len = sg_dma_len(data_sg);
 				sgl->addr_lo = cpu_to_le32(
 							 putPaddrLow(physaddr));
 				sgl->addr_hi = cpu_to_le32(
@@ -2357,6 +2357,11 @@ lpfc_nvme_register_port(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp)
 		rpinfo.dev_loss_tmo = vport->cfg_devloss_tmo;
 
 	spin_lock_irq(&ndlp->lock);
+
+	/* If an oldrport exists, so does the ndlp reference.  If not
+	 * a new reference is needed because either the node has never
+	 * been registered or it's been unregistered and getting deleted.
+	 */
 	oldrport = lpfc_ndlp_get_nrport(ndlp);
 	if (oldrport) {
 		prev_ndlp = oldrport->ndlp;

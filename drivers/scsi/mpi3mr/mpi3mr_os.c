@@ -911,9 +911,11 @@ void mpi3mr_rfresh_tgtdevs(struct mpi3mr_ioc *mrioc)
 
 	list_for_each_entry_safe(tgtdev, tgtdev_next, &mrioc->tgtdev_list,
 	    list) {
-		if ((tgtdev->dev_handle == MPI3MR_INVALID_DEV_HANDLE) &&
-		    tgtdev->host_exposed) {
-			mpi3mr_remove_tgtdev_from_host(mrioc, tgtdev);
+		if (tgtdev->dev_handle == MPI3MR_INVALID_DEV_HANDLE) {
+			dprint_reset(mrioc, "removing target device with perst_id(%d)\n",
+			    tgtdev->perst_id);
+			if (tgtdev->host_exposed)
+				mpi3mr_remove_tgtdev_from_host(mrioc, tgtdev);
 			mpi3mr_tgtdev_del_from_list(mrioc, tgtdev);
 			mpi3mr_tgtdev_put(tgtdev);
 		}
@@ -3725,6 +3727,10 @@ static int mpi3mr_slave_configure(struct scsi_device *sdev)
 		return -ENXIO;
 
 	mpi3mr_change_queue_depth(sdev, tgt_dev->q_depth);
+
+	sdev->eh_timeout = MPI3MR_EH_SCMD_TIMEOUT;
+	blk_queue_rq_timeout(sdev->request_queue, MPI3MR_SCMD_TIMEOUT);
+
 	switch (tgt_dev->dev_type) {
 	case MPI3_DEVICE_DEVFORM_PCIE:
 		/*The block layer hw sector size = 512*/
@@ -3995,6 +4001,12 @@ static int mpi3mr_qcmd(struct Scsi_Host *shost,
 	struct request *rq = scsi_cmd_to_rq(scmd);
 	int iprio_class;
 	u8 is_pcie_dev = 0;
+
+	if (mrioc->unrecoverable) {
+		scmd->result = DID_ERROR << 16;
+		scsi_done(scmd);
+		goto out;
+	}
 
 	sdev_priv_data = scmd->device->hostdata;
 	if (!sdev_priv_data || !sdev_priv_data->tgt_priv_data) {
