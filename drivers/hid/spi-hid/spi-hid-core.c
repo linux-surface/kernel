@@ -597,7 +597,7 @@ static int spi_hid_process_input_report(struct spi_hid *shid,
 			ret = -EINVAL;
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	case SPI_HID_REPORT_TYPE_REPORT_DESC:
 		ret = spi_hid_response_handler(shid, buf);
 		break;
