@@ -8,6 +8,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/spmi/spmi.h>
 #include "sc8180x.dtsi"
@@ -165,6 +166,20 @@
 		regulator-boot-on;
 
 		vin-supply = <&vph_pwr>;
+	};
+
+	vreg_ts_5p0: ts-5p0-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_ts_5p0";
+
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+
+		gpio = <&pmc8180e_gpios 10 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_5v_en_default_state>;
 	};
 };
 
@@ -366,6 +381,15 @@
 		reg = <0x8 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		pmc8180e_gpios: gpio@c000 {
+			compatible = "qcom,pmc8180-gpio";
+			reg = <0xc000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
 	};
 
 	pmc8180e_1: pmic@9 {
@@ -422,6 +446,51 @@
 		};
 	};
 
+	spi1_active: spi1-active-state {
+		pins = "gpio114", "gpio115", "gpio116", "gpio117";
+		function = "qup1";
+
+		drive-strength = <6>;
+		bias-disable;
+
+		// Note: Drive strength and bias set based on qcom lahaina
+		// (Surface Duo 2) DT.
+	};
+
+	spi1_hid0_reset_deassert: spi1-hid1-reset-deassert {
+		pins = "gpio54";
+		function = "gpio";
+
+		drive-strength = <2>;
+		bias-disable;
+		output-high;
+	};
+
+	spi1_hid0_reset_assert: spi1-hid1-reset-assert {
+		pins = "gpio54";
+		function = "gpio";
+
+		drive-strength = <2>;
+		bias-disable;
+		output-low;
+	};
+
+	spi1_hid0_int_bias: spi1-hid1-int-bias {
+		pins = "gpio122";
+		function = "gpio";
+
+		input-enable;
+		bias-pull-up;
+	};
+
+	spi1_hid0_int_unbias: spi1-hid1-int-unbias {
+		pins = "gpio122";
+		function = "gpio";
+
+		input-enable;
+		bias-disable;
+	};
+
 	i2c2_active: i2c2-active-state {
 		pins = "gpio126", "gpio127";
 		function = "qup2";
@@ -457,6 +526,13 @@
 			function = "qup13";
 			bias-pull-up;
 		};
+	};
+};
+
+&pmc8180e_gpios {
+	ts_5v_en_default_state: ts-5v-en-default-state {
+		pins = "gpio10";
+		function = "normal";
 	};
 };
 
@@ -597,6 +673,32 @@
 
 &qupv3_id_0 {
 	status = "okay";
+};
+
+&spi1 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi1_active>;
+
+	hid@0 {
+		compatible = "hid-over-spi";
+
+		reg = <0>;
+		// spi-max-frequency = <25000000>;
+		spi-max-frequency = <12500000>;
+
+		interrupts-extended = <&tlmm 122 IRQ_TYPE_EDGE_FALLING>;
+
+		pinctrl-names = "active", "sleep", "reset";
+		pinctrl-0 = <&spi1_hid0_reset_deassert &spi1_hid0_int_bias>;
+		pinctrl-1 = <&spi1_hid0_reset_assert &spi1_hid0_int_unbias>;
+		pinctrl-2 = <&spi1_hid0_reset_assert &spi1_hid0_int_bias>;
+
+		vdd-supply = <&vreg_ts_5p0>;
+
+		hid-descr-addr = <1>;
+	};
 };
 
 &i2c2 {
