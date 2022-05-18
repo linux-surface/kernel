@@ -176,7 +176,7 @@
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 
-		gpio = <&pmc8180e_gpios 9 0>;
+		gpio = <&pmc8180e_gpios 10 0>;
 		enable-active-high;
 
 		pinctrl-names = "default";
@@ -536,7 +536,7 @@
 
 &pmc8180e_gpios {
 	ts_5v_en_default_state: ts-5v-en-default-state {
-		pins = "gpio9";
+		pins = "gpio10";
 		function = "normal";
 	};
 };
