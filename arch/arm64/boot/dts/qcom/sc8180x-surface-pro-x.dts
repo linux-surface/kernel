@@ -340,42 +340,42 @@
 
 &spmi_bus {
 	pmc8180a_pmic1: pmic@0 {
-		compatible = "qcom,pmc8180", "qcom,spmi-pmic";
+		compatible = "qcom,pm8150", "qcom,spmi-pmic";
 		reg = <0x0 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
 
 	pmc8180a_pmic2: pmic@1 {
-		compatible = "qcom,pmc8180", "qcom,spmi-pmic";
+		compatible = "qcom,pm8150", "qcom,spmi-pmic";
 		reg = <0x1 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
 
 	pmc8180c_pmic1: pmic@4 {
-		compatible = "qcom,pmc8180", "qcom,spmi-pmic";
+		compatible = "qcom,pm8150c", "qcom,spmi-pmic";
 		reg = <0x4 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
 
 	pmc8180c_pmic2: pmic@5 {
-		compatible = "qcom,pmc8180", "qcom,spmi-pmic";
+		compatible = "qcom,pm8150c", "qcom,spmi-pmic";
 		reg = <0x5 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
 
 	pmk8002_pmic: pmic@6 {
-		compatible = "qcom,pmc8180", "qcom,spmi-pmic";
+		compatible = "qcom,pmk8002", "qcom,spmi-pmic";
 		reg = <0x6 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
 
 	pmc8180e_pmic1: pmic@8 {
-		compatible = "qcom,pmc8150", "qcom,spmi-pmic";
+		compatible = "qcom,pm8150", "qcom,spmi-pmic";
 		reg = <0x8 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -391,7 +391,7 @@
 	};
 
 	pmc8180e_pmic2: pmic@9 {
-		compatible = "qcom,pmc8180", "qcom,spmi-pmic";
+		compatible = "qcom,pm8150", "qcom,spmi-pmic";
 		reg = <0x9 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
