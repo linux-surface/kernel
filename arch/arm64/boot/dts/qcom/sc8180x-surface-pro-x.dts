@@ -178,6 +178,9 @@
 
 		gpio = <&pmc8180e_gpios 9 0>;
 		enable-active-high;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_5v_en_default_state>;
 	};
 };
 
@@ -528,6 +531,13 @@
 			function = "gpio";
 			bias-disable;
 		};
+	};
+};
+
+&pmc8180e_gpios {
+	ts_5v_en_default_state: ts-5v-en-default-state {
+		pins = "gpio9";
+		function = "normal";
 	};
 };
 
