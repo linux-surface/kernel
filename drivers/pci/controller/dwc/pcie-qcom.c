@@ -48,6 +48,7 @@
 #define PCIE20_PARF_PHY_REFCLK			0x4C
 #define PHY_REFCLK_SSP_EN			BIT(16)
 #define PHY_REFCLK_USE_PAD			BIT(12)
+#define PHY_POWER_DOWN				0x1
 
 #define PCIE20_PARF_DBI_BASE_ADDR		0x168
 #define PCIE20_PARF_SLV_ADDR_SPACE_SIZE		0x16C
@@ -62,6 +63,8 @@
 
 #define PCIE20_ELBI_SYS_CTRL			0x04
 #define PCIE20_ELBI_SYS_CTRL_LT_ENABLE		BIT(0)
+#define PCIE_PME_TURNOFF_MSG			BIT(4)
+#define PCIE_PM_LINKST_IN_L2			BIT(5)
 
 #define PCIE20_AXI_MSTR_RESP_COMP_CTRL0		0x818
 #define CFG_REMOTE_RD_REQ_BRIDGE_SIZE_2K	0x4
@@ -72,6 +75,8 @@
 #define PCIE_CAP_LINK1_VAL			0x2FD7F
 
 #define PCIE20_PARF_Q2A_FLUSH			0x1AC
+
+#define PCIE20_PARF_PM_STTS			0x24
 
 #define PCIE20_MISC_CONTROL_1_REG		0x8BC
 #define DBI_RO_WR_EN				1
@@ -199,6 +204,7 @@ struct qcom_pcie_cfg {
 	unsigned int has_ddrss_sf_tbu_clk:1;
 	unsigned int has_aggre0_clk:1;
 	unsigned int has_aggre1_clk:1;
+	unsigned int suspend_poweroff:1;
 };
 
 struct qcom_pcie {
@@ -1216,6 +1222,10 @@ static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
 		return ret;
 	}
 
+	/* Indicate PCI device drivers that the power will be taken off during system suspend */
+	if (pcie->cfg->suspend_poweroff)
+		pci->pp.bridge->suspend_poweroff = true;
+
 	/* Set TCXO as clock source for pcie_pipe_clk_src */
 	if (pcie->cfg->pipe_clk_need_muxing)
 		clk_set_parent(res->pipe_clk_src, res->ref_clk_src);
@@ -1549,6 +1559,7 @@ static const struct qcom_pcie_cfg sc7280_cfg = {
 	.ops = &ops_1_9_0,
 	.has_tbu_clk = true,
 	.pipe_clk_need_muxing = true,
+	.suspend_poweroff = true,
 };
 
 static const struct qcom_pcie_cfg sc8180x_cfg = {
@@ -1650,6 +1661,102 @@ err_pm_runtime_put:
 	return ret;
 }
 
+static int qcom_pcie_send_pme_turnoff_msg(struct qcom_pcie *pcie)
+{
+	int ret;
+	u32 val, poll_val;
+	struct dw_pcie *pci = pcie->pci;
+	struct device *dev = pci->dev;
+
+	val = readl(pcie->elbi + PCIE20_ELBI_SYS_CTRL);
+	val |= PCIE_PME_TURNOFF_MSG;
+	writel(val, pcie->elbi + PCIE20_ELBI_SYS_CTRL);
+
+	ret = readl_poll_timeout((pcie->parf + PCIE20_PARF_PM_STTS), poll_val,
+			(poll_val & PCIE_PM_LINKST_IN_L2),
+			10000, 100000);
+	if (!ret)
+		dev_dbg(dev, "Device entered L23_Ready state\n");
+	else
+		dev_err(dev, "Device failed to enter L23_Ready. PM_STTS 0x%x\n",
+			readl_relaxed(pcie->parf + PCIE20_PARF_PM_STTS));
+
+	return ret;
+}
+
+static void qcom_pcie_host_disable(struct qcom_pcie *pcie)
+{
+	qcom_ep_reset_assert(pcie);
+
+	/* Put PHY into POWER DOWN state */
+	phy_power_off(pcie->phy);
+
+	writel(PHY_POWER_DOWN, pcie->parf + PCIE20_PARF_PHY_CTRL);
+
+	/* Disable PCIe clocks and regulators */
+	pcie->cfg->ops->deinit(pcie);
+}
+
+static int qcom_pcie_pm_suspend(struct device *dev)
+{
+	int ret;
+	struct qcom_pcie *pcie = dev_get_drvdata(dev);
+	struct dw_pcie *pci = pcie->pci;
+
+	/* If the platform doesn't support powerdown during suspend, just return */
+	if (!pcie->cfg->suspend_poweroff)
+		return 0;
+
+	if (!dw_pcie_link_up(pci)) {
+		dev_dbg(dev, "Power has been turned off already\n");
+		return 0;
+	}
+
+	ret = qcom_pcie_send_pme_turnoff_msg(pcie);
+	if (ret)
+		return ret;
+
+	/* Power down the PHY, disable clock and regulators */
+	qcom_pcie_host_disable(pcie);
+
+	return 0;
+}
+
+/* Resume the PCIe link */
+static int qcom_pcie_pm_resume(struct device *dev)
+{
+	int ret;
+	struct qcom_pcie *pcie = dev_get_drvdata(dev);
+	struct dw_pcie *pci = pcie->pci;
+	struct pcie_port *pp = &pci->pp;
+
+	/* If the platform doesn't support powerdown during suspend, just return */
+	if (!pcie->cfg->suspend_poweroff)
+		return 0;
+
+	ret = qcom_pcie_host_init(pp);
+	if (ret) {
+		dev_err(dev, "cannot initialize host\n");
+		return ret;
+	}
+
+	dw_pcie_setup_rc(pp);
+
+	qcom_pcie_start_link(pci);
+
+	ret = dw_pcie_wait_for_link(pci);
+	if (ret) {
+		dev_err(dev, "Link never came up, Resume failed\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+static const struct dev_pm_ops qcom_pcie_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(qcom_pcie_pm_suspend, qcom_pcie_pm_resume)
+};
+
 static const struct of_device_id qcom_pcie_match[] = {
 	{ .compatible = "qcom,pcie-apq8084", .data = &apq8084_cfg },
 	{ .compatible = "qcom,pcie-ipq8064", .data = &ipq8064_cfg },
@@ -1687,6 +1794,7 @@ static struct platform_driver qcom_pcie_driver = {
 		.name = "qcom-pcie",
 		.suppress_bind_attrs = true,
 		.of_match_table = qcom_pcie_match,
+		.pm = pm_sleep_ptr(&qcom_pcie_pm_ops),
 	},
 };
 builtin_platform_driver(qcom_pcie_driver);
