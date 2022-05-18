@@ -22,6 +22,16 @@
 		serial0 = &uart13;
 	};
 
+	backlight: backlight {
+		compatible = "pwm-backlight";
+
+		pwms = <&pmc8180c_lpg 4 5000000>;
+		enable-gpios = <&pmc8180e_gpios 1 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&bl_pwm_default_state &bl_en_default_state>;
+	};
+
 	chosen {
 	};
 
@@ -360,6 +370,15 @@
 		reg = <0x4 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		pmc8180c_gpios: gpio@c000 {
+			compatible = "qcom,pmc8180c-gpio";
+			reg = <0xc000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
 	};
 
 	pmc8180c_1: pmic@5 {
@@ -367,6 +386,13 @@
 		reg = <0x5 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		pmc8180c_lpg: lpg {
+			compatible = "qcom,pmc8180c-lpg";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			#pwm-cells = <2>;
+		};
 	};
 
 	pmk8002: pmic@6 {
@@ -529,7 +555,19 @@
 	};
 };
 
+&pmc8180c_gpios {
+	bl_pwm_default_state: bl-pwm-default-state {
+		pins = "gpio10";
+		function = "func1";
+	};
+};
+
 &pmc8180e_gpios {
+	bl_en_default_state: bl-pwm-default-state {
+		pins = "gpio1";
+		function = "normal";
+	};
+
 	ts_5v_en_default_state: ts-5v-en-default-state {
 		pins = "gpio10";
 		function = "normal";
