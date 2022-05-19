@@ -3073,8 +3073,7 @@ static int do_brk_munmap(struct ma_state *mas, struct vm_area_struct *vma,
 
 	arch_unmap(mm, newbrk, oldbrk);
 
-	if (likely((vma->vm_end < oldbrk) ||
-		   ((vma->vm_start == newbrk) && (vma->vm_end == oldbrk)))) {
+	if (likely((vma->vm_end < oldbrk) || (vma->vm_start >= newbrk))) {
 		/* remove entire mapping(s) */
 		ret = do_mas_align_munmap(mas, vma, mm, newbrk, oldbrk, uf,
 					  true);
