@@ -34,7 +34,7 @@ TRACE_EVENT(ma_op,
 			__entry->node		= mas->node;
 	),
 
-	TP_printk("%s\tNode: %px (%lu %lu) range: %lu-%lu",
+	TP_printk("%s\tNode: %p (%lu %lu) range: %lu-%lu",
 		  __entry->fn,
 		  (void *) __entry->node,
 		  (unsigned long) __entry->min,
@@ -67,7 +67,7 @@ TRACE_EVENT(ma_read,
 			__entry->node		= mas->node;
 	),
 
-	TP_printk("%s\tNode: %px (%lu %lu) range: %lu-%lu",
+	TP_printk("%s\tNode: %p (%lu %lu) range: %lu-%lu",
 		  __entry->fn,
 		  (void *) __entry->node,
 		  (unsigned long) __entry->min,
@@ -106,7 +106,7 @@ TRACE_EVENT(ma_write,
 			__entry->node		= mas->node;
 	),
 
-	TP_printk("%s\tNode %px (%lu %lu) range:%lu-%lu piv (%lu) val %px",
+	TP_printk("%s\tNode %p (%lu %lu) range:%lu-%lu piv (%lu) val %p",
 		  __entry->fn,
 		  (void *) __entry->node,
 		  (unsigned long) __entry->min,

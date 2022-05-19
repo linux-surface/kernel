@@ -189,7 +189,7 @@ enum maple_type {
 typedef struct lockdep_map *lockdep_map_p;
 #define mt_lock_is_held(mt)	lock_is_held(mt->ma_external_lock)
 #define mt_set_external_lock(mt, lock)					\
-	(mt)->ma_external_lock = &(lock)->dep_map;
+	(mt)->ma_external_lock = &(lock)->dep_map
 #else
 typedef struct { /* nothing */ } lockdep_map_p;
 #define mt_lock_is_held(mt)	1
