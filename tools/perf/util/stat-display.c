@@ -610,6 +610,19 @@ static bool hybrid_uniquify(struct evsel *evsel)
 	return perf_pmu__has_hybrid() && !is_uncore(evsel);
 }
 
+static bool hybrid_merge(struct evsel *counter, struct perf_stat_config *config,
+			 bool check)
+{
+	if (hybrid_uniquify(counter)) {
+		if (check)
+			return config && config->hybrid_merge;
+		else
+			return config && !config->hybrid_merge;
+	}
+
+	return false;
+}
+
 static bool collect_data(struct perf_stat_config *config, struct evsel *counter,
 			    void (*cb)(struct perf_stat_config *config, struct evsel *counter, void *data,
 				       bool first),
@@ -618,9 +631,9 @@ static bool collect_data(struct perf_stat_config *config, struct evsel *counter,
 	if (counter->merged_stat)
 		return false;
 	cb(config, counter, data, true);
-	if (config->no_merge || hybrid_uniquify(counter))
+	if (config->no_merge || hybrid_merge(counter, config, false))
 		uniquify_event_name(counter);
-	else if (counter->auto_merge_stats)
+	else if (counter->auto_merge_stats || hybrid_merge(counter, config, true))
 		collect_all_aliases(config, counter, cb, data);
 	return true;
 }
@@ -933,8 +946,6 @@ static void print_no_aggr_metric(struct perf_stat_config *config,
 		struct evsel *counter;
 		bool first = true;
 
-		if (prefix)
-			fputs(prefix, config->output);
 		evlist__for_each_entry(evlist, counter) {
 			u64 ena, run, val;
 			double uval;
@@ -946,6 +957,8 @@ static void print_no_aggr_metric(struct perf_stat_config *config,
 
 			id = aggr_cpu_id__cpu(cpu, /*data=*/NULL);
 			if (first) {
+				if (prefix)
+					fputs(prefix, config->output);
 				aggr_printout(config, counter, id, 0);
 				first = false;
 			}
@@ -957,7 +970,8 @@ static void print_no_aggr_metric(struct perf_stat_config *config,
 			printout(config, id, 0, counter, uval, prefix,
 				 run, ena, 1.0, &rt_stat);
 		}
-		fputc('\n', config->output);
+		if (!first)
+			fputc('\n', config->output);
 	}
 }
 
