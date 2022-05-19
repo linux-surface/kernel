@@ -4628,8 +4628,10 @@ retry:
 	node = mas_mn(mas);
 	mt = mte_node_type(mas->node);
 	mas->offset++;
-	if (unlikely(mas->offset >= mt_slots[mt]))
+	if (unlikely(mas->offset >= mt_slots[mt])) {
+		mas->offset = mt_slots[mt] - 1;
 		goto next_node;
+	}
 
 	while (!mas_is_none(mas)) {
 		entry = mas_next_nentry(mas, node, limit, mt);
@@ -4687,6 +4689,9 @@ retry:
 	mn = mas_mn(mas);
 	mt = mte_node_type(mas->node);
 	offset = mas->offset - 1;
+	if (offset >= mt_slots[mt])
+		offset = mt_slots[mt] - 1;
+
 	slots = ma_slots(mn, mt);
 	pivots = ma_pivots(mn, mt);
 	if (offset == mt_pivots[mt])
