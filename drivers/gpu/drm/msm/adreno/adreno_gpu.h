@@ -249,7 +249,7 @@ static inline int adreno_is_a630(struct adreno_gpu *gpu)
 
 static inline int adreno_is_a640_family(struct adreno_gpu *gpu)
 {
-	return (gpu->revn == 640) || (gpu->revn == 680);
+	return (gpu->revn == 640) || (gpu->revn == 680) || (gpu->revn == 690);
 }
 
 static inline int adreno_is_a650(struct adreno_gpu *gpu)
