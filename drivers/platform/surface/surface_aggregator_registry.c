@@ -38,15 +38,15 @@ static const struct software_node ssam_node_root = {
 	.name = "ssam_platform_hub",
 };
 
-/* Base device hub (devices attached to Surface Book 3 base). */
-static const struct software_node ssam_node_hub_base = {
-	.name = "ssam:00:00:02:00:00",
+/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
+static const struct software_node ssam_node_hub_kip = {
+	.name = "ssam:00:00:01:0e:00",
 	.parent = &ssam_node_root,
 };
 
-/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
-static const struct software_node ssam_node_hub_kip = {
-	.name = "ssam:01:0e:01:00:00",
+/* Base device hub (devices attached to Surface Book 3 base). */
+static const struct software_node ssam_node_hub_base = {
+	.name = "ssam:00:00:02:11:00",
 	.parent = &ssam_node_root,
 };
 
