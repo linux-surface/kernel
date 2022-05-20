@@ -1,0 +1,267 @@
+arm/soc
+	omap/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/soc-signed
+	broadcom/soc
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/soc
+	broadcom/maintainers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/maintainers
+	samsung/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-5.19
+	renesas/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-soc-for-v5.19-tag1
+	tegra/core
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm-core
+	hisilicon/soc
+		https://github.com/hisilicon/linux-hisi tags/hisi-armv7soc-for-5.19
+	sockchip/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-soc32-1
+	mediatek/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-soc
+	at91/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-soc-5.19
+	mvebu/arm
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-arm-5.19-1
+
+arm/dt
+	patch
+		arm64: dts: synaptics: remove unused DTSI for AS370
+	cleanup/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt-cleanup-5.19
+	samsung/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.19
+	samsung/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.19
+	renesas/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-dt-for-v5.19-tag1
+	renesas/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v5.19-tag1
+	omap/dt-binding
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/bindings-signed
+	omap/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/dt-signed
+	ux500/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik tags/ux500-dts-v5.19
+	amlogic/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm64-dt-for-v5.19
+	amlogic/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm-dt-for-v5.19
+	stm32/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32 tags/stm32-dt-for-v5.19-1
+	juno/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/juno-updates-5.19
+	broadcom/dt
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/devicetree
+	broadcom/dt64
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/devicetree-arm64
+	omap/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/dt-part2-signed
+	arm/dt-cleanup
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt64-cleanup-5.19
+	arm/dt32-cleanup
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt-cleanup-5.19-2
+	samsung/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.19-2
+	samsung/dt64-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.19-2
+	renesas/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-dt-for-v5.19-tag2
+	renesas/dt-bindings-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v5.19-tag2
+	tegra/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-dt-bindings
+	tegra/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm64-dt
+	sunxi/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-5.19-1
+	keystone/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-keystone-dt-for-v5.19
+	k3/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-dt-for-v5.19
+	imx/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-bindings-5.19
+	sunxi/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-5.19-2
+	qcom/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-5.19
+	qcom/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-5.19
+	imx/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt-5.19
+	imx/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt64-5.19
+	patch
+		Revert "ARM: dts: BCM5301X: Fix DTC warning for NAND node"
+	rockchip/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts64-1
+	rockchip/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts32-1
+	patch
+		dt-bindings: clock: stm32mp1: adapt example for "st,stm32mp1-rcc-secure"
+	visconti/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/iwamatsu/linux-visconti tags/visconti-arm-dt-for-v5.19
+	mvebu/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt64-5.19-1
+	mvebu/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt-5.19-1
+	at91/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-dt-5.19
+	mediatek/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-dts32
+	mediatek/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-dts64
+
+arm/drivers
+	drivers/memory
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-5.19
+	drivers/memory-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-5.19-2
+	renesas/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v5.19-tag1
+	omap/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/ti-sysc-signed
+	drivers/reset
+		git://git.pengutronix.de/pza/linux tags/reset-for-v5.19
+	drivers/tee-menu
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-menu-for-v5.19
+	drivers/tee-vmalloc
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-shm-vmalloc-for-v5.19
+	drivers/arm_ffa
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/ffa-updates-5.19
+	drivers/scmi
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-5.19
+	drivers/optee-rpc
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-rpc-arg-for-v5.19
+	broadcom/drivers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/drivers
+	apple/drivers
+		https://github.com/AsahiLinux/linux tags/asahi-soc-rtkit-sart-nvme-for-5.19
+	patch
+		nvme-apple: fix sparse endianess warnings
+	drivers/tee-cleanup
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-cleanup-for-v5.19
+	samsung/driver-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-drivers-5.19
+	samsung/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-5.19
+	renesas/drivers-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v5.19-tag2
+	tegra/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-soc
+	keystone/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-driver-soc-for-v5.19
+	imx/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-drivers-5.19
+	memory/tegra
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-tegra-5.19
+	qcom/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-5.19
+	rockchip/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-drivers1
+
+arm/defconfig
+	patch
+		arm: nomadik: drop selecting obsolete CLKSRC_NOMADIK_MTU_SCHED_CLOCK
+		arm64: defconfig: Enable modules for arm displays
+	renesas/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v5.19-tag1
+	omap/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.19/defconfig-signed
+	broadcom/defconfig
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/defconfig
+	at91/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-defconfig-5.19
+	renesas/defconfig-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v5.19-tag2
+	tegra/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm-defconfig
+	tegra/defconfig64
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.19-arm64-defconfig
+	patch
+		ARM: configs: Enable audio on BeagleBone Black in multi_v7_defconfig
+	k3/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-config-for-v5.19
+	imx/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-defconfig-5.19
+	qcom/defconfig64
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-defconfig-for-5.19
+	qcom/defconfig32
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-defconfig-for-5.19
+	mediatek/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v5.18-next-defconfig
+	patch
+		ARM: configs: Enable ASoC AC'97 glue
+
+arm/newsoc
+
+arm/late
+
+arm/fixes
+	omap/maintainers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/maintainers-signed-take2
+	aspeed/fixes
+		git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc tags/aspeed-v5.18-fixes
+	<no branch> (18019eb62efb68c9b365acca9c4fcb2e0d459487)
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-fixes-for-5.18
+	<no branch> (77047ed73dd8b80c209bf5b5c215b858f1f5b14a)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.18-rockchip-dtsfixes1
+
+arm/multiplatform
+	patch
+		ARM: versatile: move integrator/realview/vexpress to versatile
+		ARM: ep93xx: renumber interrupts
+		ARM: ep93xx: enable SPARSE_IRQ
+		ARM: ep93xx: make mach/ep93xx-regs.h local
+		ARM: ep93xx: multiplatform support
+		ARM: dove: multiplatform support
+		ARM: s3c24xx: remove support for ISA drivers on BAST PC/104
+		ARM: s3c24xx: convert to sparse-irq
+		ARM: s3c: enable s3c24xx multiplatform support
+		ARM: iop32x: enable multiplatform support
+		ARM: rework endianess selection
+		ARM: ixp4xx: enable multiplatform support
+		ARM: s3c: mark as deprecated and schedule removal
+		ARM: s3c: fix include path
+	omap1/multiplatform-prep
+		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
+		ARM: config: Refresh IXP4xx config after multiplatform
+		ARM: versatile: Add missing of_node_put in dcscb_init
+
+arm/multiplatform-late
+	patch
+		ARM: versatile: move integrator/realview/vexpress to versatile
+		ARM: ep93xx: renumber interrupts
+		ARM: ep93xx: enable SPARSE_IRQ
+		ARM: ep93xx: make mach/ep93xx-regs.h local
+		ARM: ep93xx: multiplatform support
+		ARM: dove: multiplatform support
+		ARM: s3c24xx: remove support for ISA drivers on BAST PC/104
+		ARM: s3c24xx: convert to sparse-irq
+		ARM: s3c: enable s3c24xx multiplatform support
+		ARM: iop32x: enable multiplatform support
+		ARM: rework endianess selection
+		ARM: ixp4xx: enable multiplatform support
+		ARM: s3c: mark as deprecated and schedule removal
+		ARM: s3c: fix include path
+	omap1/multiplatform-prep
+		git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc omap1/multiplatform-prep
+	patch
+		integrator: remove empty ap_init_early()
+		ARM: omap2: remove include/mach/ subdirectory
+		ARM: davinci: remove include/mach/ subdirectory
+		ARM: spear: remove include/mach/ subdirectory
+		ARM: omap: fix address space warnings from sparse
+		ARM: omap: fix missing declaration warnings
+		ARM: omap1: add back omap_set_dma_priority() stub
+	omap1-multiplatform-5.18
+		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
+	pxa-multiplatform-5.18
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+
