@@ -185,12 +185,6 @@ int amdgpu_driver_load_kms(struct amdgpu_device *adev, unsigned long flags)
 			adev->runpm = true;
 			break;
 		}
-		/* XXX: disable runtime pm if we are the primary adapter
-		 * to avoid displays being re-enabled after DPMS.
-		 * This needs to be sorted out and fixed properly.
-		 */
-		if (adev->is_fw_fb)
-			adev->runpm = false;
 
 		amdgpu_runtime_pm_quirk(adev);
 
@@ -1158,7 +1152,7 @@ int amdgpu_driver_open_kms(struct drm_device *dev, struct drm_file *file_priv)
 	mutex_init(&fpriv->bo_list_lock);
 	idr_init(&fpriv->bo_list_handles);
 
-	amdgpu_ctx_mgr_init(&fpriv->ctx_mgr);
+	amdgpu_ctx_mgr_init(&fpriv->ctx_mgr, adev);
 
 	file_priv->driver_priv = fpriv;
 	goto out_suspend;

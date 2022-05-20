@@ -36,6 +36,8 @@
 #include "dcn20/dcn20_resource.h"
 #include "dcn30/dcn30_resource.h"
 
+#include "dml/dcn30/dcn30_fpu.h"
+
 #include "dcn10/dcn10_ipp.h"
 #include "dcn30/dcn30_hubbub.h"
 #include "dcn31/dcn31_hubbub.h"
@@ -1246,12 +1248,6 @@ static struct stream_encoder *dcn31_stream_encoder_create(
 		kfree(vpg);
 		kfree(afmt);
 		return NULL;
-	}
-
-	if (ctx->asic_id.chip_family == FAMILY_YELLOW_CARP &&
-			ctx->asic_id.hw_internal_rev == YELLOW_CARP_B0) {
-		if ((eng_id == ENGINE_ID_DIGC) || (eng_id == ENGINE_ID_DIGD))
-			eng_id = eng_id + 3; // For B0 only. C->F, D->G.
 	}
 
 	dcn30_dio_stream_encoder_construct(enc1, ctx, ctx->dc_bios,

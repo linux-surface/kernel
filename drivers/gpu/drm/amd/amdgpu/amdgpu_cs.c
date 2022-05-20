@@ -545,7 +545,8 @@ static int amdgpu_cs_parser_bos(struct amdgpu_cs_parser *p,
 					GFP_KERNEL | __GFP_ZERO);
 		if (!e->user_pages) {
 			DRM_ERROR("kvmalloc_array failure\n");
-			return -ENOMEM;
+			r = -ENOMEM;
+			goto out_free_user_pages;
 		}
 
 		r = amdgpu_ttm_tt_get_user_pages(bo, e->user_pages);
@@ -1251,7 +1252,7 @@ static int amdgpu_cs_submit(struct amdgpu_cs_parser *p,
 
 	p->fence = dma_fence_get(&job->base.s_fence->finished);
 
-	amdgpu_ctx_add_fence(p->ctx, entity, p->fence, &seq);
+	seq = amdgpu_ctx_add_fence(p->ctx, entity, p->fence);
 	amdgpu_cs_post_dependencies(p);
 
 	if ((job->preamble_status & AMDGPU_PREAMBLE_IB_PRESENT) &&
