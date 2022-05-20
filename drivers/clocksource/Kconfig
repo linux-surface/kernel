@@ -22,7 +22,7 @@ config CLKEVT_I8253
 config I8253_LOCK
 	bool
 
-config OMAP_DM_TIMER
+config OMAP_DM_SYSTIMER
 	bool
 	select TIMER_OF
 
@@ -56,6 +56,12 @@ config DIGICOLOR_TIMER
 	help
 	  Enables the support for the digicolor timer driver.
 
+config OMAP_DM_TIMER
+	tristate "OMAP dual-mode timer driver" if ARCH_K3 || COMPILE_TEST
+	select TIMER_OF
+	help
+	  Enables the support for the TI dual-mode timer driver.
+
 config DW_APB_TIMER
 	bool "DW APB timer driver" if COMPILE_TEST
 	help
@@ -80,7 +86,7 @@ config IXP4XX_TIMER
 	bool "Intel XScale IXP4xx timer driver" if COMPILE_TEST
 	depends on HAS_IOMEM
 	select CLKSRC_MMIO
-	select TIMER_OF if OF
+	select TIMER_OF
 	help
 	  Enables support for the Intel XScale IXP4xx SoC timer.
 
