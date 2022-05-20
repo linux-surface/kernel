@@ -339,6 +339,7 @@ enum {
 	__WQ_ORDERED		= 1 << 17, /* internal: workqueue is ordered */
 	__WQ_LEGACY		= 1 << 18, /* internal: create*_workqueue() */
 	__WQ_ORDERED_EXPLICIT	= 1 << 19, /* internal: alloc_ordered_workqueue() */
+	__WQ_NO_FLUSH           = 1 << 20, /* internal: warn flush_workqueue() */
 
 	WQ_MAX_ACTIVE		= 512,	  /* I like 512, better ideas? */
 	WQ_MAX_UNBOUND_PER_CPU	= 4,	  /* 4 * #cpus for unbound wq */
@@ -569,18 +570,8 @@ static inline bool schedule_work(struct work_struct *work)
  * Forces execution of the kernel-global workqueue and blocks until its
  * completion.
  *
- * Think twice before calling this function!  It's very easy to get into
- * trouble if you don't take great care.  Either of the following situations
- * will lead to deadlock:
- *
- *	One of the work items currently on the workqueue needs to acquire
- *	a lock held by your code or its caller.
- *
- *	Your code is running in the context of a work routine.
- *
- * They will be detected by lockdep when they occur, but the first might not
- * occur very often.  It depends on what work items are on the workqueue and
- * what locks they need, which you have no control over.
+ * Please stop calling this function. If you need to flush kernel-global
+ * workqueue, please use your local workqueue.
  *
  * In most situations flushing the entire workqueue is overkill; you merely
  * need to know that a particular work item isn't queued and isn't running.
@@ -662,5 +653,26 @@ int workqueue_offline_cpu(unsigned int cpu);
 
 void __init workqueue_init_early(void);
 void __init workqueue_init(void);
+
+/*
+ * Detect attempt to flush system-wide workqueues at compile time when possible.
+ * See https://lkml.kernel.org/r/49925af7-78a8-a3dd-bce6-cfc02e1a9236@I-love.SAKURA.ne.jp for
+ * reasons and steps for converting system-wide workqueues into local workqueues.
+ * Checks for system_wq and system_{long,unbound,highpri}_wq will be added after
+ * all in-tree users stopped flushing these workqueues.
+ */
+#define flush_workqueue(wq)						\
+({									\
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_freezable_wq) &&	\
+			 &(wq) == &system_freezable_wq,			\
+			 "Please avoid flushing system_freezable_wq."); \
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_power_efficient_wq) && \
+			 &(wq) == &system_power_efficient_wq,		\
+			 "Please avoid flushing system_power_efficient_wq."); \
+	BUILD_BUG_ON_MSG(__builtin_constant_p(&(wq) == &system_freezable_power_efficient_wq) &&	\
+			 &(wq) == &system_freezable_power_efficient_wq, \
+			 "Please avoid flushing system_freezable_power_efficient_wq."); \
+	flush_workqueue(wq);						\
+})
 
 #endif
