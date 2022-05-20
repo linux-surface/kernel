@@ -90,7 +90,6 @@ mtk_flow_get_wdma_info(struct net_device *dev, const u8 *addr, struct mtk_wdma_i
 {
 	struct net_device_path_ctx ctx = {
 		.dev = dev,
-		.daddr = addr,
 	};
 	struct net_device_path path = {};
 
@@ -100,6 +99,7 @@ mtk_flow_get_wdma_info(struct net_device *dev, const u8 *addr, struct mtk_wdma_i
 	if (!dev->netdev_ops->ndo_fill_forward_path)
 		return -1;
 
+	memcpy(ctx.daddr, addr, sizeof(ctx.daddr));
 	if (dev->netdev_ops->ndo_fill_forward_path(&ctx, &path))
 		return -1;
 
