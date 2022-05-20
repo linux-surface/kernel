@@ -270,7 +270,7 @@ static inline int adreno_is_a660(struct adreno_gpu *gpu)
 
 static inline int adreno_is_a660_family(struct adreno_gpu *gpu)
 {
-       return adreno_is_a660(gpu) || adreno_is_7c3(gpu);
+       return adreno_is_a660(gpu) || adreno_is_7c3(gpu) || gpu->revn == 690;
 }
 
 /* check for a650, a660, or any derivatives */
