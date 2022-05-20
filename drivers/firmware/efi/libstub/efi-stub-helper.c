@@ -21,7 +21,7 @@
 bool efi_nochunk;
 bool efi_nokaslr = !IS_ENABLED(CONFIG_RANDOMIZE_BASE);
 int efi_loglevel = CONSOLE_LOGLEVEL_DEFAULT;
-bool efi_novamap;
+bool efi_novamap = IS_ENABLED(CONFIG_LOONGARCH); /* LoongArch call svam() in kernel */
 
 static bool efi_noinitrd;
 static bool efi_nosoftreserve;
