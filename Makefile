@@ -1304,7 +1304,7 @@ quiet_cmd_install = INSTALL $(INSTALL_PATH)
 # ---------------------------------------------------------------------------
 # Tools
 
-ifdef CONFIG_STACK_VALIDATION
+ifdef CONFIG_OBJTOOL
 prepare: tools/objtool
 endif
 
