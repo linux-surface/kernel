@@ -105,6 +105,11 @@
 #define REG_RESERVED_ADDR		0xffffffff
 #define REG_RESERVED(reg)		REG(reg, REG_RESERVED_ADDR)
 
+#define for_each_stat(ocelot, stat)				\
+	for ((stat) = (ocelot)->stats_layout;			\
+	     ((stat)->name[0] != '\0');				\
+	     (stat)++)
+
 enum ocelot_target {
 	ANA = 1,
 	QS,
@@ -538,6 +543,8 @@ struct ocelot_stat_layout {
 	char name[ETH_GSTRING_LEN];
 };
 
+#define OCELOT_STAT_END { .name = "" }
+
 struct ocelot_stats_region {
 	struct list_head node;
 	u32 offset;
@@ -652,29 +659,32 @@ struct ocelot_port {
 
 	struct regmap			*target;
 
-	bool				vlan_aware;
+	struct net_device		*bond;
+	struct net_device		*bridge;
+
 	/* VLAN that untagged frames are classified to, on ingress */
 	const struct ocelot_bridge_vlan	*pvid_vlan;
 
-	unsigned int			ptp_skbs_in_flight;
-	u8				ptp_cmd;
-	struct sk_buff_head		tx_skbs;
-	u8				ts_id;
-
 	phy_interface_t			phy_mode;
 
-	u8				*xmit_template;
-	bool				is_dsa_8021q_cpu;
-	bool				learn_ena;
-
-	struct net_device		*bond;
-	bool				lag_tx_active;
+	unsigned int			ptp_skbs_in_flight;
+	struct sk_buff_head		tx_skbs;
 
 	u16				mrp_ring_id;
 
-	struct net_device		*bridge;
-	int				bridge_num;
+	u8				ptp_cmd;
+	u8				ts_id;
+
+	u8				index;
+
 	u8				stp_state;
+	bool				vlan_aware;
+	bool				is_dsa_8021q_cpu;
+	bool				learn_ena;
+
+	bool				lag_tx_active;
+
+	int				bridge_num;
 
 	int				speed;
 };
@@ -990,6 +1000,9 @@ int ocelot_mact_learn_streamdata(struct ocelot *ocelot, int dst_idx,
 				 unsigned int vid,
 				 enum macaccess_entry_type type,
 				 int sfid, int ssid);
+
+int ocelot_migrate_mdbs(struct ocelot *ocelot, unsigned long from_mask,
+			unsigned long to_mask);
 
 int ocelot_vcap_policer_add(struct ocelot *ocelot, u32 pol_ix,
 			    struct ocelot_policer *pol);

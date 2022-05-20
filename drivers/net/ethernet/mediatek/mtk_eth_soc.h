@@ -17,6 +17,7 @@
 #include <linux/phylink.h>
 #include <linux/rhashtable.h>
 #include <linux/dim.h>
+#include <linux/bitfield.h>
 #include "mtk_ppe.h"
 
 #define MTK_QDMA_PAGE_SIZE	2048
@@ -24,7 +25,6 @@
 #define MTK_MAX_RX_LENGTH_2K	2048
 #define MTK_TX_DMA_BUF_LEN	0x3fff
 #define MTK_DMA_SIZE		512
-#define MTK_NAPI_WEIGHT		64
 #define MTK_MAC_COUNT		2
 #define MTK_RX_ETH_HLEN		(ETH_HLEN + ETH_FCS_LEN)
 #define MTK_RX_HLEN		(NET_SKB_PAD + MTK_RX_ETH_HLEN + NET_IP_ALIGN)
@@ -295,6 +295,9 @@
 #define MTK_GDM1_TX_GPCNT	0x2438
 #define MTK_STAT_OFFSET		0x40
 
+#define MTK_WDMA0_BASE		0x2800
+#define MTK_WDMA1_BASE		0x2c00
+
 /* QDMA descriptor txd4 */
 #define TX_DMA_CHKSUM		(0x7 << 29)
 #define TX_DMA_TSO		BIT(28)
@@ -465,6 +468,12 @@
 #define RSTCTRL_FE		BIT(6)
 #define RSTCTRL_PPE		BIT(31)
 
+/* ethernet dma channel agent map */
+#define ETHSYS_DMA_AG_MAP	0x408
+#define ETHSYS_DMA_AG_MAP_PDMA	BIT(0)
+#define ETHSYS_DMA_AG_MAP_QDMA	BIT(1)
+#define ETHSYS_DMA_AG_MAP_PPE	BIT(2)
+
 /* SGMII subsystem config registers */
 /* Register to auto-negotiation restart */
 #define SGMSYS_PCS_CONTROL_1	0x0
@@ -485,9 +494,10 @@
 #define SGMSYS_SGMII_MODE		0x20
 #define SGMII_IF_MODE_BIT0		BIT(0)
 #define SGMII_SPEED_DUPLEX_AN		BIT(1)
-#define SGMII_SPEED_10			0x0
-#define SGMII_SPEED_100			BIT(2)
-#define SGMII_SPEED_1000		BIT(3)
+#define SGMII_SPEED_MASK		GENMASK(3, 2)
+#define SGMII_SPEED_10			FIELD_PREP(SGMII_SPEED_MASK, 0)
+#define SGMII_SPEED_100			FIELD_PREP(SGMII_SPEED_MASK, 1)
+#define SGMII_SPEED_1000		FIELD_PREP(SGMII_SPEED_MASK, 2)
 #define SGMII_DUPLEX_FULL		BIT(4)
 #define SGMII_IF_MODE_BIT5		BIT(5)
 #define SGMII_REMOTE_FAULT_DIS		BIT(8)
@@ -859,29 +869,31 @@ struct mtk_soc_data {
 /* currently no SoC has more than 2 macs */
 #define MTK_MAX_DEVS			2
 
-#define MTK_SGMII_PHYSPEED_AN          BIT(31)
-#define MTK_SGMII_PHYSPEED_MASK        GENMASK(2, 0)
-#define MTK_SGMII_PHYSPEED_1000        BIT(0)
-#define MTK_SGMII_PHYSPEED_2500        BIT(1)
-#define MTK_HAS_FLAGS(flags, _x)       (((flags) & (_x)) == (_x))
+/* struct mtk_pcs -    This structure holds each sgmii regmap and associated
+ *                     data
+ * @regmap:            The register map pointing at the range used to setup
+ *                     SGMII modes
+ * @ana_rgc3:          The offset refers to register ANA_RGC3 related to regmap
+ * @pcs:               Phylink PCS structure
+ */
+struct mtk_pcs {
+	struct regmap	*regmap;
+	u32             ana_rgc3;
+	struct phylink_pcs pcs;
+};
 
 /* struct mtk_sgmii -  This is the structure holding sgmii regmap and its
  *                     characteristics
- * @regmap:            The register map pointing at the range used to setup
- *                     SGMII modes
- * @flags:             The enum refers to which mode the sgmii wants to run on
- * @ana_rgc3:          The offset refers to register ANA_RGC3 related to regmap
+ * @pcs                Array of individual PCS structures
  */
-
 struct mtk_sgmii {
-	struct regmap   *regmap[MTK_MAX_DEVS];
-	u32             flags[MTK_MAX_DEVS];
-	u32             ana_rgc3;
+	struct mtk_pcs	pcs[MTK_MAX_DEVS];
 };
 
 /* struct mtk_eth -	This is the main datasructure for holding the state
  *			of the driver
  * @dev:		The device pointer
+ * @dev:		The device pointer used for dma mapping/alloc
  * @base:		The mapped register i/o base
  * @page_lock:		Make sure that register operations are atomic
  * @tx_irq__lock:	Make sure that IRQ register operations are atomic
@@ -925,6 +937,7 @@ struct mtk_sgmii {
 
 struct mtk_eth {
 	struct device			*dev;
+	struct device			*dma_dev;
 	void __iomem			*base;
 	spinlock_t			page_lock;
 	spinlock_t			tx_irq_lock;
@@ -974,7 +987,7 @@ struct mtk_eth {
 	u32				rx_dma_l4_valid;
 	int				ip_align;
 
-	struct mtk_ppe			ppe;
+	struct mtk_ppe			*ppe;
 	struct rhashtable		flow_table;
 };
 
@@ -989,7 +1002,6 @@ struct mtk_eth {
 struct mtk_mac {
 	int				id;
 	phy_interface_t			interface;
-	unsigned int			mode;
 	int				speed;
 	struct device_node		*of_node;
 	struct phylink			*phylink;
@@ -998,6 +1010,7 @@ struct mtk_mac {
 	struct mtk_hw_stats		*hw_stats;
 	__be32				hwlro_ip[MTK_MAX_LRO_IP_CNT];
 	int				hwlro_ip_cnt;
+	unsigned int			syscfg0;
 };
 
 /* the struct describing the SoC. these are declared in the soc_xyz.c files */
@@ -1009,12 +1022,9 @@ void mtk_stats_update_mac(struct mtk_mac *mac);
 void mtk_w32(struct mtk_eth *eth, u32 val, unsigned reg);
 u32 mtk_r32(struct mtk_eth *eth, unsigned reg);
 
+struct phylink_pcs *mtk_sgmii_select_pcs(struct mtk_sgmii *ss, int id);
 int mtk_sgmii_init(struct mtk_sgmii *ss, struct device_node *np,
 		   u32 ana_rgc3);
-int mtk_sgmii_setup_mode_an(struct mtk_sgmii *ss, int id);
-int mtk_sgmii_setup_mode_force(struct mtk_sgmii *ss, int id,
-			       const struct phylink_link_state *state);
-void mtk_sgmii_restart_an(struct mtk_eth *eth, int mac_id);
 
 int mtk_gmac_sgmii_path_setup(struct mtk_eth *eth, int mac_id);
 int mtk_gmac_gephy_path_setup(struct mtk_eth *eth, int mac_id);
@@ -1023,6 +1033,7 @@ int mtk_gmac_rgmii_path_setup(struct mtk_eth *eth, int mac_id);
 int mtk_eth_offload_init(struct mtk_eth *eth);
 int mtk_eth_setup_tc(struct net_device *dev, enum tc_setup_type type,
 		     void *type_data);
+void mtk_eth_set_dma_device(struct mtk_eth *eth, struct device *dma_dev);
 
 
 #endif /* MTK_ETH_H */

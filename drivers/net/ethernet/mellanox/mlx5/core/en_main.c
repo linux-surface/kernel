@@ -48,7 +48,6 @@
 #include "en_accel/ipsec.h"
 #include "en_accel/en_accel.h"
 #include "en_accel/ktls.h"
-#include "en_accel/ipsec_offload.h"
 #include "lib/vxlan.h"
 #include "lib/clock.h"
 #include "en/port.h"
@@ -4836,6 +4835,7 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 	netdev->vlan_features    |= NETIF_F_TSO6;
 	netdev->vlan_features    |= NETIF_F_RXCSUM;
 	netdev->vlan_features    |= NETIF_F_RXHASH;
+	netdev->vlan_features    |= NETIF_F_GSO_PARTIAL;
 
 	netdev->mpls_features    |= NETIF_F_SG;
 	netdev->mpls_features    |= NETIF_F_HW_CSUM;
@@ -4897,7 +4897,6 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 						NETIF_F_GSO_IPXIP6;
 	}
 
-	netdev->hw_features	                 |= NETIF_F_GSO_PARTIAL;
 	netdev->gso_partial_features             |= NETIF_F_GSO_UDP_L4;
 	netdev->hw_features                      |= NETIF_F_GSO_UDP_L4;
 	netdev->features                         |= NETIF_F_GSO_UDP_L4;
@@ -4940,6 +4939,7 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 
 	netdev->priv_flags       |= IFF_UNICAST_FLT;
 
+	netif_set_tso_max_size(netdev, GSO_MAX_SIZE);
 	mlx5e_set_netdev_dev_addr(netdev);
 	mlx5e_ipsec_build_netdev(priv);
 	mlx5e_ktls_build_netdev(priv);
@@ -5238,6 +5238,15 @@ mlx5e_calc_max_nch(struct mlx5_core_dev *mdev, struct net_device *netdev,
 	max_nch = min_t(unsigned int, max_nch, tmp);
 
 	return max_nch;
+}
+
+int mlx5e_get_pf_num_tirs(struct mlx5_core_dev *mdev)
+{
+	/* Indirect TIRS: 2 sets of TTCs (inner + outer steering)
+	 * and 1 set of direct TIRS
+	 */
+	return 2 * MLX5E_NUM_INDIR_TIRS
+		+ mlx5e_profile_max_num_channels(mdev, &mlx5e_nic_profile);
 }
 
 /* mlx5e generic netdev management API (move to en_common.c) */

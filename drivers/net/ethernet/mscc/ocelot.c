@@ -1349,15 +1349,10 @@ EXPORT_SYMBOL(ocelot_drain_cpu_queue);
 int ocelot_fdb_add(struct ocelot *ocelot, int port, const unsigned char *addr,
 		   u16 vid, const struct net_device *bridge)
 {
-	int pgid = port;
-
-	if (port == ocelot->npi)
-		pgid = PGID_CPU;
-
 	if (!vid)
 		vid = ocelot_vlan_unaware_pvid(ocelot, bridge);
 
-	return ocelot_mact_learn(ocelot, pgid, addr, vid, ENTRYTYPE_LOCKED);
+	return ocelot_mact_learn(ocelot, port, addr, vid, ENTRYTYPE_LOCKED);
 }
 EXPORT_SYMBOL(ocelot_fdb_add);
 
@@ -2344,9 +2339,6 @@ int ocelot_port_mdb_add(struct ocelot *ocelot, int port,
 	struct ocelot_pgid *pgid;
 	u16 vid = mdb->vid;
 
-	if (port == ocelot->npi)
-		port = ocelot->num_phys_ports;
-
 	if (!vid)
 		vid = ocelot_vlan_unaware_pvid(ocelot, bridge);
 
@@ -2403,9 +2395,6 @@ int ocelot_port_mdb_del(struct ocelot *ocelot, int port,
 	struct ocelot_multicast *mc;
 	struct ocelot_pgid *pgid;
 	u16 vid = mdb->vid;
-
-	if (port == ocelot->npi)
-		port = ocelot->num_phys_ports;
 
 	if (!vid)
 		vid = ocelot_vlan_unaware_pvid(ocelot, bridge);
@@ -2604,6 +2593,67 @@ static void ocelot_setup_logical_port_ids(struct ocelot *ocelot)
 		}
 	}
 }
+
+static int ocelot_migrate_mc(struct ocelot *ocelot, struct ocelot_multicast *mc,
+			     unsigned long from_mask, unsigned long to_mask)
+{
+	unsigned char addr[ETH_ALEN];
+	struct ocelot_pgid *pgid;
+	u16 vid = mc->vid;
+
+	dev_dbg(ocelot->dev,
+		"Migrating multicast %pM vid %d from port mask 0x%lx to 0x%lx\n",
+		mc->addr, mc->vid, from_mask, to_mask);
+
+	/* First clean up the current port mask from hardware, because
+	 * we'll be modifying it.
+	 */
+	ocelot_pgid_free(ocelot, mc->pgid);
+	ocelot_encode_ports_to_mdb(addr, mc);
+	ocelot_mact_forget(ocelot, addr, vid);
+
+	mc->ports &= ~from_mask;
+	mc->ports |= to_mask;
+
+	pgid = ocelot_mdb_get_pgid(ocelot, mc);
+	if (IS_ERR(pgid)) {
+		dev_err(ocelot->dev,
+			"Cannot allocate PGID for mdb %pM vid %d\n",
+			mc->addr, mc->vid);
+		devm_kfree(ocelot->dev, mc);
+		return PTR_ERR(pgid);
+	}
+	mc->pgid = pgid;
+
+	ocelot_encode_ports_to_mdb(addr, mc);
+
+	if (mc->entry_type != ENTRYTYPE_MACv4 &&
+	    mc->entry_type != ENTRYTYPE_MACv6)
+		ocelot_write_rix(ocelot, pgid->ports, ANA_PGID_PGID,
+				 pgid->index);
+
+	return ocelot_mact_learn(ocelot, pgid->index, addr, vid,
+				 mc->entry_type);
+}
+
+int ocelot_migrate_mdbs(struct ocelot *ocelot, unsigned long from_mask,
+			unsigned long to_mask)
+{
+	struct ocelot_multicast *mc;
+	int err;
+
+	list_for_each_entry(mc, &ocelot->multicast, list) {
+		if (!(mc->ports & from_mask))
+			continue;
+
+		err = ocelot_migrate_mc(ocelot, mc, from_mask, to_mask);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(ocelot_migrate_mdbs);
 
 /* Documentation for PORTID_VAL says:
  *     Logical port number for front port. If port is not a member of a LLAG,
@@ -2893,9 +2943,6 @@ EXPORT_SYMBOL(ocelot_port_pre_bridge_flags);
 void ocelot_port_bridge_flags(struct ocelot *ocelot, int port,
 			      struct switchdev_brport_flags flags)
 {
-	if (port == ocelot->npi)
-		port = ocelot->num_phys_ports;
-
 	if (flags.mask & BR_LEARNING)
 		ocelot_port_set_learning(ocelot, port,
 					 !!(flags.val & BR_LEARNING));
@@ -3223,6 +3270,7 @@ static void ocelot_detect_features(struct ocelot *ocelot)
 
 int ocelot_init(struct ocelot *ocelot)
 {
+	const struct ocelot_stat_layout *stat;
 	char queue_name[32];
 	int i, ret;
 	u32 port;
@@ -3234,6 +3282,10 @@ int ocelot_init(struct ocelot *ocelot)
 			return ret;
 		}
 	}
+
+	ocelot->num_stats = 0;
+	for_each_stat(ocelot, stat)
+		ocelot->num_stats++;
 
 	ocelot->stats = devm_kcalloc(ocelot->dev,
 				     ocelot->num_phys_ports * ocelot->num_stats,

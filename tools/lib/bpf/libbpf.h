@@ -378,7 +378,31 @@ struct bpf_link;
 LIBBPF_API struct bpf_link *bpf_link__open(const char *path);
 LIBBPF_API int bpf_link__fd(const struct bpf_link *link);
 LIBBPF_API const char *bpf_link__pin_path(const struct bpf_link *link);
+/**
+ * @brief **bpf_link__pin()** pins the BPF link to a file
+ * in the BPF FS specified by a path. This increments the links
+ * reference count, allowing it to stay loaded after the process
+ * which loaded it has exited.
+ *
+ * @param link BPF link to pin, must already be loaded
+ * @param path file path in a BPF file system
+ * @return 0, on success; negative error code, otherwise
+ */
+
 LIBBPF_API int bpf_link__pin(struct bpf_link *link, const char *path);
+
+/**
+ * @brief **bpf_link__unpin()** unpins the BPF link from a file
+ * in the BPFFS specified by a path. This decrements the links
+ * reference count.
+ *
+ * The file pinning the BPF link can also be unlinked by a different
+ * process in which case this function will return an error.
+ *
+ * @param prog BPF program to unpin
+ * @param path file path to the pin in a BPF file system
+ * @return 0, on success; negative error code, otherwise
+ */
 LIBBPF_API int bpf_link__unpin(struct bpf_link *link);
 LIBBPF_API int bpf_link__update_program(struct bpf_link *link,
 					struct bpf_program *prog);
@@ -386,6 +410,22 @@ LIBBPF_API void bpf_link__disconnect(struct bpf_link *link);
 LIBBPF_API int bpf_link__detach(struct bpf_link *link);
 LIBBPF_API int bpf_link__destroy(struct bpf_link *link);
 
+/**
+ * @brief **bpf_program__attach()** is a generic function for attaching
+ * a BPF program based on auto-detection of program type, attach type,
+ * and extra paremeters, where applicable.
+ *
+ * @param prog BPF program to attach
+ * @return Reference to the newly created BPF link; or NULL is returned on error,
+ * error code is stored in errno
+ *
+ * This is supported for:
+ *   - kprobe/kretprobe (depends on SEC() definition)
+ *   - uprobe/uretprobe (depends on SEC() definition)
+ *   - tracepoint
+ *   - raw tracepoint
+ *   - tracing programs (typed raw TP/fentry/fexit/fmod_ret)
+ */
 LIBBPF_API struct bpf_link *
 bpf_program__attach(const struct bpf_program *prog);
 
@@ -459,9 +499,17 @@ struct bpf_uprobe_opts {
 	__u64 bpf_cookie;
 	/* uprobe is return probe, invoked at function return time */
 	bool retprobe;
+	/* Function name to attach to.  Could be an unqualified ("abc") or library-qualified
+	 * "abc@LIBXYZ" name.  To specify function entry, func_name should be set while
+	 * func_offset argument to bpf_prog__attach_uprobe_opts() should be 0.  To trace an
+	 * offset within a function, specify func_name and use func_offset argument to specify
+	 * offset within the function.  Shared library functions must specify the shared library
+	 * binary_path.
+	 */
+	const char *func_name;
 	size_t :0;
 };
-#define bpf_uprobe_opts__last_field retprobe
+#define bpf_uprobe_opts__last_field func_name
 
 /**
  * @brief **bpf_program__attach_uprobe()** attaches a BPF program
@@ -502,6 +550,37 @@ LIBBPF_API struct bpf_link *
 bpf_program__attach_uprobe_opts(const struct bpf_program *prog, pid_t pid,
 				const char *binary_path, size_t func_offset,
 				const struct bpf_uprobe_opts *opts);
+
+struct bpf_usdt_opts {
+	/* size of this struct, for forward/backward compatibility */
+	size_t sz;
+	/* custom user-provided value accessible through usdt_cookie() */
+	__u64 usdt_cookie;
+	size_t :0;
+};
+#define bpf_usdt_opts__last_field usdt_cookie
+
+/**
+ * @brief **bpf_program__attach_usdt()** is just like
+ * bpf_program__attach_uprobe_opts() except it covers USDT (User-space
+ * Statically Defined Tracepoint) attachment, instead of attaching to
+ * user-space function entry or exit.
+ *
+ * @param prog BPF program to attach
+ * @param pid Process ID to attach the uprobe to, 0 for self (own process),
+ * -1 for all processes
+ * @param binary_path Path to binary that contains provided USDT probe
+ * @param usdt_provider USDT provider name
+ * @param usdt_name USDT probe name
+ * @param opts Options for altering program attachment
+ * @return Reference to the newly created BPF link; or NULL is returned on error,
+ * error code is stored in errno
+ */
+LIBBPF_API struct bpf_link *
+bpf_program__attach_usdt(const struct bpf_program *prog,
+			 pid_t pid, const char *binary_path,
+			 const char *usdt_provider, const char *usdt_name,
+			 const struct bpf_usdt_opts *opts);
 
 struct bpf_tracepoint_opts {
 	/* size of this struct, for forward/backward compatiblity */
@@ -647,12 +726,37 @@ LIBBPF_DEPRECATED_SINCE(0, 8, "use bpf_program__set_type() instead")
 LIBBPF_API int bpf_program__set_sk_lookup(struct bpf_program *prog);
 
 LIBBPF_API enum bpf_prog_type bpf_program__type(const struct bpf_program *prog);
-LIBBPF_API void bpf_program__set_type(struct bpf_program *prog,
-				      enum bpf_prog_type type);
+
+/**
+ * @brief **bpf_program__set_type()** sets the program
+ * type of the passed BPF program.
+ * @param prog BPF program to set the program type for
+ * @param type program type to set the BPF map to have
+ * @return error code; or 0 if no error. An error occurs
+ * if the object is already loaded.
+ *
+ * This must be called before the BPF object is loaded,
+ * otherwise it has no effect and an error is returned.
+ */
+LIBBPF_API int bpf_program__set_type(struct bpf_program *prog,
+				     enum bpf_prog_type type);
 
 LIBBPF_API enum bpf_attach_type
 bpf_program__expected_attach_type(const struct bpf_program *prog);
-LIBBPF_API void
+
+/**
+ * @brief **bpf_program__set_expected_attach_type()** sets the
+ * attach type of the passed BPF program. This is used for
+ * auto-detection of attachment when programs are loaded.
+ * @param prog BPF program to set the attach type for
+ * @param type attach type to set the BPF map to have
+ * @return error code; or 0 if no error. An error occurs
+ * if the object is already loaded.
+ *
+ * This must be called before the BPF object is loaded,
+ * otherwise it has no effect and an error is returned.
+ */
+LIBBPF_API int
 bpf_program__set_expected_attach_type(struct bpf_program *prog,
 				      enum bpf_attach_type type);
 
@@ -668,6 +772,17 @@ LIBBPF_API int bpf_program__set_log_level(struct bpf_program *prog, __u32 log_le
 LIBBPF_API const char *bpf_program__log_buf(const struct bpf_program *prog, size_t *log_size);
 LIBBPF_API int bpf_program__set_log_buf(struct bpf_program *prog, char *log_buf, size_t log_size);
 
+/**
+ * @brief **bpf_program__set_attach_target()** sets BTF-based attach target
+ * for supported BPF program types:
+ *   - BTF-aware raw tracepoints (tp_btf);
+ *   - fentry/fexit/fmod_ret;
+ *   - lsm;
+ *   - freplace.
+ * @param prog BPF program to set the attach type for
+ * @param type attach type to set the BPF map to have
+ * @return error code; or 0 if no error occurred.
+ */
 LIBBPF_API int
 bpf_program__set_attach_target(struct bpf_program *prog, int attach_prog_fd,
 			       const char *attach_func_name);
