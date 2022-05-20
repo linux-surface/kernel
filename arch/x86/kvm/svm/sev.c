@@ -2769,8 +2769,12 @@ static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
 		pr_info("SEV-ES guest requested termination: %#llx:%#llx\n",
 			reason_set, reason_code);
 
-		ret = -EINVAL;
-		break;
+		vcpu->run->exit_reason = KVM_EXIT_SYSTEM_EVENT;
+		vcpu->run->system_event.type = KVM_SYSTEM_EVENT_SEV_TERM;
+		vcpu->run->system_event.ndata = 1;
+		vcpu->run->system_event.data[0] = control->ghcb_gpa;
+
+		return 0;
 	}
 	default:
 		/* Error, keep GHCB MSR value as-is */
@@ -2953,6 +2957,14 @@ void sev_es_init_vmcb(struct vcpu_svm *svm)
 	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTBRANCHTOIP, 1, 1);
 	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTINTFROMIP, 1, 1);
 	set_msr_interception(vcpu, svm->msrpm, MSR_IA32_LASTINTTOIP, 1, 1);
+
+	if (boot_cpu_has(X86_FEATURE_V_TSC_AUX) &&
+	    (guest_cpuid_has(&svm->vcpu, X86_FEATURE_RDTSCP) ||
+	     guest_cpuid_has(&svm->vcpu, X86_FEATURE_RDPID))) {
+		set_msr_interception(vcpu, svm->msrpm, MSR_TSC_AUX, 1, 1);
+		if (guest_cpuid_has(&svm->vcpu, X86_FEATURE_RDTSCP))
+			svm_clr_intercept(svm, INTERCEPT_RDTSCP);
+	}
 }
 
 void sev_es_vcpu_reset(struct vcpu_svm *svm)

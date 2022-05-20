@@ -177,11 +177,24 @@ static void pi_enable_wakeup_handler(struct kvm_vcpu *vcpu)
 	local_irq_restore(flags);
 }
 
+static bool vmx_needs_pi_wakeup(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * The default posted interrupt vector does nothing when
+	 * invoked outside guest mode.   Return whether a blocked vCPU
+	 * can be the target of posted interrupts, as is the case when
+	 * using either IPI virtualization or VT-d PI, so that the
+	 * notification vector is switched to the one that calls
+	 * back to the pi_wakeup_handler() function.
+	 */
+	return vmx_can_use_ipiv(vcpu) || vmx_can_use_vtd_pi(vcpu->kvm);
+}
+
 void vmx_vcpu_pi_put(struct kvm_vcpu *vcpu)
 {
 	struct pi_desc *pi_desc = vcpu_to_pi_desc(vcpu);
 
-	if (!vmx_can_use_vtd_pi(vcpu->kvm))
+	if (!vmx_needs_pi_wakeup(vcpu))
 		return;
 
 	if (kvm_vcpu_is_blocking(vcpu) && !vmx_interrupt_blocked(vcpu))
@@ -202,16 +215,17 @@ void vmx_vcpu_pi_put(struct kvm_vcpu *vcpu)
 void pi_wakeup_handler(void)
 {
 	int cpu = smp_processor_id();
+	struct list_head *wakeup_list = &per_cpu(wakeup_vcpus_on_cpu, cpu);
+	raw_spinlock_t *spinlock = &per_cpu(wakeup_vcpus_on_cpu_lock, cpu);
 	struct vcpu_vmx *vmx;
 
-	raw_spin_lock(&per_cpu(wakeup_vcpus_on_cpu_lock, cpu));
-	list_for_each_entry(vmx, &per_cpu(wakeup_vcpus_on_cpu, cpu),
-			    pi_wakeup_list) {
+	raw_spin_lock(spinlock);
+	list_for_each_entry(vmx, wakeup_list, pi_wakeup_list) {
 
 		if (pi_test_on(&vmx->pi_desc))
 			kvm_vcpu_wake_up(&vmx->vcpu);
 	}
-	raw_spin_unlock(&per_cpu(wakeup_vcpus_on_cpu_lock, cpu));
+	raw_spin_unlock(spinlock);
 }
 
 void __init pi_init_cpu(int cpu)
@@ -311,7 +325,7 @@ int vmx_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			continue;
 		}
 
-		vcpu_info.pi_desc_addr = __pa(&to_vmx(vcpu)->pi_desc);
+		vcpu_info.pi_desc_addr = __pa(vcpu_to_pi_desc(vcpu));
 		vcpu_info.vector = irq.vector;
 
 		trace_kvm_pi_irte_update(host_irq, vcpu->vcpu_id, e->gsi,
