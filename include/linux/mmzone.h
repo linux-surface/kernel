@@ -1434,6 +1434,7 @@ extern size_t mem_section_usage_size(void);
 	MAPPER(IS_ONLINE)							\
 	MAPPER(IS_EARLY)							\
 	MAPPER(TAINT_ZONE_DEVICE, CONFIG_ZONE_DEVICE)				\
+	MAPPER(CANNOT_OPTIMIZE_VMEMMAP, CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP)	\
 	MAPPER(MAP_LAST_BIT)
 
 #define __SECTION_SHIFT_FLAG_MAPPER_0(x)
@@ -1470,6 +1471,22 @@ static inline struct page *__section_mem_map_addr(struct mem_section *section)
 	map &= SECTION_MAP_MASK;
 	return (struct page *)map;
 }
+
+#ifdef CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP
+static inline void section_mark_cannot_optimize_vmemmap(struct mem_section *ms)
+{
+	ms->section_mem_map |= SECTION_CANNOT_OPTIMIZE_VMEMMAP;
+}
+
+static inline int section_cannot_optimize_vmemmap(struct mem_section *ms)
+{
+	return (ms && (ms->section_mem_map & SECTION_CANNOT_OPTIMIZE_VMEMMAP));
+}
+#else
+static inline void section_mark_cannot_optimize_vmemmap(struct mem_section *ms)
+{
+}
+#endif
 
 static inline int present_section(struct mem_section *section)
 {
