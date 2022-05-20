@@ -342,6 +342,7 @@ static void sof_probe_work(struct work_struct *work)
 int snd_sof_device_probe(struct device *dev, struct snd_sof_pdata *plat_data)
 {
 	struct snd_sof_dev *sdev;
+	int ret;
 
 	sdev = devm_kzalloc(dev, sizeof(*sdev), GFP_KERNEL);
 	if (!sdev)
@@ -357,11 +358,23 @@ int snd_sof_device_probe(struct device *dev, struct snd_sof_pdata *plat_data)
 	sdev->first_boot = true;
 	dev_set_drvdata(dev, sdev);
 
+	/* check IPC support */
+	if (!(BIT(plat_data->ipc_type) & plat_data->desc->ipc_supported_mask)) {
+		dev_err(dev, "ipc_type %d is not supported on this platform, mask is %#x\n",
+			plat_data->ipc_type, plat_data->desc->ipc_supported_mask);
+		return -EINVAL;
+	}
+
+	/* init ops, if necessary */
+	ret = sof_ops_init(sdev);
+	if (ret < 0)
+		return ret;
+
 	/* check all mandatory ops */
 	if (!sof_ops(sdev) || !sof_ops(sdev)->probe || !sof_ops(sdev)->run ||
 	    !sof_ops(sdev)->block_read || !sof_ops(sdev)->block_write ||
 	    !sof_ops(sdev)->send_msg || !sof_ops(sdev)->load_firmware ||
-	    !sof_ops(sdev)->ipc_msg_data || !sof_ops(sdev)->fw_ready) {
+	    !sof_ops(sdev)->ipc_msg_data) {
 		dev_err(dev, "error: missing mandatory ops\n");
 		return -EINVAL;
 	}

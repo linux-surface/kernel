@@ -229,14 +229,13 @@ static int memory_info_update(struct snd_sof_dev *sdev, char *buf, size_t buff_s
 	if (!reply)
 		return -ENOMEM;
 
-	ret = pm_runtime_get_sync(sdev->dev);
+	ret = pm_runtime_resume_and_get(sdev->dev);
 	if (ret < 0 && ret != -EACCES) {
-		pm_runtime_put_noidle(sdev->dev);
 		dev_err(sdev->dev, "error: enabling device failed: %d\n", ret);
 		goto error;
 	}
 
-	ret = sof_ipc_tx_message(sdev->ipc, msg.cmd, &msg, msg.size, reply, SOF_IPC_MSG_MAX_SIZE);
+	ret = sof_ipc_tx_message(sdev->ipc, &msg, msg.size, reply, SOF_IPC_MSG_MAX_SIZE);
 	pm_runtime_mark_last_busy(sdev->dev);
 	pm_runtime_put_autosuspend(sdev->dev);
 	if (ret < 0 || reply->rhdr.error < 0) {
@@ -331,7 +330,7 @@ EXPORT_SYMBOL_GPL(snd_sof_dbg_memory_info_init);
 
 int snd_sof_dbg_init(struct snd_sof_dev *sdev)
 {
-	const struct snd_sof_dsp_ops *ops = sof_ops(sdev);
+	struct snd_sof_dsp_ops *ops = sof_ops(sdev);
 	const struct snd_sof_debugfs_map *map;
 	int i;
 	int err;
