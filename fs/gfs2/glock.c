@@ -127,9 +127,11 @@ static void gfs2_glock_dealloc(struct rcu_head *rcu)
 	struct gfs2_glock *gl = container_of(rcu, struct gfs2_glock, gl_rcu);
 
 	kfree(gl->gl_lksb.sb_lvbptr);
-	if (gl->gl_ops->go_flags & GLOF_ASPACE)
-		kmem_cache_free(gfs2_glock_aspace_cachep, gl);
-	else
+	if (gl->gl_ops->go_flags & GLOF_ASPACE) {
+		struct gfs2_glock_aspace *gla =
+			container_of(gl, struct gfs2_glock_aspace, glock);
+		kmem_cache_free(gfs2_glock_aspace_cachep, gla);
+	} else
 		kmem_cache_free(gfs2_glock_cachep, gl);
 }
 
@@ -1159,7 +1161,6 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 				    .ln_sbd = sdp };
 	struct gfs2_glock *gl, *tmp;
 	struct address_space *mapping;
-	struct kmem_cache *cachep;
 	int ret = 0;
 
 	gl = find_insert_glock(&name, NULL);
@@ -1170,20 +1171,24 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	if (!create)
 		return -ENOENT;
 
-	if (glops->go_flags & GLOF_ASPACE)
-		cachep = gfs2_glock_aspace_cachep;
-	else
-		cachep = gfs2_glock_cachep;
-	gl = kmem_cache_alloc(cachep, GFP_NOFS);
-	if (!gl)
-		return -ENOMEM;
-
+	if (glops->go_flags & GLOF_ASPACE) {
+		struct gfs2_glock_aspace *gla =
+			kmem_cache_alloc(gfs2_glock_aspace_cachep, GFP_NOFS);
+		if (!gla)
+			return -ENOMEM;
+		gl = &gla->glock;
+	} else {
+		gl = kmem_cache_alloc(gfs2_glock_cachep, GFP_NOFS);
+		if (!gl)
+			return -ENOMEM;
+	}
 	memset(&gl->gl_lksb, 0, sizeof(struct dlm_lksb));
+	gl->gl_ops = glops;
 
 	if (glops->go_flags & GLOF_LVB) {
 		gl->gl_lksb.sb_lvbptr = kzalloc(GDLM_LVB_SIZE, GFP_NOFS);
 		if (!gl->gl_lksb.sb_lvbptr) {
-			kmem_cache_free(cachep, gl);
+			gfs2_glock_dealloc(&gl->gl_rcu);
 			return -ENOMEM;
 		}
 	}
@@ -1197,7 +1202,6 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	gl->gl_state = LM_ST_UNLOCKED;
 	gl->gl_target = LM_ST_UNLOCKED;
 	gl->gl_demote_state = LM_ST_EXCLUSIVE;
-	gl->gl_ops = glops;
 	gl->gl_dstamp = 0;
 	preempt_disable();
 	/* We use the global stats to estimate the initial per-glock stats */
@@ -1234,8 +1238,7 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	*glp = tmp;
 
 out_free:
-	kfree(gl->gl_lksb.sb_lvbptr);
-	kmem_cache_free(cachep, gl);
+	gfs2_glock_dealloc(&gl->gl_rcu);
 	if (atomic_dec_and_test(&sdp->sd_glock_disposal))
 		wake_up(&sdp->sd_glock_wait);
 
@@ -1461,6 +1464,15 @@ void gfs2_print_dbg(struct seq_file *seq, const char *fmt, ...)
 	va_end(args);
 }
 
+static inline bool pid_is_meaningful(const struct gfs2_holder *gh)
+{
+	if (!(gh->gh_flags & GL_NOPID))
+		return true;
+	if (gh->gh_state == LM_ST_UNLOCKED && !(gh->gh_flags & GL_ASYNC))
+		return true;
+	return false;
+}
+
 /**
  * add_to_queue - Add a holder to the wait queue (but look for recursion)
  * @gh: the holder structure to add
@@ -1497,10 +1509,15 @@ __acquires(&gl->gl_lockref.lock)
 	}
 
 	list_for_each_entry(gh2, &gl->gl_holders, gh_list) {
-		if (unlikely(gh2->gh_owner_pid == gh->gh_owner_pid &&
-		    (gh->gh_gl->gl_ops->go_type != LM_TYPE_FLOCK) &&
-		    !test_bit(HIF_MAY_DEMOTE, &gh2->gh_iflags)))
-			goto trap_recursive;
+		if (likely(gh2->gh_owner_pid != gh->gh_owner_pid))
+			continue;
+		if (test_bit(HIF_MAY_DEMOTE, &gh2->gh_iflags))
+			continue;
+		if (!pid_is_meaningful(gh2))
+			continue;
+		goto trap_recursive;
+	}
+	list_for_each_entry(gh2, &gl->gl_holders, gh_list) {
 		if (try_futile &&
 		    !(gh2->gh_flags & (LM_FLAG_TRY | LM_FLAG_TRY_1CB))) {
 fail:
@@ -2315,19 +2332,24 @@ static const char *hflags2str(char *buf, u16 flags, unsigned long iflags)
 static void dump_holder(struct seq_file *seq, const struct gfs2_holder *gh,
 			const char *fs_id_buf)
 {
-	struct task_struct *gh_owner = NULL;
+	const char *comm = "(none)";
+	pid_t owner_pid = 0;
 	char flags_buf[32];
 
 	rcu_read_lock();
-	if (gh->gh_owner_pid)
+	if (pid_is_meaningful(gh)) {
+		struct task_struct *gh_owner;
+
+		comm = "(ended)";
+		owner_pid = pid_nr(gh->gh_owner_pid);
 		gh_owner = pid_task(gh->gh_owner_pid, PIDTYPE_PID);
+		if (gh_owner)
+			comm = gh_owner->comm;
+	}
 	gfs2_print_dbg(seq, "%s H: s:%s f:%s e:%d p:%ld [%s] %pS\n",
 		       fs_id_buf, state2str(gh->gh_state),
 		       hflags2str(flags_buf, gh->gh_flags, gh->gh_iflags),
-		       gh->gh_error,
-		       gh->gh_owner_pid ? (long)pid_nr(gh->gh_owner_pid) : -1,
-		       gh_owner ? gh_owner->comm : "(ended)",
-		       (void *)gh->gh_ip);
+		       gh->gh_error, (long)owner_pid, comm, (void *)gh->gh_ip);
 	rcu_read_unlock();
 }
 
