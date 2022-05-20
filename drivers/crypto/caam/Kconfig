@@ -159,6 +159,9 @@ config CRYPTO_DEV_FSL_CAAM_PRNG_API
 	  Selecting this will register the SEC hardware prng to
 	  the Crypto API.
 
+config CRYPTO_DEV_FSL_CAAM_BLOB_GEN
+	bool
+
 endif # CRYPTO_DEV_FSL_CAAM_JR
 
 endif # CRYPTO_DEV_FSL_CAAM
