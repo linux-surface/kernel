@@ -1315,7 +1315,8 @@ static int coda_enum_frameintervals(struct file *file, void *fh,
 				    struct v4l2_frmivalenum *f)
 {
 	struct coda_ctx *ctx = fh_to_ctx(fh);
-	int i;
+	struct coda_q_data *q_data;
+	const struct coda_codec *codec;
 
 	if (f->index)
 		return -EINVAL;
@@ -1324,12 +1325,19 @@ static int coda_enum_frameintervals(struct file *file, void *fh,
 	if (!ctx->vdoa && f->pixel_format == V4L2_PIX_FMT_YUYV)
 		return -EINVAL;
 
-	for (i = 0; i < CODA_MAX_FORMATS; i++) {
-		if (f->pixel_format == ctx->cvd->src_formats[i] ||
-		    f->pixel_format == ctx->cvd->dst_formats[i])
-			break;
+	if (coda_format_normalize_yuv(f->pixel_format) == V4L2_PIX_FMT_YUV420) {
+		q_data = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
+		codec = coda_find_codec(ctx->dev, f->pixel_format,
+					q_data->fourcc);
+	} else {
+		codec = coda_find_codec(ctx->dev, V4L2_PIX_FMT_YUV420,
+					f->pixel_format);
 	}
-	if (i == CODA_MAX_FORMATS)
+	if (!codec)
+		return -EINVAL;
+
+	if (f->width < MIN_W || f->width > codec->max_w ||
+	    f->height < MIN_H || f->height > codec->max_h)
 		return -EINVAL;
 
 	f->type = V4L2_FRMIVAL_TYPE_CONTINUOUS;
@@ -1653,13 +1661,18 @@ static void set_default_params(struct coda_ctx *ctx)
 	csize = coda_estimate_sizeimage(ctx, usize, max_w, max_h);
 
 	ctx->params.codec_mode = ctx->codec->mode;
-	if (ctx->cvd->src_formats[0] == V4L2_PIX_FMT_JPEG)
-		ctx->colorspace = V4L2_COLORSPACE_JPEG;
-	else
+	if (ctx->cvd->src_formats[0] == V4L2_PIX_FMT_JPEG ||
+	    ctx->cvd->dst_formats[0] == V4L2_PIX_FMT_JPEG) {
+		ctx->colorspace = V4L2_COLORSPACE_SRGB;
+		ctx->xfer_func = V4L2_XFER_FUNC_SRGB;
+		ctx->ycbcr_enc = V4L2_YCBCR_ENC_601;
+		ctx->quantization = V4L2_QUANTIZATION_FULL_RANGE;
+	} else {
 		ctx->colorspace = V4L2_COLORSPACE_REC709;
-	ctx->xfer_func = V4L2_XFER_FUNC_DEFAULT;
-	ctx->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
-	ctx->quantization = V4L2_QUANTIZATION_DEFAULT;
+		ctx->xfer_func = V4L2_XFER_FUNC_DEFAULT;
+		ctx->ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
+		ctx->quantization = V4L2_QUANTIZATION_DEFAULT;
+	}
 	ctx->params.framerate = 30;
 
 	/* Default formats for output and input queues */
