@@ -1207,6 +1207,7 @@ static void nvme_keep_alive_work(struct work_struct *work)
 
 	rq->timeout = ctrl->kato * HZ;
 	rq->end_io_data = ctrl;
+	rq->rq_flags |= RQF_QUIET;
 	blk_execute_rq_nowait(rq, false, nvme_keep_alive_end_io);
 }
 
@@ -1621,19 +1622,21 @@ static void nvme_config_discard(struct gendisk *disk, struct nvme_ns *ns)
 	u32 size = queue_logical_block_size(queue);
 
 	if (ctrl->max_discard_sectors == 0) {
-		blk_queue_flag_clear(QUEUE_FLAG_DISCARD, queue);
+		blk_queue_max_discard_sectors(queue, 0);
 		return;
 	}
 
 	BUILD_BUG_ON(PAGE_SIZE / sizeof(struct nvme_dsm_range) <
 			NVME_DSM_MAX_RANGES);
 
-	queue->limits.discard_alignment = 0;
 	queue->limits.discard_granularity = size;
 
 	/* If discard is already enabled, don't reset queue limits */
-	if (blk_queue_flag_test_and_set(QUEUE_FLAG_DISCARD, queue))
+	if (queue->limits.max_discard_sectors)
 		return;
+
+	if (ctrl->dmrsl && ctrl->dmrsl <= nvme_sect_to_lba(ns, UINT_MAX))
+		ctrl->max_discard_sectors = nvme_lba_to_sect(ns, ctrl->dmrsl);
 
 	blk_queue_max_discard_sectors(queue, ctrl->max_discard_sectors);
 	blk_queue_max_discard_segments(queue, ctrl->max_discard_segments);
@@ -1771,7 +1774,7 @@ static void nvme_set_queue_limits(struct nvme_ctrl *ctrl,
 		blk_queue_max_segments(q, min_t(u32, max_segments, USHRT_MAX));
 	}
 	blk_queue_virt_boundary(q, NVME_CTRL_PAGE_SIZE - 1);
-	blk_queue_dma_alignment(q, 7);
+	blk_queue_dma_alignment(q, 3);
 	blk_queue_write_cache(q, vwc, vwc);
 }
 
@@ -2894,8 +2897,7 @@ static int nvme_init_non_mdts_limits(struct nvme_ctrl *ctrl)
 
 	if (id->dmrl)
 		ctrl->max_discard_segments = id->dmrl;
-	if (id->dmrsl)
-		ctrl->max_discard_sectors = le32_to_cpu(id->dmrsl);
+	ctrl->dmrsl = le32_to_cpu(id->dmrsl);
 	if (id->wzsl)
 		ctrl->max_zeroes_sectors = nvme_mps_to_sectors(ctrl, id->wzsl);
 
@@ -3699,6 +3701,7 @@ static const struct file_operations nvme_ns_chr_fops = {
 	.release	= nvme_ns_chr_release,
 	.unlocked_ioctl	= nvme_ns_chr_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
+	.uring_cmd	= nvme_ns_chr_uring_cmd,
 };
 
 static int nvme_add_ns_cdev(struct nvme_ns *ns)
