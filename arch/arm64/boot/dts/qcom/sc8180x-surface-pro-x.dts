@@ -533,6 +533,14 @@
 		bias-disable;
 	};
 
+	i2c9_active: i2c9-active-state {
+		pins = "gpio39", "gpio40";
+		function = "qup9";
+
+		bias-pull-up;
+		drive-strength = <2>;
+	};
+
 	uart13_state: uart13-state {
 		cts {
 			pins = "gpio43";
@@ -753,6 +761,19 @@
 
 		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
 	};
+};
+
+
+&qupv3_id_1 {
+	status = "okay";
+};
+
+&i2c9 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c9_active>;
 };
 
 
