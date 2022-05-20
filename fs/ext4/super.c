@@ -2674,7 +2674,6 @@ static int ext4_check_test_dummy_encryption(const struct fs_context *fc,
 					    struct super_block *sb)
 {
 	const struct ext4_fs_context *ctx = fc->fs_private;
-	const struct ext4_sb_info *sbi = EXT4_SB(sb);
 
 	if (!IS_ENABLED(CONFIG_FS_ENCRYPTION) ||
 	    !(ctx->spec & EXT4_SPEC_DUMMY_ENCRYPTION))
@@ -2692,7 +2691,7 @@ static int ext4_check_test_dummy_encryption(const struct fs_context *fc,
 	 * it to be specified during remount, but only if there is no change.
 	 */
 	if (fc->purpose == FS_CONTEXT_FOR_RECONFIGURE &&
-	    !DUMMY_ENCRYPTION_ENABLED(sbi)) {
+	    !DUMMY_ENCRYPTION_ENABLED(EXT4_SB(sb))) {
 		ext4_msg(NULL, KERN_WARNING,
 			 "Can't set test_dummy_encryption on remount");
 		return -EINVAL;
