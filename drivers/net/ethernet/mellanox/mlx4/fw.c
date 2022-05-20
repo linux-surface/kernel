@@ -1300,8 +1300,8 @@ int mlx4_QUERY_DEV_CAP_wrapper(struct mlx4_dev *dev, int slave,
 	actv_ports = mlx4_get_active_ports(dev, slave);
 	first_port = find_first_bit(actv_ports.ports, dev->caps.num_ports);
 	for (slave_port = 0, real_port = first_port;
-	     real_port < first_port +
-	     bitmap_weight(actv_ports.ports, dev->caps.num_ports);
+	     bitmap_weight_gt(actv_ports.ports, dev->caps.num_ports,
+			      real_port - first_port);
 	     ++real_port, ++slave_port) {
 		if (flags & (MLX4_DEV_CAP_FLAG_WOL_PORT1 << real_port))
 			flags |= MLX4_DEV_CAP_FLAG_WOL_PORT1 << slave_port;

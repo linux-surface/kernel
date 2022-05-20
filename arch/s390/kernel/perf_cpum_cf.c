@@ -975,7 +975,7 @@ static int cfset_all_start(struct cfset_request *req)
 		return -ENOMEM;
 	cpumask_and(mask, &req->mask, cpu_online_mask);
 	on_each_cpu_mask(mask, cfset_ioctl_on, &p, 1);
-	if (atomic_read(&p.cpus_ack) != cpumask_weight(mask)) {
+	if (!cpumask_weight_eq(mask, atomic_read(&p.cpus_ack))) {
 		on_each_cpu_mask(mask, cfset_ioctl_off, &p, 1);
 		rc = -EIO;
 		debug_sprintf_event(cf_dbg, 4, "%s CPUs missing", __func__);

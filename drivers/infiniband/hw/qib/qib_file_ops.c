@@ -1151,7 +1151,7 @@ static void assign_ctxt_affinity(struct file *fp, struct qib_devdata *dd)
 	 * reserve a processor for it on the local NUMA node.
 	 */
 	if ((weight >= qib_cpulist_count) &&
-		(cpumask_weight(local_mask) <= qib_cpulist_count)) {
+		(cpumask_weight_le(local_mask, qib_cpulist_count))) {
 		for_each_cpu(local_cpu, local_mask)
 			if (!test_and_set_bit(local_cpu, qib_cpulist)) {
 				fd->rec_cpu_num = local_cpu;

@@ -763,7 +763,7 @@ static void octeon_irq_cpu_offline_ciu(struct irq_data *data)
 	if (!cpumask_test_cpu(cpu, mask))
 		return;
 
-	if (cpumask_weight(mask) > 1) {
+	if (cpumask_weight_gt(mask, 1)) {
 		/*
 		 * It has multi CPU affinity, just remove this CPU
 		 * from the affinity set.
@@ -795,7 +795,7 @@ static int octeon_irq_ciu_set_affinity(struct irq_data *data,
 	 * This removes the need to do locking in the .ack/.eoi
 	 * functions.
 	 */
-	if (cpumask_weight(dest) != 1)
+	if (!cpumask_weight_eq(dest, 1))
 		return -EINVAL;
 
 	if (!enable_one)
