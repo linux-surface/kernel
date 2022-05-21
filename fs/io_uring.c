@@ -544,7 +544,7 @@ struct io_uring_task {
 
 	spinlock_t		task_lock;
 	struct io_wq_work_list	task_list;
-	struct io_wq_work_list	prior_task_list;
+	struct io_wq_work_list	prio_task_list;
 	struct callback_head	task_work;
 	struct file		**registered_rings;
 	bool			task_running;
@@ -2951,10 +2951,10 @@ static void tctx_task_work(struct callback_head *cb)
 		struct io_wq_work_node *node1, *node2;
 
 		spin_lock_irq(&tctx->task_lock);
-		node1 = tctx->prior_task_list.first;
+		node1 = tctx->prio_task_list.first;
 		node2 = tctx->task_list.first;
 		INIT_WQ_LIST(&tctx->task_list);
-		INIT_WQ_LIST(&tctx->prior_task_list);
+		INIT_WQ_LIST(&tctx->prio_task_list);
 		if (!node2 && !node1)
 			tctx->task_running = false;
 		spin_unlock_irq(&tctx->task_lock);
@@ -2968,7 +2968,7 @@ static void tctx_task_work(struct callback_head *cb)
 		cond_resched();
 
 		if (data_race(!tctx->task_list.first) &&
-		    data_race(!tctx->prior_task_list.first) && uring_locked)
+		    data_race(!tctx->prio_task_list.first) && uring_locked)
 			io_submit_flush_completions(ctx);
 	}
 
@@ -2979,24 +2979,19 @@ static void tctx_task_work(struct callback_head *cb)
 		io_uring_drop_tctx_refs(current);
 }
 
-static void io_req_task_work_add(struct io_kiocb *req, bool priority)
+static void __io_req_task_work_add(struct io_kiocb *req,
+				   struct io_uring_task *tctx,
+				   struct io_wq_work_list *list)
 {
-	struct task_struct *tsk = req->task;
 	struct io_ring_ctx *ctx = req->ctx;
-	struct io_uring_task *tctx = tsk->io_uring;
 	struct io_wq_work_node *node;
 	unsigned long flags;
 	bool running;
 
-	WARN_ON_ONCE(!tctx);
-
 	io_drop_inflight_file(req);
 
 	spin_lock_irqsave(&tctx->task_lock, flags);
-	if (priority)
-		wq_list_add_tail(&req->io_task_work.node, &tctx->prior_task_list);
-	else
-		wq_list_add_tail(&req->io_task_work.node, &tctx->task_list);
+	wq_list_add_tail(&req->io_task_work.node, list);
 	running = tctx->task_running;
 	if (!running)
 		tctx->task_running = true;
@@ -3009,12 +3004,12 @@ static void io_req_task_work_add(struct io_kiocb *req, bool priority)
 	if (ctx->flags & IORING_SETUP_TASKRUN_FLAG)
 		atomic_or(IORING_SQ_TASKRUN, &ctx->rings->sq_flags);
 
-	if (likely(!task_work_add(tsk, &tctx->task_work, ctx->notify_method)))
+	if (likely(!task_work_add(req->task, &tctx->task_work, ctx->notify_method)))
 		return;
 
 	spin_lock_irqsave(&tctx->task_lock, flags);
 	tctx->task_running = false;
-	node = wq_list_merge(&tctx->prior_task_list, &tctx->task_list);
+	node = wq_list_merge(&tctx->prio_task_list, &tctx->task_list);
 	spin_unlock_irqrestore(&tctx->task_lock, flags);
 
 	while (node) {
@@ -3024,6 +3019,23 @@ static void io_req_task_work_add(struct io_kiocb *req, bool priority)
 			      &req->ctx->fallback_llist))
 			schedule_delayed_work(&req->ctx->fallback_work, 1);
 	}
+}
+
+static void io_req_task_work_add(struct io_kiocb *req)
+{
+	struct io_uring_task *tctx = req->task->io_uring;
+
+	__io_req_task_work_add(req, tctx, &tctx->task_list);
+}
+
+static void io_req_task_prio_work_add(struct io_kiocb *req)
+{
+	struct io_uring_task *tctx = req->task->io_uring;
+
+	if (req->ctx->flags & IORING_SETUP_SQPOLL)
+		__io_req_task_work_add(req, tctx, &tctx->prio_task_list);
+	else
+		__io_req_task_work_add(req, tctx, &tctx->task_list);
 }
 
 static void io_req_tw_post(struct io_kiocb *req, bool *locked)
@@ -3036,7 +3048,7 @@ static void io_req_tw_post_queue(struct io_kiocb *req, s32 res, u32 cflags)
 	req->cqe.res = res;
 	req->cqe.flags = cflags;
 	req->io_task_work.func = io_req_tw_post;
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 }
 
 static void io_req_task_cancel(struct io_kiocb *req, bool *locked)
@@ -3060,19 +3072,19 @@ static void io_req_task_queue_fail(struct io_kiocb *req, int ret)
 {
 	req->cqe.res = ret;
 	req->io_task_work.func = io_req_task_cancel;
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 }
 
 static void io_req_task_queue(struct io_kiocb *req)
 {
 	req->io_task_work.func = io_req_task_submit;
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 }
 
 static void io_req_task_queue_reissue(struct io_kiocb *req)
 {
 	req->io_task_work.func = io_queue_iowq;
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 }
 
 static void io_queue_next(struct io_kiocb *req)
@@ -3480,7 +3492,7 @@ static void io_complete_rw(struct kiocb *kiocb, long res)
 		return;
 	req->cqe.res = res;
 	req->io_task_work.func = io_req_task_complete;
-	io_req_task_work_add(req, !!(req->ctx->flags & IORING_SETUP_SQPOLL));
+	io_req_task_prio_work_add(req);
 }
 
 static void io_complete_rw_iopoll(struct kiocb *kiocb, long res)
@@ -5013,7 +5025,7 @@ void io_uring_cmd_complete_in_task(struct io_uring_cmd *ioucmd,
 
 	req->uring_cmd.task_work_cb = task_work_cb;
 	req->io_task_work.func = io_uring_cmd_work;
-	io_req_task_work_add(req, !!(req->ctx->flags & IORING_SETUP_SQPOLL));
+	io_req_task_prio_work_add(req);
 }
 EXPORT_SYMBOL_GPL(io_uring_cmd_complete_in_task);
 
@@ -6999,7 +7011,7 @@ static void __io_poll_execute(struct io_kiocb *req, int mask, __poll_t events)
 		req->io_task_work.func = io_apoll_task_func;
 
 	trace_io_uring_task_add(req->ctx, req, req->cqe.user_data, req->opcode, mask);
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 }
 
 static inline void io_poll_execute(struct io_kiocb *req, int res,
@@ -7504,7 +7516,7 @@ static enum hrtimer_restart io_timeout_fn(struct hrtimer *timer)
 
 	req->cqe.res = -ETIME;
 	req->io_task_work.func = io_req_task_complete;
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 	return HRTIMER_NORESTART;
 }
 
@@ -8627,7 +8639,7 @@ static enum hrtimer_restart io_link_timeout_fn(struct hrtimer *timer)
 	spin_unlock_irqrestore(&ctx->timeout_lock, flags);
 
 	req->io_task_work.func = io_req_task_link_timeout;
-	io_req_task_work_add(req, false);
+	io_req_task_work_add(req);
 	return HRTIMER_NORESTART;
 }
 
@@ -10340,7 +10352,7 @@ static __cold int io_uring_alloc_task_context(struct task_struct *task,
 	task->io_uring = tctx;
 	spin_lock_init(&tctx->task_lock);
 	INIT_WQ_LIST(&tctx->task_list);
-	INIT_WQ_LIST(&tctx->prior_task_list);
+	INIT_WQ_LIST(&tctx->prio_task_list);
 	init_task_work(&tctx->task_work, tctx_task_work);
 	return 0;
 }
