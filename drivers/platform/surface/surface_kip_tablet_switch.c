@@ -3,7 +3,7 @@
  * Surface System Aggregator Module (SSAM) tablet mode switch via KIP
  * subsystem.
  *
- * Copyright (C) 2021 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2022 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/input.h>
