@@ -17,8 +17,6 @@
 .. |SSAM_DEVICE| replace:: :c:func:`SSAM_DEVICE`
 .. |ssam_notifier_register| replace:: :c:func:`ssam_notifier_register`
 .. |ssam_notifier_unregister| replace:: :c:func:`ssam_notifier_unregister`
-.. |ssam_device_notifier_register| replace:: :c:func:`ssam_device_notifier_register`
-.. |ssam_device_notifier_unregister| replace:: :c:func:`ssam_device_notifier_unregister`
 .. |ssam_request_sync| replace:: :c:func:`ssam_request_sync`
 .. |ssam_event_mask| replace:: :c:type:`enum ssam_event_mask <ssam_event_mask>`
 
@@ -314,9 +312,7 @@ Handling Events
 To receive events from the SAM EC, an event notifier must be registered for
 the desired event via |ssam_notifier_register|. The notifier must be
 unregistered via |ssam_notifier_unregister| once it is not required any
-more. For |ssam_device| type clients, the |ssam_device_notifier_register| and
-|ssam_device_notifier_unregister| wrappers should be preferred as they properly
-handle hot-removal of client devices.
+more.
 
 Event notifiers are registered by providing (at minimum) a callback to call
 in case an event has been received, the registry specifying how the event
