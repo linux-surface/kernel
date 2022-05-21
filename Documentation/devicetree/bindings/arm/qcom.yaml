@@ -48,6 +48,7 @@ description: |
         sc8280xp
         sdm630
         sdm632
+        sdm636
         sdm660
         sdm845
         sdx55
@@ -291,6 +292,11 @@ properties:
           - enum:
               - fairphone,fp3
           - const: qcom,sdm632
+
+      - items:
+          - enum:
+              - sony,mermaid-row
+          - const: qcom,sdm636
 
       - items:
           - enum:
