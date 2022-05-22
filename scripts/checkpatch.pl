@@ -6784,6 +6784,10 @@ sub process {
 					my $stat_real = get_stat_real($linenr, $lc);
 					my $ext_type = "Invalid";
 					my $use = "";
+					if ($bad_specifier =~ /pA/) {
+						ERROR("VSPRINTF_RUST",
+							"'\%pA' is only intended to be used from Rust code\n" . "$here\n$stat_real\n");
+					}
 					if ($bad_specifier =~ /p[Ff]/) {
 						$use = " - use %pS instead";
 						$use =~ s/pS/ps/ if ($bad_specifier =~ /pf/);
