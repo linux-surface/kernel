@@ -224,7 +224,8 @@ ssize_t copy_oldmem_page(struct iov_iter *iter, unsigned long pfn, size_t csize,
 	if (!csize)
 		return 0;
 
-	if (!(iter_is_iovec(iter) || iov_iter_is_kvec(iter)))
+	if (!(iter_is_ubuf(iter) || iter_is_iovec(iter) ||
+	      iov_iter_is_kvec(iter)))
 		return -EINVAL;
 	/* Multi-segment iterators are not supported */
 	if (iter->nr_segs > 1)
@@ -233,6 +234,9 @@ ssize_t copy_oldmem_page(struct iov_iter *iter, unsigned long pfn, size_t csize,
 	/* XXX: pass the iov_iter down to a common function */
 	if (iter_is_iovec(iter))
 		rc = copy_oldmem_user(iter->iov->iov_base + iter->iov_offset,
+				      src, csize);
+	else if (iter_is_ubuf(iter))
+		rc = copy_oldmem_user(iter->ubuf + iter->iov_offset,
 				      src, csize);
 	else
 		rc = copy_oldmem_kernel(iter->kvec->iov_base + iter->iov_offset,
