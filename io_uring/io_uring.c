@@ -983,12 +983,6 @@ struct io_kiocb {
 		struct io_epoll		epoll;
 		struct io_splice	splice;
 		struct io_provide_buf	pbuf;
-		struct io_statx		statx;
-		struct io_rename	rename;
-		struct io_unlink	unlink;
-		struct io_mkdir		mkdir;
-		struct io_symlink	symlink;
-		struct io_hardlink	hardlink;
 		struct io_msg		msg;
 		struct io_xattr		xattr;
 		struct io_uring_cmd	uring_cmd;
@@ -4359,7 +4353,7 @@ out_free:
 static int io_renameat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_rename *ren = &req->rename;
+	struct io_rename *ren = io_kiocb_to_cmd(req);
 	const char __user *oldf, *newf;
 
 	if (sqe->buf_index || sqe->splice_fd_in)
@@ -4389,7 +4383,7 @@ static int io_renameat_prep(struct io_kiocb *req,
 
 static int io_renameat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_rename *ren = &req->rename;
+	struct io_rename *ren = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -4646,7 +4640,7 @@ retry:
 static int io_unlinkat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_unlink *un = &req->unlink;
+	struct io_unlink *un = io_kiocb_to_cmd(req);
 	const char __user *fname;
 
 	if (sqe->off || sqe->len || sqe->buf_index || sqe->splice_fd_in)
@@ -4671,7 +4665,7 @@ static int io_unlinkat_prep(struct io_kiocb *req,
 
 static int io_unlinkat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_unlink *un = &req->unlink;
+	struct io_unlink *un = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -4690,7 +4684,7 @@ static int io_unlinkat(struct io_kiocb *req, unsigned int issue_flags)
 static int io_mkdirat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_mkdir *mkd = &req->mkdir;
+	struct io_mkdir *mkd = io_kiocb_to_cmd(req);
 	const char __user *fname;
 
 	if (sqe->off || sqe->rw_flags || sqe->buf_index || sqe->splice_fd_in)
@@ -4712,7 +4706,7 @@ static int io_mkdirat_prep(struct io_kiocb *req,
 
 static int io_mkdirat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_mkdir *mkd = &req->mkdir;
+	struct io_mkdir *mkd = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -4728,7 +4722,7 @@ static int io_mkdirat(struct io_kiocb *req, unsigned int issue_flags)
 static int io_symlinkat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_symlink *sl = &req->symlink;
+	struct io_symlink *sl = io_kiocb_to_cmd(req);
 	const char __user *oldpath, *newpath;
 
 	if (sqe->len || sqe->rw_flags || sqe->buf_index || sqe->splice_fd_in)
@@ -4756,7 +4750,7 @@ static int io_symlinkat_prep(struct io_kiocb *req,
 
 static int io_symlinkat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_symlink *sl = &req->symlink;
+	struct io_symlink *sl = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -4772,7 +4766,7 @@ static int io_symlinkat(struct io_kiocb *req, unsigned int issue_flags)
 static int io_linkat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_hardlink *lnk = &req->hardlink;
+	struct io_hardlink *lnk = io_kiocb_to_cmd(req);
 	const char __user *oldf, *newf;
 
 	if (sqe->rw_flags || sqe->buf_index || sqe->splice_fd_in)
@@ -4802,7 +4796,7 @@ static int io_linkat_prep(struct io_kiocb *req,
 
 static int io_linkat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_hardlink *lnk = &req->hardlink;
+	struct io_hardlink *lnk = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -5688,6 +5682,7 @@ static int io_fadvise(struct io_kiocb *req, unsigned int issue_flags)
 
 static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
+	struct io_statx *sx = io_kiocb_to_cmd(req);
 	const char __user *path;
 
 	if (sqe->buf_index || sqe->splice_fd_in)
@@ -5695,20 +5690,20 @@ static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	if (req->flags & REQ_F_FIXED_FILE)
 		return -EBADF;
 
-	req->statx.dfd = READ_ONCE(sqe->fd);
-	req->statx.mask = READ_ONCE(sqe->len);
+	sx->dfd = READ_ONCE(sqe->fd);
+	sx->mask = READ_ONCE(sqe->len);
 	path = u64_to_user_ptr(READ_ONCE(sqe->addr));
-	req->statx.buffer = u64_to_user_ptr(READ_ONCE(sqe->addr2));
-	req->statx.flags = READ_ONCE(sqe->statx_flags);
+	sx->buffer = u64_to_user_ptr(READ_ONCE(sqe->addr2));
+	sx->flags = READ_ONCE(sqe->statx_flags);
 
-	req->statx.filename = getname_flags(path,
-					getname_statx_lookup_flags(req->statx.flags),
-					NULL);
+	sx->filename = getname_flags(path,
+				     getname_statx_lookup_flags(sx->flags),
+				     NULL);
 
-	if (IS_ERR(req->statx.filename)) {
-		int ret = PTR_ERR(req->statx.filename);
+	if (IS_ERR(sx->filename)) {
+		int ret = PTR_ERR(sx->filename);
 
-		req->statx.filename = NULL;
+		sx->filename = NULL;
 		return ret;
 	}
 
@@ -5718,14 +5713,13 @@ static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 static int io_statx(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_statx *ctx = &req->statx;
+	struct io_statx *sx = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
 		return -EAGAIN;
 
-	ret = do_statx(ctx->dfd, ctx->filename, ctx->flags, ctx->mask,
-		       ctx->buffer);
+	ret = do_statx(sx->dfd, sx->filename, sx->flags, sx->mask, sx->buffer);
 	io_req_complete(req, ret);
 	return 0;
 }
@@ -7986,28 +7980,46 @@ static void io_clean_op(struct io_kiocb *req)
 				putname(open->filename);
 			break;
 			}
-		case IORING_OP_RENAMEAT:
-			putname(req->rename.oldpath);
-			putname(req->rename.newpath);
+		case IORING_OP_RENAMEAT: {
+			struct io_rename *ren = io_kiocb_to_cmd(req);
+
+			putname(ren->oldpath);
+			putname(ren->newpath);
 			break;
-		case IORING_OP_UNLINKAT:
-			putname(req->unlink.filename);
+			}
+		case IORING_OP_UNLINKAT: {
+			struct io_unlink *ul = io_kiocb_to_cmd(req);
+
+			putname(ul->filename);
 			break;
-		case IORING_OP_MKDIRAT:
-			putname(req->mkdir.filename);
+			}
+		case IORING_OP_MKDIRAT: {
+			struct io_mkdir *md = io_kiocb_to_cmd(req);
+
+			putname(md->filename);
 			break;
-		case IORING_OP_SYMLINKAT:
-			putname(req->symlink.oldpath);
-			putname(req->symlink.newpath);
+			}
+		case IORING_OP_SYMLINKAT: {
+			struct io_symlink *sl = io_kiocb_to_cmd(req);
+
+			putname(sl->oldpath);
+			putname(sl->newpath);
 			break;
-		case IORING_OP_LINKAT:
-			putname(req->hardlink.oldpath);
-			putname(req->hardlink.newpath);
+			}
+		case IORING_OP_LINKAT: {
+			struct io_hardlink *hl = io_kiocb_to_cmd(req);
+
+			putname(hl->oldpath);
+			putname(hl->newpath);
 			break;
-		case IORING_OP_STATX:
-			if (req->statx.filename)
-				putname(req->statx.filename);
+			}
+		case IORING_OP_STATX: {
+			struct io_statx *sx = io_kiocb_to_cmd(req);
+
+			if (sx->filename)
+				putname(sx->filename);
 			break;
+			}
 		case IORING_OP_SETXATTR:
 		case IORING_OP_FSETXATTR:
 		case IORING_OP_GETXATTR:
