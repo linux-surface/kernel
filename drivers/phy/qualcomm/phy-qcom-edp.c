@@ -117,15 +117,17 @@ static int qcom_edp_phy_init(struct phy *phy)
 	       DP_PHY_PD_CTL_PLL_PWRDN | DP_PHY_PD_CTL_DP_CLAMP_EN,
 	       edp->edp + DP_PHY_PD_CTL);
 
+	writel(0xfc, edp->edp + DP_PHY_MODE);
+
 	writel(0x00, edp->edp + DP_PHY_AUX_CFG0);
 	writel(0x13, edp->edp + DP_PHY_AUX_CFG1);
-	writel(0x24, edp->edp + DP_PHY_AUX_CFG2);
+	writel(0xa4, edp->edp + DP_PHY_AUX_CFG2);
 	writel(0x00, edp->edp + DP_PHY_AUX_CFG3);
 	writel(0x0a, edp->edp + DP_PHY_AUX_CFG4);
 	writel(0x26, edp->edp + DP_PHY_AUX_CFG5);
 	writel(0x0a, edp->edp + DP_PHY_AUX_CFG6);
 	writel(0x03, edp->edp + DP_PHY_AUX_CFG7);
-	writel(0x37, edp->edp + DP_PHY_AUX_CFG8);
+	writel(0xb7, edp->edp + DP_PHY_AUX_CFG8);
 	writel(0x03, edp->edp + DP_PHY_AUX_CFG9);
 
 	writel(PHY_AUX_STOP_ERR_MASK | PHY_AUX_DEC_ERR_MASK |
@@ -142,12 +144,59 @@ out_disable_supplies:
 	return ret;
 }
 
+static const u8 emphasis_hbr_rbr[4][4] = {
+	{ 0x20, 0x2e, 0x35, 0xff },
+	{ 0x20, 0x2e, 0x35, 0xff },
+	{ 0x20, 0x2e, 0xff, 0xff },
+	{ 0xff, 0xff, 0xff, 0xff }
+};
+
+static const u8 swing_hbr_rbr[4][4] = {
+	{ 0x27, 0x2f, 0x36, 0xff },
+	{ 0x31, 0x3e, 0x3f, 0xff },
+	{ 0x3a, 0x3f, 0xff, 0xff },
+	{ 0xff, 0xff, 0xff, 0xff }
+};
+
+static int qcom_edp_set_voltages(struct qcom_edp *edp, const struct phy_configure_opts_dp *opts)
+{
+	unsigned int v_level = 0;
+	unsigned int p_level = 0;
+	unsigned int swing;
+	unsigned int emph;
+	int i;
+
+	for (i = 0; i < opts->lanes; i++) {
+		v_level = max(v_level, opts->voltage[i]);
+		p_level = max(p_level, opts->pre[i]);
+	}
+
+	emph = emphasis_hbr_rbr[v_level][p_level];
+	swing = swing_hbr_rbr[v_level][p_level];
+
+	if (swing == 0xFF || emph == 0xFF)
+		return -EINVAL;
+
+	writel(0x00, edp->tx0 + TXn_LDO_CONFIG); /* DP vs eDP */
+	writel(swing, edp->tx0 + TXn_TX_DRV_LVL);
+	writel(emph, edp->tx0 + TXn_TX_EMP_POST1_LVL);
+
+	writel(0x00, edp->tx1 + TXn_LDO_CONFIG); /* DP vs eDP */
+	writel(swing, edp->tx1 + TXn_TX_DRV_LVL);
+	writel(emph, edp->tx1 + TXn_TX_EMP_POST1_LVL);
+
+	return 0;
+}
+
 static int qcom_edp_phy_configure(struct phy *phy, union phy_configure_opts *opts)
 {
 	const struct phy_configure_opts_dp *dp_opts = &opts->dp;
 	struct qcom_edp *edp = phy_get_drvdata(phy);
 
 	memcpy(&edp->dp_opts, dp_opts, sizeof(*dp_opts));
+
+	if (dp_opts->set_voltages)
+		qcom_edp_set_voltages(edp, dp_opts);
 
 	return 0;
 }
@@ -330,8 +379,8 @@ static int qcom_edp_phy_power_on(struct phy *phy)
 	if (timeout)
 		return timeout;
 
-	writel(0x01, edp->tx0 + TXn_LDO_CONFIG);
-	writel(0x01, edp->tx1 + TXn_LDO_CONFIG);
+	writel(0x00, edp->tx0 + TXn_LDO_CONFIG); /* DP vs eDP */
+	writel(0x00, edp->tx1 + TXn_LDO_CONFIG); /* DP vs eDP */
 	writel(0x00, edp->tx0 + TXn_LANE_MODE_1);
 	writel(0x00, edp->tx1 + TXn_LANE_MODE_1);
 
@@ -401,8 +450,8 @@ static int qcom_edp_phy_power_on(struct phy *phy)
 	writel(0x4, edp->tx0 + TXn_HIGHZ_DRVR_EN);
 	writel(0x3, edp->tx0 + TXn_TRANSCEIVER_BIAS_EN);
 	writel(0x4, edp->tx1 + TXn_HIGHZ_DRVR_EN);
-	writel(0x0, edp->tx1 + TXn_TRANSCEIVER_BIAS_EN);
-	writel(0x3, edp->edp + DP_PHY_CFG_1);
+	writel(0x3, edp->tx1 + TXn_TRANSCEIVER_BIAS_EN);
+	writel(0xf, edp->edp + DP_PHY_CFG_1);
 
 	writel(0x18, edp->edp + DP_PHY_CFG);
 	usleep_range(100, 1000);
@@ -673,6 +722,8 @@ static int qcom_edp_phy_probe(struct platform_device *pdev)
 static const struct of_device_id qcom_edp_phy_match_table[] = {
 	{ .compatible = "qcom,sc7280-edp-phy" },
 	{ .compatible = "qcom,sc8180x-edp-phy" },
+	{ .compatible = "qcom,sc8280xp-dp-phy" },
+	{ .compatible = "qcom,sc8280xp-edp-phy" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, qcom_edp_phy_match_table);
