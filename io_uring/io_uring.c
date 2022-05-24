@@ -761,14 +761,7 @@ struct io_mkdir {
 	struct filename			*filename;
 };
 
-struct io_symlink {
-	struct file			*file;
-	int				new_dfd;
-	struct filename			*oldpath;
-	struct filename			*newpath;
-};
-
-struct io_hardlink {
+struct io_link {
 	struct file			*file;
 	int				old_dfd;
 	int				new_dfd;
@@ -4714,7 +4707,7 @@ static int io_mkdirat(struct io_kiocb *req, unsigned int issue_flags)
 static int io_symlinkat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_symlink *sl = io_kiocb_to_cmd(req);
+	struct io_link *sl = io_kiocb_to_cmd(req);
 	const char __user *oldpath, *newpath;
 
 	if (sqe->len || sqe->rw_flags || sqe->buf_index || sqe->splice_fd_in)
@@ -4742,7 +4735,7 @@ static int io_symlinkat_prep(struct io_kiocb *req,
 
 static int io_symlinkat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_symlink *sl = io_kiocb_to_cmd(req);
+	struct io_link *sl = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -4758,7 +4751,7 @@ static int io_symlinkat(struct io_kiocb *req, unsigned int issue_flags)
 static int io_linkat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
-	struct io_hardlink *lnk = io_kiocb_to_cmd(req);
+	struct io_link *lnk = io_kiocb_to_cmd(req);
 	const char __user *oldf, *newf;
 
 	if (sqe->rw_flags || sqe->buf_index || sqe->splice_fd_in)
@@ -4788,7 +4781,7 @@ static int io_linkat_prep(struct io_kiocb *req,
 
 static int io_linkat(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_hardlink *lnk = io_kiocb_to_cmd(req);
+	struct io_link *lnk = io_kiocb_to_cmd(req);
 	int ret;
 
 	if (issue_flags & IO_URING_F_NONBLOCK)
@@ -7995,15 +7988,9 @@ static void io_clean_op(struct io_kiocb *req)
 			putname(md->filename);
 			break;
 			}
-		case IORING_OP_SYMLINKAT: {
-			struct io_symlink *sl = io_kiocb_to_cmd(req);
-
-			putname(sl->oldpath);
-			putname(sl->newpath);
-			break;
-			}
+		case IORING_OP_SYMLINKAT:
 		case IORING_OP_LINKAT: {
-			struct io_hardlink *hl = io_kiocb_to_cmd(req);
+			struct io_link *hl = io_kiocb_to_cmd(req);
 
 			putname(hl->oldpath);
 			putname(hl->newpath);
