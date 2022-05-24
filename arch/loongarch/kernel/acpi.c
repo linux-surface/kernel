@@ -139,6 +139,35 @@ void __init acpi_boot_table_init(void)
 	}
 }
 
+static int set_processor_mask(u32 id, u32 flags)
+{
+
+	int cpu, cpuid = id;
+
+	if (num_processors >= nr_cpu_ids) {
+		pr_warn(PREFIX "nr_cpus/possible_cpus limit of %i reached."
+			" processor 0x%x ignored.\n", nr_cpu_ids, cpuid);
+
+		return -ENODEV;
+
+	}
+	if (cpuid == loongson_sysconf.boot_cpu_id)
+		cpu = 0;
+	else
+		cpu = cpumask_next_zero(-1, cpu_present_mask);
+
+	if (flags & ACPI_MADT_ENABLED) {
+		num_processors++;
+		set_cpu_possible(cpu, true);
+		set_cpu_present(cpu, true);
+		__cpu_number_map[cpuid] = cpu;
+		__cpu_logical_map[cpu] = cpuid;
+	} else
+		disabled_cpus++;
+
+	return cpu;
+}
+
 static int __init
 acpi_parse_cpuintc(union acpi_subtable_headers *header, const unsigned long end)
 {
@@ -149,6 +178,7 @@ acpi_parse_cpuintc(union acpi_subtable_headers *header, const unsigned long end)
 		return -EINVAL;
 
 	acpi_table_print_madt_entry(&header->common);
+	set_processor_mask(processor->core_id, processor->flags);
 
 	return 0;
 }
@@ -250,7 +280,12 @@ acpi_parse_pch_lpc(union acpi_subtable_headers *header, const unsigned long end)
 
 static void __init acpi_process_madt(void)
 {
-	int error;
+	int i, error;
+
+	for (i = 0; i < NR_CPUS; i++) {
+		__cpu_number_map[i] = -1;
+		__cpu_logical_map[i] = -1;
+	}
 
 	/* Parse MADT CPUINTC entries */
 	error = acpi_table_parse_madt(ACPI_MADT_TYPE_CORE_PIC, acpi_parse_cpuintc, MAX_CORE_PIC);
@@ -336,3 +371,36 @@ void __init arch_reserve_mem_area(acpi_physical_address addr, size_t size)
 {
 	memblock_reserve(addr, size);
 }
+
+#ifdef CONFIG_ACPI_HOTPLUG_CPU
+
+#include <acpi/processor.h>
+
+int acpi_map_cpu(acpi_handle handle, phys_cpuid_t physid, u32 acpi_id, int *pcpu)
+{
+	int cpu;
+
+	cpu = set_processor_mask(physid, ACPI_MADT_ENABLED);
+	if (cpu < 0) {
+		pr_info(PREFIX "Unable to map lapic to logical cpu number\n");
+		return cpu;
+	}
+
+	*pcpu = cpu;
+
+	return 0;
+}
+EXPORT_SYMBOL(acpi_map_cpu);
+
+int acpi_unmap_cpu(int cpu)
+{
+	set_cpu_present(cpu, false);
+	num_processors--;
+
+	pr_info("cpu%d hot remove!\n", cpu);
+
+	return 0;
+}
+EXPORT_SYMBOL(acpi_unmap_cpu);
+
+#endif /* CONFIG_ACPI_HOTPLUG_CPU */
