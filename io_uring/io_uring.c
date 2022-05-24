@@ -1093,6 +1093,7 @@ struct io_op_def {
 	int (*prep)(struct io_kiocb *, const struct io_uring_sqe *);
 	int (*issue)(struct io_kiocb *, unsigned int);
 	int (*prep_async)(struct io_kiocb *);
+	void (*cleanup)(struct io_kiocb *);
 };
 
 static const struct io_op_def io_op_defs[];
@@ -3425,6 +3426,13 @@ static int io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	return 0;
 }
 
+static void io_readv_writev_cleanup(struct io_kiocb *req)
+{
+	struct io_async_rw *io = req->async_data;
+
+	kfree(io->free_iovec);
+}
+
 static inline void io_rw_done(struct kiocb *kiocb, ssize_t ret)
 {
 	switch (ret) {
@@ -4382,7 +4390,15 @@ static int io_renameat(struct io_kiocb *req, unsigned int issue_flags)
 	return 0;
 }
 
-static inline void __io_xattr_finish(struct io_kiocb *req)
+static void io_renameat_cleanup(struct io_kiocb *req)
+{
+	struct io_rename *ren = io_kiocb_to_cmd(req);
+
+	putname(ren->oldpath);
+	putname(ren->newpath);
+}
+
+static inline void io_xattr_cleanup(struct io_kiocb *req)
 {
 	struct io_xattr *ix = io_kiocb_to_cmd(req);
 
@@ -4397,7 +4413,7 @@ static void io_xattr_finish(struct io_kiocb *req, int ret)
 {
 	req->flags &= ~REQ_F_NEED_CLEANUP;
 
-	__io_xattr_finish(req);
+	io_xattr_cleanup(req);
 	io_req_complete(req, ret);
 }
 
@@ -4666,6 +4682,13 @@ static int io_unlinkat(struct io_kiocb *req, unsigned int issue_flags)
 	return 0;
 }
 
+static void io_unlinkat_cleanup(struct io_kiocb *req)
+{
+	struct io_unlink *ul = io_kiocb_to_cmd(req);
+
+	putname(ul->filename);
+}
+
 static int io_mkdirat_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
@@ -4702,6 +4725,13 @@ static int io_mkdirat(struct io_kiocb *req, unsigned int issue_flags)
 	req->flags &= ~REQ_F_NEED_CLEANUP;
 	io_req_complete(req, ret);
 	return 0;
+}
+
+static void io_mkdirat_cleanup(struct io_kiocb *req)
+{
+	struct io_mkdir *md = io_kiocb_to_cmd(req);
+
+	putname(md->filename);
 }
 
 static int io_symlinkat_prep(struct io_kiocb *req,
@@ -4793,6 +4823,14 @@ static int io_linkat(struct io_kiocb *req, unsigned int issue_flags)
 	req->flags &= ~REQ_F_NEED_CLEANUP;
 	io_req_complete(req, ret);
 	return 0;
+}
+
+static void io_link_cleanup(struct io_kiocb *req)
+{
+	struct io_link *sl = io_kiocb_to_cmd(req);
+
+	putname(sl->oldpath);
+	putname(sl->newpath);
 }
 
 static void io_uring_cmd_work(struct io_kiocb *req, bool *locked)
@@ -5305,6 +5343,14 @@ static int io_openat(struct io_kiocb *req, unsigned int issue_flags)
 	return io_openat2(req, issue_flags);
 }
 
+static void io_open_cleanup(struct io_kiocb *req)
+{
+	struct io_open *open = io_kiocb_to_cmd(req);
+
+	if (open->filename)
+		putname(open->filename);
+}
+
 static int io_remove_buffers_prep(struct io_kiocb *req,
 				  const struct io_uring_sqe *sqe)
 {
@@ -5716,6 +5762,14 @@ static int io_statx(struct io_kiocb *req, unsigned int issue_flags)
 	return 0;
 }
 
+static void io_statx_cleanup(struct io_kiocb *req)
+{
+	struct io_statx *sx = io_kiocb_to_cmd(req);
+
+	if (sx->filename)
+		putname(sx->filename);
+}
+
 static int io_close_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_close *close = io_kiocb_to_cmd(req);
@@ -5886,6 +5940,13 @@ static int io_sendmsg_prep_async(struct io_kiocb *req)
 	if (!ret)
 		req->flags |= REQ_F_NEED_CLEANUP;
 	return ret;
+}
+
+static void io_sendmsg_recvmsg_cleanup(struct io_kiocb *req)
+{
+	struct io_async_msghdr *io = req->async_data;
+
+	kfree(io->free_iov);
 }
 
 static int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
@@ -7942,74 +8003,10 @@ static void io_clean_op(struct io_kiocb *req)
 	}
 
 	if (req->flags & REQ_F_NEED_CLEANUP) {
-		switch (req->opcode) {
-		case IORING_OP_READV:
-		case IORING_OP_READ_FIXED:
-		case IORING_OP_READ:
-		case IORING_OP_WRITEV:
-		case IORING_OP_WRITE_FIXED:
-		case IORING_OP_WRITE: {
-			struct io_async_rw *io = req->async_data;
+		const struct io_op_def *def = &io_op_defs[req->opcode];
 
-			kfree(io->free_iovec);
-			break;
-			}
-		case IORING_OP_RECVMSG:
-		case IORING_OP_SENDMSG: {
-			struct io_async_msghdr *io = req->async_data;
-
-			kfree(io->free_iov);
-			break;
-			}
-		case IORING_OP_OPENAT:
-		case IORING_OP_OPENAT2: {
-			struct io_open *open = io_kiocb_to_cmd(req);
-
-			if (open->filename)
-				putname(open->filename);
-			break;
-			}
-		case IORING_OP_RENAMEAT: {
-			struct io_rename *ren = io_kiocb_to_cmd(req);
-
-			putname(ren->oldpath);
-			putname(ren->newpath);
-			break;
-			}
-		case IORING_OP_UNLINKAT: {
-			struct io_unlink *ul = io_kiocb_to_cmd(req);
-
-			putname(ul->filename);
-			break;
-			}
-		case IORING_OP_MKDIRAT: {
-			struct io_mkdir *md = io_kiocb_to_cmd(req);
-
-			putname(md->filename);
-			break;
-			}
-		case IORING_OP_SYMLINKAT:
-		case IORING_OP_LINKAT: {
-			struct io_link *hl = io_kiocb_to_cmd(req);
-
-			putname(hl->oldpath);
-			putname(hl->newpath);
-			break;
-			}
-		case IORING_OP_STATX: {
-			struct io_statx *sx = io_kiocb_to_cmd(req);
-
-			if (sx->filename)
-				putname(sx->filename);
-			break;
-			}
-		case IORING_OP_SETXATTR:
-		case IORING_OP_FSETXATTR:
-		case IORING_OP_GETXATTR:
-		case IORING_OP_FGETXATTR:
-			__io_xattr_finish(req);
-			break;
-		}
+		if (def->cleanup)
+			def->cleanup(req);
 	}
 	if ((req->flags & REQ_F_POLLED) && req->apoll) {
 		kfree(req->apoll->double_poll);
@@ -12821,6 +12818,7 @@ static const struct io_op_def io_op_defs[] = {
 		.prep			= io_prep_rw,
 		.issue			= io_read,
 		.prep_async		= io_readv_prep_async,
+		.cleanup		= io_readv_writev_cleanup,
 	},
 	[IORING_OP_WRITEV] = {
 		.needs_file		= 1,
@@ -12835,6 +12833,7 @@ static const struct io_op_def io_op_defs[] = {
 		.prep			= io_prep_rw,
 		.issue			= io_write,
 		.prep_async		= io_writev_prep_async,
+		.cleanup		= io_readv_writev_cleanup,
 	},
 	[IORING_OP_FSYNC] = {
 		.needs_file		= 1,
@@ -12893,6 +12892,9 @@ static const struct io_op_def io_op_defs[] = {
 		.prep			= io_sendmsg_prep,
 		.issue			= io_sendmsg,
 		.prep_async		= io_sendmsg_prep_async,
+#if defined(CONFIG_NET)
+		.cleanup		= io_sendmsg_recvmsg_cleanup,
+#endif
 	},
 	[IORING_OP_RECVMSG] = {
 		.needs_file		= 1,
@@ -12903,6 +12905,9 @@ static const struct io_op_def io_op_defs[] = {
 		.prep			= io_recvmsg_prep,
 		.issue			= io_recvmsg,
 		.prep_async		= io_recvmsg_prep_async,
+#if defined(CONFIG_NET)
+		.cleanup		= io_sendmsg_recvmsg_cleanup,
+#endif
 	},
 	[IORING_OP_TIMEOUT] = {
 		.audit_skip		= 1,
@@ -12953,6 +12958,7 @@ static const struct io_op_def io_op_defs[] = {
 	[IORING_OP_OPENAT] = {
 		.prep			= io_openat_prep,
 		.issue			= io_openat,
+		.cleanup		= io_open_cleanup,
 	},
 	[IORING_OP_CLOSE] = {
 		.prep			= io_close_prep,
@@ -12968,6 +12974,7 @@ static const struct io_op_def io_op_defs[] = {
 		.audit_skip		= 1,
 		.prep			= io_statx_prep,
 		.issue			= io_statx,
+		.cleanup		= io_statx_cleanup,
 	},
 	[IORING_OP_READ] = {
 		.needs_file		= 1,
@@ -13025,6 +13032,7 @@ static const struct io_op_def io_op_defs[] = {
 	[IORING_OP_OPENAT2] = {
 		.prep			= io_openat2_prep,
 		.issue			= io_openat2,
+		.cleanup		= io_open_cleanup,
 	},
 	[IORING_OP_EPOLL_CTL] = {
 		.unbound_nonreg_file	= 1,
@@ -13068,22 +13076,27 @@ static const struct io_op_def io_op_defs[] = {
 	[IORING_OP_RENAMEAT] = {
 		.prep			= io_renameat_prep,
 		.issue			= io_renameat,
+		.cleanup		= io_renameat_cleanup,
 	},
 	[IORING_OP_UNLINKAT] = {
 		.prep			= io_unlinkat_prep,
 		.issue			= io_unlinkat,
+		.cleanup		= io_unlinkat_cleanup,
 	},
 	[IORING_OP_MKDIRAT] = {
 		.prep			= io_mkdirat_prep,
 		.issue			= io_mkdirat,
+		.cleanup		= io_mkdirat_cleanup,
 	},
 	[IORING_OP_SYMLINKAT] = {
 		.prep			= io_symlinkat_prep,
 		.issue			= io_symlinkat,
+		.cleanup		= io_link_cleanup,
 	},
 	[IORING_OP_LINKAT] = {
 		.prep			= io_linkat_prep,
 		.issue			= io_linkat,
+		.cleanup		= io_link_cleanup,
 	},
 	[IORING_OP_MSG_RING] = {
 		.needs_file		= 1,
@@ -13095,19 +13108,23 @@ static const struct io_op_def io_op_defs[] = {
 		.needs_file = 1,
 		.prep			= io_fsetxattr_prep,
 		.issue			= io_fsetxattr,
+		.cleanup		= io_xattr_cleanup,
 	},
 	[IORING_OP_SETXATTR] = {
 		.prep			= io_setxattr_prep,
 		.issue			= io_setxattr,
+		.cleanup		= io_xattr_cleanup,
 	},
 	[IORING_OP_FGETXATTR] = {
 		.needs_file = 1,
 		.prep			= io_fgetxattr_prep,
 		.issue			= io_fgetxattr,
+		.cleanup		= io_xattr_cleanup,
 	},
 	[IORING_OP_GETXATTR] = {
 		.prep			= io_getxattr_prep,
 		.issue			= io_getxattr,
+		.cleanup		= io_xattr_cleanup,
 	},
 	[IORING_OP_SOCKET] = {
 		.audit_skip		= 1,
