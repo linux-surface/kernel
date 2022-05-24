@@ -5,6 +5,8 @@
 
 boot	:= arch/loongarch/boot
 
+KBUILD_DEFCONFIG := loongson3_defconfig
+
 ifndef CONFIG_EFI_STUB
 KBUILD_IMAGE	= $(boot)/vmlinux
 else
