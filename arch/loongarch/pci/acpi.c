@@ -11,6 +11,7 @@
 #include <linux/pci-ecam.h>
 
 #include <asm/pci.h>
+#include <asm/numa.h>
 #include <asm/loongson.h>
 
 struct pci_root_info {
@@ -27,8 +28,10 @@ int pcibios_root_bridge_prepare(struct pci_host_bridge *bridge)
 {
 	struct pci_config_window *cfg = bridge->bus->sysdata;
 	struct acpi_device *adev = to_acpi_device(cfg->parent);
+	struct device *bus_dev = &bridge->bus->dev;
 
 	ACPI_COMPANION_SET(&bridge->dev, adev);
+	set_dev_node(bus_dev, pa_to_nid(cfg->res.start));
 
 	return 0;
 }
