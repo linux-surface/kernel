@@ -591,6 +591,20 @@
 			bias-disable;
 		};
 	};
+
+	panel_vdd_en_default_state: panel-vdd-en-default-state {
+		pins = "gpio130";
+		function = "gpio";
+
+		drive-strength = <2>;
+		bias-disable;
+		output-high;
+	};
+
+	edp_hpd_active: epd-hpd-active-state {
+		pins = "gpio10";
+		function = "edp_hot";
+	};
 };
 
 &pmc8180c_gpios {
@@ -610,6 +624,62 @@
 		pins = "gpio10";
 		function = "normal";
 	};
+};
+
+
+&gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&gfxsuc_mem>;
+		firmware-name = "qcom/msft/surface/pro-x-sq2/qcdxkmsuc8180.mbn";
+	};
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_edp {
+	status = "okay";
+
+	data-lanes = <0 1 2 3>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&edp_hpd_active>;
+
+	aux-bus {
+		edp_panel: panel {
+			compatible = "edp-panel";
+
+			enable-gpios = <&tlmm 130 GPIO_ACTIVE_HIGH>;
+
+			pinctrl-names = "default";
+			pinctrl-0 = <&panel_vdd_en_default_state>;
+
+			backlight = <&backlight>;
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					edp_panel_in: endpoint {
+						remote-endpoint = <&mdss_edp_out>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&mdss_edp_out {
+	remote-endpoint = <&edp_panel_in>;
+};
+
+&edp_phy {
+	vdda-pll-supply = <&vreg_l5e_0p88>;
+	vdda-phy-supply = <&vreg_l3c_1p2>;
 };
 
 
