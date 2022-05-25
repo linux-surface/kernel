@@ -2619,6 +2619,160 @@ int devm_pm_opp_attach_genpd(struct device *dev, const char * const *names,
 EXPORT_SYMBOL_GPL(devm_pm_opp_attach_genpd);
 
 /**
+ * dev_pm_opp_set_config() - Set OPP configuration for the device.
+ * @dev: Device for which configuration is being set.
+ * @config: OPP configuration.
+ *
+ * This allows all device OPP configurations to be performed at once.
+ *
+ * This must be called before any OPPs are initialized for the device. This may
+ * be called multiple times for the same OPP table, for example once for each
+ * CPU that share the same table. This must be balanced by the same number of
+ * calls to dev_pm_opp_clear_config() in order to free the OPP table properly.
+ */
+struct opp_table *dev_pm_opp_set_config(struct device *dev,
+					struct dev_pm_opp_config *config)
+{
+	struct opp_table *opp_table, *ret;
+
+	opp_table = _add_opp_table(dev, false);
+	if (IS_ERR(opp_table))
+		return opp_table;
+
+	/* This should be called before OPPs are initialized */
+	if (WARN_ON(!list_empty(&opp_table->opp_list))) {
+		ret = ERR_PTR(-EBUSY);
+		goto err;
+	}
+
+	/* Configure clocks */
+	if (config->clk_names) {
+		/* We support only one clock name for now */
+		if (config->clk_count != 1) {
+			ret = ERR_PTR(-EINVAL);
+			goto err;
+		}
+
+		ret = dev_pm_opp_set_clkname(dev, config->clk_names[0]);
+		if (IS_ERR(ret))
+			goto err;
+	}
+
+	/* Configure property names */
+	if (config->prop_name) {
+		ret = dev_pm_opp_set_prop_name(dev, config->prop_name);
+		if (IS_ERR(ret))
+			goto err;
+	}
+
+	/* Configure opp helper */
+	if (config->set_opp) {
+		ret = dev_pm_opp_register_set_opp_helper(dev, config->set_opp);
+		if (IS_ERR(ret))
+			goto err;
+	}
+
+	/* Configure supported hardware */
+	if (config->supported_hw) {
+		ret = dev_pm_opp_set_supported_hw(dev, config->supported_hw,
+						  config->supported_hw_count);
+		if (IS_ERR(ret))
+			goto err;
+	}
+
+	/* Configure supplies */
+	if (config->regulator_names) {
+		ret = dev_pm_opp_set_regulators(dev, config->regulator_names,
+						config->regulator_count);
+		if (IS_ERR(ret))
+			goto err;
+	}
+
+	/* Attach genpds */
+	if (config->genpd_names) {
+		ret = dev_pm_opp_attach_genpd(dev, config->genpd_names,
+					      config->virt_devs);
+		if (IS_ERR(ret))
+			goto err;
+	}
+
+	return opp_table;
+
+err:
+	dev_pm_opp_clear_config(opp_table);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(dev_pm_opp_set_config);
+
+/**
+ * dev_pm_opp_clear_config() - Releases resources blocked for OPP configuration.
+ * @opp_table: OPP table returned from dev_pm_opp_set_config().
+ *
+ * This allows all device OPP configurations to be cleared at once. This must be
+ * called once for each call made to dev_pm_opp_set_config(), in order to free
+ * the OPPs properly.
+ *
+ * Currently the first call itself ends up freeing all the OPP configurations,
+ * while the later ones only drop the OPP table reference. This works well for
+ * now as we would never want to use an half initialized OPP table and want to
+ * remove the configurations together.
+ */
+void dev_pm_opp_clear_config(struct opp_table *opp_table)
+{
+	if (!opp_table)
+		return;
+
+	if (opp_table->genpd_virt_devs)
+		dev_pm_opp_detach_genpd(opp_table);
+
+	if (opp_table->regulators)
+		dev_pm_opp_put_regulators(opp_table);
+
+	if (opp_table->supported_hw)
+		dev_pm_opp_put_supported_hw(opp_table);
+
+	if (opp_table->set_opp)
+		dev_pm_opp_unregister_set_opp_helper(opp_table);
+
+	if (opp_table->prop_name)
+		dev_pm_opp_put_prop_name(opp_table);
+
+	if (opp_table->clk_configured)
+		dev_pm_opp_put_clkname(opp_table);
+
+	dev_pm_opp_put_opp_table(opp_table);
+}
+EXPORT_SYMBOL_GPL(dev_pm_opp_clear_config);
+
+static void devm_pm_opp_config_release(void *data)
+{
+	dev_pm_opp_clear_config(data);
+}
+
+/**
+ * devm_pm_opp_set_config() - Set OPP configuration for the device.
+ * @dev: Device for which configuration is being set.
+ * @config: OPP configuration.
+ *
+ * This allows all device OPP configurations to be performed at once.
+ * This is a resource-managed variant of dev_pm_opp_set_config().
+ *
+ * Return: 0 on success and errorno otherwise.
+ */
+int devm_pm_opp_set_config(struct device *dev, struct dev_pm_opp_config *config)
+{
+	struct opp_table *opp_table;
+
+	opp_table = dev_pm_opp_set_config(dev, config);
+	if (IS_ERR(opp_table))
+		return PTR_ERR(opp_table);
+
+	return devm_add_action_or_reset(dev, devm_pm_opp_config_release,
+					opp_table);
+}
+EXPORT_SYMBOL_GPL(devm_pm_opp_set_config);
+
+/**
  * dev_pm_opp_xlate_required_opp() - Find required OPP for @src_table OPP.
  * @src_table: OPP table which has @dst_table as one of its required OPP table.
  * @dst_table: Required OPP table of the @src_table.
