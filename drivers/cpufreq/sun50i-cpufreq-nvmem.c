@@ -106,6 +106,9 @@ static int sun50i_cpufreq_nvmem_probe(struct platform_device *pdev)
 	snprintf(name, MAX_NAME_LEN, "speed%d", speed);
 
 	for_each_possible_cpu(cpu) {
+		struct dev_pm_opp_config config = {
+			.prop_name = name,
+		};
 		struct device *cpu_dev = get_cpu_device(cpu);
 
 		if (!cpu_dev) {
@@ -113,10 +116,10 @@ static int sun50i_cpufreq_nvmem_probe(struct platform_device *pdev)
 			goto free_opp;
 		}
 
-		opp_tables[cpu] = dev_pm_opp_set_prop_name(cpu_dev, name);
+		opp_tables[cpu] = dev_pm_opp_set_config(cpu_dev, &config);
 		if (IS_ERR(opp_tables[cpu])) {
 			ret = PTR_ERR(opp_tables[cpu]);
-			pr_err("Failed to set prop name\n");
+			pr_err("Failed to set OPP config\n");
 			goto free_opp;
 		}
 	}
@@ -135,7 +138,7 @@ free_opp:
 	for_each_possible_cpu(cpu) {
 		if (IS_ERR_OR_NULL(opp_tables[cpu]))
 			break;
-		dev_pm_opp_put_prop_name(opp_tables[cpu]);
+		dev_pm_opp_clear_config(opp_tables[cpu]);
 	}
 	kfree(opp_tables);
 
@@ -150,7 +153,7 @@ static int sun50i_cpufreq_nvmem_remove(struct platform_device *pdev)
 	platform_device_unregister(cpufreq_dt_pdev);
 
 	for_each_possible_cpu(cpu)
-		dev_pm_opp_put_prop_name(opp_tables[cpu]);
+		dev_pm_opp_clear_config(opp_tables[cpu]);
 
 	kfree(opp_tables);
 
