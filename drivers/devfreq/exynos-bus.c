@@ -161,8 +161,11 @@ static void exynos_bus_exit(struct device *dev)
 
 	dev_pm_opp_of_remove_table(dev);
 	clk_disable_unprepare(bus->clk);
-	dev_pm_opp_put_regulators(bus->opp_table);
-	bus->opp_table = NULL;
+
+	if (bus->opp_table) {
+		dev_pm_opp_clear_config(bus->opp_table);
+		bus->opp_table = NULL;
+	}
 }
 
 static void exynos_bus_passive_exit(struct device *dev)
@@ -182,11 +185,15 @@ static int exynos_bus_parent_parse_of(struct device_node *np,
 	struct opp_table *opp_table;
 	const char *vdd = "vdd";
 	int i, ret, count, size;
+	struct dev_pm_opp_config config = {
+		.regulator_names = &vdd,
+		.regulator_count = 1,
+	};
 
-	opp_table = dev_pm_opp_set_regulators(dev, &vdd, 1);
+	opp_table = dev_pm_opp_set_config(dev, &config);
 	if (IS_ERR(opp_table)) {
 		ret = PTR_ERR(opp_table);
-		dev_err(dev, "failed to set regulators %d\n", ret);
+		dev_err(dev, "failed to set OPP config %d\n", ret);
 		return ret;
 	}
 
@@ -236,7 +243,7 @@ static int exynos_bus_parent_parse_of(struct device_node *np,
 	return 0;
 
 err_regulator:
-	dev_pm_opp_put_regulators(bus->opp_table);
+	dev_pm_opp_clear_config(bus->opp_table);
 	bus->opp_table = NULL;
 
 	return ret;
@@ -459,8 +466,10 @@ err:
 	dev_pm_opp_of_remove_table(dev);
 	clk_disable_unprepare(bus->clk);
 err_reg:
-	dev_pm_opp_put_regulators(bus->opp_table);
-	bus->opp_table = NULL;
+	if (bus->opp_table) {
+		dev_pm_opp_clear_config(bus->opp_table);
+		bus->opp_table = NULL;
+	}
 
 	return ret;
 }
