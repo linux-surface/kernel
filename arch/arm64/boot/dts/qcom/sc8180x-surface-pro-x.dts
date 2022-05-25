@@ -192,6 +192,20 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&ts_5v_en_default_state>;
 	};
+
+	vreg_panel_3p3: panel-3p3-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_panel_3p3";
+
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+
+		gpio = <&tlmm 130 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_vdd_en_default_state>;
+	};
 };
 
 
@@ -566,6 +580,17 @@
 			bias-disable;
 		};
 	};
+
+	panel_vdd_en_default_state: panel-vdd-en-default-state {
+		pins = "gpio130";
+		function = "gpio";
+		bias-disable;
+	};
+
+	edp_hpd_active: epd-hpd-active-state {
+		pins = "gpio10";
+		function = "edp_hot";
+	};
 };
 
 &pmc8180c_gpios {
@@ -585,6 +610,77 @@
 		pins = "gpio10";
 		function = "normal";
 	};
+};
+
+
+&gpu {
+	compatible = "qcom,adreno-690.1", "qcom,adreno";
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&gfxsuc_mem>;
+		firmware-name = "qcom/MS/spxsq2/qcdxkmsuc8180.mbn";
+	};
+};
+
+&gmu {
+	compatible="qcom,adreno-gmu-690.1", "qcom,adreno-gmu";
+
+	reg = <0 0x02c6a000 0 0x30000>,
+	      <0 0x0b290000 0 0x10000>,
+	      <0 0x0b490000 0 0x10000>,
+	      <0 0x0C200000 0 0x10000>;
+	reg-names = "gmu", "gmu_pdc", "gmu_pdc_seq", "rscc";
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_edp {
+	status = "okay";
+
+	data-lanes = <0 1 2 3>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&edp_hpd_active>;
+
+	vdda-0p9-supply = <&vreg_l5e_0p88>;
+	vdda-1p2-supply = <&vreg_l3c_1p2>;
+
+	aux-bus {
+		edp_panel: panel {
+			compatible = "edp-panel";
+
+			power-supply = <&vreg_panel_3p3>;
+			backlight = <&backlight>;
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				port@0 {
+					reg = <0>;
+					edp_panel_in: endpoint {
+						remote-endpoint = <&mdss_edp_out>;
+					};
+				};
+			};
+		};
+	};
+
+	ports {
+		port@1 {
+			reg = <1>;
+			mdss_edp_out: endpoint {
+				remote-endpoint = <&edp_panel_in>;
+			};
+		};
+	};
+};
+
+&edp_phy {
+	vdda-pll-supply = <&vreg_l5e_0p88>;
+	vdda-phy-supply = <&vreg_l3c_1p2>;
 };
 
 
