@@ -220,12 +220,16 @@ static int dt_cpufreq_early_init(struct device *dev, int cpu)
 	 */
 	reg_name = find_supply_name(cpu_dev);
 	if (reg_name) {
-		priv->opp_table = dev_pm_opp_set_regulators(cpu_dev, &reg_name,
-							    1);
+		struct dev_pm_opp_config config = {
+			.regulator_names = &reg_name,
+			.regulator_count = 1,
+		};
+
+		priv->opp_table = dev_pm_opp_set_config(cpu_dev, &config);
 		if (IS_ERR(priv->opp_table)) {
 			ret = PTR_ERR(priv->opp_table);
 			if (ret != -EPROBE_DEFER)
-				dev_err(cpu_dev, "failed to set regulators: %d\n",
+				dev_err(cpu_dev, "failed to set OPP config: %d\n",
 					ret);
 			goto free_cpumask;
 		}
@@ -295,7 +299,7 @@ static int dt_cpufreq_early_init(struct device *dev, int cpu)
 out:
 	if (priv->have_static_opps)
 		dev_pm_opp_of_cpumask_remove_table(priv->cpus);
-	dev_pm_opp_put_regulators(priv->opp_table);
+	dev_pm_opp_clear_config(priv->opp_table);
 free_cpumask:
 	free_cpumask_var(priv->cpus);
 	return ret;
@@ -309,7 +313,7 @@ static void dt_cpufreq_release(void)
 		dev_pm_opp_free_cpufreq_table(priv->cpu_dev, &priv->freq_table);
 		if (priv->have_static_opps)
 			dev_pm_opp_of_cpumask_remove_table(priv->cpus);
-		dev_pm_opp_put_regulators(priv->opp_table);
+		dev_pm_opp_clear_config(priv->opp_table);
 		free_cpumask_var(priv->cpus);
 		list_del(&priv->node);
 	}
