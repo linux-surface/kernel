@@ -2758,16 +2758,11 @@ int qcom_qmp_phy_pcie_create(struct device *dev, struct device_node *np, int id,
 				     "failed to get lane%d pipe clock\n", id);
 	}
 
-	/* Get optional pipediv2 clock. */
-	qphy->pipediv2_clk = devm_get_clk_from_child(dev, np, "pipediv2");
+	qphy->pipediv2_clk = devm_get_clk_from_child_optional(dev, np, "pipediv2");
 	if (IS_ERR(qphy->pipediv2_clk)) {
-		ret = PTR_ERR(qphy->pipediv2_clk);
-		if (ret != -ENOENT && ret != -EINVAL) {
-			return dev_err_probe(dev, ret,
-					     "failed to get lane%d pipediv2 clock\n",
-					     id);
-		}
-		qphy->pipediv2_clk = NULL;
+		return dev_err_probe(dev, PTR_ERR(qphy->pipediv2_clk),
+				     "failed to get lane%d pipediv2 clock\n",
+				     id);
 	}
 
 	generic_phy = devm_phy_create(dev, np, &qcom_qmp_phy_pcie_ops);
