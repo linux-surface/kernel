@@ -2259,7 +2259,7 @@ static void _opp_unregister_set_opp_helper(struct opp_table *opp_table)
 	}
 }
 
-static void _opp_detach_genpd(struct opp_table *opp_table)
+static void _detach_genpd(struct opp_table *opp_table)
 {
 	int index;
 
@@ -2279,7 +2279,7 @@ static void _opp_detach_genpd(struct opp_table *opp_table)
 }
 
 /**
- * dev_pm_opp_attach_genpd - Attach genpd(s) for the device and save virtual device pointer
+ * _opp_attach_genpd - Attach genpd(s) for the device and save virtual device pointer
  * @dev: Consumer device for which the genpd is getting attached.
  * @names: Null terminated array of pointers containing names of genpd to attach.
  * @virt_devs: Pointer to return the array of virtual devices.
@@ -2300,30 +2300,23 @@ static void _opp_detach_genpd(struct opp_table *opp_table)
  * The order of entries in the names array must match the order in which
  * "required-opps" are added in DT.
  */
-struct opp_table *dev_pm_opp_attach_genpd(struct device *dev,
-		const char * const *names, struct device ***virt_devs)
+static int _opp_attach_genpd(struct opp_table *opp_table, struct device *dev,
+			const char * const *names, struct device ***virt_devs)
 {
-	struct opp_table *opp_table;
 	struct device *virt_dev;
 	int index = 0, ret = -EINVAL;
 	const char * const *name = names;
 
-	opp_table = _add_opp_table(dev, false);
-	if (IS_ERR(opp_table))
-		return opp_table;
-
 	if (opp_table->genpd_virt_devs)
-		return opp_table;
+		return 0;
 
 	/*
 	 * If the genpd's OPP table isn't already initialized, parsing of the
 	 * required-opps fail for dev. We should retry this after genpd's OPP
 	 * table is added.
 	 */
-	if (!opp_table->required_opp_count) {
-		ret = -EPROBE_DEFER;
-		goto put_table;
-	}
+	if (!opp_table->required_opp_count)
+		return -EPROBE_DEFER;
 
 	mutex_lock(&opp_table->genpd_virt_dev_lock);
 
@@ -2356,73 +2349,33 @@ struct opp_table *dev_pm_opp_attach_genpd(struct device *dev,
 		*virt_devs = opp_table->genpd_virt_devs;
 	mutex_unlock(&opp_table->genpd_virt_dev_lock);
 
-	return opp_table;
+	return 0;
 
 err:
-	_opp_detach_genpd(opp_table);
+	_detach_genpd(opp_table);
 unlock:
 	mutex_unlock(&opp_table->genpd_virt_dev_lock);
+	return ret;
 
-put_table:
-	dev_pm_opp_put_opp_table(opp_table);
-
-	return ERR_PTR(ret);
 }
-EXPORT_SYMBOL_GPL(dev_pm_opp_attach_genpd);
 
 /**
- * dev_pm_opp_detach_genpd() - Detach genpd(s) from the device.
- * @opp_table: OPP table returned by dev_pm_opp_attach_genpd().
+ * _opp_detach_genpd() - Detach genpd(s) from the device.
+ * @opp_table: OPP table returned by _opp_attach_genpd().
  *
  * This detaches the genpd(s), resets the virtual device pointers, and puts the
  * OPP table.
  */
-void dev_pm_opp_detach_genpd(struct opp_table *opp_table)
+static void _opp_detach_genpd(struct opp_table *opp_table)
 {
-	if (unlikely(!opp_table))
-		return;
-
 	/*
 	 * Acquire genpd_virt_dev_lock to make sure virt_dev isn't getting
 	 * used in parallel.
 	 */
 	mutex_lock(&opp_table->genpd_virt_dev_lock);
-	_opp_detach_genpd(opp_table);
+	_detach_genpd(opp_table);
 	mutex_unlock(&opp_table->genpd_virt_dev_lock);
-
-	dev_pm_opp_put_opp_table(opp_table);
 }
-EXPORT_SYMBOL_GPL(dev_pm_opp_detach_genpd);
-
-static void devm_pm_opp_detach_genpd(void *data)
-{
-	dev_pm_opp_detach_genpd(data);
-}
-
-/**
- * devm_pm_opp_attach_genpd - Attach genpd(s) for the device and save virtual
- *			      device pointer
- * @dev: Consumer device for which the genpd is getting attached.
- * @names: Null terminated array of pointers containing names of genpd to attach.
- * @virt_devs: Pointer to return the array of virtual devices.
- *
- * This is a resource-managed version of dev_pm_opp_attach_genpd().
- *
- * Return: 0 on success and errorno otherwise.
- */
-int devm_pm_opp_attach_genpd(struct device *dev, const char * const *names,
-			     struct device ***virt_devs)
-{
-	struct opp_table *opp_table;
-
-	opp_table = dev_pm_opp_attach_genpd(dev, names, virt_devs);
-	if (IS_ERR(opp_table))
-		return PTR_ERR(opp_table);
-
-	return devm_add_action_or_reset(dev, devm_pm_opp_detach_genpd,
-					opp_table);
-}
-EXPORT_SYMBOL_GPL(devm_pm_opp_attach_genpd);
 
 /**
  * dev_pm_opp_set_config() - Set OPP configuration for the device.
@@ -2502,10 +2455,12 @@ struct opp_table *dev_pm_opp_set_config(struct device *dev,
 
 	/* Attach genpds */
 	if (config->genpd_names) {
-		ret = dev_pm_opp_attach_genpd(dev, config->genpd_names,
-					      config->virt_devs);
-		if (IS_ERR(ret))
+		err = _opp_attach_genpd(opp_table, dev, config->genpd_names,
+					config->virt_devs);
+		if (err) {
+			ret = ERR_PTR(err);
 			goto err;
+		}
 	}
 
 	return opp_table;
@@ -2534,8 +2489,7 @@ void dev_pm_opp_clear_config(struct opp_table *opp_table)
 	if (!opp_table)
 		return;
 
-	if (opp_table->genpd_virt_devs)
-		dev_pm_opp_detach_genpd(opp_table);
+	_opp_detach_genpd(opp_table);
 
 	_opp_put_regulators(opp_table);
 
