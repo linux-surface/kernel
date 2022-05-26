@@ -2205,7 +2205,7 @@ static void _opp_put_clknames(struct opp_table *opp_table)
 }
 
 /**
- * dev_pm_opp_register_set_opp_helper() - Register custom set OPP helper
+ * _opp_register_set_opp_helper() - Register custom set OPP helper
  * @dev: Device for which the helper is getting registered.
  * @set_opp: Custom set OPP helper.
  *
@@ -2214,32 +2214,18 @@ static void _opp_put_clknames(struct opp_table *opp_table)
  *
  * This must be called before any OPPs are initialized for the device.
  */
-struct opp_table *dev_pm_opp_register_set_opp_helper(struct device *dev,
-			int (*set_opp)(struct dev_pm_set_opp_data *data))
+static int _opp_register_set_opp_helper(struct opp_table *opp_table,
+	struct device *dev, int (*set_opp)(struct dev_pm_set_opp_data *data))
 {
 	struct dev_pm_set_opp_data *data;
-	struct opp_table *opp_table;
-
-	if (!set_opp)
-		return ERR_PTR(-EINVAL);
-
-	opp_table = _add_opp_table(dev, false);
-	if (IS_ERR(opp_table))
-		return opp_table;
-
-	/* This should be called before OPPs are initialized */
-	if (WARN_ON(!list_empty(&opp_table->opp_list))) {
-		dev_pm_opp_put_opp_table(opp_table);
-		return ERR_PTR(-EBUSY);
-	}
 
 	/* Another CPU that shares the OPP table has set the helper ? */
 	if (opp_table->set_opp)
-		return opp_table;
+		return 0;
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (!data)
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	mutex_lock(&opp_table->lock);
 	opp_table->set_opp_data = data;
@@ -2252,60 +2238,26 @@ struct opp_table *dev_pm_opp_register_set_opp_helper(struct device *dev,
 
 	opp_table->set_opp = set_opp;
 
-	return opp_table;
+	return 0;
 }
-EXPORT_SYMBOL_GPL(dev_pm_opp_register_set_opp_helper);
 
 /**
- * dev_pm_opp_unregister_set_opp_helper() - Releases resources blocked for
- *					   set_opp helper
- * @opp_table: OPP table returned from dev_pm_opp_register_set_opp_helper().
+ * _opp_unregister_set_opp_helper() - Releases resources blocked for set_opp helper
+ * @opp_table: OPP table returned from _opp_register_set_opp_helper().
  *
  * Release resources blocked for platform specific set_opp helper.
  */
-void dev_pm_opp_unregister_set_opp_helper(struct opp_table *opp_table)
+static void _opp_unregister_set_opp_helper(struct opp_table *opp_table)
 {
-	if (unlikely(!opp_table))
-		return;
+	if (opp_table->set_opp) {
+		opp_table->set_opp = NULL;
 
-	opp_table->set_opp = NULL;
-
-	mutex_lock(&opp_table->lock);
-	kfree(opp_table->set_opp_data);
-	opp_table->set_opp_data = NULL;
-	mutex_unlock(&opp_table->lock);
-
-	dev_pm_opp_put_opp_table(opp_table);
+		mutex_lock(&opp_table->lock);
+		kfree(opp_table->set_opp_data);
+		opp_table->set_opp_data = NULL;
+		mutex_unlock(&opp_table->lock);
+	}
 }
-EXPORT_SYMBOL_GPL(dev_pm_opp_unregister_set_opp_helper);
-
-static void devm_pm_opp_unregister_set_opp_helper(void *data)
-{
-	dev_pm_opp_unregister_set_opp_helper(data);
-}
-
-/**
- * devm_pm_opp_register_set_opp_helper() - Register custom set OPP helper
- * @dev: Device for which the helper is getting registered.
- * @set_opp: Custom set OPP helper.
- *
- * This is a resource-managed version of dev_pm_opp_register_set_opp_helper().
- *
- * Return: 0 on success and errorno otherwise.
- */
-int devm_pm_opp_register_set_opp_helper(struct device *dev,
-					int (*set_opp)(struct dev_pm_set_opp_data *data))
-{
-	struct opp_table *opp_table;
-
-	opp_table = dev_pm_opp_register_set_opp_helper(dev, set_opp);
-	if (IS_ERR(opp_table))
-		return PTR_ERR(opp_table);
-
-	return devm_add_action_or_reset(dev, devm_pm_opp_unregister_set_opp_helper,
-					opp_table);
-}
-EXPORT_SYMBOL_GPL(devm_pm_opp_register_set_opp_helper);
 
 static void _opp_detach_genpd(struct opp_table *opp_table)
 {
@@ -2519,9 +2471,12 @@ struct opp_table *dev_pm_opp_set_config(struct device *dev,
 
 	/* Configure opp helper */
 	if (config->set_opp) {
-		ret = dev_pm_opp_register_set_opp_helper(dev, config->set_opp);
-		if (IS_ERR(ret))
+		err = _opp_register_set_opp_helper(opp_table, dev,
+						   config->set_opp);
+		if (err) {
+			ret = ERR_PTR(err);
 			goto err;
+		}
 	}
 
 	/* Configure supported hardware */
@@ -2586,8 +2541,7 @@ void dev_pm_opp_clear_config(struct opp_table *opp_table)
 
 	_opp_put_supported_hw(opp_table);
 
-	if (opp_table->set_opp)
-		dev_pm_opp_unregister_set_opp_helper(opp_table);
+	_opp_unregister_set_opp_helper(opp_table);
 
 	if (opp_table->prop_name)
 		dev_pm_opp_put_prop_name(opp_table);
