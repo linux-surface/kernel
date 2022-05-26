@@ -2152,104 +2152,57 @@ static void _opp_put_regulators(struct opp_table *opp_table)
 }
 
 /**
- * dev_pm_opp_set_clkname() - Set clk name for the device
- * @dev: Device for which clk name is being set.
- * @name: Clk name.
+ * _opp_set_clknames() - Set clk names for the device
+ * @dev: Device for which clk names is being set.
+ * @names: Clk names.
  *
- * In order to support OPP switching, OPP layer needs to get pointer to the
- * clock for the device. Simple cases work fine without using this routine (i.e.
- * by passing connection-id as NULL), but for a device with multiple clocks
- * available, the OPP core needs to know the exact name of the clk to use.
+ * In order to support OPP switching, OPP layer needs to get pointers to the
+ * clocks for the device. Simple cases work fine without using this routine
+ * (i.e. by passing connection-id as NULL), but for a device with multiple
+ * clocks available, the OPP core needs to know the exact names of the clks to
+ * use.
  *
  * This must be called before any OPPs are initialized for the device.
  */
-struct opp_table *dev_pm_opp_set_clkname(struct device *dev, const char *name)
+static int _opp_set_clknames(struct opp_table *opp_table, struct device *dev,
+			     const char * const names[], unsigned int count)
 {
-	struct opp_table *opp_table;
-	int ret;
-
-	opp_table = _add_opp_table(dev, false);
-	if (IS_ERR(opp_table))
-		return opp_table;
-
-	/* This should be called before OPPs are initialized */
-	if (WARN_ON(!list_empty(&opp_table->opp_list))) {
-		ret = -EBUSY;
-		goto err;
-	}
+	/* We support only one clock name for now */
+	if (count != 1)
+		return -EINVAL;
 
 	/* Another CPU that shares the OPP table has set the clkname ? */
 	if (opp_table->clk_configured)
-		return opp_table;
+		return 0;
 
 	/* clk shouldn't be initialized at this point */
-	if (WARN_ON(opp_table->clk)) {
-		ret = -EBUSY;
-		goto err;
-	}
+	if (WARN_ON(opp_table->clk))
+		return -EBUSY;
 
 	/* Find clk for the device */
-	opp_table->clk = clk_get(dev, name);
+	opp_table->clk = clk_get(dev, names[0]);
 	if (IS_ERR(opp_table->clk)) {
-		ret = dev_err_probe(dev, PTR_ERR(opp_table->clk),
+		return dev_err_probe(dev, PTR_ERR(opp_table->clk),
 				    "%s: Couldn't find clock\n", __func__);
-		goto err;
 	}
 
 	opp_table->clk_configured = true;
 
-	return opp_table;
-
-err:
-	dev_pm_opp_put_opp_table(opp_table);
-
-	return ERR_PTR(ret);
-}
-EXPORT_SYMBOL_GPL(dev_pm_opp_set_clkname);
-
-/**
- * dev_pm_opp_put_clkname() - Releases resources blocked for clk.
- * @opp_table: OPP table returned from dev_pm_opp_set_clkname().
- */
-void dev_pm_opp_put_clkname(struct opp_table *opp_table)
-{
-	if (unlikely(!opp_table))
-		return;
-
-	clk_put(opp_table->clk);
-	opp_table->clk = ERR_PTR(-EINVAL);
-	opp_table->clk_configured = false;
-
-	dev_pm_opp_put_opp_table(opp_table);
-}
-EXPORT_SYMBOL_GPL(dev_pm_opp_put_clkname);
-
-static void devm_pm_opp_clkname_release(void *data)
-{
-	dev_pm_opp_put_clkname(data);
+	return 0;
 }
 
 /**
- * devm_pm_opp_set_clkname() - Set clk name for the device
- * @dev: Device for which clk name is being set.
- * @name: Clk name.
- *
- * This is a resource-managed variant of dev_pm_opp_set_clkname().
- *
- * Return: 0 on success and errorno otherwise.
+ * _opp_put_clknames() - Releases resources blocked for clks.
+ * @opp_table: OPP table returned from _opp_set_clknames().
  */
-int devm_pm_opp_set_clkname(struct device *dev, const char *name)
+static void _opp_put_clknames(struct opp_table *opp_table)
 {
-	struct opp_table *opp_table;
-
-	opp_table = dev_pm_opp_set_clkname(dev, name);
-	if (IS_ERR(opp_table))
-		return PTR_ERR(opp_table);
-
-	return devm_add_action_or_reset(dev, devm_pm_opp_clkname_release,
-					opp_table);
+	if (opp_table->clk_configured) {
+		clk_put(opp_table->clk);
+		opp_table->clk = ERR_PTR(-EINVAL);
+		opp_table->clk_configured = false;
+	}
 }
-EXPORT_SYMBOL_GPL(devm_pm_opp_set_clkname);
 
 /**
  * dev_pm_opp_register_set_opp_helper() - Register custom set OPP helper
@@ -2549,15 +2502,12 @@ struct opp_table *dev_pm_opp_set_config(struct device *dev,
 
 	/* Configure clocks */
 	if (config->clk_names) {
-		/* We support only one clock name for now */
-		if (config->clk_count != 1) {
-			ret = ERR_PTR(-EINVAL);
+		err = _opp_set_clknames(opp_table, dev, config->clk_names,
+					config->clk_count);
+		if (err) {
+			ret = ERR_PTR(err);
 			goto err;
 		}
-
-		ret = dev_pm_opp_set_clkname(dev, config->clk_names[0]);
-		if (IS_ERR(ret))
-			goto err;
 	}
 
 	/* Configure property names */
@@ -2642,8 +2592,7 @@ void dev_pm_opp_clear_config(struct opp_table *opp_table)
 	if (opp_table->prop_name)
 		dev_pm_opp_put_prop_name(opp_table);
 
-	if (opp_table->clk_configured)
-		dev_pm_opp_put_clkname(opp_table);
+	_opp_put_clknames(opp_table);
 
 	dev_pm_opp_put_opp_table(opp_table);
 }
