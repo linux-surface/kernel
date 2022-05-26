@@ -256,6 +256,6 @@ void __page_table_check_pte_clear_range(struct mm_struct *mm,
 			addr += PAGE_SIZE;
 			ptep++;
 		}
-		pte_unmap(ptep);
+		pte_unmap(ptep - PTRS_PER_PTE);
 	}
 }
