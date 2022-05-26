@@ -187,9 +187,6 @@ struct opp_table *dev_pm_opp_set_config(struct device *dev, struct dev_pm_opp_co
 int devm_pm_opp_set_config(struct device *dev, struct dev_pm_opp_config *config);
 void dev_pm_opp_clear_config(struct opp_table *opp_table);
 
-struct opp_table *dev_pm_opp_set_supported_hw(struct device *dev, const u32 *versions, unsigned int count);
-void dev_pm_opp_put_supported_hw(struct opp_table *opp_table);
-int devm_pm_opp_set_supported_hw(struct device *dev, const u32 *versions, unsigned int count);
 struct opp_table *dev_pm_opp_set_prop_name(struct device *dev, const char *name);
 void dev_pm_opp_put_prop_name(struct opp_table *opp_table);
 struct opp_table *dev_pm_opp_set_clkname(struct device *dev, const char *name);
@@ -368,22 +365,6 @@ static inline int dev_pm_opp_register_notifier(struct device *dev, struct notifi
 }
 
 static inline int dev_pm_opp_unregister_notifier(struct device *dev, struct notifier_block *nb)
-{
-	return -EOPNOTSUPP;
-}
-
-static inline struct opp_table *dev_pm_opp_set_supported_hw(struct device *dev,
-							    const u32 *versions,
-							    unsigned int count)
-{
-	return ERR_PTR(-EOPNOTSUPP);
-}
-
-static inline void dev_pm_opp_put_supported_hw(struct opp_table *opp_table) {}
-
-static inline int devm_pm_opp_set_supported_hw(struct device *dev,
-					       const u32 *versions,
-					       unsigned int count)
 {
 	return -EOPNOTSUPP;
 }
