@@ -6201,7 +6201,7 @@ static int check_eb_alignment(struct btrfs_fs_info *fs_info, u64 start)
 		return -EINVAL;
 	}
 	if (fs_info->nodesize >= PAGE_SIZE &&
-	    !IS_ALIGNED(start, PAGE_SIZE)) {
+	    !PAGE_ALIGNED(start)) {
 		btrfs_err(fs_info,
 		"tree block is not page aligned, start %llu nodesize %u",
 			  start, fs_info->nodesize);
