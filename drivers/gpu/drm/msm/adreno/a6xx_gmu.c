@@ -1406,6 +1406,25 @@ static int a6xx_gmu_clocks_probe(struct a6xx_gmu *gmu)
 	return 0;
 }
 
+static void __iomem *a6xx_gmu_get_mmio_optional(struct platform_device *pdev,
+		const char *name)
+{
+	void __iomem *ret;
+	struct resource *res = platform_get_resource_byname(pdev,
+			IORESOURCE_MEM, name);
+
+	if (!res)
+		return NULL;
+
+	ret = ioremap(res->start, resource_size(res));
+	if (!ret) {
+		DRM_DEV_ERROR(&pdev->dev, "Unable to map the %s registers\n", name);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return ret;
+}
+
 static void __iomem *a6xx_gmu_get_mmio(struct platform_device *pdev,
 		const char *name)
 {
@@ -1415,7 +1434,7 @@ static void __iomem *a6xx_gmu_get_mmio(struct platform_device *pdev,
 
 	if (!res) {
 		DRM_DEV_ERROR(&pdev->dev, "Unable to find the %s registers\n", name);
-		return ERR_PTR(-EINVAL);
+		return ERR_PTR(-ENOENT);
 	}
 
 	ret = ioremap(res->start, resource_size(res));
@@ -1576,13 +1595,15 @@ int a6xx_gmu_init(struct a6xx_gpu *a6xx_gpu, struct device_node *node)
 		goto err_memory;
 	}
 
+	gmu->rscc = NULL;
 	if (adreno_is_a650_family(adreno_gpu)) {
-		gmu->rscc = a6xx_gmu_get_mmio(pdev, "rscc");
+		gmu->rscc = a6xx_gmu_get_mmio_optional(pdev, "rscc");
 		if (IS_ERR(gmu->rscc))
 			goto err_mmio;
-	} else {
-		gmu->rscc = gmu->mmio + 0x23000;
 	}
+
+	if (gmu->rscc == NULL)
+		gmu->rscc = gmu->mmio + 0x23000;
 
 	/* Get the HFI and GMU interrupts */
 	gmu->hfi_irq = a6xx_gmu_get_irq(gmu, pdev, "hfi", a6xx_hfi_irq);
