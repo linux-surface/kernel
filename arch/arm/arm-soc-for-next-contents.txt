@@ -9,20 +9,23 @@ arm/defconfig
 arm/newsoc
 
 arm/late
+	hpe/gxp-soc
+		Merge branch 'hpe/gxp-soc' into arm/late
 	patch
-		ARM: hpe: Introduce the HPE GXP architecture
-		ARM: configs: multi_v7_defconfig: Add HPE GXP ARCH
-		watchdog: hpe-wdt: Introduce HPE GXP Watchdog
-		clocksource/drivers/timer-gxp: Add HPE GXP Timer
-		dt-bindings: timer: hpe,gxp-timer: Add HPE GXP Timer and Watchdog
-		dt-bindings: arm: hpe: add GXP Support
-		ARM: dts: Introduce HPE GXP Device tree
-		MAINTAINERS: Introduce HPE GXP Architecture
 		ep93xx: clock: Do not return the address of the freed memory
+	<no branch> (46a65cd376f9f754149be33b32244cabcf376982)
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-soc-5.19-2
+	<no branch> (821cb05f6b4b024847624de0d0e5765c7b09b947)
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-dt-5.19-2
+	patch
+		ARM: configs: enable support for Kontron KSwitch D10
+		ARM: ep93xx: Make ts72xx_register_flash() static
+		soc: ixp4xx/qmgr: Fix unused match warning
+		ARM: dts: pxa: use new 'dma-channels/requests' properties
+		ARM: dts: da850: use new 'dma-channels' property
+		arm64: dts: sprd: use new 'dma-channels' property
 
 arm/fixes
-
-arm/multiplatform
 
 arm/multiplatform-late
 	omap1-multiplatform-5.18
