@@ -2213,35 +2213,6 @@ int test_range_bit(struct extent_io_tree *tree, u64 start, u64 end,
 	return bitset;
 }
 
-static int repair_io_failure(struct btrfs_fs_info *fs_info, u64 ino, u64 start,
-			     u64 length, u64 logical, struct page *page,
-			     unsigned int pg_offset, int mirror_num)
-{
-	struct bio_vec bvec;
-	struct bio bio;
-	int ret;
-
-	ASSERT(!(fs_info->sb->s_flags & SB_RDONLY));
-	BUG_ON(!mirror_num);
-
-	if (btrfs_repair_one_zone(fs_info, logical))
-		return 0;
-
-	bio_init(&bio, NULL, &bvec, 1, REQ_OP_WRITE | REQ_SYNC);
-	bio.bi_iter.bi_sector = logical >> 9;
-	__bio_add_page(&bio, page, length, pg_offset);
-	ret = btrfs_map_repair_bio(fs_info, &bio, mirror_num);
-	bio_uninit(&bio);
-
-	if (ret)
-		return ret;
-
-	btrfs_info_rl_in_rcu(fs_info,
-		"read error corrected: ino %llu off %llu (logical %llu)",
-			  ino, start, logical);
-	return 0;
-}
-
 int btrfs_repair_eb_io_failure(const struct extent_buffer *eb, int mirror_num)
 {
 	struct btrfs_fs_info *fs_info = eb->fs_info;
@@ -2249,20 +2220,32 @@ int btrfs_repair_eb_io_failure(const struct extent_buffer *eb, int mirror_num)
 	int i, num_pages = num_extent_pages(eb);
 	int ret = 0;
 
+	WARN_ON_ONCE(!mirror_num);
+
 	if (sb_rdonly(fs_info->sb))
 		return -EROFS;
 
+	if (btrfs_repair_one_zone(fs_info, eb->start))
+		return 0;
+
 	for (i = 0; i < num_pages; i++) {
 		struct page *p = eb->pages[i];
+		struct bio_vec bvec;
+		struct bio bio;
 
-		ret = repair_io_failure(fs_info, 0, start, PAGE_SIZE, start, p,
-					start - page_offset(p), mirror_num);
+		bio_init(&bio, NULL, &bvec, 1, REQ_OP_WRITE | REQ_SYNC);
+		bio.bi_iter.bi_sector = start >> 9;
+		__bio_add_page(&bio, p, PAGE_SIZE, start - page_offset(p));
+		ret = btrfs_map_repair_bio(fs_info, &bio, mirror_num);
+		bio_uninit(&bio);
+
 		if (ret)
-			break;
-		start += PAGE_SIZE;
+			return ret;
 	}
 
-	return ret;
+	btrfs_info_rl_in_rcu(fs_info,
+		"metadata read error corrected: logical %llu.", eb->start);
+	return 0;
 }
 
 static void end_page_read(struct page *page, bool uptodate, u64 start, u32 len)
