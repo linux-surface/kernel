@@ -72,7 +72,7 @@ static void crash_kexec_prepare_cpus(void)
 	 */
 	pr_emerg("Sending IPI to other cpus...\n");
 	msecs = 10000;
-	while ((cpumask_weight(&cpus_in_crash) < ncpus) && (--msecs > 0)) {
+	while (cpumask_weight_lt(&cpus_in_crash, ncpus) && (--msecs > 0)) {
 		cpu_relax();
 		mdelay(1);
 	}
