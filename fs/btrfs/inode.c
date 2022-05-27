@@ -7955,7 +7955,7 @@ static inline blk_status_t btrfs_submit_dio_bio(struct bio *bio,
 	blk_status_t ret;
 
 	/* save the original iter for read repair */
-	if (btrfs_op(bio) == BTRFS_MAP_READ) {
+	if (btrfs_op(bio) == BTRFS_MAP_READ)
 		btrfs_bio(bio)->iter = bio->bi_iter;
 
 	if (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM)
