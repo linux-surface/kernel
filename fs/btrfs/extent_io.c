@@ -30,6 +30,7 @@
 #include "zoned.h"
 #include "block-group.h"
 #include "compression.h"
+#include "read-repair.h"
 
 static struct kmem_cache *extent_state_cache;
 static struct kmem_cache *extent_buffer_cache;
@@ -2671,14 +2672,29 @@ static void end_sector_io(struct page *page, u64 offset, bool uptodate)
 				    offset + sectorsize - 1, &cached);
 }
 
+static void end_read_repair(struct btrfs_bio *repair_bbio, struct inode *inode,
+		bool uptodate)
+{
+	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
+	struct bvec_iter iter;
+	struct bio_vec bv;
+	u32 offset;
+
+	btrfs_bio_for_each_sector(fs_info, bv, repair_bbio, iter, offset)
+		end_sector_io(bv.bv_page, repair_bbio->file_offset + offset,
+				uptodate);
+}
+
 static void submit_data_read_repair(struct inode *inode, struct bio *failed_bio,
 				    u32 bio_offset, const struct bio_vec *bvec,
-				    int failed_mirror, unsigned int error_bitmap)
+				    int failed_mirror,
+				    unsigned int error_bitmap,
+				    struct btrfs_read_repair *rr)
 {
-	const unsigned int pgoff = bvec->bv_offset;
+	struct btrfs_bio *failed_bbio = btrfs_bio(failed_bio);
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
+	u64 start = page_offset(bvec->bv_page) + bvec->bv_offset;
 	struct page *page = bvec->bv_page;
-	const u64 start = page_offset(bvec->bv_page) + bvec->bv_offset;
 	const u64 end = start + bvec->bv_len - 1;
 	const u32 sectorsize = fs_info->sectorsize;
 	const int nr_bits = (end + 1 - start) >> fs_info->sectorsize_bits;
@@ -2700,38 +2716,16 @@ static void submit_data_read_repair(struct inode *inode, struct bio *failed_bio,
 
 	/* Iterate through all the sectors in the range */
 	for (i = 0; i < nr_bits; i++) {
-		const unsigned int offset = i * sectorsize;
-		bool uptodate = false;
-		int ret;
+		bool uptodate = !(error_bitmap & (1U << i));
 
-		if (!(error_bitmap & (1U << i))) {
-			/*
-			 * This sector has no error, just end the page read
-			 * and unlock the range.
-			 */
-			uptodate = true;
-			goto next;
+		if (uptodate ||
+		    !btrfs_read_repair_add(rr, failed_bbio, inode, bio_offset)) {
+			btrfs_read_repair_finish(rr, failed_bbio, inode,
+					bio_offset, end_read_repair);
+			end_sector_io(page, start, uptodate);
 		}
-
-		ret = btrfs_repair_one_sector(inode, failed_bio,
-				bio_offset + offset,
-				page, pgoff + offset, start + offset,
-				failed_mirror, btrfs_submit_data_read_bio);
-		if (!ret) {
-			/*
-			 * We have submitted the read repair, the page release
-			 * will be handled by the endio function of the
-			 * submitted repair bio.
-			 * Thus we don't need to do any thing here.
-			 */
-			continue;
-		}
-		/*
-		 * Continue on failed repair, otherwise the remaining sectors
-		 * will not be properly unlocked.
-		 */
-next:
-		end_sector_io(page, start + offset, uptodate);
+		bio_offset += sectorsize;
+		start += sectorsize;
 	}
 }
 
@@ -2942,8 +2936,6 @@ static void end_bio_extent_readpage(struct bio *bio)
 	struct bio_vec *bvec;
 	struct btrfs_bio *bbio = btrfs_bio(bio);
 	int mirror = bbio->mirror_num;
-	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
-	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
 	bool uptodate = !bio->bi_status;
 	struct processed_extent processed = { 0 };
 	/*
@@ -2952,6 +2944,7 @@ static void end_bio_extent_readpage(struct bio *bio)
 	 */
 	u32 bio_offset = 0;
 	struct bvec_iter_all iter_all;
+	struct btrfs_read_repair rr = { };
 
 	btrfs_bio(bio)->file_offset =
 		page_offset(first_vec->bv_page) + first_vec->bv_offset;
@@ -3008,10 +3001,6 @@ static void end_bio_extent_readpage(struct bio *bio)
 			loff_t i_size = i_size_read(inode);
 			pgoff_t end_index = i_size >> PAGE_SHIFT;
 
-			clean_io_failure(BTRFS_I(inode)->root->fs_info,
-					 failure_tree, tree, start, page,
-					 btrfs_ino(BTRFS_I(inode)), 0);
-
 			/*
 			 * Zero out the remaining part if this range straddles
 			 * i_size.
@@ -3051,9 +3040,11 @@ static void end_bio_extent_readpage(struct bio *bio)
 			 * and bad sectors, we just continue to the next bvec.
 			 */
 			submit_data_read_repair(inode, bio, bio_offset, bvec,
-						mirror, error_bitmap);
+						mirror, error_bitmap, &rr);
 		} else {
 			/* Update page status and unlock */
+			btrfs_read_repair_finish(&rr, btrfs_bio(bio), inode,
+					bio_offset, end_read_repair);
 			end_page_read(page, uptodate, start, len);
 			endio_readpage_release_extent(&processed, BTRFS_I(inode),
 					start, end, PageUptodate(page));
@@ -3064,6 +3055,8 @@ static void end_bio_extent_readpage(struct bio *bio)
 
 	}
 	/* Release the last extent */
+	btrfs_read_repair_finish(&rr, btrfs_bio(bio), inode, bio_offset,
+			end_read_repair);
 	endio_readpage_release_extent(&processed, NULL, 0, 0, false);
 	btrfs_bio_free_csum(bbio);
 	bio_put(bio);
