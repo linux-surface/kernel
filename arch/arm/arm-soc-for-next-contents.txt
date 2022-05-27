@@ -1,0 +1,34 @@
+arm/soc
+
+arm/dt
+
+arm/drivers
+
+arm/defconfig
+
+arm/newsoc
+
+arm/late
+	patch
+		ARM: hpe: Introduce the HPE GXP architecture
+		ARM: configs: multi_v7_defconfig: Add HPE GXP ARCH
+		watchdog: hpe-wdt: Introduce HPE GXP Watchdog
+		clocksource/drivers/timer-gxp: Add HPE GXP Timer
+		dt-bindings: timer: hpe,gxp-timer: Add HPE GXP Timer and Watchdog
+		dt-bindings: arm: hpe: add GXP Support
+		ARM: dts: Introduce HPE GXP Device tree
+		MAINTAINERS: Introduce HPE GXP Architecture
+		ep93xx: clock: Do not return the address of the freed memory
+
+arm/fixes
+
+arm/multiplatform
+
+arm/multiplatform-late
+	omap1-multiplatform-5.18
+		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
+	pxa-multiplatform-5.18
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+	patch
+		ARM: pxa/mmp: remove traces of plat-pxa
+
