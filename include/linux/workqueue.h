@@ -445,7 +445,7 @@ extern bool mod_delayed_work_on(int cpu, struct workqueue_struct *wq,
 			struct delayed_work *dwork, unsigned long delay);
 extern bool queue_rcu_work(struct workqueue_struct *wq, struct rcu_work *rwork);
 
-extern void flush_workqueue(struct workqueue_struct *wq);
+extern void __flush_workqueue(struct workqueue_struct *wq);
 extern void drain_workqueue(struct workqueue_struct *wq);
 
 extern int schedule_on_each_cpu(work_func_t func);
@@ -563,15 +563,23 @@ static inline bool schedule_work(struct work_struct *work)
 	return queue_work(system_wq, work);
 }
 
+/*
+ * Detect attempt to flush system-wide workqueues at compile time when possible.
+ *
+ * See https://lkml.kernel.org/r/49925af7-78a8-a3dd-bce6-cfc02e1a9236@I-love.SAKURA.ne.jp
+ * for reasons and steps for converting system-wide workqueues into local workqueues.
+ */
+extern void __warn_flushing_systemwide_wq(void)
+	__compiletime_warning("Please avoid flushing system-wide workqueues.");
+
 /**
  * flush_scheduled_work - ensure that any scheduled work has run to completion.
  *
  * Forces execution of the kernel-global workqueue and blocks until its
  * completion.
  *
- * Think twice before calling this function!  It's very easy to get into
- * trouble if you don't take great care.  Either of the following situations
- * will lead to deadlock:
+ * It's very easy to get into trouble if you don't take great care.
+ * Either of the following situations will lead to deadlock:
  *
  *	One of the work items currently on the workqueue needs to acquire
  *	a lock held by your code or its caller.
@@ -586,10 +594,53 @@ static inline bool schedule_work(struct work_struct *work)
  * need to know that a particular work item isn't queued and isn't running.
  * In such cases you should use cancel_delayed_work_sync() or
  * cancel_work_sync() instead.
+ *
+ * Please stop calling this function! A conversion to stop flushing system-wide
+ * workqueues is in progress. This function will be removed after all in-tree
+ * users stopped calling this function.
  */
 static inline void flush_scheduled_work(void)
 {
-	flush_workqueue(system_wq);
+#if !defined(CONFIG_WERROR) && defined(CONFIG_PROVE_LOCKING)
+	/*
+	 * Warn only if emitting warning message does not cause build failure
+	 * and the developer wants warning about possibility of deadlock, for
+	 * there are currently in-tree flush_scheduled_work() users.
+	 */
+	__warn_flushing_systemwide_wq();
+#endif
+	__flush_workqueue(system_wq);
+}
+
+/**
+ * flush_workqueue - ensure that any scheduled work has run to completion.
+ * @wq: workqueue to flush
+ *
+ * This function sleeps until all work items which were queued on entry
+ * have finished execution, but it is not livelocked by new incoming ones.
+ */
+static __always_inline void flush_workqueue(struct workqueue_struct *wq)
+{
+	/*
+	 * Always warn, for there is no in-tree flush_workqueue(system_*_wq)
+	 * user.
+	 */
+	if ((__builtin_constant_p(wq == system_wq) &&
+	     wq == system_wq) ||
+	    (__builtin_constant_p(wq == system_highpri_wq) &&
+	     wq == system_highpri_wq) ||
+	    (__builtin_constant_p(wq == system_long_wq) &&
+	     wq == system_long_wq) ||
+	    (__builtin_constant_p(wq == system_unbound_wq) &&
+	     wq == system_unbound_wq) ||
+	    (__builtin_constant_p(wq == system_freezable_wq) &&
+	     wq == system_freezable_wq) ||
+	    (__builtin_constant_p(wq == system_power_efficient_wq) &&
+	     wq == system_power_efficient_wq) ||
+	    (__builtin_constant_p(wq == system_freezable_power_efficient_wq) &&
+	     wq == system_freezable_power_efficient_wq))
+		__warn_flushing_systemwide_wq();
+	__flush_workqueue(wq);
 }
 
 /**
