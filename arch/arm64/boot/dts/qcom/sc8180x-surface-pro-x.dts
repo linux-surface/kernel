@@ -625,12 +625,6 @@
 
 &gmu {
 	compatible="qcom,adreno-gmu-690.1", "qcom,adreno-gmu";
-
-	reg = <0 0x02c6a000 0 0x30000>,
-	      <0 0x0b290000 0 0x10000>,
-	      <0 0x0b490000 0 0x10000>,
-	      <0 0x0C200000 0 0x10000>;
-	reg-names = "gmu", "gmu_pdc", "gmu_pdc_seq", "rscc";
 };
 
 &mdss {
