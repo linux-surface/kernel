@@ -614,17 +614,12 @@
 
 
 &gpu {
-	compatible = "qcom,adreno-690.1", "qcom,adreno";
 	status = "okay";
 
 	zap-shader {
 		memory-region = <&gfxsuc_mem>;
 		firmware-name = "qcom/MS/spxsq2/qcdxkmsuc8180.mbn";
 	};
-};
-
-&gmu {
-	compatible="qcom,adreno-gmu-690.1", "qcom,adreno-gmu";
 };
 
 &mdss {
