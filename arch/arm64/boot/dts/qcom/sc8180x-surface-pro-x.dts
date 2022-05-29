@@ -632,6 +632,8 @@
 &mdss_edp {
 	status = "okay";
 
+	data-lanes = <0 1>;
+
 	pinctrl-names = "default";
 	pinctrl-0 = <&edp_hpd_active>;
 
