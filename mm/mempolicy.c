@@ -1617,6 +1617,7 @@ static int kernel_migrate_pages(pid_t pid, unsigned long maxnode,
 		goto out;
 	}
 	get_task_struct(task);
+	rcu_read_unlock();
 
 	err = -EINVAL;
 
@@ -1625,11 +1626,9 @@ static int kernel_migrate_pages(pid_t pid, unsigned long maxnode,
 	 * Use the regular "ptrace_may_access()" checks.
 	 */
 	if (!ptrace_may_access(task, PTRACE_MODE_READ_REALCREDS)) {
-		rcu_read_unlock();
 		err = -EPERM;
 		goto out_put;
 	}
-	rcu_read_unlock();
 
 	task_nodes = cpuset_mems_allowed(task);
 	/* Is the user allowed to access the target nodes? */
