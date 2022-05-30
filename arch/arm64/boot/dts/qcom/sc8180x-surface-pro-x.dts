@@ -192,20 +192,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&ts_5v_en_default_state>;
 	};
-
-	vreg_panel_3p3: panel-3p3-regulator {
-		compatible = "regulator-fixed";
-		regulator-name = "vreg_panel_3p3";
-
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-
-		gpio = <&tlmm 130 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&panel_vdd_en_default_state>;
-	};
 };
 
 
@@ -644,7 +630,11 @@
 		edp_panel: panel {
 			compatible = "edp-panel";
 
-			power-supply = <&vreg_panel_3p3>;
+			enable-gpios = <&tlmm 130 GPIO_ACTIVE_HIGH>;
+
+			pinctrl-names = "default";
+			pinctrl-0 = <&panel_vdd_en_default_state>;
+
 			backlight = <&backlight>;
 
 			ports {
