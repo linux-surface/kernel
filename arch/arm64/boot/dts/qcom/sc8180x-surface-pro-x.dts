@@ -623,9 +623,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&edp_hpd_active>;
 
-	vdda-0p9-supply = <&vreg_l5e_0p88>;
-	vdda-1p2-supply = <&vreg_l3c_1p2>;
-
 	aux-bus {
 		edp_panel: panel {
 			compatible = "edp-panel";
