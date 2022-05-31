@@ -274,7 +274,7 @@ void *__kasan_unpoison_vmalloc(const void *start, unsigned long size,
 
 		for (addr = start; addr < start + size; addr += PAGE_SIZE) {
 			page = virt_to_page(addr);
-			clear_highpage_tagged(page);
+			clear_highpage_kasan_tagged(page);
 		}
 
 		return (void *)start;
