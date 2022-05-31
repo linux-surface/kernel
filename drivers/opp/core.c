@@ -975,36 +975,6 @@ static int _set_opp_bw(const struct opp_table *opp_table,
 	return 0;
 }
 
-static int _set_opp_custom(const struct opp_table *opp_table,
-			   struct device *dev, struct dev_pm_opp *opp,
-			   unsigned long freq)
-{
-	struct dev_pm_set_opp_data *data = opp_table->set_opp_data;
-	struct dev_pm_opp *old_opp = opp_table->current_opp;
-	int size;
-
-	/*
-	 * We support this only if dev_pm_opp_set_config() was called
-	 * earlier to set regulators.
-	 */
-	if (opp_table->sod_supplies) {
-		size = sizeof(*old_opp->supplies) * opp_table->regulator_count;
-		memcpy(data->old_opp.supplies, old_opp->supplies, size);
-		memcpy(data->new_opp.supplies, opp->supplies, size);
-		data->regulator_count = opp_table->regulator_count;
-	} else {
-		data->regulator_count = 0;
-	}
-
-	data->regulators = opp_table->regulators;
-	data->clk = opp_table->clk;
-	data->dev = dev;
-	data->old_opp.rate = old_opp->rate;
-	data->new_opp.rate = freq;
-
-	return opp_table->set_opp(data);
-}
-
 static int _set_required_opp(struct device *dev, struct device *pd_dev,
 			     struct dev_pm_opp *opp, int i)
 {
@@ -1191,13 +1161,7 @@ static int _set_opp(struct device *dev, struct opp_table *opp_table,
 		}
 	}
 
-	if (opp_table->set_opp) {
-		ret = _set_opp_custom(opp_table, dev, opp, freq);
-	} else {
-		/* Only frequency scaling */
-		ret = _generic_set_opp_clk_only(dev, opp_table->clk, freq);
-	}
-
+	ret = _generic_set_opp_clk_only(dev, opp_table->clk, freq);
 	if (ret)
 		return ret;
 
@@ -2061,7 +2025,6 @@ static void _opp_put_prop_name(struct opp_table *opp_table)
 static int _opp_set_regulators(struct opp_table *opp_table, struct device *dev,
 			       const char * const names[], unsigned int count)
 {
-	struct dev_pm_opp_supply *supplies;
 	struct regulator *reg;
 	int ret, i;
 
@@ -2088,20 +2051,6 @@ static int _opp_set_regulators(struct opp_table *opp_table, struct device *dev,
 	}
 
 	opp_table->regulator_count = count;
-
-	supplies = kmalloc_array(count * 2, sizeof(*supplies), GFP_KERNEL);
-	if (!supplies) {
-		ret = -ENOMEM;
-		goto free_regulators;
-	}
-
-	mutex_lock(&opp_table->lock);
-	opp_table->sod_supplies = supplies;
-	if (opp_table->set_opp_data) {
-		opp_table->set_opp_data->old_opp.supplies = supplies;
-		opp_table->set_opp_data->new_opp.supplies = supplies + count;
-	}
-	mutex_unlock(&opp_table->lock);
 
 	/* Set generic config_regulators() for single regulators here */
 	if (count == 1)
@@ -2138,16 +2087,6 @@ static void _opp_put_regulators(struct opp_table *opp_table)
 
 	for (i = opp_table->regulator_count - 1; i >= 0; i--)
 		regulator_put(opp_table->regulators[i]);
-
-	mutex_lock(&opp_table->lock);
-	if (opp_table->set_opp_data) {
-		opp_table->set_opp_data->old_opp.supplies = NULL;
-		opp_table->set_opp_data->new_opp.supplies = NULL;
-	}
-
-	kfree(opp_table->sod_supplies);
-	opp_table->sod_supplies = NULL;
-	mutex_unlock(&opp_table->lock);
 
 	kfree(opp_table->regulators);
 	opp_table->regulators = NULL;
@@ -2204,61 +2143,6 @@ static void _opp_put_clknames(struct opp_table *opp_table)
 		clk_put(opp_table->clk);
 		opp_table->clk = ERR_PTR(-EINVAL);
 		opp_table->clk_configured = false;
-	}
-}
-
-/**
- * _opp_register_set_opp_helper() - Register custom set OPP helper
- * @dev: Device for which the helper is getting registered.
- * @set_opp: Custom set OPP helper.
- *
- * This is useful to support complex platforms (like platforms with multiple
- * regulators per device), instead of the generic OPP set rate helper.
- *
- * This must be called before any OPPs are initialized for the device.
- */
-static int _opp_register_set_opp_helper(struct opp_table *opp_table,
-	struct device *dev, int (*set_opp)(struct dev_pm_set_opp_data *data))
-{
-	struct dev_pm_set_opp_data *data;
-
-	/* Another CPU that shares the OPP table has set the helper ? */
-	if (opp_table->set_opp)
-		return 0;
-
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-
-	mutex_lock(&opp_table->lock);
-	opp_table->set_opp_data = data;
-	if (opp_table->sod_supplies) {
-		data->old_opp.supplies = opp_table->sod_supplies;
-		data->new_opp.supplies = opp_table->sod_supplies +
-					 opp_table->regulator_count;
-	}
-	mutex_unlock(&opp_table->lock);
-
-	opp_table->set_opp = set_opp;
-
-	return 0;
-}
-
-/**
- * _opp_unregister_set_opp_helper() - Releases resources blocked for set_opp helper
- * @opp_table: OPP table returned from _opp_register_set_opp_helper().
- *
- * Release resources blocked for platform specific set_opp helper.
- */
-static void _opp_unregister_set_opp_helper(struct opp_table *opp_table)
-{
-	if (opp_table->set_opp) {
-		opp_table->set_opp = NULL;
-
-		mutex_lock(&opp_table->lock);
-		kfree(opp_table->set_opp_data);
-		opp_table->set_opp_data = NULL;
-		mutex_unlock(&opp_table->lock);
 	}
 }
 
@@ -2455,14 +2339,6 @@ struct opp_table *dev_pm_opp_set_config(struct device *dev,
 			goto err;
 	}
 
-	/* Configure opp helper */
-	if (config->set_opp) {
-		ret = _opp_register_set_opp_helper(opp_table, dev,
-						   config->set_opp);
-		if (ret)
-			goto err;
-	}
-
 	/* Configure config_regulators helper */
 	if (config->config_regulators) {
 		ret = _opp_set_config_regulators_helper(opp_table, dev,
@@ -2526,7 +2402,6 @@ void dev_pm_opp_clear_config(struct opp_table *opp_table)
 	_opp_put_regulators(opp_table);
 	_opp_put_supported_hw(opp_table);
 	_opp_put_config_regulators_helper(opp_table);
-	_opp_unregister_set_opp_helper(opp_table);
 	_opp_put_prop_name(opp_table);
 	_opp_put_clknames(opp_table);
 
