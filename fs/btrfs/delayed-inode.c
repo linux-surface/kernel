@@ -540,7 +540,13 @@ static int btrfs_delayed_item_reserve_metadata(struct btrfs_trans_handle *trans,
 		trace_btrfs_space_reservation(fs_info, "delayed_item",
 					      item->key.objectid,
 					      num_bytes, 1);
-		item->bytes_reserved = num_bytes;
+		/*
+		 * For insertions we track reserved metadata space by accounting
+		 * for the number of leaves that will be used, based on the delayed
+		 * node's index_items_size field.
+		 */
+		if (item->ins_or_del == BTRFS_DELAYED_DELETION_ITEM)
+			item->bytes_reserved = num_bytes;
 	}
 
 	return ret;
@@ -653,14 +659,26 @@ static int btrfs_insert_delayed_item(struct btrfs_trans_handle *trans,
 				     struct btrfs_path *path,
 				     struct btrfs_delayed_item *first_item)
 {
+	struct btrfs_fs_info *fs_info = root->fs_info;
+	struct btrfs_delayed_node *node = first_item->delayed_node;
 	LIST_HEAD(item_list);
 	struct btrfs_delayed_item *curr;
 	struct btrfs_delayed_item *next;
-	const int max_size = BTRFS_LEAF_DATA_SIZE(root->fs_info);
+	const int max_size = BTRFS_LEAF_DATA_SIZE(fs_info);
 	struct btrfs_item_batch batch;
 	int total_size;
 	char *ins_data = NULL;
 	int ret;
+
+	lockdep_assert_held(&node->mutex);
+
+	/*
+	 * For delayed items to insert, we track reserved metadata bytes based
+	 * on the number of leaves that we will use.
+	 * See btrfs_insert_delayed_dir_index() and
+	 * btrfs_delayed_item_reserve_metadata()).
+	 */
+	ASSERT(first_item->bytes_reserved == 0);
 
 	list_add_tail(&first_item->tree_list, &item_list);
 	batch.total_data_size = first_item->data_len;
@@ -674,6 +692,8 @@ static int btrfs_insert_delayed_item(struct btrfs_trans_handle *trans,
 		next = __btrfs_next_delayed_item(curr);
 		if (!next)
 			break;
+
+		ASSERT(next->bytes_reserved == 0);
 
 		next_size = next->data_len + sizeof(struct btrfs_item);
 		if (total_size + next_size > max_size)
@@ -733,9 +753,20 @@ static int btrfs_insert_delayed_item(struct btrfs_trans_handle *trans,
 
 	list_for_each_entry_safe(curr, next, &item_list, tree_list) {
 		list_del(&curr->tree_list);
-		btrfs_delayed_item_release_metadata(root, curr);
 		btrfs_release_delayed_item(curr);
 	}
+
+	/*
+	 * We inserted one batch of items into a leaf, now release one unit of
+	 * metadata space from the delayed block reserve.
+	 */
+	if (!test_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags))
+		btrfs_block_rsv_release(fs_info, &fs_info->delayed_block_rsv,
+					btrfs_calc_insert_metadata_size(fs_info, 1),
+					NULL);
+
+	ASSERT(node->index_items_size >= total_size);
+	node->index_items_size -= total_size;
 out:
 	kfree(ins_data);
 	return ret;
@@ -1327,6 +1358,23 @@ void btrfs_balance_delayed_items(struct btrfs_fs_info *fs_info)
 	btrfs_wq_run_delayed_node(delayed_root, fs_info, BTRFS_DELAYED_BATCH);
 }
 
+/*
+ * Return how many leaves of metadata we will use for inserting a given amount
+ * (in bytes) of dir index items (including sizeof struct btrfs_item).
+ */
+static unsigned int num_dir_index_leaves(const struct btrfs_fs_info *fs_info,
+					 u32 index_items_size)
+{
+	const unsigned int leaf_data_size = BTRFS_LEAF_DATA_SIZE(fs_info);
+	unsigned int result;
+
+	result = index_items_size / leaf_data_size;
+	if ((index_items_size % leaf_data_size) != 0)
+		result++;
+
+	return result;
+}
+
 /* Will return 0 or -ENOMEM */
 int btrfs_insert_delayed_dir_index(struct btrfs_trans_handle *trans,
 				   const char *name, int name_len,
@@ -1334,9 +1382,13 @@ int btrfs_insert_delayed_dir_index(struct btrfs_trans_handle *trans,
 				   struct btrfs_disk_key *disk_key, u8 type,
 				   u64 index)
 {
+	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_delayed_node *delayed_node;
 	struct btrfs_delayed_item *delayed_item;
 	struct btrfs_dir_item *dir_item;
+	unsigned int leaves_before;
+	unsigned int leaves_after;
+	u32 data_len;
 	int ret;
 
 	delayed_node = btrfs_get_or_create_delayed_node(dir);
@@ -1362,17 +1414,46 @@ int btrfs_insert_delayed_dir_index(struct btrfs_trans_handle *trans,
 	btrfs_set_stack_dir_type(dir_item, type);
 	memcpy((char *)(dir_item + 1), name, name_len);
 
-	ret = btrfs_delayed_item_reserve_metadata(trans, dir->root, delayed_item);
-	/*
-	 * Space was reserved for a dir index item insertion when we started the
-	 * transaction, so getting a failure here should be impossible.
-	 */
-	if (WARN_ON(ret)) {
-		btrfs_release_delayed_item(delayed_item);
-		goto release_node;
-	}
+	data_len = delayed_item->data_len + sizeof(struct btrfs_item);
 
 	mutex_lock(&delayed_node->mutex);
+	leaves_before = num_dir_index_leaves(fs_info,
+					     delayed_node->index_items_size);
+	leaves_after = num_dir_index_leaves(fs_info,
+					    delayed_node->index_items_size +
+					    data_len);
+
+	ASSERT(leaves_after >= leaves_before);
+	ASSERT((leaves_after - leaves_before) <= 1);
+
+	if (leaves_after > leaves_before) {
+		ret = btrfs_delayed_item_reserve_metadata(trans, dir->root,
+							  delayed_item);
+		/*
+		 * Space was reserved for a dir index item insertion when we
+		 * started the transaction, so getting a failure here should be
+		 * impossible.
+		 */
+		if (WARN_ON(ret)) {
+			mutex_unlock(&delayed_node->mutex);
+			btrfs_release_delayed_item(delayed_item);
+			goto release_node;
+		}
+	} else if (!test_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags)) {
+		const u64 bytes = btrfs_calc_insert_metadata_size(fs_info, 1);
+
+		/*
+		 * Adding the new dir index item does not require touching another
+		 * leaf, so we can release 1 unit of metadata that was previously
+		 * reserved when starting the transaction. This applies only to
+		 * the case where we had a transaction start and excludes the
+		 * transaction join case (when replaying log trees).
+		 */
+		btrfs_block_rsv_release(fs_info, trans->block_rsv, bytes, NULL);
+		ASSERT(trans->bytes_reserved >= bytes);
+		trans->bytes_reserved -= bytes;
+	}
+
 	ret = __btrfs_add_delayed_item(delayed_node, delayed_item);
 	if (unlikely(ret)) {
 		btrfs_err(trans->fs_info,
@@ -1381,6 +1462,7 @@ int btrfs_insert_delayed_dir_index(struct btrfs_trans_handle *trans,
 			  delayed_node->inode_id, ret);
 		BUG();
 	}
+	delayed_node->index_items_size += data_len;
 	mutex_unlock(&delayed_node->mutex);
 
 release_node:
@@ -1393,6 +1475,9 @@ static int btrfs_delete_delayed_insertion_item(struct btrfs_fs_info *fs_info,
 					       struct btrfs_key *key)
 {
 	struct btrfs_delayed_item *item;
+	unsigned int leaves_before;
+	unsigned int leaves_after;
+	u32 data_len;
 
 	mutex_lock(&node->mutex);
 	item = __btrfs_lookup_delayed_insertion_item(node, key);
@@ -1401,7 +1486,32 @@ static int btrfs_delete_delayed_insertion_item(struct btrfs_fs_info *fs_info,
 		return 1;
 	}
 
-	btrfs_delayed_item_release_metadata(node->root, item);
+	/*
+	 * For delayed items to insert, we track reserved metadata bytes based
+	 * on the number of leaves that we will use.
+	 * See btrfs_insert_delayed_dir_index() and
+	 * btrfs_delayed_item_reserve_metadata()).
+	 */
+	ASSERT(item->bytes_reserved == 0);
+
+	data_len = item->data_len + sizeof(struct btrfs_item);
+	ASSERT(node->index_items_size >= data_len);
+
+	leaves_before = num_dir_index_leaves(fs_info, node->index_items_size);
+	node->index_items_size -= data_len;
+	leaves_after = num_dir_index_leaves(fs_info, node->index_items_size);
+
+	ASSERT(leaves_after <= leaves_before);
+	ASSERT((leaves_before - leaves_after) <= 1);
+
+	if (leaves_after < leaves_before &&
+	    !test_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags)) {
+		const u64 bytes = btrfs_calc_insert_metadata_size(fs_info, 1);
+
+		btrfs_block_rsv_release(fs_info, &fs_info->delayed_block_rsv,
+					bytes, NULL);
+	}
+
 	btrfs_release_delayed_item(item);
 	mutex_unlock(&node->mutex);
 	return 0;
@@ -1818,11 +1928,24 @@ static void __btrfs_kill_delayed_node(struct btrfs_delayed_node *delayed_node)
 	mutex_lock(&delayed_node->mutex);
 	curr_item = __btrfs_first_delayed_insertion_item(delayed_node);
 	while (curr_item) {
-		btrfs_delayed_item_release_metadata(root, curr_item);
 		prev_item = curr_item;
 		curr_item = __btrfs_next_delayed_item(prev_item);
 		btrfs_release_delayed_item(prev_item);
 	}
+
+	if (!test_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags) &&
+	    delayed_node->index_items_size > 0) {
+		unsigned int num_leaves;
+		u64 bytes;
+
+		num_leaves = num_dir_index_leaves(fs_info,
+						  delayed_node->index_items_size);
+		bytes = btrfs_calc_insert_metadata_size(fs_info, num_leaves);
+
+		btrfs_block_rsv_release(fs_info, &fs_info->delayed_block_rsv,
+					bytes, NULL);
+	}
+	delayed_node->index_items_size = 0;
 
 	curr_item = __btrfs_first_delayed_deletion_item(delayed_node);
 	while (curr_item) {
