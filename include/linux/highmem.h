@@ -243,7 +243,7 @@ static inline void clear_highpage(struct page *page)
 	kunmap_local(kaddr);
 }
 
-static inline void clear_highpage_tagged(struct page *page)
+static inline void clear_highpage_kasan_tagged(struct page *page)
 {
 	u8 tag;
 
