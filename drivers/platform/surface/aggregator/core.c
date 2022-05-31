@@ -375,10 +375,6 @@ static int ssam_serdev_setup_via_of(struct serdev_device *serdev)
 	if (status && status != -EINVAL)
 		return status;
 
-	dev_info(&serdev->dev, "initializing: baud-rate: %u\n", baud_rate);
-	dev_info(&serdev->dev, "initializing: flow-control: %d", flow_control);
-	dev_info(&serdev->dev, "initializing: parity: %s", parity);
-
 	serdev_device_set_baudrate(serdev, baud_rate);
 	serdev_device_set_flow_control(serdev, flow_control);
 
