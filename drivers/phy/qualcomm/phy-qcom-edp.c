@@ -398,8 +398,8 @@ static int qcom_edp_phy_power_on(struct phy *phy)
 	writel(0x4, edp->tx0 + TXn_HIGHZ_DRVR_EN);
 	writel(0x3, edp->tx0 + TXn_TRANSCEIVER_BIAS_EN);
 	writel(0x4, edp->tx1 + TXn_HIGHZ_DRVR_EN);
-	writel(0x0, edp->tx1 + TXn_TRANSCEIVER_BIAS_EN);
-	writel(0x3, edp->edp + DP_PHY_CFG_1);
+	writel(0x3, edp->tx1 + TXn_TRANSCEIVER_BIAS_EN);
+	writel(0xf, edp->edp + DP_PHY_CFG_1);
 
 	writel(0x18, edp->edp + DP_PHY_CFG);
 	usleep_range(100, 1000);
