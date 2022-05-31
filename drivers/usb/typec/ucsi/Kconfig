@@ -51,6 +51,7 @@ config UCSI_ACPI
 config UCSI_GLINK
 	tristate"UCSI GILNK driver"
 	depends on RPMSG
+	select QCOM_PDR_HELPERS
 	help
 	  helpfull
 
