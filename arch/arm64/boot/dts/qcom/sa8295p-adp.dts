@@ -171,6 +171,8 @@
 };
 
 &pcie2a {
+	num-lanes = <2>;
+
 	perst-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 145 GPIO_ACTIVE_LOW>;
 
@@ -181,6 +183,23 @@
 };
 
 &pcie2a_phy {
+	vdda-phy-supply = <&vreg_l11a>;
+	vdda-pll-supply = <&vreg_l3a>;
+
+	status = "okay";
+};
+
+&pcie2b {
+	perst-gpios = <&tlmm 147 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 146 GPIO_ACTIVE_LOW>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie2b_default>;
+
+	status = "okay";
+};
+
+&pcie2b_phy {
 	vdda-phy-supply = <&vreg_l11a>;
 	vdda-pll-supply = <&vreg_l3a>;
 
@@ -484,6 +503,29 @@
 
 		wake-n {
 			pins = "gpio145";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	pcie2b_default: pcie2b-default-state {
+		clkreq-n {
+			pins = "gpio144";
+			function = "pcie2b_clkreq";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+
+		perst-n {
+			pins = "gpio147";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+
+		wake-n {
+			pins = "gpio146";
 			function = "gpio";
 			drive-strength = <2>;
 			bias-pull-up;
