@@ -89,7 +89,7 @@ struct dpu_plane {
 };
 
 static const uint64_t supported_format_modifiers[] = {
-	DRM_FORMAT_MOD_QCOM_COMPRESSED,
+	// DRM_FORMAT_MOD_QCOM_COMPRESSED,
 	DRM_FORMAT_MOD_LINEAR,
 	DRM_FORMAT_MOD_INVALID
 };
