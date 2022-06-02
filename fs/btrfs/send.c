@@ -16,6 +16,7 @@
 #include <linux/crc32c.h>
 
 #include "send.h"
+#include "ctree.h"
 #include "backref.h"
 #include "locking.h"
 #include "disk-io.h"
