@@ -724,6 +724,7 @@ static int generic_edp_panel_probe(struct device *dev, struct panel_edp *panel)
 	u32 reliable_ms = 0;
 	u32 absent_ms = 0;
 	int ret;
+	int i;
 
 	desc = devm_kzalloc(dev, sizeof(*desc), GFP_KERNEL);
 	if (!desc)
@@ -747,7 +748,17 @@ static int generic_edp_panel_probe(struct device *dev, struct panel_edp *panel)
 		goto exit;
 	}
 
-	panel_id = drm_edid_get_panel_id(panel->ddc);
+	for (i = 0; i < 10; i++) {
+		if (i > 0) {
+			dev_warn(dev, "Failed to identify panel via EDID, trying again\n");
+			msleep(100);
+		}
+
+		panel_id = drm_edid_get_panel_id(panel->ddc);
+		if (panel_id)
+			break;
+	}
+
 	if (!panel_id) {
 		dev_err(dev, "Couldn't identify panel via EDID\n");
 		ret = -EIO;
