@@ -1535,6 +1535,8 @@ int __get_huge_page_for_hwpoison(unsigned long pfn, int flags)
 		goto out;
 	}
 
+	hugetlb_set_page_hwpoison(head, page);
+
 	return ret;
 out:
 	if (count_increased)
