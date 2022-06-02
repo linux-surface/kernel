@@ -1432,9 +1432,18 @@ static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
 	cio2->queue[s_asd->csi2.port].sensor = NULL;
 }
 
+/* .complete() is called after all subdevices have been located */
+static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
+{
+	struct cio2_device *cio2 = to_cio2_device(notifier);
+
+	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
+}
+
 static const struct v4l2_async_notifier_operations cio2_async_ops = {
 	.bound = cio2_notifier_bound,
 	.unbind = cio2_notifier_unbind,
+	.complete = cio2_notifier_complete,
 };
 
 static int cio2_parse_firmware(struct cio2_device *cio2)
