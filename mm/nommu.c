@@ -590,8 +590,8 @@ static void mas_add_vma_to_mm(struct ma_state *mas, struct mm_struct *mm,
 
 	setup_vma_to_mm(vma, mm);
 
-	prev = mas_prev(&mas, 0);
-	mas_reset(&mas);
+	prev = mas_prev(mas, 0);
+	mas_reset(mas);
 	/* add the VMA to the tree */
 	vma_mas_store(vma, mas);
 	__vma_link_list(mm, vma, prev);
@@ -1078,9 +1078,6 @@ unsigned long do_mmap(struct file *file,
 	vm_flags = determine_vm_flags(file, prot, flags, capabilities);
 
 
-	if (mas_preallocate(&mas, vma, GFP_KERNEL))
-		goto error_maple_preallocate;
-
 	/* we're going to need to record the mapping */
 	region = kmem_cache_zalloc(vm_region_jar, GFP_KERNEL);
 	if (!region)
@@ -1089,6 +1086,9 @@ unsigned long do_mmap(struct file *file,
 	vma = vm_area_alloc(current->mm);
 	if (!vma)
 		goto error_getting_vma;
+
+	if (mas_preallocate(&mas, vma, GFP_KERNEL))
+		goto error_maple_preallocate;
 
 	region->vm_usage = 1;
 	region->vm_flags = vm_flags;
@@ -1262,7 +1262,6 @@ sharing_violation:
 	goto error;
 
 error_getting_vma:
-	mas_destroy(&mas);
 	kmem_cache_free(vm_region_jar, region);
 	pr_warn("Allocation of vma for %lu byte allocation from process %d failed\n",
 			len, current->pid);
@@ -1270,13 +1269,14 @@ error_getting_vma:
 	return -ENOMEM;
 
 error_getting_region:
-	mas_destroy(&mas);
 	pr_warn("Allocation of vm region for %lu byte allocation from process %d failed\n",
 			len, current->pid);
 	show_free_areas(0, NULL);
 	return -ENOMEM;
 
 error_maple_preallocate:
+	kmem_cache_free(vm_region_jar, region);
+	vm_area_free(vma);
 	pr_warn("Allocation of vma tree for process %d failed\n", current->pid);
 	show_free_areas(0, NULL);
 	return -ENOMEM;
