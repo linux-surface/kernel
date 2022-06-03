@@ -35537,6 +35537,57 @@ static noinline void check_root_expand(struct maple_tree *mt)
 	mas_unlock(&mas);
 }
 
+static noinline void check_null_expand(struct maple_tree *mt)
+{
+	unsigned long i, max = 100;
+	unsigned char data_end;
+	MA_STATE(mas, mt, 959, 959);
+
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+	/* Test expanding null at start. */
+	mas_walk(&mas);
+	data_end = mas_data_end(&mas);
+	mas_set_range(&mas, 959, 963);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	MT_BUG_ON(mt, mtree_load(mt, 963) != NULL);
+	MT_BUG_ON(mt, data_end != mas_data_end(&mas));
+
+	/* Test expanding null at end. */
+	mas_set(&mas, 880);
+	mas_walk(&mas);
+	data_end = mas_data_end(&mas);
+	mas_set_range(&mas, 884, 887);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	MT_BUG_ON(mt, mtree_load(mt, 884) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 889) != NULL);
+	MT_BUG_ON(mt, data_end != mas_data_end(&mas));
+
+	/* Test expanding null at start and end. */
+	mas_set(&mas, 890);
+	mas_walk(&mas);
+	data_end = mas_data_end(&mas);
+	mas_set_range(&mas, 900, 905);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	MT_BUG_ON(mt, mtree_load(mt, 899) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 900) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 905) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 906) != NULL);
+	MT_BUG_ON(mt, data_end - 2 != mas_data_end(&mas));
+
+	/* Test expanding null across multiple slots. */
+	mas_set(&mas, 800);
+	mas_walk(&mas);
+	data_end = mas_data_end(&mas);
+	mas_set_range(&mas, 810, 825);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	MT_BUG_ON(mt, mtree_load(mt, 809) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 810) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 825) != NULL);
+	MT_BUG_ON(mt, mtree_load(mt, 826) != NULL);
+	MT_BUG_ON(mt, data_end - 4 != mas_data_end(&mas));
+}
+
 static noinline void check_gap_combining(struct maple_tree *mt)
 {
 	struct maple_enode *mn1, *mn2;
@@ -37625,6 +37676,10 @@ static int maple_tree_seed(void)
 
 	mt_init_flags(&tree, 0);
 	check_new_node(&tree);
+	mtree_destroy(&tree);
+
+	mt_init_flags(&tree, MT_FLAGS_ALLOC_RANGE);
+	check_null_expand(&tree);
 	mtree_destroy(&tree);
 
 	mt_init_flags(&tree, 0);
