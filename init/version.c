@@ -11,6 +11,8 @@
 #include <linux/build-salt.h>
 #include <linux/elfnote-lto.h>
 #include <linux/export.h>
+#include <linux/init.h>
+#include <linux/printk.h>
 #include <linux/uts.h>
 #include <linux/utsname.h>
 #include <generated/utsrelease.h>
@@ -34,6 +36,21 @@ struct uts_namespace init_uts_ns = {
 #endif
 };
 EXPORT_SYMBOL_GPL(init_uts_ns);
+
+static int __init early_hostname(char *arg)
+{
+	size_t bufsize = sizeof(init_uts_ns.name.nodename);
+	size_t maxlen  = bufsize - 1;
+
+	strncpy(init_uts_ns.name.nodename, arg, bufsize);
+	if (strlen(arg) > maxlen) {
+		pr_warn("hostname parameter exceeds %zd characters and will be truncated",
+			maxlen);
+		init_uts_ns.name.nodename[maxlen] = '\0';
+	}
+	return 0;
+}
+early_param("hostname", early_hostname);
 
 /* FIXED STRINGS! Don't touch! */
 const char linux_banner[] =
