@@ -1496,6 +1496,7 @@ static int try_to_split_thp_page(struct page *page, const char *msg)
 	return 0;
 }
 
+#ifdef CONFIG_HUGETLB_PAGE
 /*
  * Called from hugetlb code with hugetlb_lock held.
  *
@@ -1544,7 +1545,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_HUGETLB_PAGE
 /*
  * Taking refcount of hugetlb pages needs extra care about race conditions
  * with basic operations like hugepage allocation/free/demotion.
