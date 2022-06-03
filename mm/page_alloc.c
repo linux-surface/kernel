@@ -3233,11 +3233,10 @@ static void __drain_all_pages(struct zone *zone, bool force_all_cpus)
 	}
 
 	for_each_cpu(cpu, &cpus_with_pcps) {
-		if (zone) {
+		if (zone)
 			drain_pages_zone(cpu, zone);
-		} else {
+		else
 			drain_pages(cpu);
-		}
 	}
 
 	mutex_unlock(&pcpu_drain_mutex);
