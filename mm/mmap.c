@@ -754,7 +754,7 @@ static void __vma_link_file(struct vm_area_struct *vma)
  *
  * Note: the end address is inclusive in the maple tree.
  */
-inline void vma_mas_store(struct vm_area_struct *vma, struct ma_state *mas)
+void vma_mas_store(struct vm_area_struct *vma, struct ma_state *mas)
 {
 	trace_vma_store(mas->tree, vma);
 	mas_set_range(mas, vma->vm_start, vma->vm_end - 1);
@@ -770,7 +770,7 @@ inline void vma_mas_store(struct vm_area_struct *vma, struct ma_state *mas)
  * been established and points to the correct location.
  * Note: the end address is inclusive in the maple tree.
  */
-static inline void vma_mas_remove(struct vm_area_struct *vma, struct ma_state *mas)
+void vma_mas_remove(struct vm_area_struct *vma, struct ma_state *mas)
 {
 	trace_vma_mas_szero(mas->tree, vma->vm_start, vma->vm_end - 1);
 	mas->index = vma->vm_start;
