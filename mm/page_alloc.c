@@ -133,6 +133,20 @@ static DEFINE_PER_CPU(struct pagesets, pagesets) = {
 	.lock = INIT_LOCAL_LOCK(lock),
 };
 
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_RT)
+/*
+ * On SMP, spin_trylock is sufficient protection.
+ * On PREEMPT_RT, spin_trylock is equivalent on both SMP and UP.
+ */
+#define pcp_trylock_prepare(flags)	do { } while (0)
+#define pcp_trylock_finish(flag)	do { } while (0)
+#else
+
+/* UP spin_trylock always succeeds so disable IRQs to prevent re-entrancy. */
+#define pcp_trylock_prepare(flags)	local_irq_save(flags)
+#define pcp_trylock_finish(flags)	local_irq_restore(flags)
+#endif
+
 #ifdef CONFIG_USE_PERCPU_NUMA_NODE_ID
 DEFINE_PER_CPU(int, numa_node);
 EXPORT_PER_CPU_SYMBOL(numa_node);
@@ -3097,15 +3111,22 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
  */
 void drain_zone_pages(struct zone *zone, struct per_cpu_pages *pcp)
 {
-	unsigned long flags;
 	int to_drain, batch;
 
-	local_lock_irqsave(&pagesets.lock, flags);
 	batch = READ_ONCE(pcp->batch);
 	to_drain = min(pcp->count, batch);
-	if (to_drain > 0)
+	if (to_drain > 0) {
+		unsigned long flags;
+
+		/*
+		 * free_pcppages_bulk expects IRQs disabled for zone->lock
+		 * so even though pcp->lock is not intended to be IRQ-safe,
+		 * it's needed in this context.
+		 */
+		spin_lock_irqsave(&pcp->lock, flags);
 		free_pcppages_bulk(zone, to_drain, pcp, 0);
-	local_unlock_irqrestore(&pagesets.lock, flags);
+		spin_unlock_irqrestore(&pcp->lock, flags);
+	}
 }
 #endif
 
@@ -3118,16 +3139,17 @@ void drain_zone_pages(struct zone *zone, struct per_cpu_pages *pcp)
  */
 static void drain_pages_zone(unsigned int cpu, struct zone *zone)
 {
-	unsigned long flags;
 	struct per_cpu_pages *pcp;
 
-	local_lock_irqsave(&pagesets.lock, flags);
-
 	pcp = per_cpu_ptr(zone->per_cpu_pageset, cpu);
-	if (pcp->count)
-		free_pcppages_bulk(zone, pcp->count, pcp, 0);
+	if (pcp->count) {
+		unsigned long flags;
 
-	local_unlock_irqrestore(&pagesets.lock, flags);
+		/* See drain_zone_pages on why this is disabling IRQs */
+		spin_lock_irqsave(&pcp->lock, flags);
+		free_pcppages_bulk(zone, pcp->count, pcp, 0);
+		spin_unlock_irqrestore(&pcp->lock, flags);
+	}
 }
 
 /*
@@ -3395,18 +3417,30 @@ static int nr_pcp_high(struct per_cpu_pages *pcp, struct zone *zone,
 	return min(READ_ONCE(pcp->batch) << 2, high);
 }
 
-static void free_unref_page_commit(struct page *page, int migratetype,
-				   unsigned int order)
+/* Returns true if the page was committed to the per-cpu list. */
+static bool free_unref_page_commit(struct page *page, int migratetype,
+				   unsigned int order, bool locked)
 {
 	struct zone *zone = page_zone(page);
 	struct per_cpu_pages *pcp;
 	int high;
 	int pindex;
 	bool free_high;
+	unsigned long __maybe_unused UP_flags;
 
 	__count_vm_event(PGFREE);
 	pcp = this_cpu_ptr(zone->per_cpu_pageset);
 	pindex = order_to_pindex(migratetype, order);
+
+	if (!locked) {
+		/* Protect against a parallel drain. */
+		pcp_trylock_prepare(UP_flags);
+		if (!spin_trylock(&pcp->lock)) {
+			pcp_trylock_finish(UP_flags);
+			return false;
+		}
+	}
+
 	list_add(&page->pcp_list, &pcp->lists[pindex]);
 	pcp->count += 1 << order;
 
@@ -3424,6 +3458,13 @@ static void free_unref_page_commit(struct page *page, int migratetype,
 
 		free_pcppages_bulk(zone, nr_pcp_free(pcp, high, batch, free_high), pcp, pindex);
 	}
+
+	if (!locked) {
+		spin_unlock(&pcp->lock);
+		pcp_trylock_finish(UP_flags);
+	}
+
+	return true;
 }
 
 /*
@@ -3434,6 +3475,7 @@ void free_unref_page(struct page *page, unsigned int order)
 	unsigned long flags;
 	unsigned long pfn = page_to_pfn(page);
 	int migratetype;
+	bool freed_pcp = false;
 
 	if (!free_unref_page_prepare(page, pfn, order))
 		return;
@@ -3455,8 +3497,11 @@ void free_unref_page(struct page *page, unsigned int order)
 	}
 
 	local_lock_irqsave(&pagesets.lock, flags);
-	free_unref_page_commit(page, migratetype, order);
+	freed_pcp = free_unref_page_commit(page, migratetype, order, false);
 	local_unlock_irqrestore(&pagesets.lock, flags);
+
+	if (unlikely(!freed_pcp))
+		free_one_page(page_zone(page), page, pfn, order, migratetype, FPI_NONE);
 }
 
 /*
@@ -3465,9 +3510,18 @@ void free_unref_page(struct page *page, unsigned int order)
 void free_unref_page_list(struct list_head *list)
 {
 	struct page *page, *next;
+	struct per_cpu_pages *pcp;
+	struct zone *locked_zone;
 	unsigned long flags;
 	int batch_count = 0;
 	int migratetype;
+
+	/*
+	 * An empty list is possible. Check early so that the later
+	 * lru_to_page() does not potentially read garbage.
+	 */
+	if (list_empty(list))
+		return;
 
 	/* Prepare pages for freeing */
 	list_for_each_entry_safe(page, next, list, lru) {
@@ -3489,8 +3543,33 @@ void free_unref_page_list(struct list_head *list)
 		}
 	}
 
+	/*
+	 * Preparation could have drained the list due to failing to prepare
+	 * or all pages are being isolated.
+	 */
+	if (list_empty(list))
+		return;
+
+	VM_BUG_ON(in_hardirq());
+
 	local_lock_irqsave(&pagesets.lock, flags);
+
+	page = lru_to_page(list);
+	locked_zone = page_zone(page);
+	pcp = this_cpu_ptr(locked_zone->per_cpu_pageset);
+	spin_lock(&pcp->lock);
+
 	list_for_each_entry_safe(page, next, list, lru) {
+		struct zone *zone = page_zone(page);
+
+		/* Different zone, different pcp lock. */
+		if (zone != locked_zone) {
+			spin_unlock(&pcp->lock);
+			locked_zone = zone;
+			pcp = this_cpu_ptr(zone->per_cpu_pageset);
+			spin_lock(&pcp->lock);
+		}
+
 		/*
 		 * Non-isolated types over MIGRATE_PCPTYPES get added
 		 * to the MIGRATE_MOVABLE pcp list.
@@ -3500,18 +3579,33 @@ void free_unref_page_list(struct list_head *list)
 			migratetype = MIGRATE_MOVABLE;
 
 		trace_mm_page_free_batched(page);
-		free_unref_page_commit(page, migratetype, 0);
+
+		/*
+		 * If there is a parallel drain in progress, free to the buddy
+		 * allocator directly. This is expensive as the zone lock will
+		 * be acquired multiple times but if a drain is in progress
+		 * then an expensive operation is already taking place.
+		 *
+		 * TODO: Always false at the moment due to local_lock_irqsave
+		 *       and is preparation for converting to local_lock.
+		 */
+		if (unlikely(!free_unref_page_commit(page, migratetype, 0, true)))
+			free_one_page(page_zone(page), page, page_to_pfn(page), 0, migratetype, FPI_NONE);
 
 		/*
 		 * Guard against excessive IRQ disabled times when we get
 		 * a large list of pages to free.
 		 */
 		if (++batch_count == SWAP_CLUSTER_MAX) {
+			spin_unlock(&pcp->lock);
 			local_unlock_irqrestore(&pagesets.lock, flags);
 			batch_count = 0;
 			local_lock_irqsave(&pagesets.lock, flags);
+			pcp = this_cpu_ptr(locked_zone->per_cpu_pageset);
+			spin_lock(&pcp->lock);
 		}
 	}
+	spin_unlock(&pcp->lock);
 	local_unlock_irqrestore(&pagesets.lock, flags);
 }
 
@@ -3680,9 +3774,28 @@ struct page *__rmqueue_pcplist(struct zone *zone, unsigned int order,
 			int migratetype,
 			unsigned int alloc_flags,
 			struct per_cpu_pages *pcp,
-			struct list_head *list)
+			struct list_head *list,
+			bool locked)
 {
 	struct page *page;
+	unsigned long __maybe_unused UP_flags;
+
+	/*
+	 * spin_trylock is not necessary right now due to due to
+	 * local_lock_irqsave and is a preparation step for
+	 * a conversion to local_lock using the trylock to prevent
+	 * IRQ re-entrancy. If pcp->lock cannot be acquired, the caller
+	 * uses rmqueue_buddy.
+	 *
+	 * TODO: Convert local_lock_irqsave to local_lock.
+	 */
+	if (unlikely(!locked)) {
+		pcp_trylock_prepare(UP_flags);
+		if (!spin_trylock(&pcp->lock)) {
+			pcp_trylock_finish(UP_flags);
+			return NULL;
+		}
+	}
 
 	do {
 		if (list_empty(list)) {
@@ -3703,14 +3816,22 @@ struct page *__rmqueue_pcplist(struct zone *zone, unsigned int order,
 					migratetype, alloc_flags);
 
 			pcp->count += alloced << order;
-			if (unlikely(list_empty(list)))
-				return NULL;
+			if (unlikely(list_empty(list))) {
+				page = NULL;
+				goto out;
+			}
 		}
 
 		page = list_first_entry(list, struct page, pcp_list);
 		list_del(&page->pcp_list);
 		pcp->count -= 1 << order;
 	} while (check_new_pcp(page, order));
+
+out:
+	if (!locked) {
+		spin_unlock(&pcp->lock);
+		pcp_trylock_finish(UP_flags);
+	}
 
 	return page;
 }
@@ -3736,7 +3857,7 @@ static struct page *rmqueue_pcplist(struct zone *preferred_zone,
 	pcp = this_cpu_ptr(zone->per_cpu_pageset);
 	pcp->free_factor >>= 1;
 	list = &pcp->lists[order_to_pindex(migratetype, order)];
-	page = __rmqueue_pcplist(zone, order, migratetype, alloc_flags, pcp, list);
+	page = __rmqueue_pcplist(zone, order, migratetype, alloc_flags, pcp, list, false);
 	local_unlock_irqrestore(&pagesets.lock, flags);
 	if (page) {
 		__count_zid_vm_events(PGALLOC, page_zonenum(page), 1);
@@ -3771,7 +3892,8 @@ struct page *rmqueue(struct zone *preferred_zone,
 				migratetype != MIGRATE_MOVABLE) {
 			page = rmqueue_pcplist(preferred_zone, zone, order,
 					gfp_flags, migratetype, alloc_flags);
-			goto out;
+			if (likely(page))
+				goto out;
 		}
 	}
 
@@ -5345,6 +5467,7 @@ unsigned long __alloc_pages_bulk(gfp_t gfp, int preferred_nid,
 	local_lock_irqsave(&pagesets.lock, flags);
 	pcp = this_cpu_ptr(zone->per_cpu_pageset);
 	pcp_list = &pcp->lists[order_to_pindex(ac.migratetype, 0)];
+	spin_lock(&pcp->lock);
 
 	while (nr_populated < nr_pages) {
 
@@ -5355,11 +5478,13 @@ unsigned long __alloc_pages_bulk(gfp_t gfp, int preferred_nid,
 		}
 
 		page = __rmqueue_pcplist(zone, 0, ac.migratetype, alloc_flags,
-								pcp, pcp_list);
+							pcp, pcp_list, true);
 		if (unlikely(!page)) {
 			/* Try and allocate at least one page */
-			if (!nr_account)
+			if (!nr_account) {
+				spin_unlock(&pcp->lock);
 				goto failed_irq;
+			}
 			break;
 		}
 		nr_account++;
@@ -5372,6 +5497,7 @@ unsigned long __alloc_pages_bulk(gfp_t gfp, int preferred_nid,
 		nr_populated++;
 	}
 
+	spin_unlock(&pcp->lock);
 	local_unlock_irqrestore(&pagesets.lock, flags);
 
 	__count_zid_vm_events(PGALLOC, zone_idx(zone), nr_account);
@@ -7021,6 +7147,7 @@ static void per_cpu_pages_init(struct per_cpu_pages *pcp, struct per_cpu_zonesta
 	memset(pcp, 0, sizeof(*pcp));
 	memset(pzstats, 0, sizeof(*pzstats));
 
+	spin_lock_init(&pcp->lock);
 	for (pindex = 0; pindex < NR_PCP_LISTS; pindex++)
 		INIT_LIST_HEAD(&pcp->lists[pindex]);
 
