@@ -1383,6 +1383,7 @@ static int __zram_bvec_write(struct zram *zram, struct bio_vec *bvec,
 
 	handle = zs_malloc(zram->mem_pool, comp_len,
 			__GFP_KSWAPD_RECLAIM |
+			__GFP_NOMEMALLOC |
 			__GFP_NOWARN |
 			__GFP_HIGHMEM |
 			__GFP_MOVABLE);
