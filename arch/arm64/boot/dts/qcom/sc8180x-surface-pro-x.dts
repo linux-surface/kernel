@@ -731,16 +731,30 @@
 
 
 // TODO:
-// - VReg for NVME (vreg_s8c_1p8)? Doesn't seem to be required?
-//   - Parts of doc only show 3.3 enabled via Silego or SAM.
+// - PCIe has some sleep mode via a dedicated GPIO for all devices/ports
 // - PCIe 1 and 2 work together? How do we express this here?
-// - PCIe 3 uses one lane for "MTE" (whatever that is...), describe it?
+//   - apparently two phys can work with one controller
+//   - support for this is WIP
+//   - right now we likely rely on the bootloader to configure the second phy
+//     for us, which is why it currently works with only one described here
 
 &pcie2 {
 	status = "okay";
+
+	num-lanes = <4>;
+
 	perst-gpio = <&tlmm 102 GPIO_ACTIVE_LOW>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie1_default_state>;
+
+	// phys = <&pcie2_lane &pcie1_lane>;
+	// phy-names = "pciephy";
+};
+
+&pcie1_phy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l5e_0p88>;
+	vdda-pll-supply = <&vreg_l3c_1p2>;
 };
 
 &pcie2_phy {
