@@ -1,0 +1,47 @@
+arm/soc
+
+arm/dt
+
+arm/drivers
+
+arm/defconfig
+
+arm/newsoc
+
+arm/late
+	hpe/gxp-soc
+		Merge branch 'hpe/gxp-soc' into arm/late
+	patch
+		ep93xx: clock: Do not return the address of the freed memory
+	<no branch> (46a65cd376f9f754149be33b32244cabcf376982)
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-soc-5.19-2
+	<no branch> (821cb05f6b4b024847624de0d0e5765c7b09b947)
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-dt-5.19-2
+	patch
+		ARM: configs: enable support for Kontron KSwitch D10
+		ARM: ep93xx: Make ts72xx_register_flash() static
+		soc: ixp4xx/qmgr: Fix unused match warning
+		ARM: dts: pxa: use new 'dma-channels/requests' properties
+		ARM: dts: da850: use new 'dma-channels' property
+		arm64: dts: sprd: use new 'dma-channels' property
+	<no branch> (9b59588d8be91c96bfb0371e912ceb4f16315dbf)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-drivers2
+	<no branch> (840fc447d78e3d4e4048c307ec8f6649d2abb9e7)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts32-2
+	<no branch> (cd414d5ac1fdeecf0617737e688a1af00858253a)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dts64-2
+	<no branch> (8dc7aa0a7246ad0f718d91d09b4d48460508627b)
+		git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc tags/aspeed-5.19-devicetree
+	<no branch> (22511e665eadc2c49021886d07aaef39db90ca82)
+		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_dts_updates_for_v5.19
+
+arm/fixes
+
+arm/multiplatform-late
+	omap1-multiplatform-5.18
+		Merge branch 'omap1-multiplatform-5.18' into arm/multiplatform-late
+	pxa-multiplatform-5.18
+		Merge branch 'pxa-multiplatform-5.18' into arm/multiplatform-late
+	patch
+		ARM: pxa/mmp: remove traces of plat-pxa
+
