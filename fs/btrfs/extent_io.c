@@ -179,11 +179,18 @@ static int add_extent_changeset(struct extent_state *state, u32 bits,
 	return ret;
 }
 
-static void __submit_one_bio(struct btrfs_bio_ctrl *bio_ctrl)
+static void submit_one_bio(struct btrfs_bio_ctrl *bio_ctrl)
 {
-	struct bio *bio = bio_ctrl->bio;
-	struct inode *inode = bio_first_page_all(bio)->mapping->host;
-	int mirror_num = bio_ctrl->mirror_num;
+	struct bio *bio;
+	struct inode *inode;
+	int mirror_num;
+
+	if (!bio_ctrl->bio)
+		return;
+
+	bio = bio_ctrl->bio;
+	inode = bio_first_page_all(bio)->mapping->host;
+	mirror_num = bio_ctrl->mirror_num;
 
 	/* Caller should ensure the bio has at least some range added */
 	ASSERT(bio->bi_iter.bi_size);
@@ -198,12 +205,6 @@ static void __submit_one_bio(struct btrfs_bio_ctrl *bio_ctrl)
 
 	/* The bio is owned by the bi_end_io handler now */
 	bio_ctrl->bio = NULL;
-}
-
-static void submit_one_bio(struct btrfs_bio_ctrl *bio_ctrl)
-{
-	if (bio_ctrl->bio)
-		__submit_one_bio(bio_ctrl);
 }
 
 /*
@@ -223,7 +224,7 @@ static void submit_write_bio(struct extent_page_data *epd, int ret)
 		/* The bio is owned by the bi_end_io handler now */
 		epd->bio_ctrl.bio = NULL;
 	} else {
-		__submit_one_bio(&epd->bio_ctrl);
+		submit_one_bio(&epd->bio_ctrl);
 	}
 }
 
