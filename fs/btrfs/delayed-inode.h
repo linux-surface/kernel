@@ -55,6 +55,13 @@ struct btrfs_delayed_node {
 	struct mutex mutex;
 	struct btrfs_inode_item inode_item;
 	refcount_t refs;
+	/*
+	 * The sum of the sizes of all index items we will be inserting for
+	 * this inode (if it represents a directory), including the size of
+	 * struct btrfs_item. 32 bits is enough, as we flush delayed items
+	 * way before reaching the 32 bits limit. Protected by @mutex.
+	 */
+	u32 index_items_size;
 	u64 index_cnt;
 	unsigned long flags;
 	int count;
