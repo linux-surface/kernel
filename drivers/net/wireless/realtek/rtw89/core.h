@@ -2550,9 +2550,24 @@ enum rtw89_sar_sources {
 	RTW89_SAR_SOURCE_NR,
 };
 
+enum rtw89_sar_subband {
+	RTW89_SAR_2GHZ_SUBBAND,
+	RTW89_SAR_5GHZ_SUBBAND_1_2, /* U-NII-1 and U-NII-2 */
+	RTW89_SAR_5GHZ_SUBBAND_2_E, /* U-NII-2-Extended */
+	RTW89_SAR_5GHZ_SUBBAND_3,   /* U-NII-3 */
+	RTW89_SAR_6GHZ_SUBBAND_5_L, /* U-NII-5 lower part */
+	RTW89_SAR_6GHZ_SUBBAND_5_H, /* U-NII-5 higher part */
+	RTW89_SAR_6GHZ_SUBBAND_6,   /* U-NII-6 */
+	RTW89_SAR_6GHZ_SUBBAND_7_L, /* U-NII-7 lower part */
+	RTW89_SAR_6GHZ_SUBBAND_7_H, /* U-NII-7 higher part */
+	RTW89_SAR_6GHZ_SUBBAND_8,   /* U-NII-8 */
+
+	RTW89_SAR_SUBBAND_NR,
+};
+
 struct rtw89_sar_cfg_common {
-	bool set[RTW89_SUBBAND_NR];
-	s32 cfg[RTW89_SUBBAND_NR];
+	bool set[RTW89_SAR_SUBBAND_NR];
+	s32 cfg[RTW89_SAR_SUBBAND_NR];
 };
 
 struct rtw89_sar_info {
@@ -2643,6 +2658,10 @@ struct rtw89_mcc_info {
 };
 
 struct rtw89_lck_info {
+	u8 thermal[RF_PATH_MAX];
+};
+
+struct rtw89_rx_dck_info {
 	u8 thermal[RF_PATH_MAX];
 };
 
@@ -3125,6 +3144,7 @@ struct rtw89_dev {
 	struct rtw89_dpk_info dpk;
 	struct rtw89_mcc_info mcc;
 	struct rtw89_lck_info lck;
+	struct rtw89_rx_dck_info rx_dck;
 	bool is_tssi_mode[RF_PATH_MAX];
 	bool is_bt_iqk_timeout;
 

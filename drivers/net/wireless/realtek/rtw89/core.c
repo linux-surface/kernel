@@ -1608,7 +1608,7 @@ static void rtw89_core_update_rx_status(struct rtw89_dev *rtwdev,
 
 	if (rtwdev->scanning &&
 	    RTW89_CHK_FW_FEATURE(SCAN_OFFLOAD, &rtwdev->fw)) {
-		u8 chan = hal->current_channel;
+		u8 chan = hal->current_primary_channel;
 		u8 band = hal->current_band_type;
 		enum nl80211_band nl_band;
 
@@ -2875,7 +2875,10 @@ void rtw89_core_scan_start(struct rtw89_dev *rtwdev, struct rtw89_vif *rtwvif,
 void rtw89_core_scan_complete(struct rtw89_dev *rtwdev,
 			      struct ieee80211_vif *vif, bool hw_scan)
 {
-	struct rtw89_vif *rtwvif = (struct rtw89_vif *)vif->drv_priv;
+	struct rtw89_vif *rtwvif = vif ? (struct rtw89_vif *)vif->drv_priv : NULL;
+
+	if (!rtwvif)
+		return;
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
 	rtw89_fw_h2c_cam(rtwdev, rtwvif, NULL, NULL);
