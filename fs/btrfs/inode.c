@@ -55,6 +55,7 @@
 #include "zoned.h"
 #include "subpage.h"
 #include "inode-item.h"
+#include "read-repair.h"
 
 struct btrfs_iget_args {
 	u64 ino;
@@ -2631,6 +2632,10 @@ void btrfs_submit_data_read_bio(struct inode *inode, struct bio *bio,
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	blk_status_t ret;
 
+	/* save the original iter for read repair */
+	if (bio_op(bio) == REQ_OP_READ)
+		btrfs_bio(bio)->iter = bio->bi_iter;
+
 	if (compress_type != BTRFS_COMPRESS_NONE) {
 		/*
 		 * btrfs_submit_compressed_read will handle completing the bio
@@ -3125,8 +3130,6 @@ static int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered_extent)
 		btrfs_zone_finish_endio(fs_info, ordered_extent->disk_bytenr,
 					ordered_extent->disk_num_bytes);
 	}
-
-	btrfs_free_io_failure_record(inode, start, end);
 
 	if (test_bit(BTRFS_ORDERED_TRUNCATED, &ordered_extent->flags)) {
 		truncated = true;
@@ -5336,8 +5339,6 @@ void btrfs_evict_inode(struct inode *inode)
 
 	if (is_bad_inode(inode))
 		goto no_delete;
-
-	btrfs_free_io_failure_record(BTRFS_I(inode), 0, (u64)-1);
 
 	if (test_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags))
 		goto no_delete;
@@ -7851,55 +7852,34 @@ static void btrfs_dio_private_put(struct btrfs_dio_private *dip)
 	bio_endio(&dip->bio);
 }
 
-static void submit_dio_repair_bio(struct inode *inode, struct bio *bio,
-				  int mirror_num,
-				  enum btrfs_compression_type compress_type)
-{
-	struct btrfs_dio_private *dip = bio->bi_private;
-	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
-
-	BUG_ON(bio_op(bio) == REQ_OP_WRITE);
-
-	refcount_inc(&dip->refs);
-	if (btrfs_map_bio(fs_info, bio, mirror_num))
-		refcount_dec(&dip->refs);
-}
-
 static blk_status_t btrfs_check_read_dio_bio(struct btrfs_dio_private *dip,
 					     struct btrfs_bio *bbio,
 					     const bool uptodate)
 {
 	struct inode *inode = dip->inode;
 	struct btrfs_fs_info *fs_info = BTRFS_I(inode)->root->fs_info;
-	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
-	struct extent_io_tree *io_tree = &BTRFS_I(inode)->io_tree;
 	const bool csum = !(BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM);
+	struct btrfs_read_repair rr = { };
 	blk_status_t err = BLK_STS_OK;
 	struct bvec_iter iter;
 	struct bio_vec bv;
 	u32 offset;
 
 	btrfs_bio_for_each_sector(fs_info, bv, bbio, iter, offset) {
-		u64 start = bbio->file_offset + offset;
-
 		if (uptodate &&
 		    (!csum || !check_data_csum(inode, bbio, offset, bv.bv_page,
-					       bv.bv_offset, start))) {
-			clean_io_failure(fs_info, failure_tree, io_tree, start,
-					 bv.bv_page, btrfs_ino(BTRFS_I(inode)),
-					 bv.bv_offset);
+				bv.bv_offset, bbio->file_offset + offset))) {
+			if (!btrfs_read_repair_finish(&rr, bbio, inode, offset,
+					NULL))
+				err = BLK_STS_IOERR;
 		} else {
-			int ret;
-
-			ret = btrfs_repair_one_sector(inode, &bbio->bio, offset,
-					bv.bv_page, bv.bv_offset, start,
-					bbio->mirror_num,
-					submit_dio_repair_bio);
-			if (ret)
-				err = errno_to_blk_status(ret);
+			if (!btrfs_read_repair_add(&rr, bbio, inode, offset))
+				err = BLK_STS_IOERR;
 		}
 	}
 
+	if (!btrfs_read_repair_finish(&rr, bbio, inode, offset, NULL))
+		err = BLK_STS_IOERR;
 	return err;
 }
 
@@ -7949,6 +7929,10 @@ static inline blk_status_t btrfs_submit_dio_bio(struct bio *bio,
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_dio_private *dip = bio->bi_private;
 	blk_status_t ret;
+
+	/* save the original iter for read repair */
+	if (btrfs_op(bio) == BTRFS_MAP_READ)
+		btrfs_bio(bio)->iter = bio->bi_iter;
 
 	if (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM)
 		goto map;
@@ -8831,12 +8815,9 @@ struct inode *btrfs_alloc_inode(struct super_block *sb)
 	inode = &ei->vfs_inode;
 	extent_map_tree_init(&ei->extent_tree);
 	extent_io_tree_init(fs_info, &ei->io_tree, IO_TREE_INODE_IO, inode);
-	extent_io_tree_init(fs_info, &ei->io_failure_tree,
-			    IO_TREE_INODE_IO_FAILURE, inode);
 	extent_io_tree_init(fs_info, &ei->file_extent_tree,
 			    IO_TREE_INODE_FILE_EXTENT, inode);
 	ei->io_tree.track_uptodate = true;
-	ei->io_failure_tree.track_uptodate = true;
 	atomic_set(&ei->sync_writers, 0);
 	mutex_init(&ei->log_mutex);
 	btrfs_ordered_inode_tree_init(&ei->ordered_tree);

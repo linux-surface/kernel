@@ -49,6 +49,7 @@
 #include "discard.h"
 #include "qgroup.h"
 #include "raid56.h"
+#include "read-repair.h"
 #define CREATE_TRACE_POINTS
 #include <trace/events/btrfs.h>
 
@@ -2671,10 +2672,12 @@ static int __init init_btrfs_fs(void)
 	err = extent_io_init();
 	if (err)
 		goto free_cachep;
-
-	err = extent_state_cache_init();
+	err = btrfs_read_repair_init();
 	if (err)
 		goto free_extent_io;
+	err = extent_state_cache_init();
+	if (err)
+		goto free_read_repair;
 
 	err = extent_map_init();
 	if (err)
@@ -2732,6 +2735,8 @@ free_extent_map:
 	extent_map_exit();
 free_extent_state_cache:
 	extent_state_cache_exit();
+free_read_repair:
+	btrfs_read_repair_exit();
 free_extent_io:
 	extent_io_exit();
 free_cachep:

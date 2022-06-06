@@ -6797,6 +6797,103 @@ out_dec:
 	return errno_to_blk_status(ret);
 }
 
+static void btrfs_bio_end_io_sync(struct bio *bio)
+{
+	complete(bio->bi_private);
+}
+
+/*
+ * This bypasses the standard btrfs submit functions deliberately, as the
+ * standard behavior is to write all copies in a raid setup. Here we only want
+ * to write the one bad copy.  Sso do the mapping ourselves and submit directly
+ * and synchronously.
+ */
+int btrfs_map_repair_bio(struct btrfs_fs_info *fs_info, struct bio *bio,
+		int mirror_num)
+{
+	enum btrfs_map_op op = btrfs_op(bio);
+	u64 logical = bio->bi_iter.bi_sector << 9;
+	u64 map_length = bio->bi_iter.bi_size;
+	bool is_raid56 = btrfs_is_parity_mirror(fs_info, logical, map_length);
+	struct btrfs_io_context *bioc = NULL;
+	unsigned int stripe_idx = 0;
+	struct btrfs_device *dev;
+	u64 sector;
+	int ret;
+
+	ASSERT(mirror_num);
+
+	/*
+	 * Avoid races with device replace and make sure our bioc has devices
+	 * associated to its stripes that don't go away while we are doing the
+	 * read repair operation.
+	 */
+	btrfs_bio_counter_inc_blocked(fs_info);
+	if (is_raid56) {
+		if (op == BTRFS_MAP_READ) {
+			DECLARE_COMPLETION_ONSTACK(done);
+
+			ret = __btrfs_map_block(fs_info, op, logical,
+					&map_length, &bioc, mirror_num, 1);
+			if (ret)
+				goto out_counter_dec;
+
+			bio->bi_private = &done;
+			bio->bi_end_io = btrfs_bio_end_io_sync;
+			ret = raid56_parity_recover(bio, bioc,
+					map_length, mirror_num, 1);
+			wait_for_completion_io(&done);
+			goto out_bio_status;
+		}
+
+		/*
+		 * Note that we don't use BTRFS_MAP_WRITE because it's supposed
+		 * to update all raid stripes, but here we just want to correct
+		 * bad stripe, thus BTRFS_MAP_READ is abused to only get the bad
+		 * stripe's dev and sector.
+		 */
+		ret = btrfs_map_block(fs_info, BTRFS_MAP_READ, logical,
+				&map_length, &bioc, 0);
+		if (ret)
+			goto out_counter_dec;
+		ASSERT(bioc->mirror_num == 1);
+	} else {
+		ret = btrfs_map_block(fs_info, op, logical, &map_length, &bioc,
+				mirror_num);
+		if (ret)
+			goto out_counter_dec;
+
+		if (op == BTRFS_MAP_WRITE) {
+			ASSERT(mirror_num == bioc->mirror_num);
+			stripe_idx = bioc->mirror_num - 1;
+		}
+	}
+
+	sector = bioc->stripes[stripe_idx].physical >> 9;
+	dev = bioc->stripes[stripe_idx].dev;
+	btrfs_put_bioc(bioc);
+
+	if (!dev || !dev->bdev ||
+	    (op == BTRFS_MAP_WRITE &&
+	     !test_bit(BTRFS_DEV_STATE_WRITEABLE, &dev->dev_state))) {
+		ret = -EIO;
+		goto out_counter_dec;
+	}
+
+	bio_set_dev(bio, dev->bdev);
+	bio->bi_iter.bi_sector = sector;
+
+	btrfsic_check_bio(bio);
+	submit_bio_wait(bio);
+out_bio_status:
+	ret = blk_status_to_errno(bio->bi_status);
+	if (ret && op == BTRFS_MAP_WRITE)
+		btrfs_dev_stat_inc_and_print(dev, BTRFS_DEV_STAT_WRITE_ERRS);
+out_counter_dec:
+	btrfs_bio_counter_dec(fs_info);
+	return ret;
+}
+
 static bool dev_args_match_fs_devices(const struct btrfs_dev_lookup_args *args,
 				      const struct btrfs_fs_devices *fs_devices)
 {
