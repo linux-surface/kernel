@@ -1,0 +1,2926 @@
+$ date -R
+Tue, 07 Jun 2022 09:24:49 +1000
+$ git checkout master
+Already on 'master'
+$ git reset --hard stable
+HEAD is now at f2906aa86338 Linux 5.19-rc1
+Merging origin/master (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git origin/master
+Already up to date.
+Merging fixes/fixes (d06c942efea4 Merge tag 'for_linus' of git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/sfr/next-fixes.git fixes/fixes
+Already up to date.
+Merging mm-hotfixes/mm-hotfixes-unstable (7bb127ee833a mm: lru_cache_disable: use synchronize_rcu_expedited)
+$ git merge -m Merge branch 'mm-hotfixes-unstable' of git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm mm-hotfixes/mm-hotfixes-unstable
+Merge made by the 'ort' strategy.
+ mm/page_isolation.c | 2 ++
+ mm/swap.c           | 2 +-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+Merging kbuild-current/fixes (44688ffd111a Merge tag 'objtool-urgent-2022-06-05' of git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-kbuild.git kbuild-current/fixes
+Already up to date.
+Merging arc-current/for-curr (f978e8023f33 ARC: bitops: Change __fls to return unsigned long)
+$ git merge -m Merge branch 'for-curr' of git://git.kernel.org/pub/scm/linux/kernel/git/vgupta/arc.git arc-current/for-curr
+Merge made by the 'ort' strategy.
+ arch/arc/include/asm/bitops.h | 4 ++--
+ arch/arc/kernel/smp.c         | 2 +-
+ arch/arc/mm/cache.c           | 4 ++--
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+Merging arm-current/fixes (3cfb30199796 ARM: 9197/1: spectre-bhb: fix loop8 sequence for Thumb2)
+$ git merge -m Merge branch 'fixes' of git://git.armlinux.org.uk/~rmk/linux-arm.git arm-current/fixes
+Already up to date.
+Merging arm64-fixes/for-next/fixes (1d0cb4c8864a arm64: mte: Ensure the cleared tags are visible before setting the PTE)
+$ git merge -m Merge branch 'for-next/fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/arm64/linux arm64-fixes/for-next/fixes
+Already up to date.
+Merging arm-soc-fixes/arm/fixes (609a097f5f06 Merge tag 'v5.18-rockchip-dtsfixes1' of git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip into arm/fixes)
+$ git merge -m Merge branch 'arm/fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc.git arm-soc-fixes/arm/fixes
+Already up to date.
+Merging drivers-memory-fixes/fixes (1332661e0930 memory: samsung: exynos5422-dmc: Fix refcount leak in of_get_dram_timings)
+$ git merge -m Merge branch 'fixes' of https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl.git drivers-memory-fixes/fixes
+Merge made by the 'ort' strategy.
+ drivers/memory/Kconfig                  |  1 +
+ drivers/memory/mtk-smi.c                |  5 ++++-
+ drivers/memory/samsung/exynos5422-dmc.c | 29 ++++++++++++++++++-----------
+ 3 files changed, 23 insertions(+), 12 deletions(-)
+Merging tee-fixes/fixes (98268f2a2a9f Merge branch 'optee_ffa_probe_fix_for_v5.18' into fixes)
+$ git merge -m Merge branch 'fixes' of https://git.linaro.org/people/jens.wiklander/linux-tee.git tee-fixes/fixes
+Merge made by the 'ort' strategy.
+Merging m68k-current/for-linus (30b5e6ef4a32 m68k: atari: Make Atari ROM port I/O write macros return void)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/geert/linux-m68k.git m68k-current/for-linus
+Already up to date.
+Merging powerpc-fixes/fixes (3e8635fb2e07 powerpc/kasan: Force thread size increase with KASAN)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/powerpc/linux.git powerpc-fixes/fixes
+Auto-merging arch/powerpc/Kconfig
+Auto-merging arch/powerpc/kernel/process.c
+Merge made by the 'ort' strategy.
+ arch/powerpc/Kconfig                      |  2 --
+ arch/powerpc/include/asm/thread_info.h    | 10 ++++++++--
+ arch/powerpc/kernel/Makefile              |  2 ++
+ arch/powerpc/kernel/process.c             |  4 ++--
+ arch/powerpc/kernel/rtas.c                |  4 ++--
+ arch/powerpc/kexec/crash.c                |  2 +-
+ arch/powerpc/platforms/powernv/Makefile   |  1 +
+ arch/powerpc/platforms/pseries/papr_scm.c |  3 +++
+ 8 files changed, 19 insertions(+), 9 deletions(-)
+Merging s390-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/s390/linux.git s390-fixes/fixes
+Already up to date.
+Merging sparc/master (05a59d79793d Merge git://git.kernel.org:/pub/scm/linux/kernel/git/netdev/net)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/davem/sparc.git sparc/master
+Already up to date.
+Merging fscrypt-current/for-stable (80f6e3080bfc fs-verity: fix signed integer overflow with i_size near S64_MAX)
+$ git merge -m Merge branch 'for-stable' of git://git.kernel.org/pub/scm/fs/fscrypt/fscrypt.git fscrypt-current/for-stable
+Already up to date.
+Merging net/master (b8d91399775c net: ethernet: bgmac: Fix refcount leak in bcma_mdio_mii_register)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git net/master
+Merge made by the 'ort' strategy.
+ drivers/net/amt.c                               | 59 +++++++++++++++++--------
+ drivers/net/ethernet/broadcom/bgmac-bcma-mdio.c |  1 +
+ drivers/net/phy/dp83867.c                       | 29 ++++++++++++
+ 3 files changed, 70 insertions(+), 19 deletions(-)
+Merging bpf/master (d08af2c46881 bpf: Use safer kvmalloc_array() where possible)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf.git bpf/master
+Merge made by the 'ort' strategy.
+ arch/arm64/net/bpf_jit_comp.c | 1 +
+ kernel/trace/bpf_trace.c      | 8 ++++----
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+Merging ipsec/master (f85daf0e7253 xfrm: xfrm_policy: fix a possible double xfrm_pols_put() in xfrm_bundle_lookup())
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/klassert/ipsec.git ipsec/master
+Merge made by the 'ort' strategy.
+ net/xfrm/xfrm_policy.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+Merging netfilter/master (7fb0269720d7 Merge tag 'for-net-2022-05-23' of git://git.kernel.org/pub/scm/linux/kernel/git/bluetooth/bluetooth)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/pablo/nf.git netfilter/master
+Already up to date.
+Merging ipvs/master (05ae2fba821c netfilter: nft_socket: make cgroup match work in input too)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/horms/ipvs.git ipvs/master
+Already up to date.
+Merging wireless/for-next (58f9d52ff689 Merge tag 'net-5.19-rc1' of git://git.kernel.org/pub/scm/linux/kernel/git/netdev/net)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/wireless/wireless.git wireless/for-next
+Already up to date.
+Merging rdma-fixes/for-rc (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-rc' of git://git.kernel.org/pub/scm/linux/kernel/git/rdma/rdma.git rdma-fixes/for-rc
+Already up to date.
+Merging sound-current/for-linus (e0469d6581ae ALSA: usb-audio: Set up (implicit) sync for Saffire 6)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git sound-current/for-linus
+Merge made by the 'ort' strategy.
+ sound/pci/hda/patch_realtek.c | 1 +
+ sound/usb/pcm.c               | 5 ++++-
+ sound/usb/quirks-table.h      | 7 ++++++-
+ 3 files changed, 11 insertions(+), 2 deletions(-)
+Merging sound-asoc-fixes/for-linus (60ce5fb1ddda Merge remote-tracking branch 'asoc/for-5.18' into asoc-linus)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/sound.git sound-asoc-fixes/for-linus
+Merge made by the 'ort' strategy.
+ sound/soc/codecs/cs35l36.c                 |  3 ++-
+ sound/soc/codecs/cs42l51.c                 |  2 +-
+ sound/soc/codecs/cs42l52.c                 |  8 +++---
+ sound/soc/codecs/cs42l56.c                 |  4 +--
+ sound/soc/codecs/cs53l30.c                 | 16 ++++++------
+ sound/soc/codecs/nau8822.c                 |  4 +++
+ sound/soc/codecs/nau8822.h                 |  3 +++
+ sound/soc/codecs/tlv320adc3xxx.c           |  3 +++
+ sound/soc/fsl/fsl_micfil.c                 | 19 ++++++++++++++
+ sound/soc/intel/boards/sof_cirrus_common.c | 40 +++++++++++++++++++++++++++---
+ sound/soc/qcom/lpass-platform.c            |  2 +-
+ sound/soc/soc-ops.c                        |  8 +++++-
+ 12 files changed, 91 insertions(+), 21 deletions(-)
+Merging regmap-fixes/for-linus (cc993887f347 Merge remote-tracking branch 'regmap/for-5.18' into regmap-linus)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/regmap.git regmap-fixes/for-linus
+Merge made by the 'ort' strategy.
+Merging regulator-fixes/for-linus (3369ae668356 Merge remote-tracking branch 'regulator/for-5.18' into regulator-linus)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/regulator.git regulator-fixes/for-linus
+Auto-merging Documentation/devicetree/bindings/regulator/mt6315-regulator.yaml
+Auto-merging drivers/regulator/core.c
+Merge made by the 'ort' strategy.
+Merging spi-fixes/for-linus (6aa27071e435 spi: dt-bindings: Fix unevaluatedProperties warnings in examples)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/spi.git spi-fixes/for-linus
+Merge made by the 'ort' strategy.
+ .../bindings/spi/microchip,mpfs-spi.yaml           |  1 -
+ .../bindings/spi/qcom,spi-geni-qcom.yaml           |  1 -
+ drivers/spi/spi-cadence.c                          | 37 ++++++++++++++++++----
+ drivers/spi/spi-mem.c                              |  2 +-
+ 4 files changed, 32 insertions(+), 9 deletions(-)
+Merging pci-current/for-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/helgaas/pci.git pci-current/for-linus
+Already up to date.
+Merging driver-core.current/driver-core-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'driver-core-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/driver-core.git driver-core.current/driver-core-linus
+Already up to date.
+Merging tty.current/tty-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'tty-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/tty.git tty.current/tty-linus
+Already up to date.
+Merging usb.current/usb-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'usb-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git usb.current/usb-linus
+Already up to date.
+Merging usb-gadget-fixes/fixes (e49d033bddf5 Linux 5.12-rc6)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/balbi/usb.git usb-gadget-fixes/fixes
+Already up to date.
+Merging usb-serial-fixes/usb-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'usb-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/johan/usb-serial.git usb-serial-fixes/usb-linus
+Already up to date.
+Merging phy/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/phy/linux-phy.git phy/fixes
+Already up to date.
+Merging staging.current/staging-linus (96f0a54e8e65 staging: r8188eu: Fix warning of array overflow in ioctl_linux.c)
+$ git merge -m Merge branch 'staging-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/staging.git staging.current/staging-linus
+Merge made by the 'ort' strategy.
+ drivers/staging/r8188eu/core/rtw_xmit.c      | 20 +++++---------------
+ drivers/staging/r8188eu/os_dep/ioctl_linux.c |  2 +-
+ 2 files changed, 6 insertions(+), 16 deletions(-)
+Merging iio-fixes/fixes-togreg (dee61a0ffff5 iio: adc: vf610: fix conversion mode sysfs node name)
+$ git merge -m Merge branch 'fixes-togreg' of git://git.kernel.org/pub/scm/linux/kernel/git/jic23/iio.git iio-fixes/fixes-togreg
+Auto-merging drivers/iio/accel/mma8452.c
+Auto-merging drivers/iio/afe/iio-rescale.c
+Auto-merging drivers/iio/gyro/mpu3050-core.c
+Auto-merging drivers/iio/trigger/iio-trig-sysfs.c
+Merge made by the 'ort' strategy.
+ Documentation/ABI/testing/sysfs-bus-iio-vf610 |  2 +-
+ drivers/iio/accel/bma180.c                    |  3 ++-
+ drivers/iio/accel/kxcjk-1013.c                |  4 ++--
+ drivers/iio/accel/mma8452.c                   | 12 +++++++-----
+ drivers/iio/accel/mxc4005.c                   |  4 ++--
+ drivers/iio/adc/adi-axi-adc.c                 |  3 +++
+ drivers/iio/adc/aspeed_adc.c                  |  1 +
+ drivers/iio/adc/axp288_adc.c                  |  8 ++++++++
+ drivers/iio/adc/rzg2l_adc.c                   |  8 ++++++--
+ drivers/iio/adc/stm32-adc-core.c              |  9 +++++++--
+ drivers/iio/adc/stm32-adc.c                   | 10 ----------
+ drivers/iio/adc/ti-ads131e08.c                | 10 +++++++---
+ drivers/iio/adc/xilinx-ams.c                  |  2 +-
+ drivers/iio/afe/iio-rescale.c                 |  2 +-
+ drivers/iio/chemical/ccs811.c                 |  4 ++--
+ drivers/iio/frequency/admv1014.c              |  6 ++++--
+ drivers/iio/gyro/mpu3050-core.c               |  1 +
+ drivers/iio/humidity/hts221_buffer.c          |  5 ++++-
+ drivers/iio/magnetometer/yamaha-yas530.c      |  2 +-
+ drivers/iio/test/Kconfig                      |  2 +-
+ drivers/iio/test/Makefile                     |  2 +-
+ drivers/iio/trigger/iio-trig-sysfs.c          |  1 +
+ 22 files changed, 63 insertions(+), 38 deletions(-)
+Merging counter-fixes/fixes-togreg (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes-togreg' of https://gitlab.com/vilhelmgray/counter.git counter-fixes/fixes-togreg
+Already up to date.
+Merging char-misc.current/char-misc-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'char-misc-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/char-misc.git char-misc.current/char-misc-linus
+Already up to date.
+Merging soundwire-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/vkoul/soundwire.git soundwire-fixes/fixes
+Already up to date.
+Merging thunderbolt-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/westeri/thunderbolt.git thunderbolt-fixes/fixes
+Already up to date.
+Merging input-current/for-linus (5f92df8ddacb Input: raspberrypi-ts - add missing HAS_IOMEM dependency)
+$ git merge -m Merge branch 'for-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/dtor/input.git input-current/for-linus
+Merge made by the 'ort' strategy.
+ drivers/input/joystick/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+Merging crypto-current/master (e4e62bbc6aba hwrng: omap3-rom - fix using wrong clk_disable() in omap_rom_rng_runtime_resume())
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/herbert/crypto-2.6.git crypto-current/master
+Already up to date.
+Merging vfio-fixes/for-linus (1ef3342a934e vfio/pci: Fix vf_token mechanism when device-specific VF drivers are used)
+$ git merge -m Merge branch 'for-linus' of git://github.com/awilliam/linux-vfio.git vfio-fixes/for-linus
+Already up to date.
+Merging kselftest-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux-kselftest.git kselftest-fixes/fixes
+Already up to date.
+Merging modules-fixes/modules-linus (7390b94a3c2d module: merge check_exported_symbol() into find_exported_symbol_in_section())
+$ git merge -m Merge branch 'modules-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/mcgrof/linux.git modules-fixes/modules-linus
+Already up to date.
+Merging dmaengine-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/vkoul/dmaengine.git dmaengine-fixes/fixes
+Already up to date.
+Merging backlight-fixes/for-backlight-fixes (a38fd8748464 Linux 5.12-rc2)
+$ git merge -m Merge branch 'for-backlight-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/lee/backlight.git backlight-fixes/for-backlight-fixes
+Already up to date.
+Merging mtd-fixes/mtd/fixes (ba7542eb2dd5 mtd: rawnand: qcom: fix memory corruption that causes panic)
+$ git merge -m Merge branch 'mtd/fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/mtd/linux.git mtd-fixes/mtd/fixes
+Already up to date.
+Merging mfd-fixes/for-mfd-fixes (a61f4661fba4 mfd: intel_quark_i2c_gpio: Revert "Constify static struct resources")
+$ git merge -m Merge branch 'for-mfd-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/lee/mfd.git mfd-fixes/for-mfd-fixes
+Already up to date.
+Merging v4l-dvb-fixes/fixes (d4cb77112c7b media: isl7998x: select V4L2_FWNODE to fix build error)
+$ git merge -m Merge branch 'fixes' of git://linuxtv.org/mchehab/media-next.git v4l-dvb-fixes/fixes
+Auto-merging drivers/media/i2c/Kconfig
+Merge made by the 'ort' strategy.
+ drivers/media/i2c/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+Merging reset-fixes/reset/fixes (03cb66463b55 dt-bindings: reset: Add parent "resets" property as optional)
+$ git merge -m Merge branch 'reset/fixes' of https://git.pengutronix.de/git/pza/linux reset-fixes/reset/fixes
+Already up to date.
+Merging mips-fixes/mips-fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'mips-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/mips/linux.git mips-fixes/mips-fixes
+Already up to date.
+Merging at91-fixes/at91-fixes (0c640d9544d0 ARM: dts: at91: fix pinctrl phandles)
+$ git merge -m Merge branch 'at91-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux.git at91-fixes/at91-fixes
+Already up to date.
+Merging omap-fixes/fixes (46ff3df87215 ARM: dts: logicpd-som-lv: Fix wrong pinmuxing on OMAP35)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap.git omap-fixes/fixes
+Already up to date.
+Merging kvm-fixes/master (17718410388f KVM: Don't null dereference ops->destroy)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/virt/kvm/kvm.git kvm-fixes/master
+Auto-merging virt/kvm/kvm_main.c
+Merge made by the 'ort' strategy.
+ virt/kvm/kvm_main.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+Merging kvms390-fixes/master (242c04f01377 KVM: s390: selftests: Use TAP interface in the reset test)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/kvms390/linux.git kvms390-fixes/master
+Auto-merging arch/x86/kvm/vmx/vmx.c
+Auto-merging arch/x86/kvm/x86.c
+Auto-merging virt/kvm/kvm_main.c
+Merge made by the 'ort' strategy.
+ arch/x86/kvm/vmx/vmx.c                             |   8 +-
+ arch/x86/kvm/x86.c                                 |   7 +-
+ include/linux/kvm_types.h                          |   2 +
+ tools/testing/selftests/kvm/s390x/memop.c          |  95 +++++++--
+ tools/testing/selftests/kvm/s390x/resets.c         |  38 +++-
+ tools/testing/selftests/kvm/s390x/sync_regs_test.c |  87 ++++++--
+ tools/testing/selftests/kvm/s390x/tprot.c          |  29 ++-
+ virt/kvm/kvm_main.c                                |   9 +
+ virt/kvm/pfncache.c                                | 231 +++++++++++++--------
+ 9 files changed, 368 insertions(+), 138 deletions(-)
+Merging hwmon-fixes/hwmon (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'hwmon' of git://git.kernel.org/pub/scm/linux/kernel/git/groeck/linux-staging.git hwmon-fixes/hwmon
+Already up to date.
+Merging nvdimm-fixes/libnvdimm-fixes (d28820419ca3 cxl/pci: Drop shadowed variable)
+$ git merge -m Merge branch 'libnvdimm-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/nvdimm/nvdimm.git nvdimm-fixes/libnvdimm-fixes
+Already up to date.
+Merging cxl-fixes/fixes (fae8817ae804 cxl/mem: Fix memory device capacity probing)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/cxl/cxl.git cxl-fixes/fixes
+Already up to date.
+Merging btrfs-fixes/next-fixes (5f414c4e30de Merge branch 'misc-5.19' into next-fixes)
+$ git merge -m Merge branch 'next-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/kdave/linux.git btrfs-fixes/next-fixes
+Auto-merging fs/btrfs/disk-io.c
+Merge made by the 'ort' strategy.
+ fs/btrfs/disk-io.c | 13 +++++++++++--
+ fs/btrfs/super.c   | 47 ++++++++++++++++++++++++++++++++++++++++-------
+ 2 files changed, 51 insertions(+), 9 deletions(-)
+Merging vfs-fixes/fixes (fb4554c2232e Fix double fget() in vhost_net_set_backend())
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/viro/vfs.git vfs-fixes/fixes
+Already up to date.
+Merging dma-mapping-fixes/for-linus (18a3c5f7abfd Merge tag 'for_linus' of git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost)
+$ git merge -m Merge branch 'for-linus' of git://git.infradead.org/users/hch/dma-mapping.git dma-mapping-fixes/for-linus
+Already up to date.
+Merging i3c-fixes/i3c/fixes (fe07bfda2fb9 Linux 5.12-rc1)
+$ git merge -m Merge branch 'i3c/fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/i3c/linux.git i3c-fixes/i3c/fixes
+Already up to date.
+Merging drivers-x86-fixes/fixes (44acfc22c7d0 platform/surface: aggregator: Fix initialization order when compiling as builtin module)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git drivers-x86-fixes/fixes
+Already up to date.
+Merging samsung-krzk-fixes/fixes (c4c79525042a ARM: exynos: Fix refcount leak in exynos_map_pmu)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux.git samsung-krzk-fixes/fixes
+Merge made by the 'ort' strategy.
+ arch/arm/mach-exynos/exynos.c              |  1 +
+ arch/arm64/boot/dts/exynos/exynos7885.dtsi | 12 ++++++------
+ 2 files changed, 7 insertions(+), 6 deletions(-)
+Merging pinctrl-samsung-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/pinctrl/samsung.git pinctrl-samsung-fixes/fixes
+Already up to date.
+Merging devicetree-fixes/dt/linus (a2d2bfc9d565 MAINTAINERS: rectify entries for ARM DRM DRIVERS after dt conversion)
+$ git merge -m Merge branch 'dt/linus' of git://git.kernel.org/pub/scm/linux/kernel/git/robh/linux.git devicetree-fixes/dt/linus
+Merge made by the 'ort' strategy.
+ Documentation/ABI/testing/sysfs-driver-bd9571mwv-regulator   |  2 +-
+ Documentation/devicetree/bindings/clock/idt,versaclock5.yaml |  2 +-
+ .../devicetree/bindings/cpufreq/brcm,stb-avs-cpu-freq.txt    |  2 +-
+ .../devicetree/bindings/display/msm/dpu-sc7180.yaml          |  2 +-
+ .../devicetree/bindings/display/msm/dpu-sc7280.yaml          |  2 +-
+ .../devicetree/bindings/display/msm/dpu-sdm845.yaml          |  2 +-
+ .../devicetree/bindings/display/msm/dsi-controller-main.yaml |  2 +-
+ .../devicetree/bindings/display/msm/dsi-phy-10nm.yaml        |  2 +-
+ .../devicetree/bindings/display/msm/dsi-phy-14nm.yaml        |  2 +-
+ .../devicetree/bindings/display/msm/dsi-phy-20nm.yaml        |  2 +-
+ .../devicetree/bindings/display/msm/dsi-phy-28nm.yaml        |  2 +-
+ .../devicetree/bindings/display/msm/dsi-phy-common.yaml      |  2 +-
+ Documentation/devicetree/bindings/hwmon/vexpress.txt         |  2 +-
+ Documentation/devicetree/bindings/mfd/maxim,max77714.yaml    |  2 +-
+ Documentation/devicetree/bindings/phy/phy-stih407-usb.txt    |  2 +-
+ .../devicetree/bindings/phy/qcom,qmp-usb3-dp-phy.yaml        |  2 +-
+ Documentation/devicetree/bindings/phy/qcom,qusb2-phy.yaml    |  2 +-
+ .../devicetree/bindings/phy/qcom,usb-snps-femto-v2.yaml      |  2 +-
+ Documentation/devicetree/bindings/pinctrl/pinctrl-rk805.txt  |  2 +-
+ .../devicetree/bindings/power/supply/maxim,max77976.yaml     |  2 +-
+ .../bindings/regulator/qcom,usb-vbus-regulator.yaml          |  2 +-
+ Documentation/devicetree/bindings/regulator/vexpress.txt     |  2 +-
+ Documentation/devicetree/bindings/usb/dwc3-st.txt            |  2 +-
+ Documentation/devicetree/bindings/usb/ehci-st.txt            |  2 +-
+ Documentation/devicetree/bindings/usb/ohci-st.txt            |  2 +-
+ Documentation/devicetree/bindings/usb/qcom,dwc3.yaml         |  2 +-
+ Documentation/devicetree/bindings/vendor-prefixes.yaml       |  3 +++
+ MAINTAINERS                                                  | 12 ++++++------
+ 28 files changed, 35 insertions(+), 32 deletions(-)
+Merging scsi-fixes/fixes (d5d92b644084 scsi: ufs: core: Fix referencing invalid rsp field)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git scsi-fixes/fixes
+Already up to date.
+Merging drm-fixes/drm-fixes (4b0986a3613c Linux 5.18)
+$ git merge -m Merge branch 'drm-fixes' of git://git.freedesktop.org/git/drm/drm.git drm-fixes/drm-fixes
+Already up to date.
+Merging amdgpu-fixes/drm-fixes (2c409ba81be2 drm/radeon: fix si_enable_smc_cac() failed issue)
+$ git merge -m Merge branch 'drm-fixes' of git://people.freedesktop.org/~agd5f/linux amdgpu-fixes/drm-fixes
+Already up to date.
+Merging drm-intel-fixes/for-linux-next-fixes (4b0986a3613c Linux 5.18)
+$ git merge -m Merge branch 'for-linux-next-fixes' of git://anongit.freedesktop.org/drm-intel drm-intel-fixes/for-linux-next-fixes
+Already up to date.
+Merging mmc-fixes/fixes (479260419fa4 dt-bindings: mmc: Fix unevaluatedProperties warnings in examples)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/ulfh/mmc.git mmc-fixes/fixes
+Merge made by the 'ort' strategy.
+ Documentation/devicetree/bindings/mmc/brcm,sdhci-brcmstb.yaml  | 2 --
+ Documentation/devicetree/bindings/mmc/marvell,xenon-sdhci.yaml | 3 +++
+ drivers/mmc/core/block.c                                       | 3 +--
+ drivers/mmc/host/sdhci-pci-gli.c                               | 3 +++
+ 4 files changed, 7 insertions(+), 4 deletions(-)
+Merging rtc-fixes/rtc-fixes (bd33335aa93d rtc: cmos: Disable irq around direct invocation of cmos_interrupt())
+$ git merge -m Merge branch 'rtc-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/abelloni/linux.git rtc-fixes/rtc-fixes
+Auto-merging drivers/rtc/rtc-cmos.c
+Merge made by the 'ort' strategy.
+Merging gnss-fixes/gnss-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'gnss-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/johan/gnss.git gnss-fixes/gnss-linus
+Already up to date.
+Merging hyperv-fixes/hyperv-fixes (eaa03d345358 Drivers: hv: vmbus: Replace smp_store_mb() with virt_store_mb())
+$ git merge -m Merge branch 'hyperv-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/hyperv/linux.git hyperv-fixes/hyperv-fixes
+Already up to date.
+Merging soc-fsl-fixes/fix (4b0986a3613c Linux 5.18)
+$ git merge -m Merge branch 'fix' of git://git.kernel.org/pub/scm/linux/kernel/git/leo/linux.git soc-fsl-fixes/fix
+Already up to date.
+Merging risc-v-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/riscv/linux.git risc-v-fixes/fixes
+Already up to date.
+Merging risc-v-mc-fixes/dt-fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'dt-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/conor/linux.git risc-v-mc-fixes/dt-fixes
+Already up to date.
+Merging pidfd-fixes/fixes (03ba0fe4d09f file: simplify logic in __close_range())
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/brauner/linux.git pidfd-fixes/fixes
+Already up to date.
+Merging fpga-fixes/fixes (312310928417 Linux 5.18-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/fpga/linux-fpga.git fpga-fixes/fixes
+Already up to date.
+Merging spdx/spdx-linus (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'spdx-linus' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/spdx.git spdx/spdx-linus
+Already up to date.
+Merging gpio-brgl-fixes/gpio/for-current (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'gpio/for-current' of git://git.kernel.org/pub/scm/linux/kernel/git/brgl/linux.git gpio-brgl-fixes/gpio/for-current
+Already up to date.
+Merging gpio-intel-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/andy/linux-gpio-intel.git gpio-intel-fixes/fixes
+Already up to date.
+Merging pinctrl-intel-fixes/fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/pinctrl/intel.git pinctrl-intel-fixes/fixes
+Already up to date.
+Merging erofs-fixes/fixes (8b1ac84dcf2c Documentation/ABI: sysfs-fs-erofs: Fix Sphinx errors)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs.git erofs-fixes/fixes
+Already up to date.
+Merging integrity-fixes/fixes (843385694721 evm: Fix a small race in init_desc())
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/zohar/linux-integrity integrity-fixes/fixes
+Already up to date.
+Merging kunit-fixes/kunit-fixes (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'kunit-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux-kselftest.git kunit-fixes/kunit-fixes
+Already up to date.
+Merging ubifs-fixes/fixes (c3c07fc25f37 ubi: fastmap: Return error code if memory allocation fails in add_aeb())
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/rw/ubifs.git ubifs-fixes/fixes
+Already up to date.
+Merging memblock-fixes/fixes (c94afc46cae7 memblock: use kfree() to release kmalloced memblock regions)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/rppt/memblock.git memblock-fixes/fixes
+Already up to date.
+Merging cel-fixes/for-rc (9ff9f77f34e4 MAINTAINERS: reciprocal co-maintainership for file locking and nfsd)
+$ git merge -m Merge branch 'for-rc' of git://git.kernel.org/pub/scm/linux/kernel/git/cel/linux cel-fixes/for-rc
+Auto-merging MAINTAINERS
+Merge made by the 'ort' strategy.
+ MAINTAINERS | 2 ++
+ 1 file changed, 2 insertions(+)
+Merging irqchip-fixes/irq/irqchip-fixes (544808f7e21c irqchip/gic, gic-v3: Prevent GSI to SGI translations)
+$ git merge -m Merge branch 'irq/irqchip-fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/maz/arm-platforms.git irqchip-fixes/irq/irqchip-fixes
+Already up to date.
+Merging renesas-fixes/fixes (432b52eea3dc ARM: shmobile: defconfig: Restore graphical consoles)
+$ git merge -m Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel.git renesas-fixes/fixes
+Already up to date.
+Merging perf-current/perf/urgent (eaea45fc0e7b Merge tag 'perf-tools-fixes-for-v5.18-2022-05-21' of git://git.kernel.org/pub/scm/linux/kernel/git/acme/linux)
+$ git merge -m Merge branch 'perf/urgent' of git://git.kernel.org/pub/scm/linux/kernel/git/acme/linux.git perf-current/perf/urgent
+Already up to date.
+Merging efi-fixes/urgent (9feaf8b387ee efi: fix return value of __setup handlers)
+$ git merge -m Merge branch 'urgent' of git://git.kernel.org/pub/scm/linux/kernel/git/efi/efi.git efi-fixes/urgent
+Already up to date.
+Merging zstd-fixes/zstd-linus (88a309465b3f lib: zstd: clean up double word in comment.)
+$ git merge -m Merge branch 'zstd-linus' of https://github.com/terrelln/linux.git zstd-fixes/zstd-linus
+Merge made by the 'ort' strategy.
+ include/linux/zstd_lib.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+Merging drm-misc-fixes/for-linux-next-fixes (e54a4424925a drm/atomic: Force bridge self-refresh-exit on CRTC switch)
+$ git merge -m Merge branch 'for-linux-next-fixes' of git://anongit.freedesktop.org/drm/drm-misc drm-misc-fixes/for-linux-next-fixes
+Auto-merging drivers/gpu/drm/bridge/analogix/analogix_dp_core.c
+Auto-merging drivers/gpu/drm/bridge/ti-sn65dsi83.c
+Auto-merging drivers/gpu/drm/panfrost/panfrost_drv.c
+Auto-merging drivers/gpu/drm/panfrost/panfrost_job.c
+Merge made by the 'ort' strategy.
+ drivers/gpu/drm/bridge/analogix/analogix_dp_core.c | 42 +++++++++++++++++++---
+ drivers/gpu/drm/bridge/ti-sn65dsi83.c              |  2 +-
+ drivers/gpu/drm/drm_atomic_helper.c                | 16 +++++++--
+ drivers/gpu/drm/panfrost/panfrost_drv.c            |  5 +--
+ drivers/gpu/drm/panfrost/panfrost_job.c            |  6 ++--
+ drivers/gpu/drm/panfrost/panfrost_job.h            |  2 +-
+ 6 files changed, 59 insertions(+), 14 deletions(-)
+Merging kbuild/for-next (44688ffd111a Merge tag 'objtool-urgent-2022-06-05' of git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-kbuild.git kbuild/for-next
+Already up to date.
+Merging clang-format/clang-format (781121a7f6d1 clang-format: Fix space after for_each macros)
+$ git merge -m Merge branch 'clang-format' of https://github.com/ojeda/linux.git clang-format/clang-format
+Already up to date.
+Merging perf/perf/core (1bcca2b1bd67 perf vendor events intel: Update metrics for Alderlake)
+$ git merge -m Merge branch 'perf/core' of git://git.kernel.org/pub/scm/linux/kernel/git/acme/linux.git perf/perf/core
+Already up to date.
+Merging compiler-attributes/compiler-attributes (7c00621dcaee compiler_types: mark __compiletime_assert failure as __noreturn)
+$ git merge -m Merge branch 'compiler-attributes' of https://github.com/ojeda/linux.git compiler-attributes/compiler-attributes
+Already up to date.
+Merging dma-mapping/for-next (e15db62bc564 swiotlb: fix setting ->force_bounce)
+$ git merge -m Merge branch 'for-next' of git://git.infradead.org/users/hch/dma-mapping.git dma-mapping/for-next
+Merge made by the 'ort' strategy.
+ kernel/dma/debug.c   |  2 +-
+ kernel/dma/swiotlb.c | 14 ++++++--------
+ 2 files changed, 7 insertions(+), 9 deletions(-)
+Merging asm-generic/master (b2441b3bdce6 h8300: remove stale bindings and symlink)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/arnd/asm-generic.git asm-generic/master
+Already up to date.
+Merging arc/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/vgupta/arc.git arc/for-next
+Already up to date.
+Merging arm/for-next (bafa10435c4f ARM: 9209/1: Spectre-BHB: avoid pr_info() every time a CPU comes out of idle)
+$ git merge -m Merge branch 'for-next' of git://git.armlinux.org.uk/~rmk/linux-arm.git arm/for-next
+Auto-merging drivers/amba/bus.c
+Merge made by the 'ort' strategy.
+ arch/arm/kernel/entry-common.S | 1 +
+ arch/arm/mm/proc-v7-bugs.c     | 6 +++---
+ drivers/amba/bus.c             | 8 ++------
+ 3 files changed, 6 insertions(+), 9 deletions(-)
+Merging arm64/for-next/core (78c09c0f4df8 kselftest/arm64: signal: Skip SVE signal test if not enough VLs supported)
+$ git merge -m Merge branch 'for-next/core' of git://git.kernel.org/pub/scm/linux/kernel/git/arm64/linux arm64/for-next/core
+Already up to date.
+Merging arm-perf/for-next/perf (c5781212985a perf/arm-cmn: Decode CAL devices properly in debugfs)
+$ git merge -m Merge branch 'for-next/perf' of git://git.kernel.org/pub/scm/linux/kernel/git/will/linux.git arm-perf/for-next/perf
+Already up to date.
+Merging arm-soc/for-next (cd4a1a61fd72 soc: document merges)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/soc/soc.git arm-soc/for-next
+Auto-merging arch/arm/Kconfig
+CONFLICT (content): Merge conflict in arch/arm/Kconfig
+Auto-merging arch/arm/Makefile
+CONFLICT (content): Merge conflict in arch/arm/Makefile
+Auto-merging arch/arm/Makefile
+CONFLICT (modify/delete): arch/arm/configs/imote2_defconfig deleted in Temporary merge branch 2 and modified in Temporary merge branch 1.  Version Temporary merge branch 1 of arch/arm/configs/imote2_defconfig left in tree.
+Auto-merging arch/arm/include/asm/io.h
+Auto-merging arch/arm/mach-mmp/Kconfig
+Auto-merging arch/arm/mm/ioremap.c
+Auto-merging drivers/soc/Makefile
+Auto-merging drivers/usb/gadget/udc/omap_udc.c
+Auto-merging drivers/video/fbdev/pxafb.c
+Auto-merging sound/soc/pxa/hx4700.c
+Auto-merging sound/soc/pxa/palm27x.c
+Auto-merging sound/soc/pxa/z2.c
+Merge made by the 'ort' strategy.
+ arch/arm/arm-soc-for-next-contents.txt | 47 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+ create mode 100644 arch/arm/arm-soc-for-next-contents.txt
+Merging actions/for-next (444d018d8d38 ARM: dts: owl-s500-roseapplepi: Add ATC2603C PMIC)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mani/linux-actions.git actions/for-next
+Auto-merging arch/arm/boot/dts/owl-s500-roseapplepi.dts
+Merge made by the 'ort' strategy.
+Merging amlogic/for-next (1dac6e1d8385 Merge branch 'v5.20/drivers' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux.git amlogic/for-next
+Merge made by the 'ort' strategy.
+ drivers/soc/amlogic/meson-mx-socinfo.c | 1 +
+ 1 file changed, 1 insertion(+)
+Merging aspeed/for-next (bfcbea2c93e5 ARM: dts: aspeed: nuvia: rename vendor nuvia to qcom)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc.git aspeed/for-next
+Auto-merging arch/arm/boot/dts/Makefile
+Merge made by the 'ort' strategy.
+ arch/arm/boot/dts/Makefile                                            | 2 +-
+ .../{aspeed-bmc-nuvia-dc-scm.dts => aspeed-bmc-qcom-dc-scm-v1.dts}    | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+ rename arch/arm/boot/dts/{aspeed-bmc-nuvia-dc-scm.dts => aspeed-bmc-qcom-dc-scm-v1.dts} (97%)
+Merging at91/at91-next (3519476d99a4 Merge branch 'at91-dt' into at91-next)
+$ git merge -m Merge branch 'at91-next' of git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux.git at91/at91-next
+Merge made by the 'ort' strategy.
+Merging drivers-memory/for-next (44a5f0330d32 Merge branch 'mem-ctrl-next' into for-next)
+$ git merge -m Merge branch 'for-next' of https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl.git drivers-memory/for-next
+Merge made by the 'ort' strategy.
+ .../memory-controllers/mediatek,smi-common.yaml         |  1 +
+ .../bindings/memory-controllers/mediatek,smi-larb.yaml  |  1 +
+ drivers/memory/mtk-smi.c                                | 17 +++++++++++++++++
+ 3 files changed, 19 insertions(+)
+Merging imx-mxs/for-next (6ed2affe8f7f Merge branch 'imx/defconfig' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux.git imx-mxs/for-next
+Auto-merging arch/arm/boot/dts/imx6qdl-aristainetos2.dtsi
+Auto-merging arch/arm/boot/dts/imx6ul-phytec-segin-peb-av-02.dtsi
+Auto-merging arch/arm/boot/dts/imx6ull-colibri.dtsi
+Auto-merging arch/arm64/boot/dts/freescale/imx8mm-venice-gw71xx.dtsi
+Auto-merging arch/arm64/boot/dts/freescale/imx8mm-venice-gw72xx.dtsi
+Auto-merging arch/arm64/boot/dts/freescale/imx8mm-venice-gw73xx.dtsi
+Auto-merging arch/arm64/boot/dts/freescale/imx8mn.dtsi
+Auto-merging drivers/soc/imx/imx8m-blk-ctrl.c
+Merge made by the 'ort' strategy.
+Merging keystone/next (cb293d3b430e Merge branch 'for_5.15/drivers-soc' into next)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/ssantosh/linux-keystone.git keystone/next
+Merge made by the 'ort' strategy.
+Merging mediatek/for-next (8434c5a06e3c Merge branch 'v5.18-next/soc' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux.git mediatek/for-next
+Merge made by the 'ort' strategy.
+Merging mvebu/for-next (58ec0844bd13 Merge branch 'mvebu/dt64' into mvebu/for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu.git mvebu/for-next
+Merge made by the 'ort' strategy.
+Merging omap/for-next (b5418fc0478c Merge branch 'omap-for-v5.19/dt' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap.git omap/for-next
+Auto-merging MAINTAINERS
+Auto-merging arch/arm/boot/dts/logicpd-som-lv.dtsi
+Auto-merging drivers/bus/ti-sysc.c
+Merge made by the 'ort' strategy.
+Merging qcom/for-next (5faa5cd718a4 Merge branches 'arm64-for-5.19', 'arm64-defconfig-for-5.19', 'clk-for-5.19', 'defconfig-for-5.19', 'drivers-for-5.19', 'dts-for-5.19' and 'arm64-fixes-for-5.18' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux.git qcom/for-next
+Auto-merging Documentation/devicetree/bindings/arm/qcom.yaml
+Auto-merging Documentation/devicetree/bindings/soc/qcom/qcom,smd-rpm.yaml
+Auto-merging arch/arm64/boot/dts/qcom/sm8250.dtsi
+Merge made by the 'ort' strategy.
+Merging raspberrypi/for-next (c5915b53d4c2 dt-bindings: soc: bcm: Convert brcm,bcm2835-vchiq to json-schema)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/nsaenz/linux-rpi.git raspberrypi/for-next
+Merge made by the 'ort' strategy.
+ arch/arm/boot/dts/bcm2711-rpi-400.dts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+Merging renesas/next (f85c6f32f3b6 Merge branch 'renesas-arm-dt-for-v5.20' into renesas-next)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel.git renesas/next
+Merge made by the 'ort' strategy.
+ .../boot/dts/renesas/beacon-renesom-baseboard.dtsi |  6 +--
+ .../arm64/boot/dts/renesas/beacon-renesom-som.dtsi |  4 +-
+ arch/arm64/boot/dts/renesas/ebisu.dtsi             |  6 +--
+ arch/arm64/boot/dts/renesas/hihope-common.dtsi     |  4 +-
+ arch/arm64/boot/dts/renesas/r9a07g043.dtsi         | 21 ++++++++-
+ arch/arm64/boot/dts/renesas/r9a09g011-v2mevk2.dts  | 14 ++++++
+ arch/arm64/boot/dts/renesas/r9a09g011.dtsi         | 51 ++++++++++++++++++++++
+ arch/arm64/boot/dts/renesas/rzg2l-smarc-som.dtsi   |  4 +-
+ arch/arm64/boot/dts/renesas/rzg2lc-smarc-som.dtsi  |  4 +-
+ arch/arm64/boot/dts/renesas/rzg2ul-smarc-som.dtsi  |  4 +-
+ arch/arm64/boot/dts/renesas/salvator-common.dtsi   |  6 +--
+ arch/arm64/boot/dts/renesas/ulcb.dtsi              |  4 +-
+ 12 files changed, 106 insertions(+), 22 deletions(-)
+Merging reset/reset/next (2ca065dc9468 dt-bindings: reset: st,sti-powerdown: Convert to yaml)
+$ git merge -m Merge branch 'reset/next' of https://git.pengutronix.de/git/pza/linux reset/reset/next
+Already up to date.
+Merging rockchip/for-next (09711f1d1f03 Merge branch 'v5.19-clk/next' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip.git rockchip/for-next
+Merge made by the 'ort' strategy.
+Merging samsung-krzk/for-next (3e76e0906bb1 Merge branch 'next/dt64' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux.git samsung-krzk/for-next
+Merge made by the 'ort' strategy.
+ arch/arm/boot/dts/exynos4412-p4note.dtsi     |  84 ++++++++++++++++---
+ arch/arm64/boot/dts/exynos/exynosautov9.dtsi |  37 +++++++++
+ arch/arm64/boot/dts/tesla/fsd-evb.dts        |   4 +
+ arch/arm64/boot/dts/tesla/fsd-pinctrl.dtsi   |  14 ++++
+ arch/arm64/boot/dts/tesla/fsd.dtsi           | 120 +++++++++++++++++++++++++++
+ include/dt-bindings/soc/samsung,boot-mode.h  |  18 ++++
+ 6 files changed, 264 insertions(+), 13 deletions(-)
+ create mode 100644 include/dt-bindings/soc/samsung,boot-mode.h
+Merging scmi/for-linux-next (4b0986a3613c Linux 5.18)
+$ git merge -m Merge branch 'for-linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux.git scmi/for-linux-next
+Already up to date.
+Merging stm32/stm32-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'stm32-next' of git://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32.git stm32/stm32-next
+Already up to date.
+Merging sunxi/sunxi/for-next (076b8d7194c3 Merge branch 'sunxi/dt-for-5.20' into sunxi/for-next)
+$ git merge -m Merge branch 'sunxi/for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux.git sunxi/sunxi/for-next
+Merge made by the 'ort' strategy.
+ arch/arm/boot/dts/sun5i-a13-licheepi-one.dts |   6 +-
+ drivers/clk/sunxi-ng/ccu-sun50i-h6-r.c       |  16 +---
+ drivers/clk/sunxi-ng/ccu-sun8i-de2.c         |  77 +++++-------------
+ drivers/clk/sunxi-ng/ccu-sun8i-h3.c          | 113 +--------------------------
+ drivers/clk/sunxi-ng/ccu-sun8i-r.c           |  40 ++--------
+ drivers/clk/sunxi-ng/ccu-sun8i-v3s.c         |  80 +------------------
+ 6 files changed, 40 insertions(+), 292 deletions(-)
+Merging tee/next (db30e53bf897 Merge branch 'tee_cleanup_for_v5.19' into next)
+$ git merge -m Merge branch 'next' of https://git.linaro.org/people/jens.wiklander/linux-tee.git tee/next
+Auto-merging drivers/tee/tee_shm.c
+Merge made by the 'ort' strategy.
+Merging tegra/for-next (864067632632 Merge branch for-5.19/arm64/defconfig into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux.git tegra/for-next
+Auto-merging drivers/memory/tegra/mc.c
+Merge made by the 'ort' strategy.
+Merging ti/ti-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'ti-next' of git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux.git ti/ti-next
+Already up to date.
+Merging xilinx/for-next (63623390c0d6 arm64: dts: zynqmp: add AMS driver to device tree)
+$ git merge -m Merge branch 'for-next' of git://github.com/Xilinx/linux-xlnx.git xilinx/for-next
+Merge made by the 'ort' strategy.
+ .../devicetree/bindings/gpio/gpio-zynq.yaml        | 59 +++++++++++++++++++++-
+ arch/arm64/boot/dts/xilinx/zynqmp-clk-ccf.dtsi     |  4 ++
+ arch/arm64/boot/dts/xilinx/zynqmp-sm-k26-revA.dts  |  2 +-
+ arch/arm64/boot/dts/xilinx/zynqmp.dtsi             | 26 ++++++++++
+ 4 files changed, 89 insertions(+), 2 deletions(-)
+Merging clk/clk-next (71cc785d2955 Merge branch 'clk-qcom' into clk-next)
+$ git merge -m Merge branch 'clk-next' of git://git.kernel.org/pub/scm/linux/kernel/git/clk/linux.git clk/clk-next
+Already up to date.
+Merging clk-imx/for-next (cf7f3f4fa9e5 clk: imx8mp: fix usb_root_clk parent)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/abelvesa/linux.git clk-imx/for-next
+Already up to date.
+Merging clk-renesas/renesas-clk (2dee50ab9e72 clk: renesas: r9a06g032: Fix UART clkgrp bitsel)
+$ git merge -m Merge branch 'renesas-clk' of git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-drivers.git clk-renesas/renesas-clk
+Merge made by the 'ort' strategy.
+ drivers/clk/renesas/r9a06g032-clocks.c | 32 +++++++++++++++-----------------
+ drivers/clk/renesas/r9a07g044-cpg.c    | 17 ++++++++++++++++-
+ drivers/clk/renesas/r9a09g011-cpg.c    |  5 +++++
+ 3 files changed, 36 insertions(+), 18 deletions(-)
+Merging clk-samsung/for-next (b35f27fe73d8 clk: samsung: exynosautov9: add cmu_peric1 clock support)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/snawrocki/clk.git clk-samsung/for-next
+Already up to date.
+Merging csky/linux-next (64d83f067746 csky: Move $(core-y) into arch/csky/Kbuild)
+$ git merge -m Merge branch 'linux-next' of git://github.com/c-sky/csky-linux.git csky/linux-next
+Already up to date.
+Merging loongarch/loongarch-next (8be4493119b0 MAINTAINERS: Add maintainer information for LoongArch)
+$ git merge -m Merge branch 'loongarch-next' of git://git.kernel.org/pub/scm/linux/kernel/git/chenhuacai/linux-loongson.git loongarch/loongarch-next
+Already up to date.
+Merging m68k/for-next (30b5e6ef4a32 m68k: atari: Make Atari ROM port I/O write macros return void)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/geert/linux-m68k.git m68k/for-next
+Already up to date.
+Merging m68knommu/for-next (c5ac8a9fcfab m68k: coldfire/device.c: protect FLEXCAN blocks)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gerg/m68knommu.git m68knommu/for-next
+Merge made by the 'ort' strategy.
+ arch/m68k/coldfire/device.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+Merging microblaze/next (78b5f52ab6f6 microblaze: fix typos in comments)
+$ git merge -m Merge branch 'next' of git://git.monstr.eu/linux-2.6-microblaze.git microblaze/next
+Already up to date.
+Merging mips/mips-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'mips-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mips/linux.git mips/mips-next
+Already up to date.
+Merging nios2/for-next (7f7bc20bc41a nios2: Don't use _end for calculating min_low_pfn)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/lftan/nios2.git nios2/for-next
+Already up to date.
+Merging openrisc/for-next (83da38d82b2f openrisc: Allow power off handler overriding)
+$ git merge -m Merge branch 'for-next' of git://github.com/openrisc/linux.git openrisc/for-next
+Already up to date.
+Merging parisc-hd/for-next (4b0986a3613c Linux 5.18)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/deller/parisc-linux.git parisc-hd/for-next
+Already up to date.
+Merging powerpc/next (6112bd00e84e Merge tag 'powerpc-5.19-1' of git://git.kernel.org/pub/scm/linux/kernel/git/powerpc/linux)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/powerpc/linux.git powerpc/next
+Already up to date.
+Merging soc-fsl/next (4b0986a3613c Linux 5.18)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/leo/linux.git soc-fsl/next
+Already up to date.
+Merging risc-v/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/riscv/linux.git risc-v/for-next
+Already up to date.
+Merging risc-v-mc/dt-for-next (294b2111ff10 riscv: dts: microchip: remove spi-max-frequency property)
+$ git merge -m Merge branch 'dt-for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/conor/linux.git risc-v-mc/dt-for-next
+Merge made by the 'ort' strategy.
+ arch/riscv/boot/dts/microchip/mpfs.dtsi | 2 --
+ 1 file changed, 2 deletions(-)
+Merging s390/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/s390/linux.git s390/for-next
+Already up to date.
+Merging sh/for-next (8518e694203d sh: pgtable-3level: Fix cast to pointer from integer of different size)
+$ git merge -m Merge branch 'for-next' of git://git.libc.org/linux-sh sh/for-next
+Already up to date.
+Merging sparc-next/master (dd0d718152e4 Merge tag 'spi-fix-v5.8-rc2' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/spi)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/davem/sparc-next.git sparc-next/master
+Already up to date.
+Merging uml/linux-next (2a4a62a14be1 um: Fix out-of-bounds read in LDT setup)
+$ git merge -m Merge branch 'linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/rw/uml.git uml/linux-next
+Already up to date.
+Merging xtensa/xtensa-for-next (dc60001e1a30 xtensa: Return true/false (not 1/0) from bool function)
+$ git merge -m Merge branch 'xtensa-for-next' of git://github.com/jcmvbkbc/linux-xtensa.git xtensa/xtensa-for-next
+Already up to date.
+Merging pidfd/for-next (e1bbcd277a53 fs: hold writers when changing mount's idmapping)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/brauner/linux.git pidfd/for-next
+Already up to date.
+Merging fscrypt/master (218d921b581e fscrypt: add new helper functions for test_dummy_encryption)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/fs/fscrypt/fscrypt.git fscrypt/master
+Already up to date.
+Merging fscache/fscache-next (713423282ae1 netfs: Fix gcc-12 warning by embedding vfs inode in netfs_i_context)
+$ git merge -m Merge branch 'fscache-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dhowells/linux-fs.git fscache/fscache-next
+Auto-merging Documentation/filesystems/netfs_library.rst
+Auto-merging fs/9p/vfs_addr.c
+Auto-merging fs/afs/dir.c
+Auto-merging fs/afs/file.c
+Auto-merging fs/afs/inode.c
+Auto-merging fs/afs/internal.h
+Auto-merging fs/afs/write.c
+Auto-merging fs/ceph/addr.c
+Auto-merging fs/ceph/caps.c
+CONFLICT (content): Merge conflict in fs/ceph/caps.c
+Auto-merging fs/ceph/inode.c
+Auto-merging fs/ceph/mds_client.c
+Auto-merging fs/ceph/super.c
+Auto-merging fs/ceph/super.h
+Auto-merging fs/ceph/xattr.c
+Auto-merging fs/cifs/cifsfs.c
+Auto-merging fs/cifs/cifsglob.h
+Auto-merging fs/cifs/file.c
+Auto-merging fs/cifs/misc.c
+Auto-merging fs/cifs/smb2ops.c
+Auto-merging fs/netfs/buffered_read.c
+Auto-merging include/linux/netfs.h
+CONFLICT (content): Merge conflict in include/linux/netfs.h
+Resolved 'fs/ceph/caps.c' using previous resolution.
+Resolved 'include/linux/netfs.h' using previous resolution.
+Automatic merge failed; fix conflicts and then commit the result.
+$ git commit --no-edit -v -a
+[master 265f79500ad6] Merge branch 'fscache-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dhowells/linux-fs.git
+$ git diff -M --stat --summary HEAD^..
+ Documentation/filesystems/netfs_library.rst |  37 +++++-----
+ fs/9p/cache.c                               |   4 +-
+ fs/9p/v9fs.c                                |   2 +-
+ fs/9p/v9fs.h                                |  10 +--
+ fs/9p/vfs_addr.c                            |   2 +-
+ fs/9p/vfs_inode.c                           |   4 +-
+ fs/afs/callback.c                           |   2 +-
+ fs/afs/dir.c                                |  32 ++++-----
+ fs/afs/dir_edit.c                           |  10 +--
+ fs/afs/dir_silly.c                          |   4 +-
+ fs/afs/dynroot.c                            |   2 +-
+ fs/afs/file.c                               |   4 +-
+ fs/afs/fs_operation.c                       |   6 +-
+ fs/afs/inode.c                              |  38 +++++-----
+ fs/afs/internal.h                           |  23 +++---
+ fs/afs/super.c                              |   6 +-
+ fs/afs/write.c                              |  21 +++---
+ fs/ceph/addr.c                              |   4 +-
+ fs/ceph/cache.c                             |   4 +-
+ fs/ceph/cache.h                             |   2 +-
+ fs/ceph/caps.c                              | 104 ++++++++++++++--------------
+ fs/ceph/file.c                              |   2 +-
+ fs/ceph/inode.c                             |  10 +--
+ fs/ceph/mds_client.c                        |   4 +-
+ fs/ceph/snap.c                              |   8 +--
+ fs/ceph/super.c                             |   2 +-
+ fs/ceph/super.h                             |  10 +--
+ fs/ceph/xattr.c                             |  14 ++--
+ fs/cifs/cifsfs.c                            |   8 +--
+ fs/cifs/cifsglob.h                          |  12 ++--
+ fs/cifs/file.c                              |   8 +--
+ fs/cifs/fscache.c                           |   8 +--
+ fs/cifs/fscache.h                           |   8 +--
+ fs/cifs/inode.c                             |   4 +-
+ fs/cifs/misc.c                              |   4 +-
+ fs/cifs/smb2ops.c                           |   8 +--
+ fs/netfs/buffered_read.c                    |   6 +-
+ fs/netfs/internal.h                         |   2 +-
+ fs/netfs/objects.c                          |   2 +-
+ include/linux/netfs.h                       |  39 ++++-------
+ 40 files changed, 226 insertions(+), 254 deletions(-)
+Merging afs/afs-next (26291c54e111 Linux 5.17-rc2)
+$ git merge -m Merge branch 'afs-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dhowells/linux-fs.git afs/afs-next
+Already up to date.
+Merging btrfs/for-next (14ea91055474 Merge branch 'for-next-next-v5.19-20220607' into for-next-20220607)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/kdave/linux.git btrfs/for-next
+Auto-merging fs/btrfs/disk-io.c
+Merge made by the 'ort' strategy.
+ fs/btrfs/Makefile            |   2 +-
+ fs/btrfs/btrfs_inode.h       |   5 -
+ fs/btrfs/compression.c       |  55 ++-
+ fs/btrfs/compression.h       |   7 +-
+ fs/btrfs/ctree.h             |  33 +-
+ fs/btrfs/delayed-inode.c     | 341 +++++++++++------
+ fs/btrfs/delayed-inode.h     |   7 +
+ fs/btrfs/disk-io.c           | 150 +-------
+ fs/btrfs/disk-io.h           |  11 -
+ fs/btrfs/extent-io-tree.h    |  15 -
+ fs/btrfs/extent_io.c         | 889 +++++++++----------------------------------
+ fs/btrfs/extent_io.h         |  26 --
+ fs/btrfs/file.c              |  25 +-
+ fs/btrfs/inode.c             | 355 ++++++++---------
+ fs/btrfs/ioctl.c             | 117 +++---
+ fs/btrfs/lzo.c               |  28 +-
+ fs/btrfs/ordered-data.c      |   4 +-
+ fs/btrfs/raid56.c            | 664 +++++++++++++++-----------------
+ fs/btrfs/raid56.h            | 150 +++++++-
+ fs/btrfs/read-repair.c       | 248 ++++++++++++
+ fs/btrfs/read-repair.h       |  33 ++
+ fs/btrfs/reflink.c           |  29 +-
+ fs/btrfs/scrub.c             |  32 +-
+ fs/btrfs/send.c              | 313 +++++++++++++--
+ fs/btrfs/send.h              | 156 +++++---
+ fs/btrfs/space-info.c        |  34 +-
+ fs/btrfs/space-info.h        |   4 +
+ fs/btrfs/struct-funcs.c      |  11 +-
+ fs/btrfs/subpage.c           |   2 +-
+ fs/btrfs/super.c             |  25 +-
+ fs/btrfs/sysfs.c             | 130 ++++++-
+ fs/btrfs/tree-log.c          |   2 +-
+ fs/btrfs/volumes.c           | 305 +++++++++------
+ fs/btrfs/volumes.h           |  28 +-
+ fs/btrfs/zoned.c             |   6 +-
+ include/trace/events/btrfs.h |  95 ++++-
+ include/uapi/linux/btrfs.h   |  10 +-
+ 37 files changed, 2413 insertions(+), 1934 deletions(-)
+ create mode 100644 fs/btrfs/read-repair.c
+ create mode 100644 fs/btrfs/read-repair.h
+Merging ceph/master (b24d20af4c2e fscrypt: add fscrypt_context_for_new_inode)
+$ git merge -m Merge branch 'master' of git://github.com/ceph/ceph-client.git ceph/master
+Auto-merging fs/crypto/fname.c
+Auto-merging fs/crypto/fscrypt_private.h
+Auto-merging fs/crypto/policy.c
+Auto-merging include/linux/fscrypt.h
+Merge made by the 'ort' strategy.
+ fs/crypto/fname.c           | 36 ++++++++++++++++++++++++++++++------
+ fs/crypto/fscrypt_private.h |  9 +++------
+ fs/crypto/hooks.c           |  6 +++---
+ fs/crypto/policy.c          | 35 +++++++++++++++++++++++++++++------
+ fs/inode.c                  | 10 +++++++---
+ include/linux/fscrypt.h     |  5 +++++
+ 6 files changed, 77 insertions(+), 24 deletions(-)
+Merging cifs/for-next (8ea21823aa58 cifs: return errors during session setup during reconnects)
+$ git merge -m Merge branch 'for-next' of git://git.samba.org/sfrench/cifs-2.6.git cifs/for-next
+Auto-merging fs/cifs/cifsfs.c
+Auto-merging fs/cifs/misc.c
+Merge made by the 'ort' strategy.
+ fs/cifs/cifsfs.c  |  2 +-
+ fs/cifs/cifsfs.h  |  2 +-
+ fs/cifs/misc.c    | 27 ++++++++++++++++-----------
+ fs/cifs/smb2pdu.c |  3 +++
+ 4 files changed, 21 insertions(+), 13 deletions(-)
+Merging configfs/for-next (84ec758fb2da configfs: fix a race in configfs_{,un}register_subsystem())
+$ git merge -m Merge branch 'for-next' of git://git.infradead.org/users/hch/configfs.git configfs/for-next
+Already up to date.
+Merging ecryptfs/next (682a8e2b41ef Merge tag 'ecryptfs-5.13-rc1-updates' of git://git.kernel.org/pub/scm/linux/kernel/git/tyhicks/ecryptfs)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/tyhicks/ecryptfs.git ecryptfs/next
+Already up to date.
+Merging erofs/dev (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'dev' of git://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs.git erofs/dev
+Already up to date.
+Merging exfat/dev (64ba4b15e5c0 exfat: check if cluster num is valid)
+$ git merge -m Merge branch 'dev' of git://git.kernel.org/pub/scm/linux/kernel/git/linkinjeon/exfat.git exfat/dev
+Already up to date.
+Merging ext3/for_next (537e11cdc7a6 quota: Prevent memory allocation recursion while holding dq_lock)
+$ git merge -m Merge branch 'for_next' of git://git.kernel.org/pub/scm/linux/kernel/git/jack/linux-fs.git ext3/for_next
+Auto-merging fs/inode.c
+Merge made by the 'ort' strategy.
+ fs/ext2/inode.c   |  2 +-
+ fs/fs-writeback.c | 37 ++++++++++++++++++++++++++++---------
+ fs/inode.c        |  2 +-
+ fs/quota/dquot.c  | 10 ++++++++++
+ 4 files changed, 40 insertions(+), 11 deletions(-)
+Merging ext4/dev (5f41fdaea63d ext4: only allow test_dummy_encryption when supported)
+$ git merge -m Merge branch 'dev' of git://git.kernel.org/pub/scm/linux/kernel/git/tytso/ext4.git ext4/dev
+Already up to date.
+Merging f2fs/dev (2d1fe8a86bf5 f2fs: fix to tag gcing flag on page during file defragment)
+$ git merge -m Merge branch 'dev' of git://git.kernel.org/pub/scm/linux/kernel/git/jaegeuk/f2fs.git f2fs/dev
+Already up to date.
+Merging fsverity/fsverity (e6af1bb07704 fs-verity: Use struct_size() helper in enable_verity())
+$ git merge -m Merge branch 'fsverity' of git://git.kernel.org/pub/scm/fs/fscrypt/fscrypt.git fsverity/fsverity
+Already up to date.
+Merging fuse/for-next (6b49bc9d8a5f fuse: avoid unnecessary spinlock bump)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mszeredi/fuse.git fuse/for-next
+Auto-merging fs/fuse/dax.c
+Auto-merging fs/fuse/dir.c
+Auto-merging fs/fuse/file.c
+Merge made by the 'ort' strategy.
+ fs/fuse/dax.c  |  2 +-
+ fs/fuse/dir.c  |  7 ++++++-
+ fs/fuse/file.c | 39 ++++++++++++++++++++++++++-------------
+ 3 files changed, 33 insertions(+), 15 deletions(-)
+Merging gfs2/for-next (ab37c305bf89 gfs2: Remove redundant NULL check before kfree)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gfs2/linux-gfs2.git gfs2/for-next
+Merge made by the 'ort' strategy.
+ fs/gfs2/file.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+Merging jfs/jfs-next (e471e5942c00 fs/jfs: Remove dead code)
+$ git merge -m Merge branch 'jfs-next' of git://github.com/kleikamp/linux-shaggy.git jfs/jfs-next
+Already up to date.
+Merging ksmbd/ksmbd-for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'ksmbd-for-next' of https://github.com/smfrench/smb3-kernel.git ksmbd/ksmbd-for-next
+Already up to date.
+Merging nfs/linux-next (42226c989789 Linux 5.18-rc7)
+$ git merge -m Merge branch 'linux-next' of git://git.linux-nfs.org/projects/trondmy/nfs-2.6.git nfs/linux-next
+Already up to date.
+Merging nfs-anna/linux-next (118f09eda21d NFSv4.1 mark qualified async operations as MOVEABLE tasks)
+$ git merge -m Merge branch 'linux-next' of git://git.linux-nfs.org/projects/anna/linux-nfs.git nfs-anna/linux-next
+Already up to date.
+Merging nfsd/for-next (f012e95b377c SUNRPC: Trap RDMA segment overflows)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/cel/linux nfsd/for-next
+Auto-merging fs/nfsd/filecache.c
+Merge made by the 'ort' strategy.
+ fs/nfsd/filecache.c               | 9 +++++----
+ net/sunrpc/xprtrdma/svc_rdma_rw.c | 4 ++--
+ 2 files changed, 7 insertions(+), 6 deletions(-)
+Merging ntfs3/master (37a530bfe56c fs/ntfs3: Fix missing i_op in ntfs_read_mft)
+$ git merge -m Merge branch 'master' of https://github.com/Paragon-Software-Group/linux-ntfs3.git ntfs3/master
+Auto-merging fs/ntfs3/inode.c
+Auto-merging fs/ntfs3/super.c
+Merge made by the 'ort' strategy.
+ fs/ntfs3/frecord.c | 49 +++++++++++++++++++++++++++++++++++++------------
+ fs/ntfs3/index.c   | 25 +++++++++----------------
+ fs/ntfs3/inode.c   |  1 +
+ fs/ntfs3/record.c  |  5 ++---
+ fs/ntfs3/super.c   |  8 ++++----
+ 5 files changed, 53 insertions(+), 35 deletions(-)
+Merging orangefs/for-next (40a74870b2d1 orangefs: Fix the size of a memory allocation in orangefs_bufmap_alloc())
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/hubcap/linux orangefs/for-next
+Already up to date.
+Merging overlayfs/overlayfs-next (bc70682a497c ovl: support idmapped layers)
+$ git merge -m Merge branch 'overlayfs-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mszeredi/vfs.git overlayfs/overlayfs-next
+Already up to date.
+Merging ubifs/next (8c03a1c21d72 ubi: ubi_create_volume: Fix use-after-free when volume creation failed)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/rw/ubifs.git ubifs/next
+Already up to date.
+Merging v9fs/9p-next (22e424feb665 Revert "fs/9p: search open fids first")
+$ git merge -m Merge branch '9p-next' of git://github.com/martinetd/linux v9fs/9p-next
+Already up to date.
+Merging xfs/for-next (7146bda743e6 Merge branch 'guilt/xfs-5.19-larp-cleanups' into xfs-5.19-for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/fs/xfs/xfs-linux.git xfs/for-next
+Already up to date.
+Merging zonefs/for-next (31a644b3c2ae documentation: zonefs: Document sysfs attributes)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dlemoal/zonefs.git zonefs/for-next
+Already up to date.
+Merging iomap/iomap-for-next (e9c3a8e820ed iomap: don't invalidate folios after writeback errors)
+$ git merge -m Merge branch 'iomap-for-next' of git://git.kernel.org/pub/scm/fs/xfs/xfs-linux.git iomap/iomap-for-next
+Already up to date.
+Merging djw-vfs/vfs-for-next (49df34221804 fs: fix an infinite loop in iomap_fiemap)
+$ git merge -m Merge branch 'vfs-for-next' of git://git.kernel.org/pub/scm/fs/xfs/xfs-linux.git djw-vfs/vfs-for-next
+Already up to date.
+Merging file-locks/locks-next (80d8e4d3f313 fs/locks: fix fcntl_getlk64/fcntl_setlk64 stub prototypes)
+$ git merge -m Merge branch 'locks-next' of git://git.kernel.org/pub/scm/linux/kernel/git/jlayton/linux.git file-locks/locks-next
+Auto-merging include/linux/fs.h
+Merge made by the 'ort' strategy.
+Merging vfs/for-next (e9921ffd594f Merge branches 'work.namei', 'work.mount' and 'work.fd' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/viro/vfs.git vfs/for-next
+Auto-merging fs/internal.h
+Auto-merging include/linux/fs.h
+Merge made by the 'ort' strategy.
+Merging printk/for-next (d55663695b60 Merge branch 'rework/kthreads' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/printk/linux.git printk/for-next
+Merge made by the 'ort' strategy.
+Merging pci/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/helgaas/pci.git pci/next
+Already up to date.
+Merging pstore/for-next/pstore (8126b1c73108 pstore: Don't use semaphores in always-atomic-context code)
+$ git merge -m Merge branch 'for-next/pstore' of git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git pstore/for-next/pstore
+Already up to date.
+Merging hid/for-next (b01c83388f54 Revert "HID: Driver for Google Hangouts Meet Speakermic")
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git hid/for-next
+Auto-merging MAINTAINERS
+Auto-merging drivers/hid/hid-ids.h
+Auto-merging drivers/hid/hid-ids.h
+Auto-merging drivers/hid/hid-ids.h
+Merge made by the 'ort' strategy.
+Merging i2c/i2c/for-next (44e66c3bda45 Merge branch 'i2c/for-mergewindow' into i2c/for-next)
+$ git merge -m Merge branch 'i2c/for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/wsa/linux.git i2c/i2c/for-next
+Auto-merging drivers/i2c/busses/i2c-mt7621.c
+Auto-merging drivers/i2c/busses/i2c-qcom-geni.c
+Merge made by the 'ort' strategy.
+Merging i3c/i3c/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'i3c/next' of git://git.kernel.org/pub/scm/linux/kernel/git/i3c/linux.git i3c/i3c/next
+Already up to date.
+Merging dmi/dmi-for-next (f97a2103f1a7 firmware: dmi: Move product_sku info to the end of the modalias)
+$ git merge -m Merge branch 'dmi-for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/jdelvare/staging.git dmi/dmi-for-next
+Already up to date.
+Merging hwmon-staging/hwmon-next (fecca7a06525 hwmon: (lm90) Read the channel's label from device-tree)
+$ git merge -m Merge branch 'hwmon-next' of git://git.kernel.org/pub/scm/linux/kernel/git/groeck/linux-staging.git hwmon-staging/hwmon-next
+Merge made by the 'ort' strategy.
+ Documentation/ABI/testing/sysfs-class-hwmon        |    9 +
+ .../devicetree/bindings/hwmon/national,lm90.yaml   |  131 +
+ .../devicetree/bindings/trivial-devices.yaml       |    2 +
+ Documentation/hwmon/asus_ec_sensors.rst            |    1 +
+ Documentation/hwmon/index.rst                      |    1 +
+ Documentation/hwmon/lm90.rst                       |  233 +-
+ Documentation/hwmon/lt7182s.rst                    |   91 +
+ Documentation/hwmon/pmbus-core.rst                 |    9 +
+ drivers/hwmon/Kconfig                              |   21 +-
+ drivers/hwmon/asus-ec-sensors.c                    |   18 +
+ drivers/hwmon/f71882fg.c                           |    2 +
+ drivers/hwmon/lm75.h                               |    3 +-
+ drivers/hwmon/lm90.c                               | 2520 +++++++++++++-------
+ drivers/hwmon/pmbus/Kconfig                        |    9 +
+ drivers/hwmon/pmbus/Makefile                       |    1 +
+ drivers/hwmon/pmbus/lt7182s.c                      |  195 ++
+ drivers/hwmon/pmbus/pmbus.h                        |    2 +-
+ drivers/hwmon/pmbus/pmbus_core.c                   |  338 ++-
+ drivers/hwmon/sch56xx-common.c                     |   44 +-
+ 19 files changed, 2736 insertions(+), 894 deletions(-)
+ create mode 100644 Documentation/hwmon/lt7182s.rst
+ create mode 100644 drivers/hwmon/pmbus/lt7182s.c
+Merging jc_docs/docs-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'docs-next' of git://git.lwn.net/linux.git jc_docs/docs-next
+Already up to date.
+Merging v4l-dvb/master (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'master' of git://linuxtv.org/media_tree.git v4l-dvb/master
+Already up to date.
+Merging v4l-dvb-next/master (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'master' of git://linuxtv.org/mchehab/media-next.git v4l-dvb-next/master
+Already up to date.
+Merging pm/linux-next (6a8964e28238 Merge branch 'pm-sysoff' into linux-next)
+$ git merge -m Merge branch 'linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/rafael/linux-pm.git pm/linux-next
+Merge made by the 'ort' strategy.
+ kernel/reboot.c | 43 +++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 37 insertions(+), 6 deletions(-)
+Merging cpufreq-arm/cpufreq/arm/linux-next (39b360102f3a cpufreq: mediatek: Add support for MT8186)
+$ git merge -m Merge branch 'cpufreq/arm/linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/vireshk/pm.git cpufreq-arm/cpufreq/arm/linux-next
+Already up to date.
+Merging cpupower/cpupower (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'cpupower' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux.git cpupower/cpupower
+Already up to date.
+Merging devfreq/devfreq-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'devfreq-next' of git://git.kernel.org/pub/scm/linux/kernel/git/chanwoo/linux.git devfreq/devfreq-next
+Already up to date.
+Merging opp/opp/linux-next (f0c5e4d98a15 opp: Fix some kernel-doc comments)
+$ git merge -m Merge branch 'opp/linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/vireshk/pm.git opp/opp/linux-next
+Merge made by the 'ort' strategy.
+ drivers/opp/core.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+Merging thermal/thermal/linux-next (72b3fc61c752 thermal: k3_j72xx_bandgap: Add the bandgap driver support)
+$ git merge -m Merge branch 'thermal/linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/thermal/linux.git thermal/thermal/linux-next
+Auto-merging Documentation/devicetree/bindings/thermal/qcom-tsens.yaml
+Auto-merging MAINTAINERS
+Auto-merging tools/Makefile
+Merge made by the 'ort' strategy.
+Merging ieee1394/for-next (54b3bd99f094 firewire: nosy: switch from 'pci_' to 'dma_' API)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/ieee1394/linux1394.git ieee1394/for-next
+Already up to date.
+Merging dlm/next (8e51ec6146fd dlm: use kref_put_lock in __put_lkb)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/teigland/linux-dlm.git dlm/next
+Already up to date.
+Merging rdma/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/rdma/rdma.git rdma/for-next
+Already up to date.
+Merging net-next/master (58f9d52ff689 Merge tag 'net-5.19-rc1' of git://git.kernel.org/pub/scm/linux/kernel/git/netdev/net)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git net-next/master
+Already up to date.
+Merging bpf-next/for-next (7e062cda7d90 Merge tag 'net-next-5.19' of git://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf-next.git bpf-next/for-next
+Already up to date.
+Merging ipsec-next/master (0f9008e5c510 Merge  branch 'Be explicit with XFRM offload direction')
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/klassert/ipsec-next.git ipsec-next/master
+Already up to date.
+Merging mlx5-next/mlx5-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'mlx5-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mellanox/linux.git mlx5-next/mlx5-next
+Already up to date.
+Merging netfilter-next/master (677fb7525331 Merge git://git.kernel.org/pub/scm/linux/kernel/git/netdev/net)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/pablo/nf-next.git netfilter-next/master
+Already up to date.
+Merging ipvs-next/master (0c7b27616fbd selftests: netfilter: add fib expression forward test case)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/horms/ipvs-next.git ipvs-next/master
+Already up to date.
+Merging bluetooth/master (a589ee43644c Bluetooth: hci_bcm: Add BCM4349B1 variant)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/bluetooth/bluetooth-next.git bluetooth/master
+Auto-merging include/net/bluetooth/hci_core.h
+Auto-merging net/bluetooth/hci_core.c
+Merge made by the 'ort' strategy.
+ .../bindings/net/broadcom-bluetooth.yaml           |  8 ++++
+ drivers/bluetooth/btbcm.c                          | 33 +++++++++++++----
+ drivers/bluetooth/btbcm.h                          |  8 ++--
+ drivers/bluetooth/btusb.c                          |  3 ++
+ drivers/bluetooth/hci_bcm.c                        | 17 +++++++--
+ drivers/bluetooth/hci_intel.c                      |  6 ++-
+ drivers/bluetooth/hci_qca.c                        |  2 +-
+ include/net/bluetooth/hci.h                        |  1 +
+ include/net/bluetooth/hci_core.h                   |  2 +
+ net/bluetooth/hci_conn.c                           |  3 ++
+ net/bluetooth/hci_core.c                           | 43 +++++++++++++++++-----
+ net/bluetooth/hci_event.c                          |  9 +++--
+ net/bluetooth/hci_sock.c                           | 11 +++++-
+ 13 files changed, 115 insertions(+), 31 deletions(-)
+Merging wireless-next/for-next (0e703de3ef41 wifi: wilc1000: add IGTK support)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/wireless/wireless-next.git wireless-next/for-next
+Auto-merging drivers/net/wireless/realtek/rtw88/main.c
+Merge made by the 'ort' strategy.
+ drivers/net/wireless/microchip/wilc1000/cfg80211.c | 246 +++++++++++++--------
+ drivers/net/wireless/microchip/wilc1000/fw.h       |  21 +-
+ drivers/net/wireless/microchip/wilc1000/hif.c      | 202 ++++++++---------
+ drivers/net/wireless/microchip/wilc1000/hif.h      |  14 +-
+ drivers/net/wireless/microchip/wilc1000/netdev.c   |  11 +-
+ drivers/net/wireless/microchip/wilc1000/netdev.h   |  14 +-
+ drivers/net/wireless/microchip/wilc1000/spi.c      |   6 +-
+ drivers/net/wireless/microchip/wilc1000/wlan.c     |   3 +-
+ drivers/net/wireless/microchip/wilc1000/wlan.h     |   2 +
+ drivers/net/wireless/microchip/wilc1000/wlan_if.h  |  20 +-
+ drivers/net/wireless/realtek/rtlwifi/debug.c       |   8 +-
+ drivers/net/wireless/realtek/rtw88/main.c          |   5 +-
+ drivers/net/wireless/realtek/rtw88/rtw8723d.c      |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8723d.h      |   2 +
+ drivers/net/wireless/realtek/rtw88/rtw8723de.c     |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8723de.h     |  10 -
+ drivers/net/wireless/realtek/rtw88/rtw8821c.c      |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8821c.h      |   2 +
+ drivers/net/wireless/realtek/rtw88/rtw8821ce.c     |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8821ce.h     |  10 -
+ drivers/net/wireless/realtek/rtw88/rtw8822b.c      |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8822b.h      |   2 +
+ drivers/net/wireless/realtek/rtw88/rtw8822be.c     |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8822be.h     |  10 -
+ drivers/net/wireless/realtek/rtw88/rtw8822c.c      |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8822c.h      |   2 +
+ drivers/net/wireless/realtek/rtw88/rtw8822ce.c     |   2 +-
+ drivers/net/wireless/realtek/rtw88/rtw8822ce.h     |  10 -
+ drivers/net/wireless/realtek/rtw89/core.c          |   7 +-
+ drivers/net/wireless/realtek/rtw89/core.h          |  24 +-
+ drivers/net/wireless/realtek/rtw89/debug.h         |   1 +
+ drivers/net/wireless/realtek/rtw89/fw.c            |  24 +-
+ drivers/net/wireless/realtek/rtw89/fw.h            |   5 +-
+ drivers/net/wireless/realtek/rtw89/mac.c           |  15 +-
+ drivers/net/wireless/realtek/rtw89/mac.h           |   1 +
+ drivers/net/wireless/realtek/rtw89/mac80211.c      |   2 +-
+ drivers/net/wireless/realtek/rtw89/pci.c           |   9 +-
+ drivers/net/wireless/realtek/rtw89/pci.h           |   1 +
+ drivers/net/wireless/realtek/rtw89/rtw8852c.c      |   1 +
+ drivers/net/wireless/realtek/rtw89/rtw8852c_rfk.c  |  27 +++
+ drivers/net/wireless/realtek/rtw89/rtw8852c_rfk.h  |   1 +
+ drivers/net/wireless/realtek/rtw89/sar.c           | 140 ++++++++++--
+ drivers/net/wireless/st/cw1200/bh.c                |  10 +-
+ 43 files changed, 546 insertions(+), 338 deletions(-)
+ delete mode 100644 drivers/net/wireless/realtek/rtw88/rtw8723de.h
+ delete mode 100644 drivers/net/wireless/realtek/rtw88/rtw8821ce.h
+ delete mode 100644 drivers/net/wireless/realtek/rtw88/rtw8822be.h
+ delete mode 100644 drivers/net/wireless/realtek/rtw88/rtw8822ce.h
+Merging mtd/mtd/next (2c51d0d88020 Merge tag 'nand/for-5.19' into mtd/next)
+$ git merge -m Merge branch 'mtd/next' of git://git.kernel.org/pub/scm/linux/kernel/git/mtd/linux.git mtd/mtd/next
+Already up to date.
+Merging nand/nand/next (6a2277a0ebe7 mtd: rawnand: renesas: Use runtime PM instead of the raw clock API)
+$ git merge -m Merge branch 'nand/next' of git://git.kernel.org/pub/scm/linux/kernel/git/mtd/linux.git nand/nand/next
+Already up to date.
+Merging spi-nor/spi-nor/next (c47452194641 mtd: spi-nor: debugfs: fix format specifier)
+$ git merge -m Merge branch 'spi-nor/next' of git://git.kernel.org/pub/scm/linux/kernel/git/mtd/linux.git spi-nor/spi-nor/next
+Already up to date.
+Merging crypto/master (e4e62bbc6aba hwrng: omap3-rom - fix using wrong clk_disable() in omap_rom_rng_runtime_resume())
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/herbert/cryptodev-2.6.git crypto/master
+Already up to date.
+Merging drm/drm-next (404204340c0d Merge tag 'drm/tegra/for-5.19-prep-work' of https://gitlab.freedesktop.org/drm/tegra into drm-next)
+$ git merge -m Merge branch 'drm-next' of git://git.freedesktop.org/git/drm/drm.git drm/drm-next
+Already up to date.
+Merging drm-misc/for-linux-next (5ee8c8f930ba drm/rockchip: Change register space names in vop2)
+$ git merge -m Merge branch 'for-linux-next' of git://anongit.freedesktop.org/drm/drm-misc drm-misc/for-linux-next
+Already up to date.
+Merging amdgpu/drm-next (ea64228d26fe drm/amdgpu/soc21: add mode2 asic reset for SMU IP v13.0.4)
+$ git merge -m Merge branch 'drm-next' of https://gitlab.freedesktop.org/agd5f/linux amdgpu/drm-next
+Auto-merging drivers/gpu/drm/amd/display/dc/core/dc_link_dp.c
+Auto-merging drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+Auto-merging drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c
+Merge made by the 'ort' strategy.
+ drivers/gpu/drm/amd/amdgpu/Makefile                |      3 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu.h                |      8 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c   |     13 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ctx.c            |      7 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_debugfs.c        |      7 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c         |    129 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c      |     10 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_display.c        |     52 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_gfx.c            |     64 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_gfx.h            |      2 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_gmc.c            |      4 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_imu.h            |      7 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ras.c            |     32 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ras.h            |      6 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_ring.c           |     12 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c             |      8 +-
+ drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c             |     34 +-
+ drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c             |     30 +-
+ drivers/gpu/drm/amd/amdgpu/gfxhub_v3_0.c           |      7 +-
+ drivers/gpu/drm/amd/amdgpu/gmc_v11_0.c             |     11 +
+ drivers/gpu/drm/amd/amdgpu/imu_v11_0.c             |     48 +-
+ drivers/gpu/drm/amd/amdgpu/mmhub_v3_0.c            |      6 +-
+ drivers/gpu/drm/amd/amdgpu/mmhub_v3_0_1.c          |    555 +
+ drivers/gpu/drm/amd/amdgpu/mmhub_v3_0_1.h          |     28 +
+ drivers/gpu/drm/amd/amdgpu/mmhub_v3_0_2.c          |      6 +-
+ drivers/gpu/drm/amd/amdgpu/nbio_v2_3.c             |      2 +-
+ drivers/gpu/drm/amd/amdgpu/nbio_v7_7.c             |      8 +-
+ drivers/gpu/drm/amd/amdgpu/nv.c                    |      1 +
+ drivers/gpu/drm/amd/amdgpu/soc21.c                 |     12 +-
+ drivers/gpu/drm/amd/amdgpu/umc_v6_7.c              |     50 +-
+ drivers/gpu/drm/amd/amdkfd/kfd_crat.c              |      2 +
+ drivers/gpu/drm/amd/amdkfd/kfd_device.c            |     14 +
+ drivers/gpu/drm/amd/amdkfd/kfd_migrate.c           |      6 +-
+ drivers/gpu/drm/amd/amdkfd/kfd_svm.c               |      5 +-
+ drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c  |    245 +-
+ .../amd/display/amdgpu_dm/amdgpu_dm_mst_types.c    |     38 +-
+ .../gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_psr.c  |     21 +-
+ drivers/gpu/drm/amd/display/dc/Makefile            |      2 +
+ drivers/gpu/drm/amd/display/dc/bios/bios_parser2.c |    950 +-
+ .../display/dc/bios/bios_parser_types_internal2.h  |      1 +
+ .../gpu/drm/amd/display/dc/bios/command_table.c    |      4 +-
+ .../amd/display/dc/bios/command_table_helper2.c    |      2 +
+ drivers/gpu/drm/amd/display/dc/clk_mgr/Makefile    |     35 +
+ drivers/gpu/drm/amd/display/dc/clk_mgr/clk_mgr.c   |     17 +-
+ .../amd/display/dc/clk_mgr/dcn30/dcn30_clk_mgr.c   |     15 +-
+ .../amd/display/dc/clk_mgr/dcn30/dcn30_clk_mgr.h   |     60 +
+ .../amd/display/dc/clk_mgr/dcn31/dcn31_clk_mgr.c   |     19 +-
+ .../amd/display/dc/clk_mgr/dcn31/dcn31_clk_mgr.h   |      2 +
+ .../amd/display/dc/clk_mgr/dcn315/dcn315_clk_mgr.c |     15 +-
+ .../amd/display/dc/clk_mgr/dcn316/dcn316_clk_mgr.c |     11 +-
+ .../gpu/drm/amd/display/dc/clk_mgr/dcn32/dalsmc.h  |     65 +
+ .../amd/display/dc/clk_mgr/dcn32/dcn32_clk_mgr.c   |    725 +
+ .../amd/display/dc/clk_mgr/dcn32/dcn32_clk_mgr.h   |     39 +
+ .../dc/clk_mgr/dcn32/dcn32_clk_mgr_smu_msg.c       |    134 +
+ .../dc/clk_mgr/dcn32/dcn32_clk_mgr_smu_msg.h       |     46 +
+ .../dc/clk_mgr/dcn32/dcn32_smu13_driver_if.h       |     63 +
+ .../amd/display/dc/clk_mgr/dcn32/smu13_driver_if.h |    108 +
+ drivers/gpu/drm/amd/display/dc/core/dc.c           |     68 +-
+ drivers/gpu/drm/amd/display/dc/core/dc_link.c      |     50 +-
+ drivers/gpu/drm/amd/display/dc/core/dc_link_dp.c   |    161 +-
+ drivers/gpu/drm/amd/display/dc/core/dc_resource.c  |     33 +-
+ drivers/gpu/drm/amd/display/dc/dc.h                |     27 +-
+ drivers/gpu/drm/amd/display/dc/dc_bios_types.h     |      5 +
+ drivers/gpu/drm/amd/display/dc/dc_dmub_srv.c       |     31 +
+ drivers/gpu/drm/amd/display/dc/dc_dmub_srv.h       |      2 +
+ drivers/gpu/drm/amd/display/dc/dc_hw_types.h       |      1 +
+ drivers/gpu/drm/amd/display/dc/dc_link.h           |      1 +
+ drivers/gpu/drm/amd/display/dc/dc_stream.h         |     26 +
+ drivers/gpu/drm/amd/display/dc/dc_types.h          |     21 +-
+ drivers/gpu/drm/amd/display/dc/dce/dce_abm.h       |     45 +
+ .../gpu/drm/amd/display/dc/dce/dce_clock_source.c  |     27 +
+ .../gpu/drm/amd/display/dc/dce/dce_clock_source.h  |     15 +
+ .../gpu/drm/amd/display/dc/dce/dmub_hw_lock_mgr.c  |      2 +
+ drivers/gpu/drm/amd/display/dc/dce/dmub_psr.c      |     41 +
+ .../amd/display/dc/dce110/dce110_hw_sequencer.c    |     14 +-
+ .../gpu/drm/amd/display/dc/dcn10/dcn10_hubbub.h    |     33 +
+ drivers/gpu/drm/amd/display/dc/dcn10/dcn10_hubp.c  |      2 +
+ .../drm/amd/display/dc/dcn10/dcn10_hw_sequencer.c  |    131 +
+ .../drm/amd/display/dc/dcn10/dcn10_link_encoder.h  |      6 +
+ drivers/gpu/drm/amd/display/dc/dcn10/dcn10_optc.h  |      5 +
+ .../amd/display/dc/dcn10/dcn10_stream_encoder.h    |     29 +
+ drivers/gpu/drm/amd/display/dc/dcn20/dcn20_dccg.h  |     34 +-
+ drivers/gpu/drm/amd/display/dc/dcn20/dcn20_hubp.c  |      2 +
+ drivers/gpu/drm/amd/display/dc/dcn20/dcn20_hubp.h  |     25 +-
+ drivers/gpu/drm/amd/display/dc/dcn20/dcn20_hwseq.c |     46 +-
+ .../display/dc/dcn30/dcn30_dio_stream_encoder.c    |     31 +-
+ .../display/dc/dcn30/dcn30_dio_stream_encoder.h    |     35 +
+ drivers/gpu/drm/amd/display/dc/dcn30/dcn30_dpp.c   |      8 +-
+ drivers/gpu/drm/amd/display/dc/dcn30/dcn30_dpp.h   |     16 +
+ drivers/gpu/drm/amd/display/dc/dcn30/dcn30_hwseq.c |     33 +-
+ drivers/gpu/drm/amd/display/dc/dcn30/dcn30_mpc.c   |     14 +-
+ drivers/gpu/drm/amd/display/dc/dcn30/dcn30_mpc.h   |    147 +
+ drivers/gpu/drm/amd/display/dc/dcn30/dcn30_optc.h  |      9 +
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_dccg.c  |    106 +-
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_dccg.h  |     16 +-
+ .../amd/display/dc/dcn31/dcn31_dio_link_encoder.c  |      4 +-
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_hubp.c  |      2 +-
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_optc.c  |      1 +
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_optc.h  |      6 +-
+ .../gpu/drm/amd/display/dc/dcn31/dcn31_resource.c  |      1 -
+ drivers/gpu/drm/amd/display/dc/dcn32/Makefile      |     44 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dccg.c  |    303 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dccg.h  |    159 +
+ .../amd/display/dc/dcn32/dcn32_dio_link_encoder.c  |    294 +
+ .../amd/display/dc/dcn32/dcn32_dio_link_encoder.h  |     60 +
+ .../display/dc/dcn32/dcn32_dio_stream_encoder.c    |    461 +
+ .../display/dc/dcn32/dcn32_dio_stream_encoder.h    |    266 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dpp.c   |    164 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dpp.h   |     38 +
+ .../display/dc/dcn32/dcn32_hpo_dp_link_encoder.c   |     90 +
+ .../display/dc/dcn32/dcn32_hpo_dp_link_encoder.h   |     63 +
+ .../gpu/drm/amd/display/dc/dcn32/dcn32_hubbub.c    |    964 +
+ .../gpu/drm/amd/display/dc/dcn32/dcn32_hubbub.h    |    172 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hubp.c  |    148 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hubp.h  |     69 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hwseq.c |    958 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hwseq.h |     66 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_init.c  |    156 +
+ .../hw_translate_diag.c => dcn32/dcn32_init.h}     |     20 +-
+ .../gpu/drm/amd/display/dc/dcn32/dcn32_mmhubbub.c  |    239 +
+ .../gpu/drm/amd/display/dc/dcn32/dcn32_mmhubbub.h  |    225 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_mpc.c   |    810 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_mpc.h   |    213 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_optc.c  |    268 +
+ drivers/gpu/drm/amd/display/dc/dcn32/dcn32_optc.h  |    254 +
+ .../gpu/drm/amd/display/dc/dcn32/dcn32_resource.c  |   4002 +
+ .../gpu/drm/amd/display/dc/dcn32/dcn32_resource.h  |     88 +
+ drivers/gpu/drm/amd/display/dc/dcn321/Makefile     |     41 +
+ .../display/dc/dcn321/dcn321_dio_link_encoder.c    |    199 +
+ .../display/dc/dcn321/dcn321_dio_link_encoder.h    |     42 +
+ .../drm/amd/display/dc/dcn321/dcn321_resource.c    |   2335 +
+ .../hw_factory_diag.c => dcn321/dcn321_resource.h} |     46 +-
+ drivers/gpu/drm/amd/display/dc/dml/Makefile        |      7 +
+ .../gpu/drm/amd/display/dc/dml/dcn20/dcn20_fpu.c   |     36 +-
+ .../amd/display/dc/dml/dcn30/display_mode_vba_30.c |      8 +-
+ .../amd/display/dc/dml/dcn31/display_mode_vba_31.c |      2 +-
+ .../display/dc/dml/dcn31/display_rq_dlg_calc_31.c  |     16 +-
+ .../amd/display/dc/dml/dcn32/display_mode_vba_32.c |   3835 +
+ .../amd/display/dc/dml/dcn32/display_mode_vba_32.h |     57 +
+ .../dc/dml/dcn32/display_mode_vba_util_32.c        |   6254 +
+ .../dc/dml/dcn32/display_mode_vba_util_32.h        |   1175 +
+ .../display/dc/dml/dcn32/display_rq_dlg_calc_32.c  |    616 +
+ .../display/dc/dml/dcn32/display_rq_dlg_calc_32.h  |     70 +
+ .../drm/amd/display/dc/dml/display_mode_enums.h    |     88 +-
+ .../gpu/drm/amd/display/dc/dml/display_mode_lib.c  |     12 +
+ .../gpu/drm/amd/display/dc/dml/display_mode_lib.h  |     15 +
+ .../drm/amd/display/dc/dml/display_mode_structs.h  |    133 +
+ .../gpu/drm/amd/display/dc/dml/display_mode_vba.c  |    171 +
+ .../gpu/drm/amd/display/dc/dml/display_mode_vba.h  |    243 +-
+ drivers/gpu/drm/amd/display/dc/dml/dml_wrapper.c   |     73 +-
+ drivers/gpu/drm/amd/display/dc/dsc/dc_dsc.c        |      4 +-
+ drivers/gpu/drm/amd/display/dc/gpio/Makefile       |      8 +-
+ .../amd/display/dc/gpio/dcn32/hw_factory_dcn32.c   |    255 +
+ .../hw_factory_diag.h => dcn32/hw_factory_dcn32.h} |     13 +-
+ .../amd/display/dc/gpio/dcn32/hw_translate_dcn32.c |    349 +
+ .../hw_translate_dcn32.h}                          |     11 +-
+ drivers/gpu/drm/amd/display/dc/gpio/hw_factory.c   |     16 +-
+ drivers/gpu/drm/amd/display/dc/gpio/hw_translate.c |     13 +-
+ drivers/gpu/drm/amd/display/dc/inc/core_types.h    |     10 +
+ drivers/gpu/drm/amd/display/dc/inc/hw/clk_mgr.h    |      3 +
+ .../drm/amd/display/dc/inc/hw/clk_mgr_internal.h   |     45 +-
+ drivers/gpu/drm/amd/display/dc/inc/hw/dccg.h       |     44 +-
+ drivers/gpu/drm/amd/display/dc/inc/hw/dchubbub.h   |      3 +
+ drivers/gpu/drm/amd/display/dc/inc/hw/hubp.h       |      8 +
+ .../gpu/drm/amd/display/dc/inc/hw/link_encoder.h   |     15 +-
+ drivers/gpu/drm/amd/display/dc/inc/hw/mem_input.h  |      2 +
+ drivers/gpu/drm/amd/display/dc/inc/hw/mpc.h        |      5 +
+ .../gpu/drm/amd/display/dc/inc/hw/stream_encoder.h |      7 +
+ .../drm/amd/display/dc/inc/hw/timing_generator.h   |      8 +
+ drivers/gpu/drm/amd/display/dc/inc/hw_sequencer.h  |      2 +
+ .../drm/amd/display/dc/inc/hw_sequencer_private.h  |     10 +
+ drivers/gpu/drm/amd/display/dc/inc/resource.h      |      7 +
+ drivers/gpu/drm/amd/display/dc/irq/Makefile        |     10 +-
+ .../amd/display/dc/irq/dcn32/irq_service_dcn32.c   |    432 +
+ .../amd/display/dc/irq/dcn32/irq_service_dcn32.h   |     35 +
+ .../gpu/drm/amd/display/dc/link/link_hwss_hpo_dp.c |     19 +-
+ drivers/gpu/drm/amd/display/dmub/dmub_srv.h        |      8 +
+ drivers/gpu/drm/amd/display/dmub/inc/dmub_cmd.h    |    276 +-
+ drivers/gpu/drm/amd/display/dmub/src/Makefile      |      1 +
+ drivers/gpu/drm/amd/display/dmub/src/dmub_dcn31.c  |     11 +-
+ drivers/gpu/drm/amd/display/dmub/src/dmub_dcn31.h  |      3 +-
+ drivers/gpu/drm/amd/display/dmub/src/dmub_dcn32.c  |    493 +
+ drivers/gpu/drm/amd/display/dmub/src/dmub_dcn32.h  |    256 +
+ drivers/gpu/drm/amd/display/dmub/src/dmub_srv.c    |     51 +-
+ .../drm/amd/display/include/bios_parser_types.h    |     11 +
+ drivers/gpu/drm/amd/display/include/dal_asic_id.h  |      8 +
+ drivers/gpu/drm/amd/display/include/dal_types.h    |      2 +
+ .../drm/amd/display/include/ddc_service_types.h    |      2 +
+ .../amd/display/modules/info_packet/info_packet.c  |     29 +-
+ .../drm/amd/display/modules/power/power_helpers.c  |     84 +
+ .../drm/amd/display/modules/power/power_helpers.h  |      6 +
+ drivers/gpu/drm/amd/display/modules/vmid/vmid.c    |      2 +-
+ .../gpu/drm/amd/include/asic_reg/dce/dce_11_0_d.h  |      1 +
+ .../amd/include/asic_reg/dce/dce_11_0_sh_mask.h    |      2 +
+ .../amd/include/asic_reg/dcn/dcn_3_2_0_offset.h    |  14675 ++
+ .../amd/include/asic_reg/dcn/dcn_3_2_0_sh_mask.h   | 222890 ++++++++++++++++++
+ .../amd/include/asic_reg/dcn/dcn_3_2_1_offset.h    |  14559 ++
+ .../amd/include/asic_reg/dcn/dcn_3_2_1_sh_mask.h   |  56578 +++++
+ .../include/asic_reg/mmhub/mmhub_3_0_1_offset.h    |   1769 +
+ .../include/asic_reg/mmhub/mmhub_3_0_1_sh_mask.h   |   7483 +
+ .../amd/include/asic_reg/nbio/nbio_7_7_0_offset.h  |      4 +
+ .../amd/include/asic_reg/nbio/nbio_7_7_0_sh_mask.h |     10 +
+ drivers/gpu/drm/amd/include/atomfirmware.h         |    209 +-
+ drivers/gpu/drm/amd/include/mes_api_def.h          |      2 +-
+ drivers/gpu/drm/amd/include/mes_v11_api_def.h      |      2 +-
+ drivers/gpu/drm/amd/pm/amdgpu_dpm.c                |     14 +
+ drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h            |      2 +
+ drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c          |      9 +-
+ drivers/gpu/drm/amd/pm/swsmu/inc/amdgpu_smu.h      |     11 +
+ .../drm/amd/pm/swsmu/inc/pmfw_if/arcturus_ppsmc.h  |      2 +-
+ .../swsmu/inc/pmfw_if/smu13_driver_if_aldebaran.h  |     16 +-
+ .../pm/swsmu/inc/pmfw_if/smu13_driver_if_v13_0_0.h |      6 +
+ drivers/gpu/drm/amd/pm/swsmu/inc/smu_v11_0.h       |      2 +
+ .../gpu/drm/amd/pm/swsmu/inc/smu_v11_0_7_pptable.h |      9 +-
+ .../gpu/drm/amd/pm/swsmu/inc/smu_v11_0_pptable.h   |      9 +-
+ drivers/gpu/drm/amd/pm/swsmu/inc/smu_v13_0.h       |      6 +-
+ .../gpu/drm/amd/pm/swsmu/inc/smu_v13_0_7_pptable.h |      5 +-
+ .../gpu/drm/amd/pm/swsmu/inc/smu_v13_0_pptable.h   |     10 +-
+ drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c  |      1 +
+ .../drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c    |      1 +
+ drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c    |      1 +
+ .../drm/amd/pm/swsmu/smu11/sienna_cichlid_ppt.c    |     13 +-
+ drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c     |      9 +
+ drivers/gpu/drm/amd/pm/swsmu/smu11/vangogh_ppt.c   |      1 +
+ drivers/gpu/drm/amd/pm/swsmu/smu12/renoir_ppt.c    |     14 +
+ drivers/gpu/drm/amd/pm/swsmu/smu13/aldebaran_ppt.c |     55 +-
+ drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c     |     28 +
+ .../gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_0_ppt.c   |      5 +-
+ .../gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_4_ppt.c   |     15 +
+ .../gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_5_ppt.c   |     14 +
+ .../gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_7_ppt.c   |      1 +
+ .../gpu/drm/amd/pm/swsmu/smu13/yellow_carp_ppt.c   |      1 +
+ drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c             |     57 +-
+ drivers/gpu/drm/radeon/ni_dpm.c                    |      6 +-
+ include/uapi/drm/drm_fourcc.h                      |      2 +
+ 235 files changed, 351368 insertions(+), 904 deletions(-)
+ create mode 100644 drivers/gpu/drm/amd/amdgpu/mmhub_v3_0_1.c
+ create mode 100644 drivers/gpu/drm/amd/amdgpu/mmhub_v3_0_1.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/dalsmc.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/dcn32_clk_mgr.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/dcn32_clk_mgr.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/dcn32_clk_mgr_smu_msg.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/dcn32_clk_mgr_smu_msg.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/dcn32_smu13_driver_if.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/clk_mgr/dcn32/smu13_driver_if.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/Makefile
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dccg.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dccg.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dio_link_encoder.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dio_link_encoder.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dio_stream_encoder.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dio_stream_encoder.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dpp.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_dpp.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hpo_dp_link_encoder.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hpo_dp_link_encoder.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hubbub.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hubbub.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hubp.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hubp.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hwseq.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_hwseq.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_init.c
+ rename drivers/gpu/drm/amd/display/dc/{gpio/diagnostics/hw_translate_diag.c => dcn32/dcn32_init.h} (74%)
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_mmhubbub.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_mmhubbub.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_mpc.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_mpc.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_optc.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_optc.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_resource.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn32/dcn32_resource.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn321/Makefile
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn321/dcn321_dio_link_encoder.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn321/dcn321_dio_link_encoder.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dcn321/dcn321_resource.c
+ rename drivers/gpu/drm/amd/display/dc/{gpio/diagnostics/hw_factory_diag.c => dcn321/dcn321_resource.h} (53%)
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dml/dcn32/display_mode_vba_32.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dml/dcn32/display_mode_vba_32.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dml/dcn32/display_mode_vba_util_32.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dml/dcn32/display_mode_vba_util_32.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dml/dcn32/display_rq_dlg_calc_32.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/dml/dcn32/display_rq_dlg_calc_32.h
+ create mode 100644 drivers/gpu/drm/amd/display/dc/gpio/dcn32/hw_factory_dcn32.c
+ rename drivers/gpu/drm/amd/display/dc/gpio/{diagnostics/hw_factory_diag.h => dcn32/hw_factory_dcn32.h} (81%)
+ create mode 100644 drivers/gpu/drm/amd/display/dc/gpio/dcn32/hw_translate_dcn32.c
+ rename drivers/gpu/drm/amd/display/dc/gpio/{diagnostics/hw_translate_diag.h => dcn32/hw_translate_dcn32.h} (82%)
+ create mode 100644 drivers/gpu/drm/amd/display/dc/irq/dcn32/irq_service_dcn32.c
+ create mode 100644 drivers/gpu/drm/amd/display/dc/irq/dcn32/irq_service_dcn32.h
+ create mode 100644 drivers/gpu/drm/amd/display/dmub/src/dmub_dcn32.c
+ create mode 100644 drivers/gpu/drm/amd/display/dmub/src/dmub_dcn32.h
+ create mode 100644 drivers/gpu/drm/amd/include/asic_reg/dcn/dcn_3_2_0_offset.h
+ create mode 100644 drivers/gpu/drm/amd/include/asic_reg/dcn/dcn_3_2_0_sh_mask.h
+ create mode 100644 drivers/gpu/drm/amd/include/asic_reg/dcn/dcn_3_2_1_offset.h
+ create mode 100644 drivers/gpu/drm/amd/include/asic_reg/dcn/dcn_3_2_1_sh_mask.h
+ create mode 100644 drivers/gpu/drm/amd/include/asic_reg/mmhub/mmhub_3_0_1_offset.h
+ create mode 100644 drivers/gpu/drm/amd/include/asic_reg/mmhub/mmhub_3_0_1_sh_mask.h
+$ git reset --hard HEAD^
+HEAD is now at 7cf73307e037 Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/wireless/wireless-next.git
+Merging next-20220601 version of amdgpu
+$ git merge -m next-20220601/amdgpu 8f1689d4fd30d90ef5d3121088bacee5bef536ce
+Auto-merging drivers/gpu/drm/amd/display/dc/core/dc_link_dp.c
+Merge made by the 'ort' strategy.
+ drivers/gpu/drm/amd/amdgpu/amdgpu.h                |   2 +-
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c         |  28 +---
+ drivers/gpu/drm/amd/amdgpu/imu_v11_0.c             |   2 +-
+ drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c  |   4 +-
+ .../amd/display/dc/clk_mgr/dcn31/dcn31_clk_mgr.c   |  19 ++-
+ .../amd/display/dc/clk_mgr/dcn31/dcn31_clk_mgr.h   |   2 +
+ .../amd/display/dc/clk_mgr/dcn315/dcn315_clk_mgr.c |  13 +-
+ .../amd/display/dc/clk_mgr/dcn316/dcn316_clk_mgr.c |  11 +-
+ drivers/gpu/drm/amd/display/dc/core/dc_link.c      |  17 ++-
+ drivers/gpu/drm/amd/display/dc/core/dc_link_dp.c   | 158 +++++++++++----------
+ drivers/gpu/drm/amd/display/dc/dc.h                |   6 +-
+ .../amd/display/dc/dce110/dce110_hw_sequencer.c    |  23 ++-
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_dccg.c  |  79 +++++------
+ drivers/gpu/drm/amd/display/dc/dcn31/dcn31_dccg.h  |   2 +-
+ .../amd/display/dc/dcn31/dcn31_dio_link_encoder.c  |   4 +-
+ drivers/gpu/drm/amd/display/dc/dsc/dc_dsc.c        |   4 +-
+ drivers/gpu/drm/amd/display/dc/inc/hw/clk_mgr.h    |   1 +
+ drivers/gpu/drm/amd/display/dc/inc/hw/dccg.h       |  20 ++-
+ drivers/gpu/drm/amd/display/dc/inc/hw/mpc.h        |   5 +
+ .../drm/amd/display/dc/inc/hw_sequencer_private.h  |   2 +
+ .../gpu/drm/amd/display/dc/link/link_hwss_hpo_dp.c |  19 ++-
+ drivers/gpu/drm/amd/display/dmub/src/dmub_dcn31.c  |  11 +-
+ drivers/gpu/drm/amd/display/dmub/src/dmub_dcn31.h  |   3 +-
+ .../drm/amd/display/include/ddc_service_types.h    |   2 +
+ drivers/gpu/drm/amd/display/modules/vmid/vmid.c    |   2 +-
+ drivers/gpu/drm/amd/include/mes_api_def.h          |   2 +-
+ .../drm/amd/pm/swsmu/inc/pmfw_if/arcturus_ppsmc.h  |   2 +-
+ .../pm/swsmu/inc/pmfw_if/smu13_driver_if_v13_0_0.h |   6 +
+ drivers/gpu/drm/amd/pm/swsmu/inc/smu_v13_0.h       |   2 +-
+ .../drm/amd/pm/swsmu/smu11/sienna_cichlid_ppt.c    |   2 +-
+ .../gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_0_ppt.c   |   4 +-
+ 31 files changed, 254 insertions(+), 203 deletions(-)
+Merging drm-intel/for-linux-next (0ea917819d12 drm/i915/dsi: fix VBT send packet port selection for ICL+)
+$ git merge -m Merge branch 'for-linux-next' of git://anongit.freedesktop.org/drm-intel drm-intel/for-linux-next
+Already up to date.
+Merging drm-tegra/drm/tegra/for-next (b53c24f69199 drm/tegra: Support YVYU, VYUY and YU24 formats)
+$ git merge -m Merge branch 'drm/tegra/for-next' of git://anongit.freedesktop.org/tegra/linux.git drm-tegra/drm/tegra/for-next
+Merge made by the 'ort' strategy.
+Merging drm-msm/msm-next (24df12013853 MAINTAINERS: Add Dmitry as MSM DRM driver co-maintainer)
+$ git merge -m Merge branch 'msm-next' of https://gitlab.freedesktop.org/drm/msm.git drm-msm/msm-next
+Already up to date.
+Merging imx-drm/imx-drm/next (927d8fd465ad drm/imx: ipuv3-plane: Remove redundant color encoding and range initialisation)
+$ git merge -m Merge branch 'imx-drm/next' of https://git.pengutronix.de/git/pza/linux imx-drm/imx-drm/next
+Already up to date.
+Merging etnaviv/etnaviv/next (2829a9fcb738 drm/etnaviv: reap idle softpin mappings when necessary)
+$ git merge -m Merge branch 'etnaviv/next' of https://git.pengutronix.de/git/lst/linux etnaviv/etnaviv/next
+Already up to date.
+Merging fbdev/for-next (17d9c905ecb7 fbcon: Fix accelerated fbdev scrolling while logo is still shown)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/deller/linux-fbdev.git fbdev/for-next
+Auto-merging drivers/video/fbdev/core/fbcon.c
+Merge made by the 'ort' strategy.
+ drivers/video/fbdev/core/fbcon.c | 12 +++++-------
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+Merging regmap/for-next (687e2ae18602 Merge remote-tracking branch 'regmap/for-5.20' into regmap-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/regmap.git regmap/for-next
+Merge made by the 'ort' strategy.
+ drivers/base/regmap/regcache.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+Merging sound/for-next (e0469d6581ae ALSA: usb-audio: Set up (implicit) sync for Saffire 6)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git sound/for-next
+Already up to date.
+Merging sound-asoc/for-next (65213b6150d1 Merge remote-tracking branch 'asoc/for-5.20' into asoc-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/sound.git sound-asoc/for-next
+Merge made by the 'ort' strategy.
+Merging modules/modules-next (7390b94a3c2d module: merge check_exported_symbol() into find_exported_symbol_in_section())
+$ git merge -m Merge branch 'modules-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mcgrof/linux.git modules/modules-next
+Already up to date.
+Merging input/next (69cf890d8b28 Input: mtk-pmic-keys - move long press debounce mask to mtk_pmic_regs)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/dtor/input.git input/next
+Auto-merging MAINTAINERS
+Auto-merging drivers/input/input.c
+Merge made by the 'ort' strategy.
+ .../bindings/input/fsl,mpr121-touchkey.yaml        |   4 +-
+ .../devicetree/bindings/input/gpio-keys.yaml       |   4 +-
+ .../devicetree/bindings/input/iqs269a.yaml         |   2 +-
+ .../devicetree/bindings/input/iqs626a.yaml         |   2 +-
+ .../bindings/input/microchip,cap11xx.yaml          |   2 +-
+ drivers/input/keyboard/Kconfig                     |   2 +-
+ drivers/input/keyboard/adp5588-keys.c              | 206 +++++++++------------
+ drivers/input/keyboard/cros_ec_keyb.c              |  89 ++++++---
+ drivers/input/keyboard/mtk-pmic-keys.c             |  98 +++++-----
+ drivers/input/keyboard/omap4-keypad.c              |  26 ++-
+ drivers/input/touchscreen/zinitix.c                | 112 +++++------
+ 11 files changed, 275 insertions(+), 272 deletions(-)
+Merging block/for-next (75d6654eb3ab Merge branch 'for-5.19/block' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.dk/linux-block.git block/for-next
+Auto-merging block/blk-core.c
+Auto-merging block/blk-mq.c
+Auto-merging drivers/block/loop.c
+Auto-merging drivers/md/bcache/journal.c
+Auto-merging drivers/md/bcache/request.c
+Auto-merging drivers/nvme/host/core.c
+Auto-merging drivers/nvme/host/pci.c
+Auto-merging drivers/nvme/target/passthru.c
+Auto-merging include/linux/blk_types.h
+Auto-merging include/linux/blkdev.h
+Merge made by the 'ort' strategy.
+Merging device-mapper/for-next (4caae58406f8 dm verity: set DM_TARGET_IMMUTABLE feature flag)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/device-mapper/linux-dm.git device-mapper/for-next
+Already up to date.
+Merging libata/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dlemoal/libata.git libata/for-next
+Already up to date.
+Merging pcmcia/pcmcia-next (2ef4bb24ff39 pcmcia: Use platform_get_irq() to get the interrupt)
+$ git merge -m Merge branch 'pcmcia-next' of git://git.kernel.org/pub/scm/linux/kernel/git/brodo/linux.git pcmcia/pcmcia-next
+Already up to date.
+Merging mmc/next (ded2c4c34500 mmc: sdhci-of-arasan: Add NULL check for data field)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/ulfh/mmc.git mmc/next
+Already up to date.
+Merging mfd/for-mfd-next (f93afd8e7567 dt-bindings: cros-ec: Fix a typo in description)
+$ git merge -m Merge branch 'for-mfd-next' of git://git.kernel.org/pub/scm/linux/kernel/git/lee/mfd.git mfd/for-mfd-next
+Already up to date.
+Merging backlight/for-backlight-next (023a8830a628 backlight: backlight: Slighly simplify devm_of_find_backlight())
+$ git merge -m Merge branch 'for-backlight-next' of git://git.kernel.org/pub/scm/linux/kernel/git/lee/backlight.git backlight/for-backlight-next
+Already up to date.
+Merging battery/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/sre/linux-power-supply.git battery/for-next
+Already up to date.
+Merging regulator/for-next (e04370b7686f Merge remote-tracking branch 'regulator/for-5.20' into regulator-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/regulator.git regulator/for-next
+Auto-merging Documentation/devicetree/bindings/regulator/mt6315-regulator.yaml
+Auto-merging drivers/regulator/core.c
+Merge made by the 'ort' strategy.
+ .../devicetree/bindings/regulator/mps,mp5416.yaml  |  1 +
+ drivers/regulator/mp5416.c                         | 29 ++++++++++++++++++----
+ drivers/regulator/rt5190a-regulator.c              |  3 +++
+ 3 files changed, 28 insertions(+), 5 deletions(-)
+Merging security/next-testing (047843bdb316 Merge branch 'landlock_lsm_v34' into next-testing)
+$ git merge -m Merge branch 'next-testing' of git://git.kernel.org/pub/scm/linux/kernel/git/jmorris/linux-security.git security/next-testing
+Auto-merging security/commoncap.c
+Merge made by the 'ort' strategy.
+Merging apparmor/apparmor-next (c2489617b3b9 apparmor: Fix undefined reference to `zlib_deflate_workspacesize')
+$ git merge -m Merge branch 'apparmor-next' of git://git.kernel.org/pub/scm/linux/kernel/git/jj/linux-apparmor apparmor/apparmor-next
+Auto-merging MAINTAINERS
+Auto-merging security/apparmor/lsm.c
+Auto-merging security/apparmor/policy_unpack_test.c
+CONFLICT (content): Merge conflict in security/apparmor/policy_unpack_test.c
+Resolved 'security/apparmor/policy_unpack_test.c' using previous resolution.
+Automatic merge failed; fix conflicts and then commit the result.
+$ git commit --no-edit -v -a
+[master f5f8562b75d4] Merge branch 'apparmor-next' of git://git.kernel.org/pub/scm/linux/kernel/git/jj/linux-apparmor
+$ git diff -M --stat --summary HEAD^..
+ MAINTAINERS                            |  7 ++-
+ security/apparmor/Kconfig              | 86 ++++++++++++++++++++---------
+ security/apparmor/apparmorfs.c         | 99 +++++++++++++++++++---------------
+ security/apparmor/audit.c              |  2 +-
+ security/apparmor/include/apparmor.h   |  1 +
+ security/apparmor/include/apparmorfs.h | 14 +++++
+ security/apparmor/include/lib.h        |  5 ++
+ security/apparmor/label.c              | 17 +++---
+ security/apparmor/lib.c                |  2 +-
+ security/apparmor/lsm.c                | 23 ++++----
+ security/apparmor/mount.c              | 11 ++--
+ security/apparmor/policy.c             | 35 ++++++------
+ security/apparmor/policy_unpack.c      | 37 ++++++++-----
+ security/apparmor/policy_unpack_test.c | 28 +++++-----
+ security/apparmor/procattr.c           |  2 +-
+ 15 files changed, 231 insertions(+), 138 deletions(-)
+Merging integrity/next-integrity (048ae41bb080 integrity: Fix sparse warnings in keyring_handler)
+$ git merge -m Merge branch 'next-integrity' of git://git.kernel.org/pub/scm/linux/kernel/git/zohar/linux-integrity integrity/next-integrity
+Already up to date.
+Merging keys/keys-next (2d743660786e Merge branch 'fixes' of git://git.kernel.org/pub/scm/linux/kernel/git/viro/vfs)
+$ git merge -m Merge branch 'keys-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dhowells/linux-fs.git keys/keys-next
+Already up to date.
+Merging safesetid/safesetid-next (1b8b71922919 LSM: SafeSetID: Mark safesetid_initialized as __initdata)
+$ git merge -m Merge branch 'safesetid-next' of https://github.com/micah-morton/linux.git safesetid/safesetid-next
+Already up to date.
+Merging selinux/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/pcmoore/selinux.git selinux/next
+Already up to date.
+Merging smack/next (ba6b652bd863 smack: Remove redundant assignments)
+$ git merge -m Merge branch 'next' of git://github.com/cschaufler/smack-next smack/next
+Auto-merging security/smack/smackfs.c
+Merge made by the 'ort' strategy.
+Merging tomoyo/master (d1327db5f132 workqueue: Wrap flush_workqueue() using a macro)
+$ git merge -m Merge branch 'master' of https://scm.osdn.net/gitroot/tomoyo/tomoyo-test1.git tomoyo/master
+Merge made by the 'ort' strategy.
+ include/linux/workqueue.h | 64 +++++++++++++++++++++++++++++++++++++++++------
+ kernel/workqueue.c        | 16 +++++++++---
+ 2 files changed, 68 insertions(+), 12 deletions(-)
+Merging tpmdd/next (7f3113e3b9f7 MAINTAINERS: add KEYS-TRUSTED-CAAM)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/jarkko/linux-tpmdd.git tpmdd/next
+Already up to date.
+Merging watchdog/master (5d24df3d6908 watchdog: ts4800_wdt: Fix refcount leak in ts4800_wdt_probe)
+$ git merge -m Merge branch 'master' of git://www.linux-watchdog.org/linux-watchdog-next.git watchdog/master
+Already up to date.
+Merging iommu/next (b0dacee202ef Merge branches 'apple/dart', 'arm/mediatek', 'arm/msm', 'arm/smmu', 'ppc/pamu', 'x86/vt-d', 'x86/amd' and 'vfio-notifier-fix' into next)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/joro/iommu.git iommu/next
+Already up to date.
+Merging audit/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/pcmoore/audit.git audit/next
+Already up to date.
+Merging devicetree/for-next (ef1793665404 dt-bindings: ps2-gpio: document bus signals open drain)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/robh/linux.git devicetree/for-next
+Merge made by the 'ort' strategy.
+ .../devicetree/bindings/serio/ps2-gpio.txt         | 23 --------
+ .../devicetree/bindings/serio/ps2-gpio.yaml        | 64 ++++++++++++++++++++++
+ include/linux/of.h                                 |  5 +-
+ 3 files changed, 67 insertions(+), 25 deletions(-)
+ delete mode 100644 Documentation/devicetree/bindings/serio/ps2-gpio.txt
+ create mode 100644 Documentation/devicetree/bindings/serio/ps2-gpio.yaml
+Merging mailbox/mailbox-for-next (79f9fbe30352 mailbox: qcom-ipcc: Fix -Wunused-function with CONFIG_PM_SLEEP=n)
+$ git merge -m Merge branch 'mailbox-for-next' of git://git.linaro.org/landing-teams/working/fujitsu/integration.git mailbox/mailbox-for-next
+Already up to date.
+Merging spi/for-next (6aa27071e435 spi: dt-bindings: Fix unevaluatedProperties warnings in examples)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/broonie/spi.git spi/for-next
+Already up to date.
+Merging tip/master (23e79f6c0760 Merge branch into tip/master: 'x86/mm')
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git tip/master
+Auto-merging arch/Kconfig
+Auto-merging arch/x86/Kconfig
+Auto-merging arch/x86/Kconfig
+Auto-merging arch/x86/Kconfig
+CONFLICT (content): Merge conflict in arch/x86/Kconfig
+Auto-merging arch/x86/Kconfig
+CONFLICT (content): Merge conflict in arch/x86/Kconfig
+Auto-merging arch/x86/kernel/tracepoint.c
+Auto-merging arch/x86/kvm/vmx/vmx.c
+Auto-merging arch/x86/kvm/x86.c
+Auto-merging arch/x86/mm/init_64.c
+Auto-merging drivers/clocksource/Kconfig
+Auto-merging drivers/clocksource/Kconfig
+Auto-merging drivers/clocksource/timer-ti-dm.c
+Resolved 'arch/x86/Kconfig' using previous resolution.
+Automatic merge failed; fix conflicts and then commit the result.
+$ git commit --no-edit -v -a
+[master 7e7a0dd1b7b8] Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git
+$ git diff -M --stat --summary HEAD^..
+Merging clockevents/timers/drivers/next (ff714ee7191b clocksource/drivers/timer-ti-dm: Add compatible for am6 SoCs)
+$ git merge -m Merge branch 'timers/drivers/next' of git://git.linaro.org/people/daniel.lezcano/linux.git clockevents/timers/drivers/next
+Auto-merging arch/arm/mach-omap2/Kconfig
+Auto-merging drivers/clocksource/Kconfig
+Auto-merging drivers/clocksource/Makefile
+Auto-merging drivers/clocksource/timer-ti-dm.c
+Merge made by the 'ort' strategy.
+ arch/arm/mach-omap2/Kconfig       |   2 +
+ drivers/clocksource/Kconfig       |   8 ++-
+ drivers/clocksource/Makefile      |   2 +-
+ drivers/clocksource/timer-ti-dm.c | 123 ++++++++++++++++++++++++++++++++
+ include/clocksource/timer-ti-dm.h | 144 --------------------------------------
+ 5 files changed, 133 insertions(+), 146 deletions(-)
+Merging edac/edac-for-next (92705c9f9956 Merge edac-misc into for-next)
+$ git merge -m Merge branch 'edac-for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/ras/ras.git edac/edac-for-next
+Auto-merging drivers/edac/synopsys_edac.c
+Merge made by the 'ort' strategy.
+ drivers/edac/synopsys_edac.c | 44 +++++++++++++++++++++++++-------------------
+ 1 file changed, 25 insertions(+), 19 deletions(-)
+Merging irqchip/irq/irqchip-next (492449ae4f0a Merge branch irq/gic-v3-nmi-fixes-5.19 into irq/irqchip-next)
+$ git merge -m Merge branch 'irq/irqchip-next' of git://git.kernel.org/pub/scm/linux/kernel/git/maz/arm-platforms.git irqchip/irq/irqchip-next
+Already up to date.
+Merging ftrace/for-next (01dca6d03bb3 Merge branch 'trace/for-next-rtla' into trace/for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/rostedt/linux-trace.git ftrace/for-next
+Merge made by the 'ort' strategy.
+Merging rcu/rcu/next (409db57c8d45 Merge branch 'lkmm.2022.05.03a' into HEAD)
+$ git merge -m Merge branch 'rcu/next' of git://git.kernel.org/pub/scm/linux/kernel/git/paulmck/linux-rcu.git rcu/rcu/next
+Merge made by the 'ort' strategy.
+Merging kvm/next (85165781c5d9 KVM: Do not pin pages tracked by gfn=>pfn caches)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/virt/kvm/kvm.git kvm/next
+Already up to date.
+Merging kvm-arm/next (5c0ad551e9aa Merge branch kvm-arm64/its-save-restore-fixes-5.19 into kvmarm-master/next)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/kvmarm/kvmarm.git kvm-arm/next
+Already up to date.
+Merging kvms390/next (b1edf7f159a6 KVM: s390: selftests: Use TAP interface in the reset test)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/kvms390/linux.git kvms390/next
+Auto-merging Documentation/virt/kvm/api.rst
+Auto-merging arch/s390/kvm/kvm-s390.c
+Merge made by the 'ort' strategy.
+ Documentation/virt/kvm/api.rst               | 162 +++++++++++++++-
+ Documentation/virt/kvm/s390/index.rst        |   1 +
+ Documentation/virt/kvm/s390/s390-pv-dump.rst |  64 +++++++
+ arch/s390/boot/uv.c                          |   4 +
+ arch/s390/include/asm/kvm_host.h             |   1 +
+ arch/s390/include/asm/uv.h                   |  45 ++++-
+ arch/s390/kernel/uv.c                        |  53 ++++++
+ arch/s390/kvm/kvm-s390.c                     | 269 +++++++++++++++++++++++++++
+ arch/s390/kvm/kvm-s390.h                     |   5 +
+ arch/s390/kvm/pv.c                           | 198 ++++++++++++++++++++
+ include/uapi/linux/kvm.h                     |  55 ++++++
+ 11 files changed, 854 insertions(+), 3 deletions(-)
+ create mode 100644 Documentation/virt/kvm/s390/s390-pv-dump.rst
+Merging xen-tip/linux-next (fea981610c25 arm/xen: Assign xen-grant DMA ops for xen-grant DMA devices)
+$ git merge -m Merge branch 'linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/xen/tip.git xen-tip/linux-next
+Auto-merging MAINTAINERS
+Merge made by the 'ort' strategy.
+ .../devicetree/bindings/iommu/xen,grant-dma.yaml   |  39 +++
+ MAINTAINERS                                        |   8 +
+ arch/arm/include/asm/xen/xen-ops.h                 |   2 +
+ arch/arm/mm/dma-mapping.c                          |   7 +-
+ arch/arm/xen/enlighten.c                           |   2 +
+ arch/arm64/include/asm/xen/xen-ops.h               |   2 +
+ arch/arm64/mm/dma-mapping.c                        |   7 +-
+ arch/s390/Kconfig                                  |   1 -
+ arch/s390/mm/init.c                                |  13 +-
+ arch/x86/Kconfig                                   |   1 -
+ arch/x86/mm/mem_encrypt.c                          |   7 -
+ arch/x86/mm/mem_encrypt_amd.c                      |   4 +
+ arch/x86/xen/enlighten_hvm.c                       |   2 +
+ arch/x86/xen/enlighten_pv.c                        |   2 +
+ drivers/virtio/Kconfig                             |   6 -
+ drivers/virtio/virtio.c                            |   5 +-
+ drivers/xen/Kconfig                                |  20 ++
+ drivers/xen/Makefile                               |   2 +
+ drivers/xen/grant-dma-iommu.c                      |  78 +++++
+ drivers/xen/grant-dma-ops.c                        | 346 +++++++++++++++++++++
+ drivers/xen/grant-table.c                          | 251 ++++++++++++---
+ include/asm-generic/Kbuild                         |   1 +
+ include/asm-generic/platform-feature.h             |   8 +
+ include/linux/platform-feature.h                   |  19 ++
+ include/linux/virtio_config.h                      |   9 -
+ include/xen/arm/xen-ops.h                          |  18 ++
+ include/xen/grant_table.h                          |   4 +
+ include/xen/xen-ops.h                              |  13 +
+ include/xen/xen.h                                  |   8 +
+ kernel/Makefile                                    |   2 +-
+ kernel/platform-feature.c                          |  27 ++
+ 31 files changed, 830 insertions(+), 84 deletions(-)
+ create mode 100644 Documentation/devicetree/bindings/iommu/xen,grant-dma.yaml
+ create mode 100644 arch/arm/include/asm/xen/xen-ops.h
+ create mode 100644 arch/arm64/include/asm/xen/xen-ops.h
+ create mode 100644 drivers/xen/grant-dma-iommu.c
+ create mode 100644 drivers/xen/grant-dma-ops.c
+ create mode 100644 include/asm-generic/platform-feature.h
+ create mode 100644 include/linux/platform-feature.h
+ create mode 100644 include/xen/arm/xen-ops.h
+ create mode 100644 kernel/platform-feature.c
+Merging percpu/for-next (4e1f82dce05b Merge branch 'for-5.16-fixes' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/dennis/percpu.git percpu/for-next
+Merge made by the 'ort' strategy.
+Merging workqueues/for-next (10a5a651e3af workqueue: Restrict kworker in the offline CPU pool running on housekeeping CPUs)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/tj/wq.git workqueues/for-next
+Already up to date.
+Merging drivers-x86/for-next (badb81a58b9e platform/x86/intel/ifs: Add CPU_SUP_INTEL dependency)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git drivers-x86/for-next
+Already up to date.
+Merging chrome-platform/for-next (4319cbd4ed99 platform/chrome: cros_ec_proto: add Kunit tests for cros_ec_check_result())
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/chrome-platform/linux.git chrome-platform/for-next
+Merge made by the 'ort' strategy.
+ drivers/platform/chrome/Kconfig              |   9 ++
+ drivers/platform/chrome/Makefile             |   3 +
+ drivers/platform/chrome/cros_ec_proto.c      |  58 ++++----
+ drivers/platform/chrome/cros_ec_proto_test.c | 214 +++++++++++++++++++++++++++
+ 4 files changed, 259 insertions(+), 25 deletions(-)
+ create mode 100644 drivers/platform/chrome/cros_ec_proto_test.c
+Merging hsi/for-next (43c14f8d18a7 HSI: omap_ssi: Fix refcount leak in ssi_probe)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/sre/linux-hsi.git hsi/for-next
+Merge made by the 'ort' strategy.
+ drivers/hsi/clients/ssi_protocol.c      | 1 -
+ drivers/hsi/controllers/omap_ssi_core.c | 1 +
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+Merging leds/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/pavel/linux-leds.git leds/for-next
+Already up to date.
+Merging ipmi/for-next (a508e33956b5 ipmi:ipmb: Fix refcount leak in ipmi_ipmb_probe)
+$ git merge -m Merge branch 'for-next' of git://github.com/cminyard/linux-ipmi.git ipmi/for-next
+Already up to date.
+Merging driver-core/driver-core-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'driver-core-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/driver-core.git driver-core/driver-core-next
+Already up to date.
+Merging usb/usb-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'usb-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git usb/usb-next
+Already up to date.
+Merging thunderbolt/next (7ec58378a985 thunderbolt: Add support for Intel Raptor Lake)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/westeri/thunderbolt.git thunderbolt/next
+Merge made by the 'ort' strategy.
+ drivers/thunderbolt/ctl.c     |   6 +-
+ drivers/thunderbolt/icm.c     |   2 +
+ drivers/thunderbolt/nhi.c     |   4 +
+ drivers/thunderbolt/nhi.h     |   2 +
+ drivers/thunderbolt/switch.c  |  91 +++++++++--------
+ drivers/thunderbolt/tb.c      |  68 ++++++++++---
+ drivers/thunderbolt/tb.h      |  48 ++++-----
+ drivers/thunderbolt/tb_regs.h |   6 ++
+ drivers/thunderbolt/tmu.c     | 221 +++++++++++++++++++++++++++++++++++-------
+ 9 files changed, 334 insertions(+), 114 deletions(-)
+Merging usb-gadget/next (e49d033bddf5 Linux 5.12-rc6)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/balbi/usb.git usb-gadget/next
+Already up to date.
+Merging usb-serial/usb-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'usb-next' of git://git.kernel.org/pub/scm/linux/kernel/git/johan/usb-serial.git usb-serial/usb-next
+Already up to date.
+Merging tty/tty-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'tty-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/tty.git tty/tty-next
+Already up to date.
+Merging char-misc/char-misc-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'char-misc-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/char-misc.git char-misc/char-misc-next
+Already up to date.
+$ git am -3 ../patches/0001-fixup-for-usb-dwc3-Don-t-switch-OTG-peripheral-if-ex.patch
+Applying: fixup for "usb: dwc3: Don't switch OTG -> peripheral if extcon is present"
+$ git reset HEAD^
+Unstaged changes after reset:
+M	drivers/usb/dwc3/core.c
+$ git add -A .
+$ git commit -v -a --amend
+[master e9d1b98de77e] Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/westeri/thunderbolt.git
+ Date: Tue Jun 7 13:12:46 2022 +1000
+Merging coresight/next (1adff542d67a coresight: cpu-debug: Replace mutex with mutex_trylock on panic notifier)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/coresight/linux.git coresight/next
+Already up to date.
+Merging fpga/for-next (ae23f746d744 fpga: dfl: Allow Port to be linked to FME's DFL)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/fpga/linux-fpga.git fpga/for-next
+Already up to date.
+Merging icc/icc-next (3be0ec65fd17 dt-bindings: interconnect: Remove sc7180/sdx55 ipa compatibles)
+$ git merge -m Merge branch 'icc-next' of git://git.kernel.org/pub/scm/linux/kernel/git/djakov/icc.git icc/icc-next
+Already up to date.
+Merging iio/togreg (c321674386d8 iio: adc: rzg2l_adc: Remove unnecessary channel check from rzg2l_adc_read_label())
+$ git merge -m Merge branch 'togreg' of git://git.kernel.org/pub/scm/linux/kernel/git/jic23/iio.git iio/togreg
+Auto-merging drivers/iio/adc/rzg2l_adc.c
+Merge made by the 'ort' strategy.
+ Documentation/ABI/testing/sysfs-bus-iio            |   5 +
+ .../bindings/iio/adc/renesas,rzg2l-adc.yaml        |  28 +-
+ drivers/iio/accel/Kconfig                          |   2 +
+ drivers/iio/accel/bma400.h                         |  50 +-
+ drivers/iio/accel/bma400_core.c                    | 710 +++++++++++++++++++--
+ drivers/iio/accel/bma400_i2c.c                     |  10 +-
+ drivers/iio/accel/bma400_spi.c                     |   8 +-
+ drivers/iio/accel/cros_ec_accel_legacy.c           |   2 +-
+ drivers/iio/accel/mc3230.c                         |   4 +-
+ drivers/iio/accel/stk8312.c                        |   4 +-
+ drivers/iio/accel/stk8ba50.c                       |   4 +-
+ drivers/iio/adc/rzg2l_adc.c                        |   3 -
+ drivers/iio/adc/stx104.c                           |  56 +-
+ .../common/cros_ec_sensors/cros_ec_sensors_core.c  |  30 +-
+ drivers/iio/dac/cio-dac.c                          |  14 +-
+ drivers/iio/health/afe4404.c                       |   4 +-
+ drivers/iio/imu/st_lsm6dsx/st_lsm6dsx_i3c.c        |   2 +-
+ drivers/iio/light/bh1780.c                         |   7 +-
+ drivers/iio/light/cros_ec_light_prox.c             |   2 -
+ drivers/iio/light/isl29028.c                       |   4 +-
+ drivers/iio/light/jsa1212.c                        |   4 +-
+ drivers/iio/light/opt3001.c                        |   3 +-
+ drivers/iio/light/stk3310.c                        |   4 +-
+ drivers/iio/light/tsl2583.c                        |   4 +-
+ drivers/iio/pressure/cros_ec_baro.c                |   2 -
+ drivers/iio/proximity/srf04.c                      |  11 +-
+ drivers/iio/trigger/stm32-lptimer-trigger.c        |   3 +-
+ include/linux/iio/common/cros_ec_sensors_core.h    |   2 -
+ 28 files changed, 822 insertions(+), 160 deletions(-)
+Merging phy-next/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/phy/linux-phy.git phy-next/next
+Already up to date.
+Merging soundwire/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/vkoul/soundwire.git soundwire/next
+Already up to date.
+Merging extcon/extcon-next (51bd0abd873d extcon: fsa9480: Drop no-op remove function)
+$ git merge -m Merge branch 'extcon-next' of git://git.kernel.org/pub/scm/linux/kernel/git/chanwoo/extcon.git extcon/extcon-next
+Merge made by the 'ort' strategy.
+ drivers/extcon/extcon-fsa9480.c | 6 ------
+ 1 file changed, 6 deletions(-)
+Merging gnss/gnss-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'gnss-next' of git://git.kernel.org/pub/scm/linux/kernel/git/johan/gnss.git gnss/gnss-next
+Already up to date.
+Merging vfio/next (421cfe6596f6 vfio: remove VFIO_GROUP_NOTIFY_SET_KVM)
+$ git merge -m Merge branch 'next' of git://github.com/awilliam/linux-vfio.git vfio/next
+Already up to date.
+Merging staging/staging-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'staging-next' of git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/staging.git staging/staging-next
+Already up to date.
+Merging mux/for-next (0fcfb00b28c0 Linux 5.16-rc4)
+$ git merge -m Merge branch 'for-next' of https://gitlab.com/peda-linux/mux.git mux/for-next
+Already up to date.
+Merging dmaengine/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/vkoul/dmaengine.git dmaengine/next
+Already up to date.
+Merging cgroup/for-next (8a4f243bd5cf Merge branch 'for-5.19' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/tj/cgroup.git cgroup/for-next
+Merge made by the 'ort' strategy.
+Merging scsi/for-next (5f78d0bdd4aa Merge branch 'misc' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/jejb/scsi.git scsi/for-next
+Auto-merging drivers/scsi/lpfc/lpfc_els.c
+Auto-merging drivers/scsi/lpfc/lpfc_sli.c
+Auto-merging drivers/scsi/qla2xxx/qla_target.c
+Auto-merging drivers/target/iscsi/iscsi_target.c
+Auto-merging drivers/target/iscsi/iscsi_target_configfs.c
+Auto-merging drivers/ufs/core/ufshpb.c
+Merge made by the 'ort' strategy.
+Merging scsi-mkp/for-next (aa2a4ded0505 scsi: qla2xxx: Remove unused 'ql_dm_tgt_ex_pct' parameter)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mkp/scsi.git scsi-mkp/for-next
+Already up to date.
+Merging vhost/linux-next (bd8bb9aed56b vdpa: ifcvf: set pci driver data in probe)
+$ git merge -m Merge branch 'linux-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost.git vhost/linux-next
+Already up to date.
+Merging rpmsg/for-next (01a1a0c8d456 Merge branches 'rproc-next', 'rpmsg-next' and 'hwspinlock-next' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/remoteproc/linux.git rpmsg/for-next
+Merge made by the 'ort' strategy.
+ drivers/hwspinlock/omap_hwspinlock.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+Merging gpio/for-next (7ac554888233 MAINTAINERS: Remove reference to non-existing file)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-gpio.git gpio/for-next
+Already up to date.
+Merging gpio-brgl/gpio/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'gpio/for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/brgl/linux.git gpio-brgl/gpio/for-next
+Already up to date.
+Merging gpio-intel/for-next (b93a8b2c5161 gpio: dln2: make irq_chip immutable)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/andy/linux-gpio-intel.git gpio-intel/for-next
+Merge made by the 'ort' strategy.
+ drivers/gpio/gpio-crystalcove.c | 70 ++++++++++++++++++++++-------------------
+ drivers/gpio/gpio-dln2.c        | 23 ++++++++------
+ drivers/gpio/gpio-merrifield.c  | 22 ++++++++-----
+ drivers/gpio/gpio-sch.c         | 35 +++++++++++++--------
+ drivers/gpio/gpio-wcove.c       | 10 ++++--
+ 5 files changed, 96 insertions(+), 64 deletions(-)
+Merging gpio-sim/gpio/gpio-sim (0fcfb00b28c0 Linux 5.16-rc4)
+$ git merge -m Merge branch 'gpio/gpio-sim' of git://git.kernel.org/pub/scm/linux/kernel/git/brgl/linux.git gpio-sim/gpio/gpio-sim
+Already up to date.
+Merging pinctrl/for-next (83969805cc71 pinctrl: apple: Use a raw spinlock for the regmap)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-pinctrl.git pinctrl/for-next
+Already up to date.
+Merging pinctrl-intel/for-next (ba79c5e45eec MAINTAINERS: Update Intel pin control to Supported)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/pinctrl/intel.git pinctrl-intel/for-next
+Auto-merging MAINTAINERS
+Merge made by the 'ort' strategy.
+ MAINTAINERS | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+Merging pinctrl-renesas/renesas-pinctrl (5223c511eb4f pinctrl: renesas: rzg2l: Return -EINVAL for pins which have input disabled)
+$ git merge -m Merge branch 'renesas-pinctrl' of git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-drivers.git pinctrl-renesas/renesas-pinctrl
+Merge made by the 'ort' strategy.
+ drivers/pinctrl/renesas/pinctrl-rzg2l.c | 2 ++
+ 1 file changed, 2 insertions(+)
+Merging pinctrl-samsung/for-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/pinctrl/samsung.git pinctrl-samsung/for-next
+Already up to date.
+Merging pwm/for-next (3d593b6e80ad pwm: pwm-cros-ec: Add channel type support)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/thierry.reding/linux-pwm.git pwm/for-next
+Already up to date.
+Merging userns/for-next (a58ea318d8b9 Merge of per-namespace-ipc-sysctls-for-v5.19, kthread-cleanups-for-v5.19, ptrace_stop-cleanup-for-v5.19, and ucount-rlimits-cleanups-for-v5.19 for testing in linux-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/ebiederm/user-namespace.git userns/for-next
+Auto-merging arch/um/kernel/process.c
+Auto-merging fs/exec.c
+Auto-merging ipc/mqueue.c
+Auto-merging kernel/fork.c
+Auto-merging kernel/sys.c
+Merge made by the 'ort' strategy.
+ fs/exec.c                      |  2 +-
+ fs/proc/array.c                |  2 +-
+ include/linux/user_namespace.h | 35 ++++++++++++++++++++++-------------
+ kernel/fork.c                  | 12 ++++++------
+ kernel/sys.c                   |  2 +-
+ kernel/ucount.c                | 34 +++++++++++++++-------------------
+ kernel/user_namespace.c        | 10 +++++-----
+ 7 files changed, 51 insertions(+), 46 deletions(-)
+Merging ktest/for-next (170f4869e662 ktest.pl: Fix the logic for truncating the size of the log file for email)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/rostedt/linux-ktest.git ktest/for-next
+Already up to date.
+Merging kselftest/next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux-kselftest.git kselftest/next
+Already up to date.
+Merging livepatching/for-next (0e11f2076e7f Merge branch 'for-5.19/cleanup' into for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/livepatching/livepatching livepatching/for-next
+Merge made by the 'ort' strategy.
+Merging rtc/rtc-next (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'rtc-next' of git://git.kernel.org/pub/scm/linux/kernel/git/abelloni/linux.git rtc/rtc-next
+Already up to date.
+Merging nvdimm/libnvdimm-for-next (f42e8e5088b9 pmem: implement pmem_recovery_write())
+$ git merge -m Merge branch 'libnvdimm-for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/nvdimm/nvdimm.git nvdimm/libnvdimm-for-next
+Already up to date.
+Merging at24/at24/for-next (312310928417 Linux 5.18-rc1)
+$ git merge -m Merge branch 'at24/for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/brgl/linux.git at24/at24/for-next
+Already up to date.
+Merging ntb/ntb-next (e9d0fa5e2482 IDT: Fix Build warnings on some 32bit architectures.)
+$ git merge -m Merge branch 'ntb-next' of https://github.com/jonmason/ntb.git ntb/ntb-next
+Merge made by the 'ort' strategy.
+ drivers/ntb/hw/idt/Makefile | 1 +
+ 1 file changed, 1 insertion(+)
+Merging seccomp/for-next/seccomp (73a8dbafd31a selftests/seccomp: Fix compile warning when CC=clang)
+$ git merge -m Merge branch 'for-next/seccomp' of git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git seccomp/for-next/seccomp
+Merge made by the 'ort' strategy.
+ tools/testing/selftests/seccomp/seccomp_bpf.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+Merging cisco/for-next (9e98c678c2d6 Linux 5.1-rc1)
+$ git merge -m Merge branch 'for-next' of https://github.com/daniel-walker/cisco-linux.git cisco/for-next
+Already up to date.
+Merging fsi/next (f2af60bb7ce2 fsi: Add trace events in initialization path)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/joel/fsi.git fsi/next
+Already up to date.
+Merging slimbus/for-next (4ad3deabeea2 slimbus: messaging: fix typos in comments)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/srini/slimbus.git slimbus/for-next
+Merge made by the 'ort' strategy.
+ drivers/slimbus/core.c      | 6 +++---
+ drivers/slimbus/messaging.c | 4 ++--
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+Merging nvmem/for-next (6b291610dd57 nvmem: microchip-otpc: add support)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/srini/nvmem.git nvmem/for-next
+Auto-merging MAINTAINERS
+Merge made by the 'ort' strategy.
+ .../bindings/nvmem/microchip,sama7g5-otpc.yaml     |  50 ++++
+ MAINTAINERS                                        |   8 +
+ drivers/nvmem/Kconfig                              |   7 +
+ drivers/nvmem/Makefile                             |   2 +
+ drivers/nvmem/microchip-otpc.c                     | 288 +++++++++++++++++++++
+ include/dt-bindings/nvmem/microchip,sama7g5-otpc.h |  12 +
+ 6 files changed, 367 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/nvmem/microchip,sama7g5-otpc.yaml
+ create mode 100644 drivers/nvmem/microchip-otpc.c
+ create mode 100644 include/dt-bindings/nvmem/microchip,sama7g5-otpc.h
+Merging xarray/main (63b1898fffcd XArray: Disallow sibling entries of nodes)
+$ git merge -m Merge branch 'main' of git://git.infradead.org/users/willy/xarray.git xarray/main
+Already up to date.
+Merging hyperv/hyperv-next (d27423bf048d hv_balloon: Fix balloon_probe() and balloon_remove() error handling)
+$ git merge -m Merge branch 'hyperv-next' of git://git.kernel.org/pub/scm/linux/kernel/git/hyperv/linux.git hyperv/hyperv-next
+Already up to date.
+Merging auxdisplay/auxdisplay (13de23494f38 auxdisplay: lcd2s: Use array size explicitly in lcd2s_gotoxy())
+$ git merge -m Merge branch 'auxdisplay' of https://github.com/ojeda/linux.git auxdisplay/auxdisplay
+Already up to date.
+Merging kgdb/kgdb/for-next (c1cb81429df4 kdb: Fix the putarea helper function)
+$ git merge -m Merge branch 'kgdb/for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/danielt/linux.git kgdb/kgdb/for-next
+Already up to date.
+Merging hmm/hmm (5a865a32bf9b RDMA/erdma: Add driver to kernel build environment)
+$ git merge -m Merge branch 'hmm' of git://git.kernel.org/pub/scm/linux/kernel/git/rdma/rdma.git hmm/hmm
+Auto-merging MAINTAINERS
+Merge made by the 'ort' strategy.
+ MAINTAINERS                               |    8 +
+ drivers/infiniband/Kconfig                |   15 +-
+ drivers/infiniband/hw/Makefile            |    1 +
+ drivers/infiniband/hw/erdma/Kconfig       |   12 +
+ drivers/infiniband/hw/erdma/Makefile      |    4 +
+ drivers/infiniband/hw/erdma/erdma.h       |  287 ++++++
+ drivers/infiniband/hw/erdma/erdma_cm.c    | 1435 ++++++++++++++++++++++++++++
+ drivers/infiniband/hw/erdma/erdma_cm.h    |  168 ++++
+ drivers/infiniband/hw/erdma/erdma_cmdq.c  |  497 ++++++++++
+ drivers/infiniband/hw/erdma/erdma_cq.c    |  205 ++++
+ drivers/infiniband/hw/erdma/erdma_eq.c    |  334 +++++++
+ drivers/infiniband/hw/erdma/erdma_hw.h    |  508 ++++++++++
+ drivers/infiniband/hw/erdma/erdma_main.c  |  628 ++++++++++++
+ drivers/infiniband/hw/erdma/erdma_qp.c    |  567 +++++++++++
+ drivers/infiniband/hw/erdma/erdma_verbs.c | 1468 +++++++++++++++++++++++++++++
+ drivers/infiniband/hw/erdma/erdma_verbs.h |  342 +++++++
+ include/uapi/rdma/erdma-abi.h             |   49 +
+ include/uapi/rdma/ib_user_ioctl_verbs.h   |    1 +
+ 18 files changed, 6522 insertions(+), 7 deletions(-)
+ create mode 100644 drivers/infiniband/hw/erdma/Kconfig
+ create mode 100644 drivers/infiniband/hw/erdma/Makefile
+ create mode 100644 drivers/infiniband/hw/erdma/erdma.h
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_cm.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_cm.h
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_cmdq.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_cq.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_eq.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_hw.h
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_main.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_qp.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_verbs.c
+ create mode 100644 drivers/infiniband/hw/erdma/erdma_verbs.h
+ create mode 100644 include/uapi/rdma/erdma-abi.h
+Merging kunit/test (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'test' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux-kselftest.git kunit/test
+Already up to date.
+Merging cfi/cfi/next (312310928417 Linux 5.18-rc1)
+$ git merge -m Merge branch 'cfi/next' of git://git.kernel.org/pub/scm/linux/kernel/git/mtd/linux.git cfi/cfi/next
+Already up to date.
+Merging kunit-next/kunit (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'kunit' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux-kselftest.git kunit-next/kunit
+Already up to date.
+Merging trivial/for-next (081c8919b02b Documentation: remove trivial tree)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/jikos/trivial.git trivial/for-next
+Already up to date.
+Merging mhi/mhi-next (13b9b814da2d bus: mhi: host: Add support for Foxconn T99W373 and T99W368)
+$ git merge -m Merge branch 'mhi-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mani/mhi.git mhi/mhi-next
+Already up to date.
+Merging memblock/for-next (000605cd1b14 memblock tests: remove completed TODO item)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/rppt/memblock.git memblock/for-next
+Already up to date.
+Merging init/init-user-pointers (38b082236e77 initramfs: use vfs_utimes in do_copy)
+$ git merge -m Merge branch 'init-user-pointers' of git://git.infradead.org/users/hch/misc.git init/init-user-pointers
+Already up to date.
+Merging counters/counters (e71ba9452f0b Linux 5.11-rc2)
+$ git merge -m Merge branch 'counters' of git://git.kernel.org/pub/scm/linux/kernel/git/shuah/linux.git counters/counters
+Already up to date.
+Merging cxl/next (34e37b4c432c cxl/port: Enable HDM Capability after validating DVSEC Ranges)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/cxl/cxl.git cxl/next
+Already up to date.
+Merging folio-iomap/folio-iomap (4d7bd0eb72e5 iomap: Inline __iomap_zero_iter into its caller)
+$ git merge -m Merge branch 'folio-iomap' of git://git.infradead.org/users/willy/linux.git folio-iomap/folio-iomap
+Already up to date.
+Merging zstd/zstd-next (88a309465b3f lib: zstd: clean up double word in comment.)
+$ git merge -m Merge branch 'zstd-next' of https://github.com/terrelln/linux.git zstd/zstd-next
+Already up to date.
+Merging efi/next (75ed63d91940 efi: clean up Kconfig dependencies on CONFIG_EFI)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/efi/efi.git efi/next
+Already up to date.
+Merging unicode/for-next (b500d6d7243d unicode: Handle memory allocation failures in mkutf8data)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/krisman/unicode.git unicode/for-next
+Merge made by the 'ort' strategy.
+ fs/unicode/mkutf8data.c | 38 ++++++++++++++++++++++++--------------
+ 1 file changed, 24 insertions(+), 14 deletions(-)
+Merging slab/for-next (6b2d72729581 Merge branches 'slab/for-5.19/stackdepot' and 'slab/for-5.19/refactor' into slab/for-next)
+$ git merge -m Merge branch 'for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/vbabka/slab.git slab/for-next
+Auto-merging mm/slab_common.c
+Auto-merging mm/slub.c
+Auto-merging mm/slub.c
+Merge made by the 'ort' strategy.
+Merging random/master (aa22d6955596 crc-itu-t: fix typo in CRC ITU-T polynomial comment)
+$ git merge -m Merge branch 'master' of git://git.kernel.org/pub/scm/linux/kernel/git/crng/random.git random/master
+Merge made by the 'ort' strategy.
+ include/linux/crc-itu-t.h | 2 +-
+ lib/crc-itu-t.c           | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+Merging landlock/next (fdaf9a5840ac Merge tag 'folio-5.19' of git://git.infradead.org/users/willy/pagecache)
+$ git merge -m Merge branch 'next' of git://git.kernel.org/pub/scm/linux/kernel/git/mic/linux.git landlock/next
+Already up to date.
+Merging rust/rust-next (9a5fe747d99e init/Kconfig: Specify the interpreter for rust-is-available.sh)
+$ git merge -m Merge branch 'rust-next' of https://github.com/Rust-for-Linux/linux.git rust/rust-next
+Auto-merging .gitignore
+Auto-merging Documentation/doc-guide/kernel-doc.rst
+Auto-merging Documentation/index.rst
+Auto-merging Documentation/process/changes.rst
+Auto-merging MAINTAINERS
+Auto-merging Makefile
+CONFLICT (content): Merge conflict in Makefile
+Auto-merging arch/Kconfig
+Auto-merging arch/arm/Kconfig
+Auto-merging arch/arm64/Kconfig
+Auto-merging arch/powerpc/Kconfig
+Auto-merging arch/riscv/Kconfig
+Auto-merging arch/riscv/Makefile
+Auto-merging arch/um/Kconfig
+Auto-merging arch/x86/Kconfig
+Auto-merging arch/x86/Makefile
+Auto-merging drivers/gpio/Kconfig
+Auto-merging include/kunit/test.h
+Auto-merging include/linux/kallsyms.h
+Auto-merging include/uapi/linux/android/binder.h
+CONFLICT (content): Merge conflict in include/uapi/linux/android/binder.h
+Auto-merging init/Kconfig
+Auto-merging kernel/kallsyms.c
+Auto-merging lib/Kconfig.debug
+Auto-merging lib/kunit/test.c
+Auto-merging lib/vsprintf.c
+Auto-merging scripts/Makefile
+Auto-merging scripts/Makefile.build
+Auto-merging scripts/Makefile.lib
+Auto-merging scripts/Makefile.modfinal
+Auto-merging scripts/checkpatch.pl
+Auto-merging scripts/decode_stacktrace.sh
+Auto-merging scripts/kallsyms.c
+Auto-merging scripts/min-tool-version.sh
+Resolved 'Makefile' using previous resolution.
+Resolved 'include/uapi/linux/android/binder.h' using previous resolution.
+Automatic merge failed; fix conflicts and then commit the result.
+$ git commit --no-edit -v -a
+[master d3cb54b8ee52] Merge branch 'rust-next' of https://github.com/Rust-for-Linux/linux.git
+$ git diff -M --stat --summary HEAD^..
+ .gitignore                                   |    5 +
+ .rustfmt.toml                                |   12 +
+ Documentation/core-api/printk-formats.rst    |   10 +
+ Documentation/doc-guide/kernel-doc.rst       |    3 +
+ Documentation/index.rst                      |    1 +
+ Documentation/kbuild/kbuild.rst              |   17 +
+ Documentation/kbuild/makefiles.rst           |   50 +-
+ Documentation/process/changes.rst            |   41 +
+ Documentation/rust/arch-support.rst          |   25 +
+ Documentation/rust/coding-guidelines.rst     |  216 ++
+ Documentation/rust/general-information.rst   |   79 +
+ Documentation/rust/index.rst                 |   22 +
+ Documentation/rust/quick-start.rst           |  232 ++
+ MAINTAINERS                                  |   15 +
+ Makefile                                     |  177 +-
+ arch/Kconfig                                 |    6 +
+ arch/arm/Kconfig                             |    1 +
+ arch/arm64/Kconfig                           |    1 +
+ arch/powerpc/Kconfig                         |    1 +
+ arch/riscv/Kconfig                           |    1 +
+ arch/riscv/Makefile                          |    5 +
+ arch/um/Kconfig                              |    1 +
+ arch/x86/Kconfig                             |    1 +
+ arch/x86/Makefile                            |   14 +
+ drivers/android/Kconfig                      |    6 +
+ drivers/android/Makefile                     |    2 +
+ drivers/android/allocation.rs                |  266 ++
+ drivers/android/context.rs                   |   80 +
+ drivers/android/defs.rs                      |   99 +
+ drivers/android/node.rs                      |  476 ++++
+ drivers/android/process.rs                   |  960 ++++++++
+ drivers/android/range_alloc.rs               |  189 ++
+ drivers/android/rust_binder.rs               |  111 +
+ drivers/android/thread.rs                    |  870 +++++++
+ drivers/android/transaction.rs               |  326 +++
+ drivers/gpio/Kconfig                         |    8 +
+ drivers/gpio/Makefile                        |    1 +
+ drivers/gpio/gpio_pl061_rust.rs              |  370 +++
+ include/linux/kallsyms.h                     |    2 +-
+ include/linux/spinlock.h                     |   25 +-
+ include/uapi/linux/android/binder.h          |   30 +-
+ init/Kconfig                                 |   51 +-
+ kernel/kallsyms.c                            |   26 +-
+ kernel/livepatch/core.c                      |    4 +-
+ lib/Kconfig.debug                            |  155 ++
+ lib/vsprintf.c                               |   13 +
+ rust/.gitignore                              |   10 +
+ rust/Makefile                                |  398 +++
+ rust/alloc/README.md                         |   33 +
+ rust/alloc/alloc.rs                          |  438 ++++
+ rust/alloc/borrow.rs                         |  498 ++++
+ rust/alloc/boxed.rs                          | 2007 +++++++++++++++
+ rust/alloc/collections/mod.rs                |  156 ++
+ rust/alloc/fmt.rs                            |  601 +++++
+ rust/alloc/lib.rs                            |  226 ++
+ rust/alloc/macros.rs                         |  127 +
+ rust/alloc/raw_vec.rs                        |  567 +++++
+ rust/alloc/slice.rs                          | 1282 ++++++++++
+ rust/alloc/str.rs                            |  632 +++++
+ rust/alloc/string.rs                         | 2869 ++++++++++++++++++++++
+ rust/alloc/vec/drain.rs                      |  186 ++
+ rust/alloc/vec/drain_filter.rs               |  145 ++
+ rust/alloc/vec/into_iter.rs                  |  356 +++
+ rust/alloc/vec/is_zero.rs                    |  106 +
+ rust/alloc/vec/mod.rs                        | 3362 ++++++++++++++++++++++++++
+ rust/alloc/vec/partial_eq.rs                 |   49 +
+ rust/alloc/vec/set_len_on_drop.rs            |   30 +
+ rust/alloc/vec/spec_extend.rs                |  174 ++
+ rust/bindgen_parameters                      |   17 +
+ rust/build_error.rs                          |   29 +
+ rust/compiler_builtins.rs                    |   57 +
+ rust/exports.c                               |   20 +
+ rust/helpers.c                               |  644 +++++
+ rust/kernel/allocator.rs                     |   65 +
+ rust/kernel/amba.rs                          |  257 ++
+ rust/kernel/bindings.rs                      |   47 +
+ rust/kernel/bindings_helper.h                |   46 +
+ rust/kernel/build_assert.rs                  |   82 +
+ rust/kernel/c_types.rs                       |  119 +
+ rust/kernel/chrdev.rs                        |  207 ++
+ rust/kernel/clk.rs                           |   79 +
+ rust/kernel/cred.rs                          |   46 +
+ rust/kernel/device.rs                        |  546 +++++
+ rust/kernel/driver.rs                        |  442 ++++
+ rust/kernel/error.rs                         |  565 +++++
+ rust/kernel/file.rs                          |  860 +++++++
+ rust/kernel/gpio.rs                          |  478 ++++
+ rust/kernel/hwrng.rs                         |  242 ++
+ rust/kernel/io_buffer.rs                     |  153 ++
+ rust/kernel/io_mem.rs                        |  275 +++
+ rust/kernel/iov_iter.rs                      |   81 +
+ rust/kernel/irq.rs                           |  411 ++++
+ rust/kernel/kasync.rs                        |    6 +
+ rust/kernel/kasync/net.rs                    |  322 +++
+ rust/kernel/kunit.rs                         |   91 +
+ rust/kernel/lib.rs                           |  261 ++
+ rust/kernel/linked_list.rs                   |  247 ++
+ rust/kernel/miscdev.rs                       |  291 +++
+ rust/kernel/mm.rs                            |  149 ++
+ rust/kernel/module_param.rs                  |  498 ++++
+ rust/kernel/net.rs                           |  392 +++
+ rust/kernel/net/filter.rs                    |  447 ++++
+ rust/kernel/of.rs                            |   63 +
+ rust/kernel/pages.rs                         |  144 ++
+ rust/kernel/platform.rs                      |  223 ++
+ rust/kernel/power.rs                         |  118 +
+ rust/kernel/prelude.rs                       |   36 +
+ rust/kernel/print.rs                         |  405 ++++
+ rust/kernel/random.rs                        |   42 +
+ rust/kernel/raw_list.rs                      |  361 +++
+ rust/kernel/rbtree.rs                        |  563 +++++
+ rust/kernel/revocable.rs                     |  161 ++
+ rust/kernel/security.rs                      |   38 +
+ rust/kernel/static_assert.rs                 |   38 +
+ rust/kernel/std_vendor.rs                    |  160 ++
+ rust/kernel/str.rs                           |  597 +++++
+ rust/kernel/sync.rs                          |  161 ++
+ rust/kernel/sync/arc.rs                      |  503 ++++
+ rust/kernel/sync/condvar.rs                  |  138 ++
+ rust/kernel/sync/guard.rs                    |  169 ++
+ rust/kernel/sync/locked_by.rs                |  111 +
+ rust/kernel/sync/mutex.rs                    |  153 ++
+ rust/kernel/sync/nowait.rs                   |  188 ++
+ rust/kernel/sync/revocable.rs                |  250 ++
+ rust/kernel/sync/rwsem.rs                    |  197 ++
+ rust/kernel/sync/seqlock.rs                  |  202 ++
+ rust/kernel/sync/smutex.rs                   |  295 +++
+ rust/kernel/sync/spinlock.rs                 |  360 +++
+ rust/kernel/sysctl.rs                        |  199 ++
+ rust/kernel/task.rs                          |  175 ++
+ rust/kernel/types.rs                         |  679 ++++++
+ rust/kernel/user_ptr.rs                      |  175 ++
+ rust/macros/helpers.rs                       |   79 +
+ rust/macros/lib.rs                           |   94 +
+ rust/macros/module.rs                        |  631 +++++
+ samples/Kconfig                              |    2 +
+ samples/Makefile                             |    1 +
+ samples/rust/Kconfig                         |  140 ++
+ samples/rust/Makefile                        |   16 +
+ samples/rust/hostprogs/.gitignore            |    3 +
+ samples/rust/hostprogs/Makefile              |    5 +
+ samples/rust/hostprogs/a.rs                  |    7 +
+ samples/rust/hostprogs/b.rs                  |    5 +
+ samples/rust/hostprogs/single.rs             |   12 +
+ samples/rust/rust_chrdev.rs                  |   50 +
+ samples/rust/rust_minimal.rs                 |   35 +
+ samples/rust/rust_miscdev.rs                 |  143 ++
+ samples/rust/rust_module_parameters.rs       |   69 +
+ samples/rust/rust_netfilter.rs               |   54 +
+ samples/rust/rust_platform.rs                |   22 +
+ samples/rust/rust_print.rs                   |   54 +
+ samples/rust/rust_random.rs                  |   60 +
+ samples/rust/rust_semaphore.rs               |  171 ++
+ samples/rust/rust_semaphore_c.c              |  212 ++
+ samples/rust/rust_stack_probing.rs           |   36 +
+ samples/rust/rust_sync.rs                    |   93 +
+ scripts/.gitignore                           |    1 +
+ scripts/Kconfig.include                      |    6 +-
+ scripts/Makefile                             |    3 +
+ scripts/Makefile.build                       |   60 +
+ scripts/Makefile.debug                       |   10 +
+ scripts/Makefile.host                        |   34 +-
+ scripts/Makefile.lib                         |   12 +
+ scripts/Makefile.modfinal                    |    8 +-
+ scripts/cc-version.sh                        |   12 +-
+ scripts/checkpatch.pl                        |    8 +-
+ scripts/decode_stacktrace.sh                 |   14 +
+ scripts/generate_rust_analyzer.py            |  134 +
+ scripts/generate_rust_target.rs              |  227 ++
+ scripts/is_rust_module.sh                    |   13 +
+ scripts/kallsyms.c                           |   47 +-
+ scripts/kconfig/confdata.c                   |   75 +
+ scripts/min-tool-version.sh                  |    6 +
+ scripts/rust-is-available-bindgen-libclang.h |    2 +
+ scripts/rust-is-available.sh                 |  158 ++
+ scripts/rustdoc_test_builder.py              |   59 +
+ scripts/rustdoc_test_gen.py                  |  164 ++
+ tools/include/linux/kallsyms.h               |    2 +-
+ tools/lib/perf/include/perf/event.h          |    2 +-
+ tools/lib/symbol/kallsyms.h                  |    2 +-
+ 180 files changed, 37619 insertions(+), 68 deletions(-)
+ create mode 100644 .rustfmt.toml
+ create mode 100644 Documentation/rust/arch-support.rst
+ create mode 100644 Documentation/rust/coding-guidelines.rst
+ create mode 100644 Documentation/rust/general-information.rst
+ create mode 100644 Documentation/rust/index.rst
+ create mode 100644 Documentation/rust/quick-start.rst
+ create mode 100644 drivers/android/allocation.rs
+ create mode 100644 drivers/android/context.rs
+ create mode 100644 drivers/android/defs.rs
+ create mode 100644 drivers/android/node.rs
+ create mode 100644 drivers/android/process.rs
+ create mode 100644 drivers/android/range_alloc.rs
+ create mode 100644 drivers/android/rust_binder.rs
+ create mode 100644 drivers/android/thread.rs
+ create mode 100644 drivers/android/transaction.rs
+ create mode 100644 drivers/gpio/gpio_pl061_rust.rs
+ create mode 100644 rust/.gitignore
+ create mode 100644 rust/Makefile
+ create mode 100644 rust/alloc/README.md
+ create mode 100644 rust/alloc/alloc.rs
+ create mode 100644 rust/alloc/borrow.rs
+ create mode 100644 rust/alloc/boxed.rs
+ create mode 100644 rust/alloc/collections/mod.rs
+ create mode 100644 rust/alloc/fmt.rs
+ create mode 100644 rust/alloc/lib.rs
+ create mode 100644 rust/alloc/macros.rs
+ create mode 100644 rust/alloc/raw_vec.rs
+ create mode 100644 rust/alloc/slice.rs
+ create mode 100644 rust/alloc/str.rs
+ create mode 100644 rust/alloc/string.rs
+ create mode 100644 rust/alloc/vec/drain.rs
+ create mode 100644 rust/alloc/vec/drain_filter.rs
+ create mode 100644 rust/alloc/vec/into_iter.rs
+ create mode 100644 rust/alloc/vec/is_zero.rs
+ create mode 100644 rust/alloc/vec/mod.rs
+ create mode 100644 rust/alloc/vec/partial_eq.rs
+ create mode 100644 rust/alloc/vec/set_len_on_drop.rs
+ create mode 100644 rust/alloc/vec/spec_extend.rs
+ create mode 100644 rust/bindgen_parameters
+ create mode 100644 rust/build_error.rs
+ create mode 100644 rust/compiler_builtins.rs
+ create mode 100644 rust/exports.c
+ create mode 100644 rust/helpers.c
+ create mode 100644 rust/kernel/allocator.rs
+ create mode 100644 rust/kernel/amba.rs
+ create mode 100644 rust/kernel/bindings.rs
+ create mode 100644 rust/kernel/bindings_helper.h
+ create mode 100644 rust/kernel/build_assert.rs
+ create mode 100644 rust/kernel/c_types.rs
+ create mode 100644 rust/kernel/chrdev.rs
+ create mode 100644 rust/kernel/clk.rs
+ create mode 100644 rust/kernel/cred.rs
+ create mode 100644 rust/kernel/device.rs
+ create mode 100644 rust/kernel/driver.rs
+ create mode 100644 rust/kernel/error.rs
+ create mode 100644 rust/kernel/file.rs
+ create mode 100644 rust/kernel/gpio.rs
+ create mode 100644 rust/kernel/hwrng.rs
+ create mode 100644 rust/kernel/io_buffer.rs
+ create mode 100644 rust/kernel/io_mem.rs
+ create mode 100644 rust/kernel/iov_iter.rs
+ create mode 100644 rust/kernel/irq.rs
+ create mode 100644 rust/kernel/kasync.rs
+ create mode 100644 rust/kernel/kasync/net.rs
+ create mode 100644 rust/kernel/kunit.rs
+ create mode 100644 rust/kernel/lib.rs
+ create mode 100644 rust/kernel/linked_list.rs
+ create mode 100644 rust/kernel/miscdev.rs
+ create mode 100644 rust/kernel/mm.rs
+ create mode 100644 rust/kernel/module_param.rs
+ create mode 100644 rust/kernel/net.rs
+ create mode 100644 rust/kernel/net/filter.rs
+ create mode 100644 rust/kernel/of.rs
+ create mode 100644 rust/kernel/pages.rs
+ create mode 100644 rust/kernel/platform.rs
+ create mode 100644 rust/kernel/power.rs
+ create mode 100644 rust/kernel/prelude.rs
+ create mode 100644 rust/kernel/print.rs
+ create mode 100644 rust/kernel/random.rs
+ create mode 100644 rust/kernel/raw_list.rs
+ create mode 100644 rust/kernel/rbtree.rs
+ create mode 100644 rust/kernel/revocable.rs
+ create mode 100644 rust/kernel/security.rs
+ create mode 100644 rust/kernel/static_assert.rs
+ create mode 100644 rust/kernel/std_vendor.rs
+ create mode 100644 rust/kernel/str.rs
+ create mode 100644 rust/kernel/sync.rs
+ create mode 100644 rust/kernel/sync/arc.rs
+ create mode 100644 rust/kernel/sync/condvar.rs
+ create mode 100644 rust/kernel/sync/guard.rs
+ create mode 100644 rust/kernel/sync/locked_by.rs
+ create mode 100644 rust/kernel/sync/mutex.rs
+ create mode 100644 rust/kernel/sync/nowait.rs
+ create mode 100644 rust/kernel/sync/revocable.rs
+ create mode 100644 rust/kernel/sync/rwsem.rs
+ create mode 100644 rust/kernel/sync/seqlock.rs
+ create mode 100644 rust/kernel/sync/smutex.rs
+ create mode 100644 rust/kernel/sync/spinlock.rs
+ create mode 100644 rust/kernel/sysctl.rs
+ create mode 100644 rust/kernel/task.rs
+ create mode 100644 rust/kernel/types.rs
+ create mode 100644 rust/kernel/user_ptr.rs
+ create mode 100644 rust/macros/helpers.rs
+ create mode 100644 rust/macros/lib.rs
+ create mode 100644 rust/macros/module.rs
+ create mode 100644 samples/rust/Kconfig
+ create mode 100644 samples/rust/Makefile
+ create mode 100644 samples/rust/hostprogs/.gitignore
+ create mode 100644 samples/rust/hostprogs/Makefile
+ create mode 100644 samples/rust/hostprogs/a.rs
+ create mode 100644 samples/rust/hostprogs/b.rs
+ create mode 100644 samples/rust/hostprogs/single.rs
+ create mode 100644 samples/rust/rust_chrdev.rs
+ create mode 100644 samples/rust/rust_minimal.rs
+ create mode 100644 samples/rust/rust_miscdev.rs
+ create mode 100644 samples/rust/rust_module_parameters.rs
+ create mode 100644 samples/rust/rust_netfilter.rs
+ create mode 100644 samples/rust/rust_platform.rs
+ create mode 100644 samples/rust/rust_print.rs
+ create mode 100644 samples/rust/rust_random.rs
+ create mode 100644 samples/rust/rust_semaphore.rs
+ create mode 100644 samples/rust/rust_semaphore_c.c
+ create mode 100644 samples/rust/rust_stack_probing.rs
+ create mode 100644 samples/rust/rust_sync.rs
+ create mode 100755 scripts/generate_rust_analyzer.py
+ create mode 100644 scripts/generate_rust_target.rs
+ create mode 100755 scripts/is_rust_module.sh
+ create mode 100644 scripts/rust-is-available-bindgen-libclang.h
+ create mode 100755 scripts/rust-is-available.sh
+ create mode 100755 scripts/rustdoc_test_builder.py
+ create mode 100755 scripts/rustdoc_test_gen.py
+Merging sysctl/sysctl-next (494dcdf46e5c sched: Fix build warning without CONFIG_SYSCTL)
+$ git merge -m Merge branch 'sysctl-next' of git://git.kernel.org/pub/scm/linux/kernel/git/mcgrof/linux.git sysctl/sysctl-next
+Already up to date.
+Merging folio/for-next (fd96d8a91522 ext2: Use a folio in ext2_get_page())
+$ git merge -m Merge branch 'for-next' of git://git.infradead.org/users/willy/pagecache.git folio/for-next
+Auto-merging fs/btrfs/disk-io.c
+Auto-merging include/linux/netfs.h
+Auto-merging mm/swap.c
+Merge made by the 'ort' strategy.
+ Documentation/admin-guide/cgroup-v1/memcg_test.rst |   2 +-
+ Documentation/filesystems/vfs.rst                  |  39 ++++--
+ block/partitions/check.h                           |   4 +-
+ block/partitions/core.c                            |  20 ++-
+ fs/afs/mntpt.c                                     |   6 -
+ fs/befs/linuxvfs.c                                 |  16 ++-
+ fs/btrfs/disk-io.c                                 |  19 ++-
+ fs/buffer.c                                        |  39 +++---
+ fs/coda/symlink.c                                  |  11 +-
+ fs/cramfs/inode.c                                  |  17 +--
+ fs/ext2/dir.c                                      |  20 +--
+ fs/ext4/inode.c                                    |  40 +++---
+ fs/f2fs/compress.c                                 |  35 +++---
+ fs/freevxfs/vxfs_immed.c                           |  43 +++----
+ fs/freevxfs/vxfs_subr.c                            |   6 -
+ fs/gfs2/lops.c                                     |  28 ++---
+ fs/hfs/bnode.c                                     |   4 -
+ fs/hfsplus/bnode.c                                 |   4 -
+ fs/hostfs/hostfs_kern.c                            |   6 +-
+ fs/hugetlbfs/inode.c                               |  46 +++----
+ fs/iomap/buffered-io.c                             |   3 -
+ fs/jfs/jfs_metapage.c                              |   2 +-
+ fs/nfs/read.c                                      |   4 -
+ fs/nilfs2/dir.c                                    |   2 +-
+ fs/nilfs2/page.c                                   |  60 ++++-----
+ fs/ntfs/aops.h                                     |   7 +-
+ fs/ntfs/file.c                                     |   5 -
+ fs/ntfs3/ntfs_fs.h                                 |   7 +-
+ fs/ocfs2/aops.c                                    |  26 ++--
+ fs/ocfs2/refcounttree.c                            |  42 +------
+ fs/orangefs/inode.c                                |   4 +-
+ fs/reiserfs/xattr.c                                |   9 +-
+ fs/remap_range.c                                   |  11 +-
+ fs/squashfs/file.c                                 |  15 +--
+ fs/ufs/dir.c                                       |   2 +-
+ fs/ufs/util.c                                      |  11 --
+ include/linux/netfs.h                              |  21 ++--
+ include/linux/pagemap.h                            |  23 +---
+ include/linux/pagevec.h                            |  10 --
+ include/linux/swap.h                               |   3 +-
+ mm/filemap.c                                       | 137 +++++++--------------
+ mm/hugetlb.c                                       |  14 ++-
+ mm/shmem.c                                         |  15 ++-
+ mm/swap.c                                          |  29 -----
+ mm/swap_state.c                                    |   2 +-
+ mm/vmscan.c                                        |  55 +++++----
+ 46 files changed, 360 insertions(+), 564 deletions(-)
+Merging execve/for-next/execve (70578ff3367d binfmt_flat: Remove shared library support)
+$ git merge -m Merge branch 'for-next/execve' of git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git execve/for-next/execve
+Already up to date.
+Merging bitmap/bitmap-for-next (0dfe54071d7c nodemask: Fix return values to be unsigned)
+$ git merge -m Merge branch 'bitmap-for-next' of https://github.com/norov/linux.git bitmap/bitmap-for-next
+Already up to date.
+Merging hte/hte/for-next (5dad4eccd2b4 dt-bindings: timestamp: Correct id path)
+$ git merge -m Merge branch 'hte/for-next' of git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux.git hte/hte/for-next
+Already up to date.
+Merging kspp/for-next/kspp (e1d337335207 cfi: Fix __cfi_slowpath_diag RCU usage with cpuidle)
+$ git merge -m Merge branch 'for-next/kspp' of git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git kspp/for-next/kspp
+Merge made by the 'ort' strategy.
+ kernel/cfi.c | 22 ++++++++++++++++------
+ 1 file changed, 16 insertions(+), 6 deletions(-)
+Merging kspp-gustavo/for-next/kspp (f2906aa86338 Linux 5.19-rc1)
+$ git merge -m Merge branch 'for-next/kspp' of git://git.kernel.org/pub/scm/linux/kernel/git/gustavoars/linux.git kspp-gustavo/for-next/kspp
+Already up to date.
+Merging mm-stable/mm-stable (54eb8462f21f Merge tag 'rtc-5.19' of git://git.kernel.org/pub/scm/linux/kernel/git/abelloni/linux)
+$ git merge -m Merge branch 'mm-stable' of git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm mm-stable/mm-stable
+Already up to date.
+Merging mm-nonmm-stable/mm-nonmm-stable (662ce1dc9caf delayacct: track delays from write-protect copy)
+$ git merge -m Merge branch 'mm-nonmm-stable' of git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm mm-nonmm-stable/mm-nonmm-stable
+Already up to date.
+Merging mm/mm-everything (5540d9164158 Merge branch 'mm-nonmm-unstable' into mm-everything)
+$ git merge -m Merge branch 'mm-everything' of git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm mm/mm-everything
+Auto-merging Documentation/admin-guide/kernel-parameters.txt
+Auto-merging MAINTAINERS
+Auto-merging arch/s390/mm/gmap.c
+Auto-merging drivers/android/binder_alloc.c
+Auto-merging drivers/md/bcache/btree.c
+Auto-merging drivers/md/raid5.c
+Auto-merging drivers/misc/vmw_balloon.c
+Auto-merging drivers/tee/optee/call.c
+Auto-merging drivers/virtio/virtio_balloon.c
+Auto-merging fs/btrfs/super.c
+Auto-merging fs/exec.c
+Auto-merging fs/nfsd/filecache.c
+Auto-merging fs/ocfs2/refcounttree.c
+Auto-merging fs/quota/dquot.c
+Auto-merging fs/remap_range.c
+Auto-merging fs/xfs/xfs_file.c
+Auto-merging fs/xfs/xfs_fsops.c
+Auto-merging fs/xfs/xfs_inode.c
+Auto-merging fs/xfs/xfs_mount.h
+Auto-merging fs/xfs/xfs_qm.c
+Auto-merging fs/xfs/xfs_super.h
+Auto-merging include/linux/fs.h
+Auto-merging include/linux/sched.h
+Auto-merging init/main.c
+Auto-merging kernel/events/core.c
+Auto-merging kernel/fork.c
+Auto-merging kernel/sched/fair.c
+Auto-merging lib/Kconfig.debug
+Auto-merging mm/hugetlb.c
+Auto-merging mm/shmem.c
+Auto-merging mm/vmscan.c
+Auto-merging mm/vmstat.c
+Auto-merging scripts/checkpatch.pl
+Merge made by the 'ort' strategy.
+ Documentation/admin-guide/cgroup-v2.rst            |    14 +-
+ Documentation/admin-guide/kernel-parameters.txt    |    35 +-
+ Documentation/admin-guide/mm/index.rst             |     1 +
+ Documentation/admin-guide/mm/shrinker_debugfs.rst  |   135 +
+ Documentation/admin-guide/sysctl/vm.rst            |     5 +-
+ Documentation/core-api/index.rst                   |     1 +
+ Documentation/core-api/maple_tree.rst              |   218 +
+ Documentation/vm/balance.rst                       |     2 +-
+ MAINTAINERS                                        |    12 +
+ arch/alpha/mm/fault.c                              |     4 +
+ arch/arc/mm/fault.c                                |     4 +
+ arch/arm/mm/fault.c                                |     4 +
+ arch/arm64/kernel/elfcore.c                        |    16 +-
+ arch/arm64/kernel/vdso.c                           |     3 +-
+ arch/arm64/mm/fault.c                              |     4 +
+ arch/csky/mm/fault.c                               |     4 +
+ arch/hexagon/mm/vm_fault.c                         |     4 +
+ arch/ia64/mm/fault.c                               |     4 +
+ arch/m68k/mm/fault.c                               |     4 +
+ arch/microblaze/mm/fault.c                         |     4 +
+ arch/mips/kernel/mips-mt.c                         |     4 +-
+ arch/mips/mm/fault.c                               |     4 +
+ arch/nios2/mm/fault.c                              |     4 +
+ arch/openrisc/mm/fault.c                           |     4 +
+ arch/parisc/kernel/cache.c                         |     9 +-
+ arch/parisc/mm/fault.c                             |     4 +
+ arch/powerpc/kernel/vdso.c                         |     6 +-
+ arch/powerpc/mm/book3s32/tlb.c                     |    11 +-
+ arch/powerpc/mm/book3s64/subpage_prot.c            |    13 +-
+ arch/powerpc/mm/copro_fault.c                      |     5 +
+ arch/powerpc/mm/fault.c                            |     5 +
+ arch/riscv/kernel/vdso.c                           |     3 +-
+ arch/riscv/mm/fault.c                              |     4 +
+ arch/s390/kernel/vdso.c                            |     3 +-
+ arch/s390/mm/fault.c                               |    12 +
+ arch/s390/mm/gmap.c                                |     6 +-
+ arch/sh/mm/fault.c                                 |     4 +
+ arch/sparc/mm/fault_32.c                           |     4 +
+ arch/sparc/mm/fault_64.c                           |     5 +
+ arch/um/kernel/tlb.c                               |    14 +-
+ arch/um/kernel/trap.c                              |     4 +
+ arch/x86/entry/vdso/vma.c                          |     9 +-
+ arch/x86/kernel/tboot.c                            |     2 +-
+ arch/x86/kvm/mmu/mmu.c                             |     2 +-
+ arch/x86/mm/fault.c                                |     4 +
+ arch/x86/mm/hugetlbpage.c                          |    39 -
+ arch/xtensa/kernel/syscall.c                       |    18 +-
+ arch/xtensa/mm/fault.c                             |     4 +
+ drivers/android/binder_alloc.c                     |     2 +-
+ drivers/block/zram/zram_drv.c                      |     1 +
+ drivers/dax/super.c                                |    67 +-
+ drivers/firmware/efi/efi.c                         |     2 +-
+ drivers/gpu/drm/amd/amdkfd/kfd_migrate.c           |    34 +-
+ drivers/gpu/drm/i915/gem/i915_gem_shrinker.c       |     3 +-
+ drivers/gpu/drm/i915/gem/i915_gem_userptr.c        |    14 +-
+ drivers/gpu/drm/msm/msm_gem_shrinker.c             |     2 +-
+ drivers/gpu/drm/panfrost/panfrost_gem_shrinker.c   |     2 +-
+ drivers/gpu/drm/ttm/ttm_pool.c                     |     2 +-
+ drivers/iommu/tegra-smmu.c                         |     4 +-
+ drivers/md/bcache/btree.c                          |     2 +-
+ drivers/md/dm-bufio.c                              |     3 +-
+ drivers/md/dm-zoned-metadata.c                     |     4 +-
+ drivers/md/dm.c                                    |     2 +-
+ drivers/md/raid5.c                                 |     2 +-
+ drivers/misc/cxl/fault.c                           |    45 +-
+ drivers/misc/vmw_balloon.c                         |     2 +-
+ drivers/nvdimm/pmem.c                              |    17 +
+ drivers/tee/optee/call.c                           |    18 +-
+ drivers/virtio/virtio_balloon.c                    |     2 +-
+ drivers/xen/privcmd.c                              |     2 +-
+ drivers/xen/xenbus/xenbus_probe_backend.c          |     2 +-
+ fs/btrfs/super.c                                   |     2 +
+ fs/coredump.c                                      |    34 +-
+ fs/dax.c                                           |   399 +-
+ fs/erofs/super.c                                   |    10 +-
+ fs/erofs/utils.c                                   |     2 +-
+ fs/exec.c                                          |    12 +-
+ fs/ext2/super.c                                    |     7 +-
+ fs/ext4/extents_status.c                           |     3 +-
+ fs/ext4/super.c                                    |     9 +-
+ fs/f2fs/super.c                                    |     2 +-
+ fs/gfs2/glock.c                                    |     2 +-
+ fs/gfs2/main.c                                     |     2 +-
+ fs/jbd2/journal.c                                  |     3 +-
+ fs/mbcache.c                                       |     2 +-
+ fs/nfs/nfs42xattr.c                                |     7 +-
+ fs/nfs/super.c                                     |     2 +-
+ fs/nfsd/filecache.c                                |     2 +-
+ fs/nfsd/nfscache.c                                 |     3 +-
+ fs/ocfs2/namei.c                                   |    49 +-
+ fs/ocfs2/namei.h                                   |     2 +
+ fs/ocfs2/refcounttree.c                            |    15 +-
+ fs/ocfs2/xattr.c                                   |    12 +-
+ fs/ocfs2/xattr.h                                   |     1 +
+ fs/proc/base.c                                     |     5 +-
+ fs/proc/internal.h                                 |     2 +-
+ fs/proc/task_mmu.c                                 |    76 +-
+ fs/proc/task_nommu.c                               |    45 +-
+ fs/quota/dquot.c                                   |     2 +-
+ fs/remap_range.c                                   |    31 +-
+ fs/super.c                                         |     6 +-
+ fs/ubifs/super.c                                   |     2 +-
+ fs/userfaultfd.c                                   |    55 +-
+ fs/xfs/Makefile                                    |     5 +
+ fs/xfs/xfs_buf.c                                   |    13 +-
+ fs/xfs/xfs_file.c                                  |    35 +-
+ fs/xfs/xfs_fsops.c                                 |     3 +
+ fs/xfs/xfs_icache.c                                |     2 +-
+ fs/xfs/xfs_inode.c                                 |    69 +-
+ fs/xfs/xfs_inode.h                                 |     1 +
+ fs/xfs/xfs_iomap.c                                 |    30 +-
+ fs/xfs/xfs_iomap.h                                 |     1 +
+ fs/xfs/xfs_mount.h                                 |     1 +
+ fs/xfs/xfs_notify_failure.c                        |   220 +
+ fs/xfs/xfs_qm.c                                    |     3 +-
+ fs/xfs/xfs_reflink.c                               |    12 +-
+ fs/xfs/xfs_super.h                                 |     1 +
+ include/linux/damon.h                              |    17 +-
+ include/linux/dax.h                                |    56 +-
+ include/linux/fs.h                                 |    12 +-
+ include/linux/gfp.h                                |    12 +-
+ include/linux/highmem.h                            |    11 +
+ include/linux/huge_mm.h                            |     8 +-
+ include/linux/hugetlb.h                            |    30 +-
+ include/linux/kconfig.h                            |     1 +
+ include/linux/maple_tree.h                         |   685 +
+ include/linux/memcontrol.h                         |    68 +-
+ include/linux/memory_hotplug.h                     |     9 -
+ include/linux/memremap.h                           |    31 +
+ include/linux/migrate.h                            |     1 +
+ include/linux/mm.h                                 |    84 +-
+ include/linux/mm_types.h                           |    50 +-
+ include/linux/mm_types_task.h                      |    12 -
+ include/linux/mmzone.h                             |    83 +-
+ include/linux/oom.h                                |    11 -
+ include/linux/page-flags.h                         |     6 +
+ include/linux/rbtree.h                             |     2 +-
+ include/linux/rmap.h                               |     4 +-
+ include/linux/sched.h                              |     1 -
+ include/linux/sched/coredump.h                     |     7 +-
+ include/linux/shrinker.h                           |    31 +-
+ include/linux/swapops.h                            |    12 +-
+ include/linux/userfaultfd_k.h                      |     7 +-
+ include/linux/vm_event_item.h                      |     4 -
+ include/linux/vmacache.h                           |    28 -
+ include/linux/vmstat.h                             |     6 -
+ include/linux/xarray.h                             |     7 +-
+ include/ras/ras_event.h                            |     1 -
+ include/trace/events/maple_tree.h                  |   123 +
+ include/trace/events/mmap.h                        |    73 +
+ include/trace/events/mmflags.h                     |     1 -
+ init/main.c                                        |    27 +-
+ init/version.c                                     |    17 +
+ ipc/shm.c                                          |    21 +-
+ kernel/acct.c                                      |    11 +-
+ kernel/bpf/task_iter.c                             |    10 +-
+ kernel/debug/debug_core.c                          |    12 -
+ kernel/events/core.c                               |     3 +-
+ kernel/events/uprobes.c                            |     9 +-
+ kernel/fork.c                                      |    57 +-
+ kernel/profile.c                                   |     7 +
+ kernel/rcu/tree.c                                  |     2 +-
+ kernel/resource.c                                  |    19 +-
+ kernel/sched/fair.c                                |    10 +-
+ lib/Kconfig.debug                                  |    26 +-
+ lib/Makefile                                       |     3 +-
+ lib/list_debug.c                                   |    12 +-
+ lib/maple_tree.c                                   |  6969 ++++
+ lib/test_hmm.c                                     |   337 +-
+ lib/test_hmm_uapi.h                                |    19 +-
+ lib/test_maple_tree.c                              | 37909 +++++++++++++++++++
+ lib/test_printf.c                                  |     8 +-
+ mm/Makefile                                        |     3 +-
+ mm/damon/vaddr-test.h                              |    36 +-
+ mm/damon/vaddr.c                                   |    53 +-
+ mm/debug.c                                         |    14 +-
+ mm/gup.c                                           |    96 +-
+ mm/huge_memory.c                                   |    10 +-
+ mm/hugetlb.c                                       |    26 +-
+ mm/hugetlb_vmemmap.c                               |    28 +-
+ mm/init-mm.c                                       |     4 +-
+ mm/internal.h                                      |    11 +-
+ mm/kasan/hw_tags.c                                 |    30 +-
+ mm/khugepaged.c                                    |    22 +-
+ mm/ksm.c                                           |    24 +-
+ mm/madvise.c                                       |     6 +-
+ mm/memcontrol.c                                    |    97 +-
+ mm/memory-failure.c                                |   313 +-
+ mm/memory.c                                        |    45 +-
+ mm/memory_hotplug.c                                |    50 +-
+ mm/mempolicy.c                                     |    65 +-
+ mm/memremap.c                                      |    10 +
+ mm/migrate.c                                       |    46 +-
+ mm/migrate_device.c                                |   115 +-
+ mm/mlock.c                                         |    37 +-
+ mm/mmap.c                                          |  2266 +-
+ mm/mprotect.c                                      |     9 +-
+ mm/mremap.c                                        |    41 +-
+ mm/msync.c                                         |     2 +-
+ mm/nommu.c                                         |   249 +-
+ mm/oom_kill.c                                      |    13 +-
+ mm/page_alloc.c                                    |   384 +-
+ mm/page_vma_mapped.c                               |     2 +-
+ mm/pagewalk.c                                      |     2 +-
+ mm/rmap.c                                          |     5 +-
+ mm/shmem.c                                         |    10 +-
+ mm/shrinker_debug.c                                |   285 +
+ mm/sparse-vmemmap.c                                |     4 +-
+ mm/sparse.c                                        |     8 +
+ mm/swapfile.c                                      |     4 +-
+ mm/util.c                                          |    32 -
+ mm/vmacache.c                                      |   117 -
+ mm/vmalloc.c                                       |    13 +-
+ mm/vmscan.c                                        |    64 +-
+ mm/vmstat.c                                        |     4 -
+ mm/workingset.c                                    |     2 +-
+ mm/zsmalloc.c                                      |     3 +-
+ net/core/net_namespace.c                           |     7 +
+ net/sunrpc/auth.c                                  |     2 +-
+ scripts/checkpatch.pl                              |     3 +-
+ tools/cgroup/memcg_shrinker.py                     |    71 +
+ tools/include/linux/gfp.h                          |     3 +-
+ tools/include/linux/slab.h                         |     4 +
+ tools/perf/builtin-kmem.c                          |     1 -
+ tools/testing/radix-tree/.gitignore                |     2 +
+ tools/testing/radix-tree/Makefile                  |     9 +-
+ tools/testing/radix-tree/generated/autoconf.h      |     1 +
+ tools/testing/radix-tree/linux.c                   |   160 +-
+ tools/testing/radix-tree/linux/kernel.h            |     1 +
+ tools/testing/radix-tree/linux/lockdep.h           |     2 +
+ tools/testing/radix-tree/linux/maple_tree.h        |     7 +
+ tools/testing/radix-tree/maple.c                   |    59 +
+ tools/testing/radix-tree/trace/events/maple_tree.h |     3 +
+ tools/testing/selftests/vm/hmm-tests.c             |   306 +-
+ tools/testing/selftests/vm/mremap_test.c           |    49 +-
+ tools/testing/selftests/vm/run_vmtests.sh          |     7 +
+ tools/testing/selftests/vm/test_hmm.sh             |    24 +-
+ tools/vm/slabinfo.c                                |    32 +-
+ 238 files changed, 51664 insertions(+), 2851 deletions(-)
+ create mode 100644 Documentation/admin-guide/mm/shrinker_debugfs.rst
+ create mode 100644 Documentation/core-api/maple_tree.rst
+ create mode 100644 fs/xfs/xfs_notify_failure.c
+ create mode 100644 include/linux/maple_tree.h
+ delete mode 100644 include/linux/vmacache.h
+ create mode 100644 include/trace/events/maple_tree.h
+ create mode 100644 lib/maple_tree.c
+ create mode 100644 lib/test_maple_tree.c
+ create mode 100644 mm/shrinker_debug.c
+ delete mode 100644 mm/vmacache.c
+ create mode 100644 tools/cgroup/memcg_shrinker.py
+ create mode 100644 tools/testing/radix-tree/linux/maple_tree.h
+ create mode 100644 tools/testing/radix-tree/maple.c
+ create mode 100644 tools/testing/radix-tree/trace/events/maple_tree.h
+$ git clone -s -l -n -q . ../rebase-tmp
+$ cd ../rebase-tmp
+$ git checkout -b akpm remotes/origin/akpm/master
+Switched to a new branch 'akpm'
+$ git rebase --onto master remotes/origin/akpm/master-base
+[KSuccessfully rebased and updated refs/heads/akpm.
+$ cd ../next
+$ git fetch -f ../rebase-tmp akpm:akpm/master
+From ../rebase-tmp
+ + 452c5680f6e7...08e6bafa8e99 akpm       -> akpm/master  (forced update)
+$ rm -rf ../rebase-tmp
+Merging akpm/master (08e6bafa8e99 Merge branch 'mm-everything' of git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm)
+$ git merge --no-ff akpm/master
+Already up to date.
