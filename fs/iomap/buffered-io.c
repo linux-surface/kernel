@@ -435,18 +435,17 @@ bool iomap_is_partially_uptodate(struct folio *folio, size_t from, size_t count)
 {
 	struct iomap_page *iop = to_iomap_page(folio);
 	struct inode *inode = folio->mapping->host;
-	size_t len;
 	unsigned first, last, i;
 
 	if (!iop)
 		return false;
 
-	/* Limit range to this folio */
-	len = min(folio_size(folio) - from, count);
+	/* Caller's range may extend past the end of this folio */
+	count = min(folio_size(folio) - from, count);
 
-	/* First and last blocks in range within page */
+	/* First and last blocks in range within folio */
 	first = from >> inode->i_blkbits;
-	last = (from + len - 1) >> inode->i_blkbits;
+	last = (from + count - 1) >> inode->i_blkbits;
 
 	for (i = first; i <= last; i++)
 		if (!test_bit(i, iop->uptodate))
@@ -765,7 +764,7 @@ again:
 		 * same page as we're writing to, without it being marked
 		 * up-to-date.
 		 */
-		if (unlikely(fault_in_iov_iter_readable(i, bytes))) {
+		if (unlikely(fault_in_iov_iter_readable(i, bytes) == bytes)) {
 			status = -EFAULT;
 			break;
 		}
@@ -1222,7 +1221,6 @@ iomap_alloc_ioend(struct inode *inode, struct iomap_writepage_ctx *wpc,
 			       REQ_OP_WRITE | wbc_to_write_flags(wbc),
 			       GFP_NOFS, &iomap_ioend_bioset);
 	bio->bi_iter.bi_sector = sector;
-	bio->bi_write_hint = inode->i_write_hint;
 	wbc_init_bio(wbc, bio);
 
 	ioend = container_of(bio, struct iomap_ioend, io_inline_bio);
@@ -1253,7 +1251,6 @@ iomap_chain_bio(struct bio *prev)
 	new = bio_alloc(prev->bi_bdev, BIO_MAX_VECS, prev->bi_opf, GFP_NOFS);
 	bio_clone_blkg_association(new, prev);
 	new->bi_iter.bi_sector = bio_end_sector(prev);
-	new->bi_write_hint = prev->bi_write_hint;
 
 	bio_chain(prev, new);
 	bio_get(prev);		/* for iomap_finish_ioend */

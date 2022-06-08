@@ -382,7 +382,7 @@ static int bnxt_ptp_enable(struct ptp_clock_info *ptp_info,
 	struct bnxt_ptp_cfg *ptp = container_of(ptp_info, struct bnxt_ptp_cfg,
 						ptp_info);
 	struct bnxt *bp = ptp->bp;
-	u8 pin_id;
+	int pin_id;
 	int rc;
 
 	switch (rq->type) {
@@ -390,6 +390,8 @@ static int bnxt_ptp_enable(struct ptp_clock_info *ptp_info,
 		/* Configure an External PPS IN */
 		pin_id = ptp_find_pin(ptp->ptp_clock, PTP_PF_EXTTS,
 				      rq->extts.index);
+		if (!TSIO_PIN_VALID(pin_id))
+			return -EOPNOTSUPP;
 		if (!on)
 			break;
 		rc = bnxt_ptp_cfg_pin(bp, pin_id, BNXT_PPS_PIN_PPS_IN);
@@ -403,6 +405,8 @@ static int bnxt_ptp_enable(struct ptp_clock_info *ptp_info,
 		/* Configure a Periodic PPS OUT */
 		pin_id = ptp_find_pin(ptp->ptp_clock, PTP_PF_PEROUT,
 				      rq->perout.index);
+		if (!TSIO_PIN_VALID(pin_id))
+			return -EOPNOTSUPP;
 		if (!on)
 			break;
 
@@ -842,13 +846,6 @@ int bnxt_ptp_init(struct bnxt *bp, bool phc_cfg)
 	if (rc)
 		return rc;
 
-	if (bp->fw_cap & BNXT_FW_CAP_PTP_RTC) {
-		bnxt_ptp_timecounter_init(bp, false);
-		rc = bnxt_ptp_init_rtc(bp, phc_cfg);
-		if (rc)
-			goto out;
-	}
-
 	if (ptp->ptp_clock && bnxt_pps_config_ok(bp))
 		return 0;
 
@@ -857,8 +854,14 @@ int bnxt_ptp_init(struct bnxt *bp, bool phc_cfg)
 	atomic_set(&ptp->tx_avail, BNXT_MAX_TX_TS);
 	spin_lock_init(&ptp->ptp_lock);
 
-	if (!(bp->fw_cap & BNXT_FW_CAP_PTP_RTC))
+	if (bp->fw_cap & BNXT_FW_CAP_PTP_RTC) {
+		bnxt_ptp_timecounter_init(bp, false);
+		rc = bnxt_ptp_init_rtc(bp, phc_cfg);
+		if (rc)
+			goto out;
+	} else {
 		bnxt_ptp_timecounter_init(bp, true);
+	}
 
 	ptp->ptp_info = bnxt_ptp_caps;
 	if ((bp->fw_cap & BNXT_FW_CAP_PTP_PPS)) {

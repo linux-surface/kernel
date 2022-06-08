@@ -8,7 +8,7 @@ title: Samsung's Exynos USI (Universal Serial Interface) binding
 
 maintainers:
   - Sam Protsenko <semen.protsenko@linaro.org>
-  - Krzysztof Kozlowski <krzysztof.kozlowski@canonical.com>
+  - Krzysztof Kozlowski <krzk@kernel.org>
 
 description: |
   USI IP-core provides selectable serial protocol (UART, SPI or High-Speed I2C).
@@ -41,6 +41,10 @@ properties:
 
   samsung,sysreg:
     $ref: /schemas/types.yaml#/definitions/phandle-array
+    items:
+      - items:
+          - description: phandle to System Register syscon node
+          - description: offset of SW_CONF register for this USI controller
     description:
       Should be phandle/offset pair. The phandle to System Register syscon node
       (for the same domain where this USI controller resides) and the offset

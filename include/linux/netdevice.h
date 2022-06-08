@@ -199,10 +199,10 @@ struct net_device_stats {
  * Try to fit them in a single cache line, for dev_get_stats() sake.
  */
 struct net_device_core_stats {
-	local_t		rx_dropped;
-	local_t		tx_dropped;
-	local_t		rx_nohandler;
-} __aligned(4 * sizeof(local_t));
+	unsigned long	rx_dropped;
+	unsigned long	tx_dropped;
+	unsigned long	rx_nohandler;
+} __aligned(4 * sizeof(unsigned long));
 
 #include <linux/cache.h>
 #include <linux/skbuff.h>
@@ -900,7 +900,7 @@ struct net_device_path_stack {
 
 struct net_device_path_ctx {
 	const struct net_device *dev;
-	const u8		*daddr;
+	u8			daddr[ETH_ALEN];
 
 	int			num_vlans;
 	struct {
@@ -3843,15 +3843,15 @@ static __always_inline bool __is_skb_forwardable(const struct net_device *dev,
 	return false;
 }
 
-struct net_device_core_stats *netdev_core_stats_alloc(struct net_device *dev);
+struct net_device_core_stats __percpu *netdev_core_stats_alloc(struct net_device *dev);
 
-static inline struct net_device_core_stats *dev_core_stats(struct net_device *dev)
+static inline struct net_device_core_stats __percpu *dev_core_stats(struct net_device *dev)
 {
 	/* This READ_ONCE() pairs with the write in netdev_core_stats_alloc() */
 	struct net_device_core_stats __percpu *p = READ_ONCE(dev->core_stats);
 
 	if (likely(p))
-		return this_cpu_ptr(p);
+		return p;
 
 	return netdev_core_stats_alloc(dev);
 }
@@ -3859,14 +3859,11 @@ static inline struct net_device_core_stats *dev_core_stats(struct net_device *de
 #define DEV_CORE_STATS_INC(FIELD)						\
 static inline void dev_core_stats_##FIELD##_inc(struct net_device *dev)		\
 {										\
-	struct net_device_core_stats *p;					\
+	struct net_device_core_stats __percpu *p;				\
 										\
-	preempt_disable();							\
 	p = dev_core_stats(dev);						\
-										\
 	if (p)									\
-		local_inc(&p->FIELD);						\
-	preempt_enable();							\
+		this_cpu_inc(p->FIELD);						\
 }
 DEV_CORE_STATS_INC(rx_dropped)
 DEV_CORE_STATS_INC(tx_dropped)
@@ -4600,16 +4597,6 @@ struct netdev_nested_priv {
 bool netdev_has_upper_dev(struct net_device *dev, struct net_device *upper_dev);
 struct net_device *netdev_upper_get_next_dev_rcu(struct net_device *dev,
 						     struct list_head **iter);
-
-#ifdef CONFIG_LOCKDEP
-static LIST_HEAD(net_unlink_list);
-
-static inline void net_unlink_todo(struct net_device *dev)
-{
-	if (list_empty(&dev->unlink_list))
-		list_add_tail(&dev->unlink_list, &net_unlink_list);
-}
-#endif
 
 /* iterate through upper list, must be called under RCU read lock */
 #define netdev_for_each_upper_dev_rcu(dev, updev, iter) \

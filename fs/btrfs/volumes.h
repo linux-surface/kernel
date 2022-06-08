@@ -121,8 +121,8 @@ struct btrfs_device {
 	/* bytes used on the current transaction */
 	u64 commit_bytes_used;
 
-	/* for sending down flush barriers */
-	struct bio *flush_bio;
+	/* Bio used for flushing device barriers */
+	struct bio flush_bio;
 	struct completion flush_wait;
 
 	/* per-device scrub information */
@@ -327,6 +327,9 @@ struct btrfs_fs_devices {
  */
 struct btrfs_bio {
 	unsigned int mirror_num;
+
+	/* for direct I/O */
+	u64 file_offset;
 
 	/* @device is for stripe IO submission. */
 	struct btrfs_device *device;

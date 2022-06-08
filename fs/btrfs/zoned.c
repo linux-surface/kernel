@@ -350,7 +350,6 @@ int btrfs_get_dev_zone_info(struct btrfs_device *device, bool populate_cache)
 	struct btrfs_fs_info *fs_info = device->fs_info;
 	struct btrfs_zoned_device_info *zone_info = NULL;
 	struct block_device *bdev = device->bdev;
-	struct request_queue *queue = bdev_get_queue(bdev);
 	unsigned int max_active_zones;
 	unsigned int nactive;
 	sector_t nr_sectors;
@@ -410,7 +409,7 @@ int btrfs_get_dev_zone_info(struct btrfs_device *device, bool populate_cache)
 	if (!IS_ALIGNED(nr_sectors, zone_sectors))
 		zone_info->nr_zones++;
 
-	max_active_zones = queue_max_active_zones(queue);
+	max_active_zones = bdev_max_active_zones(bdev);
 	if (max_active_zones && max_active_zones < BTRFS_MIN_ACTIVE_ZONES) {
 		btrfs_err_in_rcu(fs_info,
 "zoned: %s: max active zones %u is too small, need at least %u active zones",
@@ -1801,7 +1800,6 @@ struct btrfs_device *btrfs_zoned_get_device(struct btrfs_fs_info *fs_info,
 
 	map = em->map_lookup;
 	/* We only support single profile for now */
-	ASSERT(map->num_stripes == 1);
 	device = map->stripes[0].dev;
 
 	free_extent_map(em);
@@ -1836,6 +1834,12 @@ bool btrfs_zone_activate(struct btrfs_block_group *block_group)
 		goto out_unlock;
 	}
 
+	/* No space left */
+	if (block_group->alloc_offset == block_group->zone_capacity) {
+		ret = false;
+		goto out_unlock;
+	}
+
 	for (i = 0; i < map->num_stripes; i++) {
 		device = map->stripes[i].dev;
 		physical = map->stripes[i].physical;
@@ -1843,35 +1847,23 @@ bool btrfs_zone_activate(struct btrfs_block_group *block_group)
 		if (device->zone_info->max_active_zones == 0)
 			continue;
 
-		/* No space left */
-		if (block_group->alloc_offset == block_group->zone_capacity) {
-			ret = false;
-			goto out_unlock;
-		}
-
 		if (!btrfs_dev_set_active_zone(device, physical)) {
 			/* Cannot activate the zone */
 			ret = false;
 			goto out_unlock;
 		}
-
-		/* Successfully activated all the zones */
-		if (i == map->num_stripes - 1)
-			block_group->zone_is_active = 1;
-
-
 	}
+
+	/* Successfully activated all the zones */
+	block_group->zone_is_active = 1;
 	spin_unlock(&block_group->lock);
 
-	if (block_group->zone_is_active) {
-		/* For the active block group list */
-		btrfs_get_block_group(block_group);
+	/* For the active block group list */
+	btrfs_get_block_group(block_group);
 
-		spin_lock(&fs_info->zone_active_bgs_lock);
-		list_add_tail(&block_group->active_bg_list,
-			      &fs_info->zone_active_bgs);
-		spin_unlock(&fs_info->zone_active_bgs_lock);
-	}
+	spin_lock(&fs_info->zone_active_bgs_lock);
+	list_add_tail(&block_group->active_bg_list, &fs_info->zone_active_bgs);
+	spin_unlock(&fs_info->zone_active_bgs_lock);
 
 	return true;
 
@@ -1976,18 +1968,16 @@ int btrfs_zone_finish(struct btrfs_block_group *block_group)
 
 bool btrfs_can_activate_zone(struct btrfs_fs_devices *fs_devices, u64 flags)
 {
+	struct btrfs_fs_info *fs_info = fs_devices->fs_info;
 	struct btrfs_device *device;
 	bool ret = false;
 
-	if (!btrfs_is_zoned(fs_devices->fs_info))
+	if (!btrfs_is_zoned(fs_info))
 		return true;
 
-	/* Non-single profiles are not supported yet */
-	ASSERT((flags & BTRFS_BLOCK_GROUP_PROFILE_MASK) == 0);
-
 	/* Check if there is a device with active zones left */
-	mutex_lock(&fs_devices->device_list_mutex);
-	list_for_each_entry(device, &fs_devices->devices, dev_list) {
+	mutex_lock(&fs_info->chunk_mutex);
+	list_for_each_entry(device, &fs_devices->alloc_list, dev_alloc_list) {
 		struct btrfs_zoned_device_info *zinfo = device->zone_info;
 
 		if (!device->bdev)
@@ -1999,7 +1989,7 @@ bool btrfs_can_activate_zone(struct btrfs_fs_devices *fs_devices, u64 flags)
 			break;
 		}
 	}
-	mutex_unlock(&fs_devices->device_list_mutex);
+	mutex_unlock(&fs_info->chunk_mutex);
 
 	return ret;
 }
