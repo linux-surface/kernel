@@ -7,6 +7,7 @@
 #include <linux/context_tracking_irq.h>
 
 struct context_tracking {
+#ifdef CONFIG_CONTEXT_TRACKING_USER
 	/*
 	 * When active is false, probes are unset in order
 	 * to minimize overhead: TIF flags are cleared
@@ -21,11 +22,37 @@ struct context_tracking {
 		CONTEXT_USER,
 		CONTEXT_GUEST,
 	} state;
+#endif
+#ifdef CONFIG_CONTEXT_TRACKING_IDLE
+	atomic_t dynticks;		/* Even value for idle, else odd. */
+#endif
 };
+
+#ifdef CONFIG_CONTEXT_TRACKING
+DECLARE_PER_CPU(struct context_tracking, context_tracking);
+#endif
+
+#ifdef CONFIG_CONTEXT_TRACKING_IDLE
+static __always_inline int ct_dynticks(void)
+{
+	return atomic_read(this_cpu_ptr(&context_tracking.dynticks));
+}
+
+static __always_inline int ct_dynticks_cpu(int cpu)
+{
+	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
+	return atomic_read(&ct->dynticks);
+}
+
+static __always_inline int ct_dynticks_cpu_acquire(int cpu)
+{
+	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
+	return atomic_read_acquire(&ct->dynticks);
+}
+#endif /* #ifdef CONFIG_CONTEXT_TRACKING_IDLE */
 
 #ifdef CONFIG_CONTEXT_TRACKING_USER
 extern struct static_key_false context_tracking_key;
-DECLARE_PER_CPU(struct context_tracking, context_tracking);
 
 static __always_inline bool context_tracking_enabled(void)
 {
