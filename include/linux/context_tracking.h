@@ -118,16 +118,16 @@ extern void ct_idle_exit(void);
  */
 static __always_inline bool rcu_dynticks_curr_cpu_in_eqs(void)
 {
-	return !(arch_atomic_read(this_cpu_ptr(&context_tracking.dynticks)) & 0x1);
+	return !(arch_atomic_read(this_cpu_ptr(&context_tracking.state)) & RCU_DYNTICKS_IDX);
 }
 
 /*
- * Increment the current CPU's context_tracking structure's ->dynticks field
+ * Increment the current CPU's context_tracking structure's ->state field
  * with ordering.  Return the new value.
  */
-static __always_inline unsigned long rcu_dynticks_inc(int incby)
+static __always_inline unsigned long ct_state_inc(int incby)
 {
-	return arch_atomic_add_return(incby, this_cpu_ptr(&context_tracking.dynticks));
+	return arch_atomic_add_return(incby, this_cpu_ptr(&context_tracking.state));
 }
 
 #else

@@ -10,11 +10,19 @@
 #define DYNTICK_IRQ_NONIDLE	((LONG_MAX / 2) + 1)
 
 enum ctx_state {
-	CONTEXT_DISABLED = -1,	/* returned by ct_state() if unknown */
-	CONTEXT_KERNEL = 0,
-	CONTEXT_USER,
-	CONTEXT_GUEST,
+	CONTEXT_DISABLED	= -1,	/* returned by ct_state() if unknown */
+	CONTEXT_KERNEL		= 0,
+	CONTEXT_IDLE		= 1,
+	CONTEXT_USER		= 2,
+	CONTEXT_GUEST		= 3,
+	CONTEXT_MAX		= 4,
 };
+
+/* Even value for idle, else odd. */
+#define RCU_DYNTICKS_IDX CONTEXT_MAX
+
+#define CT_STATE_MASK (CONTEXT_MAX - 1)
+#define CT_DYNTICKS_MASK (~CT_STATE_MASK)
 
 struct context_tracking {
 #ifdef CONFIG_CONTEXT_TRACKING_USER
@@ -26,10 +34,11 @@ struct context_tracking {
 	 */
 	bool active;
 	int recursion;
+#endif
+#ifdef CONFIG_CONTEXT_TRACKING
 	atomic_t state;
 #endif
 #ifdef CONFIG_CONTEXT_TRACKING_IDLE
-	atomic_t dynticks;		/* Even value for idle, else odd. */
 	long dynticks_nesting;		/* Track process nesting level. */
 	long dynticks_nmi_nesting;	/* Track irq/NMI nesting level. */
 #endif
@@ -37,24 +46,29 @@ struct context_tracking {
 
 #ifdef CONFIG_CONTEXT_TRACKING
 DECLARE_PER_CPU(struct context_tracking, context_tracking);
+
+static __always_inline int __ct_state(void)
+{
+	return atomic_read(this_cpu_ptr(&context_tracking.state)) & CT_STATE_MASK;
+}
 #endif
 
 #ifdef CONFIG_CONTEXT_TRACKING_IDLE
 static __always_inline int ct_dynticks(void)
 {
-	return atomic_read(this_cpu_ptr(&context_tracking.dynticks));
+	return atomic_read(this_cpu_ptr(&context_tracking.state)) & CT_DYNTICKS_MASK;
 }
 
 static __always_inline int ct_dynticks_cpu(int cpu)
 {
 	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
-	return atomic_read(&ct->dynticks);
+	return atomic_read(&ct->state) & CT_DYNTICKS_MASK;
 }
 
 static __always_inline int ct_dynticks_cpu_acquire(int cpu)
 {
 	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
-	return atomic_read_acquire(&ct->dynticks);
+	return atomic_read_acquire(&ct->state) & CT_DYNTICKS_MASK;
 }
 
 static __always_inline long ct_dynticks_nesting(void)
@@ -96,11 +110,6 @@ static __always_inline bool context_tracking_enabled_cpu(int cpu)
 static inline bool context_tracking_enabled_this_cpu(void)
 {
 	return context_tracking_enabled() && __this_cpu_read(context_tracking.active);
-}
-
-static __always_inline int __ct_state(void)
-{
-	return atomic_read(this_cpu_ptr(&context_tracking.state));
 }
 
 /**
