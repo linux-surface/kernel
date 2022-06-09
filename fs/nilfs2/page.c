@@ -294,57 +294,57 @@ repeat:
 void nilfs_copy_back_pages(struct address_space *dmap,
 			   struct address_space *smap)
 {
-	struct folio_batch fbatch;
+	struct pagevec pvec;
 	unsigned int i, n;
-	pgoff_t start = 0;
+	pgoff_t index = 0;
 
-	folio_batch_init(&fbatch);
+	pagevec_init(&pvec);
 repeat:
-	n = filemap_get_folios(smap, &start, ~0UL, &fbatch);
+	n = pagevec_lookup(&pvec, smap, &index);
 	if (!n)
 		return;
 
-	for (i = 0; i < folio_batch_count(&fbatch); i++) {
-		struct folio *folio = fbatch.folios[i], *dfolio;
-		pgoff_t index = folio->index;
+	for (i = 0; i < pagevec_count(&pvec); i++) {
+		struct page *page = pvec.pages[i], *dpage;
+		pgoff_t offset = page->index;
 
-		folio_lock(folio);
-		dfolio = filemap_lock_folio(dmap, index);
-		if (dfolio) {
-			/* overwrite existing folio in the destination cache */
-			WARN_ON(folio_test_dirty(dfolio));
-			nilfs_copy_page(&dfolio->page, &folio->page, 0);
-			folio_unlock(dfolio);
-			folio_put(dfolio);
-			/* Do we not need to remove folio from smap here? */
+		lock_page(page);
+		dpage = find_lock_page(dmap, offset);
+		if (dpage) {
+			/* overwrite existing page in the destination cache */
+			WARN_ON(PageDirty(dpage));
+			nilfs_copy_page(dpage, page, 0);
+			unlock_page(dpage);
+			put_page(dpage);
+			/* Do we not need to remove page from smap here? */
 		} else {
-			struct folio *f;
+			struct page *p;
 
-			/* move the folio to the destination cache */
+			/* move the page to the destination cache */
 			xa_lock_irq(&smap->i_pages);
-			f = __xa_erase(&smap->i_pages, index);
-			WARN_ON(folio != f);
+			p = __xa_erase(&smap->i_pages, offset);
+			WARN_ON(page != p);
 			smap->nrpages--;
 			xa_unlock_irq(&smap->i_pages);
 
 			xa_lock_irq(&dmap->i_pages);
-			f = __xa_store(&dmap->i_pages, index, folio, GFP_NOFS);
-			if (unlikely(f)) {
+			p = __xa_store(&dmap->i_pages, offset, page, GFP_NOFS);
+			if (unlikely(p)) {
 				/* Probably -ENOMEM */
-				folio->mapping = NULL;
-				folio_put(folio);
+				page->mapping = NULL;
+				put_page(page);
 			} else {
-				folio->mapping = dmap;
+				page->mapping = dmap;
 				dmap->nrpages++;
-				if (folio_test_dirty(folio))
-					__xa_set_mark(&dmap->i_pages, index,
+				if (PageDirty(page))
+					__xa_set_mark(&dmap->i_pages, offset,
 							PAGECACHE_TAG_DIRTY);
 			}
 			xa_unlock_irq(&dmap->i_pages);
 		}
-		folio_unlock(folio);
+		unlock_page(page);
 	}
-	folio_batch_release(&fbatch);
+	pagevec_release(&pvec);
 	cond_resched();
 
 	goto repeat;
