@@ -1554,9 +1554,9 @@ struct mpage_da_data {
 static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 				       bool invalidate)
 {
-	unsigned nr, i;
+	int nr_pages, i;
 	pgoff_t index, end;
-	struct folio_batch fbatch;
+	struct pagevec pvec;
 	struct inode *inode = mpd->inode;
 	struct address_space *mapping = inode->i_mapping;
 
@@ -1574,18 +1574,15 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 		ext4_es_remove_extent(inode, start, last - start + 1);
 	}
 
-	folio_batch_init(&fbatch);
+	pagevec_init(&pvec);
 	while (index <= end) {
-		nr = filemap_get_folios(mapping, &index, end, &fbatch);
-		if (nr == 0)
+		nr_pages = pagevec_lookup_range(&pvec, mapping, &index, end);
+		if (nr_pages == 0)
 			break;
-		for (i = 0; i < nr; i++) {
-			struct folio *folio = fbatch.folios[i];
+		for (i = 0; i < nr_pages; i++) {
+			struct page *page = pvec.pages[i];
+			struct folio *folio = page_folio(page);
 
-			if (folio->index < mpd->first_page)
-				continue;
-			if (folio->index + folio_nr_pages(folio) - 1 > end)
-				continue;
 			BUG_ON(!folio_test_locked(folio));
 			BUG_ON(folio_test_writeback(folio));
 			if (invalidate) {
@@ -1597,7 +1594,7 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 			}
 			folio_unlock(folio);
 		}
-		folio_batch_release(&fbatch);
+		pagevec_release(&pvec);
 	}
 }
 
