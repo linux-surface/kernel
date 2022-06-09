@@ -6218,7 +6218,7 @@ static int qcom_qmp_phy_typec_switch_set(struct typec_switch_dev *sw,
 
 static int qcom_qmp_phy_typec_switch_register(struct qcom_qmp *qmp, const struct qmp_phy_cfg *cfg)
 {
-	struct typec_switch_desc sw_desc;
+	struct typec_switch_desc sw_desc = {};
 	struct device *dev = qmp->dev;
 
 	if (cfg->has_phy_dp_com_ctrl) {
