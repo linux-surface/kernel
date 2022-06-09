@@ -2375,8 +2375,8 @@ static void _opp_detach_genpd(struct opp_table *opp_table)
 struct opp_table *dev_pm_opp_set_config(struct device *dev,
 					struct dev_pm_opp_config *config)
 {
-	struct opp_table *opp_table, *ret;
-	int err;
+	struct opp_table *opp_table;
+	int ret;
 
 	opp_table = _add_opp_table(dev, false);
 	if (IS_ERR(opp_table))
@@ -2384,75 +2384,63 @@ struct opp_table *dev_pm_opp_set_config(struct device *dev,
 
 	/* This should be called before OPPs are initialized */
 	if (WARN_ON(!list_empty(&opp_table->opp_list))) {
-		ret = ERR_PTR(-EBUSY);
+		ret = -EBUSY;
 		goto err;
 	}
 
 	/* Configure clocks */
 	if (config->clk_names) {
-		err = _opp_set_clknames(opp_table, dev, config->clk_names,
+		ret = _opp_set_clknames(opp_table, dev, config->clk_names,
 					config->clk_count);
-		if (err) {
-			ret = ERR_PTR(err);
+		if (ret)
 			goto err;
-		}
 	}
 
 	/* Configure property names */
 	if (config->prop_name) {
-		err = _opp_set_prop_name(opp_table, config->prop_name);
-		if (err) {
-			ret = ERR_PTR(err);
+		ret = _opp_set_prop_name(opp_table, config->prop_name);
+		if (ret)
 			goto err;
-		}
 	}
 
 	/* Configure opp helper */
 	if (config->set_opp) {
-		err = _opp_register_set_opp_helper(opp_table, dev,
+		ret = _opp_register_set_opp_helper(opp_table, dev,
 						   config->set_opp);
-		if (err) {
-			ret = ERR_PTR(err);
+		if (ret)
 			goto err;
-		}
 	}
 
 	/* Configure supported hardware */
 	if (config->supported_hw) {
-		err = _opp_set_supported_hw(opp_table, config->supported_hw,
+		ret = _opp_set_supported_hw(opp_table, config->supported_hw,
 					    config->supported_hw_count);
-		if (err) {
-			ret = ERR_PTR(err);
+		if (ret)
 			goto err;
-		}
 	}
 
 	/* Configure supplies */
 	if (config->regulator_names) {
-		err = _opp_set_regulators(opp_table, dev,
+		ret = _opp_set_regulators(opp_table, dev,
 					  config->regulator_names,
 					  config->regulator_count);
-		if (err) {
-			ret = ERR_PTR(err);
+		if (ret)
 			goto err;
-		}
 	}
 
 	/* Attach genpds */
 	if (config->genpd_names) {
-		err = _opp_attach_genpd(opp_table, dev, config->genpd_names,
+		ret = _opp_attach_genpd(opp_table, dev, config->genpd_names,
 					config->virt_devs);
-		if (err) {
-			ret = ERR_PTR(err);
+		if (ret)
 			goto err;
-		}
 	}
 
 	return opp_table;
 
 err:
 	dev_pm_opp_clear_config(opp_table);
-	return ret;
+	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_set_config);
 
@@ -2475,15 +2463,10 @@ void dev_pm_opp_clear_config(struct opp_table *opp_table)
 		return;
 
 	_opp_detach_genpd(opp_table);
-
 	_opp_put_regulators(opp_table);
-
 	_opp_put_supported_hw(opp_table);
-
 	_opp_unregister_set_opp_helper(opp_table);
-
 	_opp_put_prop_name(opp_table);
-
 	_opp_put_clknames(opp_table);
 
 	dev_pm_opp_put_opp_table(opp_table);
