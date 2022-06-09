@@ -1832,40 +1832,45 @@ bool f2fs_load_compressed_page(struct f2fs_sb_info *sbi, struct page *page,
 void f2fs_invalidate_compress_pages(struct f2fs_sb_info *sbi, nid_t ino)
 {
 	struct address_space *mapping = sbi->compress_inode->i_mapping;
-	struct folio_batch fbatch;
+	struct pagevec pvec;
 	pgoff_t index = 0;
 	pgoff_t end = MAX_BLKADDR(sbi);
 
 	if (!mapping->nrpages)
 		return;
 
-	folio_batch_init(&fbatch);
+	pagevec_init(&pvec);
 
 	do {
-		unsigned int nr, i;
+		unsigned int nr_pages;
+		int i;
 
-		nr = filemap_get_folios(mapping, &index, end - 1, &fbatch);
-		if (!nr)
+		nr_pages = pagevec_lookup_range(&pvec, mapping,
+						&index, end - 1);
+		if (!nr_pages)
 			break;
 
-		for (i = 0; i < nr; i++) {
-			struct folio *folio = fbatch.folios[i];
+		for (i = 0; i < nr_pages; i++) {
+			struct page *page = pvec.pages[i];
 
-			folio_lock(folio);
-			if (folio->mapping != mapping) {
-				folio_unlock(folio);
+			if (page->index > end)
+				break;
+
+			lock_page(page);
+			if (page->mapping != mapping) {
+				unlock_page(page);
 				continue;
 			}
 
-			if (ino != get_page_private_data(&folio->page)) {
-				folio_unlock(folio);
+			if (ino != get_page_private_data(page)) {
+				unlock_page(page);
 				continue;
 			}
 
-			generic_error_remove_page(mapping, &folio->page);
-			folio_unlock(folio);
+			generic_error_remove_page(mapping, page);
+			unlock_page(page);
 		}
-		folio_batch_release(&fbatch);
+		pagevec_release(&pvec);
 		cond_resched();
 	} while (index < end);
 }
