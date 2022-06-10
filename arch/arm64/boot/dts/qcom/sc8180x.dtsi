@@ -1664,7 +1664,7 @@
 		};
 
 		pcie0: pci@1c00000 {
-			compatible = "qcom,pcie-sc8180x", "snps,dw-pcie";
+			compatible = "qcom,pcie-sc8180x";
 			reg = <0 0x01c00000 0 0x3000>,
 			      <0 0x60000000 0 0xf1d>,
 			      <0 0x60000f20 0 0xa8>,
@@ -1762,7 +1762,7 @@
 		};
 
 		pcie3: pci@1c08000 {
-			compatible = "qcom,pcie-sc8180x", "snps,dw-pcie";
+			compatible = "qcom,pcie-sc8180x";
 			reg = <0 0x01c08000 0 0x3000>,
 			      <0 0x40000000 0 0xf1d>,
 			      <0 0x40000f20 0 0xa8>,
@@ -1860,7 +1860,7 @@
 		};
 
 		pcie1: pci@1c10000 {
-			compatible = "qcom,pcie-sc8180x", "snps,dw-pcie";
+			compatible = "qcom,pcie-sc8180x";
 			reg = <0 0x01c10000 0 0x3000>,
 			      <0 0x68000000 0 0xf1d>,
 			      <0 0x68000f20 0 0xa8>,
@@ -1958,7 +1958,7 @@
 		};
 
 		pcie2: pci@1c18000 {
-			compatible = "qcom,pcie-sc8180x", "snps,dw-pcie";
+			compatible = "qcom,pcie-sc8180x";
 			reg = <0 0x01c18000 0 0x3000>,
 			      <0 0x70000000 0 0xf1d>,
 			      <0 0x70000f20 0 0xa8>,
