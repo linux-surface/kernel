@@ -477,9 +477,14 @@ static struct dev_pm_opp *_opp_table_find_key(struct opp_table *opp_table,
 		unsigned long *key, int index, bool available,
 		unsigned long (*read)(struct dev_pm_opp *opp, int index),
 		bool (*compare)(struct dev_pm_opp **opp, struct dev_pm_opp *temp_opp,
-				unsigned long opp_key, unsigned long key))
+				unsigned long opp_key, unsigned long key),
+		bool (*assert)(struct opp_table *opp_table))
 {
 	struct dev_pm_opp *temp_opp, *opp = ERR_PTR(-ERANGE);
+
+	/* Assert that the requirement is met */
+	if (assert && !assert(opp_table))
+		return ERR_PTR(-EINVAL);
 
 	mutex_lock(&opp_table->lock);
 
@@ -505,7 +510,8 @@ static struct dev_pm_opp *
 _find_key(struct device *dev, unsigned long *key, int index, bool available,
 	  unsigned long (*read)(struct dev_pm_opp *opp, int index),
 	  bool (*compare)(struct dev_pm_opp **opp, struct dev_pm_opp *temp_opp,
-			  unsigned long opp_key, unsigned long key))
+			  unsigned long opp_key, unsigned long key),
+	  bool (*assert)(struct opp_table *opp_table))
 {
 	struct opp_table *opp_table;
 	struct dev_pm_opp *opp;
@@ -518,7 +524,7 @@ _find_key(struct device *dev, unsigned long *key, int index, bool available,
 	}
 
 	opp = _opp_table_find_key(opp_table, key, index, available, read,
-				  compare);
+				  compare, assert);
 
 	dev_pm_opp_put_opp_table(opp_table);
 
@@ -527,35 +533,42 @@ _find_key(struct device *dev, unsigned long *key, int index, bool available,
 
 static struct dev_pm_opp *_find_key_exact(struct device *dev,
 		unsigned long key, int index, bool available,
-		unsigned long (*read)(struct dev_pm_opp *opp, int index))
+		unsigned long (*read)(struct dev_pm_opp *opp, int index),
+		bool (*assert)(struct opp_table *opp_table))
 {
 	/*
 	 * The value of key will be updated here, but will be ignored as the
 	 * caller doesn't need it.
 	 */
-	return _find_key(dev, &key, index, available, read, _compare_exact);
+	return _find_key(dev, &key, index, available, read, _compare_exact,
+			 assert);
 }
 
 static struct dev_pm_opp *_opp_table_find_key_ceil(struct opp_table *opp_table,
 		unsigned long *key, int index, bool available,
-		unsigned long (*read)(struct dev_pm_opp *opp, int index))
+		unsigned long (*read)(struct dev_pm_opp *opp, int index),
+		bool (*assert)(struct opp_table *opp_table))
 {
 	return _opp_table_find_key(opp_table, key, index, available, read,
-				   _compare_ceil);
+				   _compare_ceil, assert);
 }
 
 static struct dev_pm_opp *_find_key_ceil(struct device *dev, unsigned long *key,
 		int index, bool available,
-		unsigned long (*read)(struct dev_pm_opp *opp, int index))
+		unsigned long (*read)(struct dev_pm_opp *opp, int index),
+		bool (*assert)(struct opp_table *opp_table))
 {
-	return _find_key(dev, key, index, available, read, _compare_ceil);
+	return _find_key(dev, key, index, available, read, _compare_ceil,
+			 assert);
 }
 
 static struct dev_pm_opp *_find_key_floor(struct device *dev,
 		unsigned long *key, int index, bool available,
-		unsigned long (*read)(struct dev_pm_opp *opp, int index))
+		unsigned long (*read)(struct dev_pm_opp *opp, int index),
+		bool (*assert)(struct opp_table *opp_table))
 {
-	return _find_key(dev, key, index, available, read, _compare_floor);
+	return _find_key(dev, key, index, available, read, _compare_floor,
+			 assert);
 }
 
 /**
@@ -584,14 +597,15 @@ static struct dev_pm_opp *_find_key_floor(struct device *dev,
 struct dev_pm_opp *dev_pm_opp_find_freq_exact(struct device *dev,
 		unsigned long freq, bool available)
 {
-	return _find_key_exact(dev, freq, 0, available, _read_freq);
+	return _find_key_exact(dev, freq, 0, available, _read_freq, NULL);
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_exact);
 
 static noinline struct dev_pm_opp *_find_freq_ceil(struct opp_table *opp_table,
 						   unsigned long *freq)
 {
-	return _opp_table_find_key_ceil(opp_table, freq, 0, true, _read_freq);
+	return _opp_table_find_key_ceil(opp_table, freq, 0, true, _read_freq,
+					NULL);
 }
 
 /**
@@ -615,7 +629,7 @@ static noinline struct dev_pm_opp *_find_freq_ceil(struct opp_table *opp_table,
 struct dev_pm_opp *dev_pm_opp_find_freq_ceil(struct device *dev,
 					     unsigned long *freq)
 {
-	return _find_key_ceil(dev, freq, 0, true, _read_freq);
+	return _find_key_ceil(dev, freq, 0, true, _read_freq, NULL);
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_ceil);
 
@@ -640,7 +654,7 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_ceil);
 struct dev_pm_opp *dev_pm_opp_find_freq_floor(struct device *dev,
 					      unsigned long *freq)
 {
-	return _find_key_floor(dev, freq, 0, true, _read_freq);
+	return _find_key_floor(dev, freq, 0, true, _read_freq, NULL);
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_floor);
 
@@ -662,7 +676,7 @@ EXPORT_SYMBOL_GPL(dev_pm_opp_find_freq_floor);
 struct dev_pm_opp *dev_pm_opp_find_level_exact(struct device *dev,
 					       unsigned int level)
 {
-	return _find_key_exact(dev, level, 0, true, _read_level);
+	return _find_key_exact(dev, level, 0, true, _read_level, NULL);
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_find_level_exact);
 
@@ -687,7 +701,7 @@ struct dev_pm_opp *dev_pm_opp_find_level_ceil(struct device *dev,
 	unsigned long temp = *level;
 	struct dev_pm_opp *opp;
 
-	opp = _find_key_ceil(dev, &temp, 0, true, _read_level);
+	opp = _find_key_ceil(dev, &temp, 0, true, _read_level, NULL);
 	*level = temp;
 	return opp;
 }
@@ -718,7 +732,7 @@ struct dev_pm_opp *dev_pm_opp_find_bw_ceil(struct device *dev, unsigned int *bw,
 	unsigned long temp = *bw;
 	struct dev_pm_opp *opp;
 
-	opp = _find_key_ceil(dev, &temp, index, true, _read_bw);
+	opp = _find_key_ceil(dev, &temp, index, true, _read_bw, NULL);
 	*bw = temp;
 	return opp;
 }
@@ -749,7 +763,7 @@ struct dev_pm_opp *dev_pm_opp_find_bw_floor(struct device *dev,
 	unsigned long temp = *bw;
 	struct dev_pm_opp *opp;
 
-	opp = _find_key_floor(dev, &temp, index, true, _read_bw);
+	opp = _find_key_floor(dev, &temp, index, true, _read_bw, NULL);
 	*bw = temp;
 	return opp;
 }
