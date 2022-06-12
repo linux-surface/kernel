@@ -8,6 +8,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/spmi/spmi.h>
@@ -31,6 +32,29 @@
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&bl_pwm_default_state &bl_en_default_state>;
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		label = "Volume keys";
+		autorepeat;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&volume_down_gpio &volume_up_gpio>;
+
+		vol-down {
+			label = "Volume down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&pmc8180a_gpios 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+		};
+
+		vol-up {
+			label = "Volume up";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&pmc8180a_gpios 6 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+		};
 	};
 
 	chosen {
@@ -369,6 +393,15 @@
 		reg = <0x0 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		pmc8180a_gpios: gpio@c000 {
+			compatible = "qcom,pmc8180-gpio";
+			reg = <0xc000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
 	};
 
 	pmc8180a_pmic2: pmic@1 {
@@ -608,6 +641,24 @@
 	edp_hpd_active: epd-hpd-active-state {
 		pins = "gpio10";
 		function = "edp_hot";
+	};
+};
+
+&pmc8180a_gpios {
+	volume_down_gpio: pmc8180a_gpio1 {
+		pins = "gpio1";
+		function = "normal";
+		input-enable;
+		bias-pull-up;
+		qcom,drive-strength = <0>;
+	};
+
+	volume_up_gpio: pmc8180a_gpio6 {
+		pins = "gpio6";
+		function = "normal";
+		input-enable;
+		bias-pull-up;
+		qcom,drive-strength = <0>;
 	};
 };
 
