@@ -2417,6 +2417,15 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 		inode->i_state |= flags;
 
 		/*
+		 * Only add valid (hashed) inodes to the superblock's dirty
+		 * list. Add blockdev inodes as well. We need to check for this
+		 * early as special inodes can get dirtied early during boot
+		 * before bdi infrastructure is fully initialized.
+		 */
+		if (!S_ISBLK(inode->i_mode) && inode_unhashed(inode))
+			goto out_unlock_inode;
+
+		/*
 		 * Grab inode's wb early because it requires dropping i_lock and we
 		 * need to make sure following checks happen atomically with dirty
 		 * list handling so that we don't move inodes under flush worker's
@@ -2436,14 +2445,6 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 		if (inode->i_state & I_SYNC_QUEUED)
 			goto out_unlock;
 
-		/*
-		 * Only add valid (hashed) inodes to the superblock's
-		 * dirty list.  Add blockdev inodes as well.
-		 */
-		if (!S_ISBLK(inode->i_mode)) {
-			if (inode_unhashed(inode))
-				goto out_unlock;
-		}
 		if (inode->i_state & I_FREEING)
 			goto out_unlock;
 
