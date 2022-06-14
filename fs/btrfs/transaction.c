@@ -2085,13 +2085,12 @@ static void add_pending_snapshot(struct btrfs_trans_handle *trans)
 	list_add(&trans->pending_snapshot->list, &cur_trans->pending_snapshots);
 }
 
-static void update_commit_stats(struct btrfs_fs_info *fs_info,
-								ktime_t interval)
+static void update_commit_stats(struct btrfs_fs_info *fs_info, ktime_t interval)
 {
-	fs_info->commit_stats.commit_counter += 1;
+	fs_info->commit_stats.commit_count++;
 	fs_info->commit_stats.last_commit_dur = interval;
-	fs_info->commit_stats.max_commit_dur = max_t(u64,
-				fs_info->commit_stats.max_commit_dur, interval);
+	fs_info->commit_stats.max_commit_dur =
+			max_t(u64, fs_info->commit_stats.max_commit_dur, interval);
 	fs_info->commit_stats.total_commit_dur += interval;
 }
 
