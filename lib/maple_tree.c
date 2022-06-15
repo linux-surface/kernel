@@ -3981,8 +3981,7 @@ static inline bool mas_wr_node_store(struct ma_wr_state *wr_mas)
 
 		new_end++;
 	} else {
-		if (mas_safe_pivot(mas, wr_mas->pivots, wr_mas->offset_end,
-				   wr_mas->type) == mas->last)
+		if (wr_mas->end_piv == mas->last)
 			wr_mas->offset_end++;
 
 		new_end -= wr_mas->offset_end - offset - 1;
@@ -4146,10 +4145,7 @@ static inline void mas_wr_extend_null(struct ma_wr_state *wr_mas)
 			mas->last = mas->max;
 		else
 			mas->last = wr_mas->pivots[wr_mas->offset_end];
-	} else if ((mas->last > wr_mas->end_piv) &&
-		   !wr_mas->slots[wr_mas->offset_end]) {
-		mas->last = wr_mas->end_piv;
-		wr_mas->offset_end++;
+		wr_mas->end_piv = mas->last;
 	}
 
 	if (!wr_mas->content) {
