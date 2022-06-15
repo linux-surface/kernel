@@ -55,16 +55,8 @@ __cold int io_uring_alloc_task_context(struct task_struct *task,
 	if (unlikely(!tctx))
 		return -ENOMEM;
 
-	tctx->registered_rings = kcalloc(IO_RINGFD_REG_MAX,
-					 sizeof(struct file *), GFP_KERNEL);
-	if (unlikely(!tctx->registered_rings)) {
-		kfree(tctx);
-		return -ENOMEM;
-	}
-
 	ret = percpu_counter_init(&tctx->inflight, 0, GFP_KERNEL);
 	if (unlikely(ret)) {
-		kfree(tctx->registered_rings);
 		kfree(tctx);
 		return ret;
 	}
@@ -73,7 +65,6 @@ __cold int io_uring_alloc_task_context(struct task_struct *task,
 	if (IS_ERR(tctx->io_wq)) {
 		ret = PTR_ERR(tctx->io_wq);
 		percpu_counter_destroy(&tctx->inflight);
-		kfree(tctx->registered_rings);
 		kfree(tctx);
 		return ret;
 	}
