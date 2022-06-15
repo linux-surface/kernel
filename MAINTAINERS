@@ -12859,8 +12859,8 @@ F:	mm/
 F:	tools/testing/selftests/vm/
 
 MEMORY HOT(UN)PLUG
-M:	Andrew Morton <akpm@linux-foundation.org>
-R:	David Hildenbrand <david@redhat.com>
+M:	David Hildenbrand <david@redhat.com>
+M:	Oscar Salvador <osalvador@suse.de>
 L:	linux-mm@kvack.org
 S:	Maintained
 F:	Documentation/admin-guide/mm/memory-hotplug.rst
