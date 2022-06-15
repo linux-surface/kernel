@@ -35537,6 +35537,275 @@ static noinline void check_root_expand(struct maple_tree *mt)
 	mas_unlock(&mas);
 }
 
+static noinline void check_prealloc(struct maple_tree *mt)
+{
+	unsigned long i, max = 100;
+	unsigned long allocated;
+	unsigned char height;
+	struct maple_node *mn;
+	void *ptr= check_prealloc;
+	MA_STATE(mas, mt, 10, 20);
+
+	mt_set_non_kernel(1000);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mas_destroy(&mas);
+	allocated = mas_allocated(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	mas_destroy(&mas);
+	allocated = mas_allocated(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mn = mas_pop_node(&mas);
+	MT_BUG_ON(mt, mas_allocated(&mas) != allocated - 1);
+	ma_free_rcu(mn);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	mas_destroy(&mas);
+	allocated = mas_allocated(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mn = mas_pop_node(&mas);
+	MT_BUG_ON(mt, mas_allocated(&mas) != allocated - 1);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	mas_destroy(&mas);
+	allocated = mas_allocated(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+	ma_free_rcu(mn);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mn = mas_pop_node(&mas);
+	MT_BUG_ON(mt, mas_allocated(&mas) != allocated - 1);
+	mas_push_node(&mas, mn);
+	MT_BUG_ON(mt, mas_allocated(&mas) != allocated);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	mas_destroy(&mas);
+	allocated = mas_allocated(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mas_store_prealloc(&mas, ptr);
+	MT_BUG_ON(mt, mas_allocated(&mas) != 0);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mas_store_prealloc(&mas, ptr);
+	MT_BUG_ON(mt, mas_allocated(&mas) != 0);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mas_store_prealloc(&mas, ptr);
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mas_store_prealloc(&mas, ptr);
+	MT_BUG_ON(mt, mas_allocated(&mas) != 0);
+	mt_set_non_kernel(1);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL & GFP_NOWAIT) == 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+	mas_destroy(&mas);
+
+
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL) != 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated == 0);
+	MT_BUG_ON(mt, allocated != 1 + height * 3);
+	mas_store_prealloc(&mas, ptr);
+	MT_BUG_ON(mt, mas_allocated(&mas) != 0);
+	mt_set_non_kernel(1);
+	MT_BUG_ON(mt, mas_preallocate(&mas, ptr, GFP_KERNEL & GFP_NOWAIT) == 0);
+	allocated = mas_allocated(&mas);
+	height = mas_mt_height(&mas);
+	MT_BUG_ON(mt, allocated != 0);
+}
+
+static noinline void check_spanning_write(struct maple_tree *mt)
+{
+	unsigned long i, max = 5000;
+	MA_STATE(mas, mt, 1200, 2380);
+
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 1205);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test spanning store that requires a right cousin rebalance */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mas_set_range(&mas, 0, 12900); /* Spans more than 2 levels */
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 1205);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test non-alloc tree spanning store */
+	mt_init_flags(mt, 0);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mas_set_range(&mas, 0, 300);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 15);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test spanning store that requires a right sibling rebalance */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mas_set_range(&mas, 0, 12865);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 15);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test spanning store that requires a left sibling rebalance */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mas_set_range(&mas, 90, 13665);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 95);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test spanning store that requires a left cousin rebalance */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mas_set_range(&mas, 46805, 49995);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 46815);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/*
+	 * Test spanning store that requires a left cousin rebalance all the way
+	 * to root
+	 */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mas_set_range(&mas, 32395, 49995);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 46815);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/*
+	 * Test spanning store that requires a right cousin rebalance all the
+	 * way to root
+	 */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+	mas_set_range(&mas, 38875, 43190);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 38900);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test spanning store ending at full node (depth 2)*/
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+	mtree_lock(mt);
+	mas_set(&mas, 47606);
+	mas_store_gfp(&mas, check_spanning_write, GFP_KERNEL);
+	mas_set(&mas, 47607);
+	mas_store_gfp(&mas, check_spanning_write, GFP_KERNEL);
+	mas_set(&mas, 47608);
+	mas_store_gfp(&mas, check_spanning_write, GFP_KERNEL);
+	mas_set(&mas, 47609);
+	mas_store_gfp(&mas, check_spanning_write, GFP_KERNEL);
+	/* Ensure the parent node is full */
+	mas_ascend(&mas);
+	MT_BUG_ON(mt, (mas_data_end(&mas)) != mt_slot_count(mas.node) - 1);
+	mas_set_range(&mas, 11516,48940);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+
+	/* Test spanning write with many many levels of no siblings */
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= max; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+	mas_set_range(&mas, 43200, 49999);
+	mtree_lock(mt);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mas_set(&mas, 43200);
+	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
+	mtree_unlock(mt);
+	mtree_destroy(mt);
+}
+
 static noinline void check_null_expand(struct maple_tree *mt)
 {
 	unsigned long i, max = 100;
@@ -37676,6 +37945,14 @@ static int maple_tree_seed(void)
 
 	mt_init_flags(&tree, 0);
 	check_new_node(&tree);
+	mtree_destroy(&tree);
+
+	mt_init_flags(&tree, MT_FLAGS_ALLOC_RANGE);
+	check_prealloc(&tree);
+	mtree_destroy(&tree);
+
+	mt_init_flags(&tree, MT_FLAGS_ALLOC_RANGE);
+	check_spanning_write(&tree);
 	mtree_destroy(&tree);
 
 	mt_init_flags(&tree, MT_FLAGS_ALLOC_RANGE);
