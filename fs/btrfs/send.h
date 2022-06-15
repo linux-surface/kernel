@@ -7,7 +7,7 @@
 #ifndef BTRFS_SEND_H
 #define BTRFS_SEND_H
 
-#include "ctree.h"
+#include <linux/types.h>
 
 #define BTRFS_SEND_STREAM_MAGIC "btrfs-stream"
 #define BTRFS_SEND_STREAM_VERSION 2
@@ -17,6 +17,9 @@
  * should be assumed.
  */
 #define BTRFS_SEND_BUF_SIZE_V1				SZ_64K
+
+struct inode;
+struct btrfs_ioctl_send_args;
 
 enum btrfs_tlv_type {
 	BTRFS_TLV_U8,
@@ -85,7 +88,7 @@ enum btrfs_send_cmd {
 
 	/* Version 2 */
 	BTRFS_SEND_C_FALLOCATE		= 23,
-	BTRFS_SEND_C_SETFLAGS		= 24,
+	BTRFS_SEND_C_FILEATTR		= 24,
 	BTRFS_SEND_C_ENCODED_WRITE	= 25,
 	BTRFS_SEND_C_MAX_V2		= 25,
 
@@ -138,7 +141,13 @@ enum {
 	/* Version 2 */
 	BTRFS_SEND_A_FALLOCATE_MODE	= 25,
 
-	BTRFS_SEND_A_SETFLAGS_FLAGS	= 26,
+	/*
+	 * File attributes from the FS_*_FL namespace (i_flags, xflags),
+	 * translated to BTRFS_INODE_* bits (BTRFS_INODE_FLAG_MASK) and stored
+	 * in btrfs_inode_item::flags (represented by btrfs_inode::flags and
+	 * btrfs_inode::ro_flags).
+	 */
+	BTRFS_SEND_A_FILEATTR		= 26,
 
 	BTRFS_SEND_A_UNENCODED_FILE_LEN	= 27,
 	BTRFS_SEND_A_UNENCODED_LEN	= 28,
@@ -155,8 +164,6 @@ enum {
 	BTRFS_SEND_A_MAX		= 31,
 };
 
-#ifdef __KERNEL__
 long btrfs_ioctl_send(struct inode *inode, struct btrfs_ioctl_send_args *arg);
-#endif
 
 #endif
