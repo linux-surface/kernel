@@ -5429,11 +5429,15 @@ static void mt_destroy_walk(struct maple_enode *enode, unsigned char ma_flags,
 			goto start_slots_free;
 		type = mte_node_type(mas.node);
 		slots = ma_slots(mte_to_node(mas.node), type);
-		if ((offset < mt_slots[type]) && (slots[offset])) {
-			struct maple_enode *parent = mas.node;
+		if ((offset < mt_slots[type])) {
+			struct maple_enode *next = slots[offset];
 
-			mas.node = mas_slot_locked(&mas, slots, offset);
-			slots = mas_destroy_descend(&mas, parent, offset);
+			if (mte_node_type(next) && mte_to_node(next)) {
+				struct maple_enode *parent = mas.node;
+
+				mas.node = mas_slot_locked(&mas, slots, offset);
+				slots = mas_destroy_descend(&mas, parent, offset);
+			}
 		}
 		node = mas_mn(&mas);
 	} while (start != mas.node);
