@@ -1410,8 +1410,10 @@ static int brcm_pcie_probe(struct platform_device *pdev)
 		ret = brcm_pcie_enable_msi(pcie);
 		if (ret) {
 			dev_err(pcie->dev, "probe of internal MSI failed");
+			of_node_put(msi_np);
 			goto fail;
 		}
+		of_node_put(msi_np);
 	}
 
 	bridge->ops = pcie->type == BCM7425 ? &brcm_pcie_ops32 : &brcm_pcie_ops;
