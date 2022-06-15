@@ -9,7 +9,6 @@
 
 #include <linux/compat.h>
 #include <linux/cpufeature.h>
-#include <linux/personality.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/slab.h>
@@ -41,7 +40,7 @@ __do_compat_cache_op(unsigned long start, unsigned long end)
 			dsb(ish);
 		}
 
-		ret = __flush_cache_user_range(start, start + chunk);
+		ret = caches_clean_inval_user_pou(start, start + chunk);
 		if (ret)
 			return ret;
 

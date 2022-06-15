@@ -95,6 +95,7 @@ xdr_buf_init(struct xdr_buf *buf, void *start, size_t len)
 #define	rpc_auth_unix	cpu_to_be32(RPC_AUTH_UNIX)
 #define	rpc_auth_short	cpu_to_be32(RPC_AUTH_SHORT)
 #define	rpc_auth_gss	cpu_to_be32(RPC_AUTH_GSS)
+#define	rpc_auth_tls	cpu_to_be32(RPC_AUTH_TLS)
 
 #define	rpc_call	cpu_to_be32(RPC_CALL)
 #define	rpc_reply	cpu_to_be32(RPC_REPLY)
@@ -391,6 +392,40 @@ static inline int xdr_stream_encode_item_absent(struct xdr_stream *xdr)
 	if (unlikely(!p))
 		return -EMSGSIZE;
 	*p = xdr_zero;
+	return len;
+}
+
+/**
+ * xdr_encode_bool - Encode a boolean item
+ * @p: address in a buffer into which to encode
+ * @n: boolean value to encode
+ *
+ * Return value:
+ *   Address of item following the encoded boolean
+ */
+static inline __be32 *xdr_encode_bool(__be32 *p, u32 n)
+{
+	*p = n ? xdr_one : xdr_zero;
+	return p++;
+}
+
+/**
+ * xdr_stream_encode_bool - Encode a boolean item
+ * @xdr: pointer to xdr_stream
+ * @n: boolean value to encode
+ *
+ * Return values:
+ *   On success, returns length in bytes of XDR buffer consumed
+ *   %-EMSGSIZE on XDR buffer overflow
+ */
+static inline int xdr_stream_encode_bool(struct xdr_stream *xdr, __u32 n)
+{
+	const size_t len = XDR_UNIT;
+	__be32 *p = xdr_reserve_space(xdr, len);
+
+	if (unlikely(!p))
+		return -EMSGSIZE;
+	xdr_encode_bool(p, n);
 	return len;
 }
 
@@ -695,6 +730,8 @@ xdr_stream_decode_uint32_array(struct xdr_stream *xdr,
 	ssize_t retval;
 
 	if (unlikely(xdr_stream_decode_u32(xdr, &len) < 0))
+		return -EBADMSG;
+	if (len > SIZE_MAX / sizeof(*p))
 		return -EBADMSG;
 	p = xdr_inline_decode(xdr, len * sizeof(*p));
 	if (unlikely(!p))

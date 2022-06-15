@@ -246,7 +246,7 @@ struct ucan_message_in {
 		 */
 		struct ucan_tx_complete_entry_t can_tx_complete_msg[0];
 	} __aligned(0x4) msg;
-} __packed;
+} __packed __aligned(0x4);
 
 /* Macros to calculate message lengths */
 #define UCAN_OUT_HDR_SIZE offsetof(struct ucan_message_out, msg)
@@ -259,7 +259,6 @@ struct ucan_priv;
 /* Context Information for transmission URBs */
 struct ucan_urb_context {
 	struct ucan_priv *up;
-	u8 dlc;
 	bool allocated;
 };
 
@@ -621,8 +620,11 @@ static void ucan_rx_can_msg(struct ucan_priv *up, struct ucan_message_in *m)
 		memcpy(cf->data, m->msg.can_msg.data, cf->len);
 
 	/* don't count error frames as real packets */
-	stats->rx_packets++;
-	stats->rx_bytes += cf->len;
+	if (!(cf->can_id & CAN_ERR_FLAG)) {
+		stats->rx_packets++;
+		if (!(cf->can_id & CAN_RTR_FLAG))
+			stats->rx_bytes += cf->len;
+	}
 
 	/* pass it to Linux */
 	netif_rx(skb);
@@ -634,7 +636,7 @@ static void ucan_tx_complete_msg(struct ucan_priv *up,
 {
 	unsigned long flags;
 	u16 count, i;
-	u8 echo_index, dlc;
+	u8 echo_index;
 	u16 len = le16_to_cpu(m->len);
 
 	struct ucan_urb_context *context;
@@ -658,7 +660,6 @@ static void ucan_tx_complete_msg(struct ucan_priv *up,
 
 		/* gather information from the context */
 		context = &up->context_array[echo_index];
-		dlc = READ_ONCE(context->dlc);
 
 		/* Release context and restart queue if necessary.
 		 * Also check if the context was allocated
@@ -671,11 +672,11 @@ static void ucan_tx_complete_msg(struct ucan_priv *up,
 		    UCAN_TX_COMPLETE_SUCCESS) {
 			/* update statistics */
 			up->netdev->stats.tx_packets++;
-			up->netdev->stats.tx_bytes += dlc;
-			can_get_echo_skb(up->netdev, echo_index, NULL);
+			up->netdev->stats.tx_bytes +=
+				can_get_echo_skb(up->netdev, echo_index, NULL);
 		} else {
 			up->netdev->stats.tx_dropped++;
-			can_free_echo_skb(up->netdev, echo_index);
+			can_free_echo_skb(up->netdev, echo_index, NULL);
 		}
 		spin_unlock_irqrestore(&up->echo_skb_lock, flags);
 	}
@@ -843,7 +844,7 @@ static void ucan_write_bulk_callback(struct urb *urb)
 
 		/* update counters an cleanup */
 		spin_lock_irqsave(&up->echo_skb_lock, flags);
-		can_free_echo_skb(up->netdev, context - up->context_array);
+		can_free_echo_skb(up->netdev, context - up->context_array, NULL);
 		spin_unlock_irqrestore(&up->echo_skb_lock, flags);
 
 		up->netdev->stats.tx_dropped++;
@@ -1086,8 +1087,6 @@ static struct urb *ucan_prepare_tx_urb(struct ucan_priv *up,
 	}
 	m->len = cpu_to_le16(mlen);
 
-	context->dlc = cf->len;
-
 	m->subtype = echo_index;
 
 	/* build the urb */
@@ -1157,7 +1156,7 @@ static netdev_tx_t ucan_start_xmit(struct sk_buff *skb,
 		 * frees the skb
 		 */
 		spin_lock_irqsave(&up->echo_skb_lock, flags);
-		can_free_echo_skb(up->netdev, echo_index);
+		can_free_echo_skb(up->netdev, echo_index, NULL);
 		spin_unlock_irqrestore(&up->echo_skb_lock, flags);
 
 		if (ret == -ENODEV) {
@@ -1393,7 +1392,7 @@ static int ucan_probe(struct usb_interface *intf,
 	 * Stage 3 for the final driver initialisation.
 	 */
 
-	/* Prepare Memory for control transferes */
+	/* Prepare Memory for control transfers */
 	ctl_msg_buffer = devm_kzalloc(&udev->dev,
 				      sizeof(union ucan_ctl_payload),
 				      GFP_KERNEL);
@@ -1527,7 +1526,7 @@ static int ucan_probe(struct usb_interface *intf,
 	ret = ucan_device_request_in(up, UCAN_DEVICE_GET_FW_STRING, 0,
 				     sizeof(union ucan_ctl_payload));
 	if (ret > 0) {
-		/* copy string while ensuring zero terminiation */
+		/* copy string while ensuring zero termination */
 		strncpy(firmware_str, up->ctl_msg_buffer->raw,
 			sizeof(union ucan_ctl_payload));
 		firmware_str[sizeof(union ucan_ctl_payload)] = '\0';

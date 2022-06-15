@@ -39,8 +39,8 @@ char _license[] SEC("license") = "Dual BSD/GPL";
 /**
  * Destination port and IP used for UDP encapsulation.
  */
-static volatile const __be16 ENCAPSULATION_PORT;
-static volatile const __be32 ENCAPSULATION_IP;
+volatile const __be16 ENCAPSULATION_PORT;
+volatile const __be32 ENCAPSULATION_IP;
 
 typedef struct {
 	uint64_t processed_packets_total;
@@ -928,7 +928,7 @@ static INLINING verdict_t process_ipv6(buf_t *pkt, metrics_t *metrics)
 	}
 }
 
-SEC("classifier/cls_redirect")
+SEC("tc")
 int cls_redirect(struct __sk_buff *skb)
 {
 	metrics_t *metrics = get_global_metrics();

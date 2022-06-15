@@ -16,7 +16,6 @@
 #include <linux/videodev2.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
-#include <linux/version.h>
 #include <asm/unaligned.h>
 
 #include <media/v4l2-common.h>
@@ -257,7 +256,7 @@ static struct uvc_format_desc *uvc_format_by_guid(const u8 guid[16])
 static enum v4l2_colorspace uvc_colorspace(const u8 primaries)
 {
 	static const enum v4l2_colorspace colorprimaries[] = {
-		V4L2_COLORSPACE_DEFAULT,  /* Unspecified */
+		V4L2_COLORSPACE_SRGB,  /* Unspecified */
 		V4L2_COLORSPACE_SRGB,
 		V4L2_COLORSPACE_470_SYSTEM_M,
 		V4L2_COLORSPACE_470_SYSTEM_BG,
@@ -268,7 +267,7 @@ static enum v4l2_colorspace uvc_colorspace(const u8 primaries)
 	if (primaries < ARRAY_SIZE(colorprimaries))
 		return colorprimaries[primaries];
 
-	return V4L2_COLORSPACE_DEFAULT;  /* Reserved */
+	return V4L2_COLORSPACE_SRGB;  /* Reserved */
 }
 
 static enum v4l2_xfer_func uvc_xfer_func(const u8 transfer_characteristics)
@@ -770,6 +769,8 @@ static int uvc_parse_format(struct uvc_device *dev,
 
 		buflen -= buffer[0];
 		buffer += buffer[0];
+	} else {
+		format->colorspace = V4L2_COLORSPACE_SRGB;
 	}
 
 	return buffer - start;
@@ -1712,8 +1713,33 @@ static int uvc_scan_chain_forward(struct uvc_video_chain *chain,
 			if (forward->bNrInPins != 1) {
 				uvc_dbg(chain->dev, DESCR,
 					"Extension unit %d has more than 1 input pin\n",
-					entity->id);
+					forward->id);
 				return -EINVAL;
+			}
+
+			/*
+			 * Some devices reference an output terminal as the
+			 * source of extension units. This is incorrect, as
+			 * output terminals only have an input pin, and thus
+			 * can't be connected to any entity in the forward
+			 * direction. The resulting topology would cause issues
+			 * when registering the media controller graph. To
+			 * avoid this problem, connect the extension unit to
+			 * the source of the output terminal instead.
+			 */
+			if (UVC_ENTITY_IS_OTERM(entity)) {
+				struct uvc_entity *source;
+
+				source = uvc_entity_by_id(chain->dev,
+							  entity->baSourceID[0]);
+				if (!source) {
+					uvc_dbg(chain->dev, DESCR,
+						"Can't connect extension unit %u in chain\n",
+						forward->id);
+					break;
+				}
+
+				forward->baSourceID[0] = source->id;
 			}
 
 			list_add_tail(&forward->chain, &chain->entities);
@@ -1733,6 +1759,13 @@ static int uvc_scan_chain_forward(struct uvc_video_chain *chain,
 					"Unsupported input terminal %u\n",
 					forward->id);
 				return -EINVAL;
+			}
+
+			if (UVC_ENTITY_IS_OTERM(entity)) {
+				uvc_dbg(chain->dev, DESCR,
+					"Unsupported connection between output terminals %u and %u\n",
+					entity->id, forward->id);
+				break;
 			}
 
 			list_add_tail(&forward->chain, &chain->entities);
@@ -2423,12 +2456,12 @@ static int uvc_probe(struct usb_interface *intf,
 	if (v4l2_device_register(&intf->dev, &dev->vdev) < 0)
 		goto error;
 
-	/* Initialize controls. */
-	if (uvc_ctrl_init_device(dev) < 0)
-		goto error;
-
 	/* Scan the device for video chains. */
 	if (uvc_scan_device(dev) < 0)
+		goto error;
+
+	/* Initialize controls. */
+	if (uvc_ctrl_init_device(dev) < 0)
 		goto error;
 
 	/* Register video device nodes. */
@@ -2812,6 +2845,15 @@ static const struct usb_device_id uvc_ids[] = {
 	  .bInterfaceProtocol	= 0,
 	  .driver_info		= UVC_INFO_QUIRK(UVC_QUIRK_PROBE_MINMAX
 					| UVC_QUIRK_BUILTIN_ISIGHT) },
+	/* Apple FaceTime HD Camera (Built-In) */
+	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
+				| USB_DEVICE_ID_MATCH_INT_INFO,
+	  .idVendor		= 0x05ac,
+	  .idProduct		= 0x8514,
+	  .bInterfaceClass	= USB_CLASS_VIDEO,
+	  .bInterfaceSubClass	= 1,
+	  .bInterfaceProtocol	= 0,
+	  .driver_info		= (kernel_ulong_t)&uvc_quirk_probe_def },
 	/* Apple Built-In iSight via iBridge */
 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
 				| USB_DEVICE_ID_MATCH_INT_INFO,

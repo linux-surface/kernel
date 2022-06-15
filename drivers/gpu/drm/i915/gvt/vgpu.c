@@ -77,7 +77,7 @@ void populate_pvinfo_page(struct intel_vgpu *vgpu)
 #define VGPU_WEIGHT(vgpu_num)	\
 	(VGPU_MAX_WEIGHT / (vgpu_num))
 
-static struct {
+static const struct {
 	unsigned int low_mm;
 	unsigned int high_mm;
 	unsigned int fence;
@@ -88,7 +88,7 @@ static struct {
 	 */
 	unsigned int weight;
 	enum intel_vgpu_edid edid;
-	char *name;
+	const char *name;
 } vgpu_types[] = {
 /* Fixed vGPU type table */
 	{ MB_TO_BYTES(64), MB_TO_BYTES(384), 4, VGPU_WEIGHT(8), GVT_EDID_1024_768, "8" },
@@ -149,10 +149,10 @@ int intel_gvt_init_vgpu_types(struct intel_gvt *gvt)
 		gvt->types[i].avail_instance = min(low_avail / vgpu_types[i].low_mm,
 						   high_avail / vgpu_types[i].high_mm);
 
-		if (IS_GEN(gvt->gt->i915, 8))
+		if (GRAPHICS_VER(gvt->gt->i915) == 8)
 			sprintf(gvt->types[i].name, "GVTg_V4_%s",
 				vgpu_types[i].name);
-		else if (IS_GEN(gvt->gt->i915, 9))
+		else if (GRAPHICS_VER(gvt->gt->i915) == 9)
 			sprintf(gvt->types[i].name, "GVTg_V5_%s",
 				vgpu_types[i].name);
 
@@ -300,8 +300,6 @@ void intel_gvt_destroy_vgpu(struct intel_vgpu *vgpu)
 	mutex_unlock(&vgpu->vgpu_lock);
 
 	mutex_lock(&gvt->lock);
-	if (idr_is_empty(&gvt->vgpu_idr))
-		intel_gvt_clean_irq(gvt);
 	intel_gvt_update_vgpu_types(gvt);
 	mutex_unlock(&gvt->lock);
 

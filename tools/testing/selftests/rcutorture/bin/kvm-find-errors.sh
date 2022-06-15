@@ -30,9 +30,15 @@ editor=${EDITOR-vi}
 files=
 for i in ${rundir}/*/Make.out
 do
-	if egrep -q "error:|warning:" < $i
+	scenariodir="`dirname $i`"
+	scenariobasedir="`echo ${scenariodir} | sed -e 's/\.[0-9]*$//'`"
+	if egrep -q "error:|warning:|^ld: .*undefined reference to" < $i
 	then
-		egrep "error:|warning:" < $i > $i.diags
+		egrep "error:|warning:|^ld: .*undefined reference to" < $i > $i.diags
+		files="$files $i.diags $i"
+	elif ! test -f ${scenariobasedir}/vmlinux
+	then
+		echo No ${scenariobasedir}/vmlinux file > $i.diags
 		files="$files $i.diags $i"
 	fi
 done
@@ -43,7 +49,7 @@ then
 else
 	echo No build errors.
 fi
-if grep -q -e "--buildonly" < ${rundir}/log
+if grep -q -e "--build-\?only" < ${rundir}/log && ! test -f "${rundir}/remote-log"
 then
 	echo Build-only run, no console logs to check.
 	exit $editorret

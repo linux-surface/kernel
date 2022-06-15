@@ -521,8 +521,7 @@ int dn_dev_set_default(struct net_device *dev, int force)
 	}
 	spin_unlock(&dndev_lock);
 
-	if (old)
-		dev_put(old);
+	dev_put(old);
 	return rv;
 }
 
@@ -536,8 +535,7 @@ static void dn_dev_check_default(struct net_device *dev)
 	}
 	spin_unlock(&dndev_lock);
 
-	if (dev)
-		dev_put(dev);
+	dev_put(dev);
 }
 
 /*
@@ -856,7 +854,7 @@ static void dn_send_endnode_hello(struct net_device *dev, struct dn_ifaddr *ifa)
 	memcpy(msg->neighbor, dn_hiord, ETH_ALEN);
 
 	if (dn_db->router) {
-		struct dn_neigh *dn = (struct dn_neigh *)dn_db->router;
+		struct dn_neigh *dn = container_of(dn_db->router, struct dn_neigh, n);
 		dn_dn2eth(msg->neighbor, dn->addr);
 	}
 
@@ -904,7 +902,7 @@ static void dn_send_router_hello(struct net_device *dev, struct dn_ifaddr *ifa)
 {
 	int n;
 	struct dn_dev *dn_db = rcu_dereference_raw(dev->dn_ptr);
-	struct dn_neigh *dn = (struct dn_neigh *)dn_db->router;
+	struct dn_neigh *dn = container_of(dn_db->router, struct dn_neigh, n);
 	struct sk_buff *skb;
 	size_t size;
 	unsigned char *ptr;

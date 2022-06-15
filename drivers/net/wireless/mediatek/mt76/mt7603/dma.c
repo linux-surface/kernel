@@ -76,7 +76,7 @@ void mt7603_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
 	__le32 *end = (__le32 *)&skb->data[skb->len];
 	enum rx_pkt_type type;
 
-	type = FIELD_GET(MT_RXD0_PKT_TYPE, le32_to_cpu(rxd[0]));
+	type = le32_get_bits(rxd[0], MT_RXD0_PKT_TYPE);
 
 	if (q == MT_RXQ_MCU) {
 		if (type == PKT_TYPE_RX_EVENT)
@@ -219,11 +219,11 @@ int mt7603_dma_init(struct mt7603_dev *dev)
 		return ret;
 
 	mt76_wr(dev, MT_DELAY_INT_CFG, 0);
-	ret = mt76_init_queues(dev);
+	ret = mt76_init_queues(dev, mt76_dma_rx_poll);
 	if (ret)
 		return ret;
 
-	netif_tx_napi_add(&dev->mt76.napi_dev, &dev->mt76.tx_napi,
+	netif_tx_napi_add(&dev->mt76.tx_napi_dev, &dev->mt76.tx_napi,
 			  mt7603_poll_tx, NAPI_POLL_WEIGHT);
 	napi_enable(&dev->mt76.tx_napi);
 

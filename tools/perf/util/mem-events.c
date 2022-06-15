@@ -12,6 +12,8 @@
 #include "mem-events.h"
 #include "debug.h"
 #include "symbol.h"
+#include "pmu.h"
+#include "pmu-hybrid.h"
 
 unsigned int perf_mem_events__loads_ldlat = 30;
 
@@ -22,8 +24,6 @@ static struct perf_mem_event perf_mem_events[PERF_MEM_EVENTS__MAX] = {
 	E("ldlat-stores",	"cpu/mem-stores/P",		"cpu/events/mem-stores"),
 	E(NULL,			NULL,				NULL),
 };
-#undef E
-
 #undef E
 
 static char mem_loads_name[100];
@@ -37,7 +37,7 @@ struct perf_mem_event * __weak perf_mem_events__ptr(int i)
 	return &perf_mem_events[i];
 }
 
-char * __weak perf_mem_events__name(int i)
+char * __weak perf_mem_events__name(int i, char *pmu_name  __maybe_unused)
 {
 	struct perf_mem_event *e = perf_mem_events__ptr(i);
 
@@ -100,6 +100,15 @@ int perf_mem_events__parse(const char *str)
 	return -1;
 }
 
+static bool perf_mem_event__supported(const char *mnt, char *sysfs_name)
+{
+	char path[PATH_MAX];
+	struct stat st;
+
+	scnprintf(path, PATH_MAX, "%s/devices/%s", mnt, sysfs_name);
+	return !stat(path, &st);
+}
+
 int perf_mem_events__init(void)
 {
 	const char *mnt = sysfs__mount();
@@ -110,9 +119,9 @@ int perf_mem_events__init(void)
 		return -ENOENT;
 
 	for (j = 0; j < PERF_MEM_EVENTS__MAX; j++) {
-		char path[PATH_MAX];
 		struct perf_mem_event *e = perf_mem_events__ptr(j);
-		struct stat st;
+		struct perf_pmu *pmu;
+		char sysfs_name[100];
 
 		/*
 		 * If the event entry isn't valid, skip initialization
@@ -121,11 +130,20 @@ int perf_mem_events__init(void)
 		if (!e->tag)
 			continue;
 
-		scnprintf(path, PATH_MAX, "%s/devices/%s",
-			  mnt, e->sysfs_name);
+		if (!perf_pmu__has_hybrid()) {
+			scnprintf(sysfs_name, sizeof(sysfs_name),
+				  e->sysfs_name, "cpu");
+			e->supported = perf_mem_event__supported(mnt, sysfs_name);
+		} else {
+			perf_pmu__for_each_hybrid_pmu(pmu) {
+				scnprintf(sysfs_name, sizeof(sysfs_name),
+					  e->sysfs_name, pmu->name);
+				e->supported |= perf_mem_event__supported(mnt, sysfs_name);
+			}
+		}
 
-		if (!stat(path, &st))
-			e->supported = found = true;
+		if (e->supported)
+			found = true;
 	}
 
 	return found ? 0 : -ENOENT;
@@ -141,9 +159,74 @@ void perf_mem_events__list(void)
 		fprintf(stderr, "%-13s%-*s%s\n",
 			e->tag ?: "",
 			verbose > 0 ? 25 : 0,
-			verbose > 0 ? perf_mem_events__name(j) : "",
+			verbose > 0 ? perf_mem_events__name(j, NULL) : "",
 			e->supported ? ": available" : "");
 	}
+}
+
+static void perf_mem_events__print_unsupport_hybrid(struct perf_mem_event *e,
+						    int idx)
+{
+	const char *mnt = sysfs__mount();
+	char sysfs_name[100];
+	struct perf_pmu *pmu;
+
+	perf_pmu__for_each_hybrid_pmu(pmu) {
+		scnprintf(sysfs_name, sizeof(sysfs_name), e->sysfs_name,
+			  pmu->name);
+		if (!perf_mem_event__supported(mnt, sysfs_name)) {
+			pr_err("failed: event '%s' not supported\n",
+			       perf_mem_events__name(idx, pmu->name));
+		}
+	}
+}
+
+int perf_mem_events__record_args(const char **rec_argv, int *argv_nr,
+				 char **rec_tmp, int *tmp_nr)
+{
+	int i = *argv_nr, k = 0;
+	struct perf_mem_event *e;
+	struct perf_pmu *pmu;
+	char *s;
+
+	for (int j = 0; j < PERF_MEM_EVENTS__MAX; j++) {
+		e = perf_mem_events__ptr(j);
+		if (!e->record)
+			continue;
+
+		if (!perf_pmu__has_hybrid()) {
+			if (!e->supported) {
+				pr_err("failed: event '%s' not supported\n",
+				       perf_mem_events__name(j, NULL));
+				return -1;
+			}
+
+			rec_argv[i++] = "-e";
+			rec_argv[i++] = perf_mem_events__name(j, NULL);
+		} else {
+			if (!e->supported) {
+				perf_mem_events__print_unsupport_hybrid(e, j);
+				return -1;
+			}
+
+			perf_pmu__for_each_hybrid_pmu(pmu) {
+				rec_argv[i++] = "-e";
+				s = perf_mem_events__name(j, pmu->name);
+				if (s) {
+					s = strdup(s);
+					if (!s)
+						return -1;
+
+					rec_argv[i++] = s;
+					rec_tmp[k++] = s;
+				}
+			}
+		}
+	}
+
+	*argv_nr = i;
+	*tmp_nr = k;
+	return 0;
 }
 
 static const char * const tlb_access[] = {
@@ -218,12 +301,25 @@ static const char * const mem_lvlnum[] = {
 	[PERF_MEM_LVLNUM_NA] = "N/A",
 };
 
+static const char * const mem_hops[] = {
+	"N/A",
+	/*
+	 * While printing, 'Remote' will be added to represent
+	 * 'Remote core, same node' accesses as remote field need
+	 * to be set with mem_hops field.
+	 */
+	"core, same node",
+	"node, same socket",
+	"socket, same board",
+	"board",
+};
+
 int perf_mem__lvl_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
 {
 	size_t i, l = 0;
 	u64 m =  PERF_MEM_LVL_NA;
 	u64 hit, miss;
-	int printed;
+	int printed = 0;
 
 	if (mem_info)
 		m  = mem_info->data_src.mem_lvl;
@@ -237,21 +333,27 @@ int perf_mem__lvl_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
 	/* already taken care of */
 	m &= ~(PERF_MEM_LVL_HIT|PERF_MEM_LVL_MISS);
 
-
 	if (mem_info && mem_info->data_src.mem_remote) {
 		strcat(out, "Remote ");
 		l += 7;
 	}
 
-	printed = 0;
-	for (i = 0; m && i < ARRAY_SIZE(mem_lvl); i++, m >>= 1) {
-		if (!(m & 0x1))
-			continue;
-		if (printed++) {
-			strcat(out, " or ");
-			l += 4;
+	/*
+	 * Incase mem_hops field is set, we can skip printing data source via
+	 * PERF_MEM_LVL namespace.
+	 */
+	if (mem_info && mem_info->data_src.mem_hops) {
+		l += scnprintf(out + l, sz - l, "%s ", mem_hops[mem_info->data_src.mem_hops]);
+	} else {
+		for (i = 0; m && i < ARRAY_SIZE(mem_lvl); i++, m >>= 1) {
+			if (!(m & 0x1))
+				continue;
+			if (printed++) {
+				strcat(out, " or ");
+				l += 4;
+			}
+			l += scnprintf(out + l, sz - l, mem_lvl[i]);
 		}
-		l += scnprintf(out + l, sz - l, mem_lvl[i]);
 	}
 
 	if (mem_info && mem_info->data_src.mem_lvl_num) {
@@ -389,8 +491,12 @@ int c2c_decode_stats(struct c2c_stats *stats, struct mem_info *mi)
 	/*
 	 * Skylake might report unknown remote level via this
 	 * bit, consider it when evaluating remote HITMs.
+	 *
+	 * Incase of power, remote field can also be used to denote cache
+	 * accesses from the another core of same node. Hence, setting
+	 * mrem only when HOPS is zero along with set remote field.
 	 */
-	bool mrem  = data_src->mem_remote;
+	bool mrem  = (data_src->mem_remote && !data_src->mem_hops);
 	int err = 0;
 
 #define HITM_INC(__f)		\

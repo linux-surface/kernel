@@ -9,6 +9,7 @@
 #include <linux/of_graph.h>
 #include <linux/platform_device.h>
 
+#include <drm/drm_aperture.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_ioctl.h>
@@ -94,9 +95,7 @@ static int armada_drm_bind(struct device *dev)
 	}
 
 	/* Remove early framebuffers */
-	ret = drm_fb_helper_remove_conflicting_framebuffers(NULL,
-							    "armada-drm-fb",
-							    false);
+	ret = drm_aperture_remove_framebuffers(false, &armada_drm_driver);
 	if (ret) {
 		dev_err(dev, "[" DRM_NAME ":%s] can't kick out simple-fb: %d\n",
 			__func__, ret);
@@ -130,8 +129,6 @@ static int armada_drm_bind(struct device *dev)
 	ret = drm_vblank_init(&priv->drm, priv->drm.mode_config.num_crtc);
 	if (ret)
 		goto err_comp;
-
-	priv->drm.irq_enabled = true;
 
 	drm_mode_config_reset(&priv->drm);
 
@@ -180,17 +177,6 @@ static void armada_drm_unbind(struct device *dev)
 	drm_mm_takedown(&priv->linear);
 }
 
-static int compare_of(struct device *dev, void *data)
-{
-	return dev->of_node == data;
-}
-
-static int compare_dev_name(struct device *dev, void *data)
-{
-	const char *name = data;
-	return !strcmp(dev_name(dev), name);
-}
-
 static void armada_add_endpoints(struct device *dev,
 	struct component_match **match, struct device_node *dev_node)
 {
@@ -199,7 +185,7 @@ static void armada_add_endpoints(struct device *dev,
 	for_each_endpoint_of_node(dev_node, ep) {
 		remote = of_graph_get_remote_port_parent(ep);
 		if (remote && of_device_is_available(remote))
-			drm_of_component_match_add(dev, match, compare_of,
+			drm_of_component_match_add(dev, match, component_compare_of,
 						   remote);
 		of_node_put(remote);
 	}
@@ -216,7 +202,7 @@ static int armada_drm_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	int ret;
 
-	ret = drm_of_component_probe(dev, compare_dev_name, &armada_master_ops);
+	ret = drm_of_component_probe(dev, component_compare_dev_name, &armada_master_ops);
 	if (ret != -EINVAL)
 		return ret;
 
@@ -226,7 +212,7 @@ static int armada_drm_probe(struct platform_device *pdev)
 		int i;
 
 		for (i = 0; devices[i]; i++)
-			component_match_add(dev, &match, compare_dev_name,
+			component_match_add(dev, &match, component_compare_dev_name,
 					    devices[i]);
 
 		if (i == 0) {
@@ -275,6 +261,9 @@ static struct platform_driver armada_drm_platform_driver = {
 static int __init armada_drm_init(void)
 {
 	int ret;
+
+	if (drm_firmware_drivers_only())
+		return -ENODEV;
 
 	ret = platform_driver_register(&armada_lcd_platform_driver);
 	if (ret)

@@ -193,16 +193,17 @@ config REGULATOR_BCM590XX
 	  BCM590xx PMUs. This will enable support for the software
 	  controllable LDO/Switching regulators.
 
-config REGULATOR_BD70528
-	tristate "ROHM BD70528 Power Regulator"
-	depends on MFD_ROHM_BD70528
+config REGULATOR_BD71815
+	tristate "ROHM BD71815 Power Regulator"
+	depends on MFD_ROHM_BD71828
+	select REGULATOR_ROHM
 	help
-	  This driver supports voltage regulators on ROHM BD70528 PMIC.
+	  This driver supports voltage regulators on ROHM BD71815 PMIC.
 	  This will enable support for the software controllable buck
-	  and LDO regulators.
+	  and LDO regulators and a current regulator for LEDs.
 
 	  This driver can also be built as a module. If so, the module
-	  will be called bd70528-regulator.
+	  will be called bd71815-regulator.
 
 config REGULATOR_BD71828
 	tristate "ROHM BD71828 Power Regulator"
@@ -422,6 +423,15 @@ config REGULATOR_HI655X
 	  This driver provides support for the voltage regulators of the
 	  Hisilicon Hi655x PMIC device.
 
+config REGULATOR_HI6421V600
+	tristate "HiSilicon Hi6421v600 PMIC voltage regulator support"
+	depends on MFD_HI6421_SPMI && OF
+	select REGMAP
+	help
+	  This driver provides support for the voltage regulators on
+	  HiSilicon Hi6421v600 PMU / Codec IC.
+	  This is used on Kirin 3670 boards, like HiKey 970.
+
 config REGULATOR_ISL9305
 	tristate "Intersil ISL9305 regulator"
 	depends on I2C
@@ -568,6 +578,14 @@ config REGULATOR_MAX8660
 	  This driver controls a Maxim 8660/8661 voltage output
 	  regulator via I2C bus.
 
+config REGULATOR_MAX8893
+	tristate "Maxim 8893 voltage regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This driver controls a Maxim 8893 voltage output
+	  regulator via I2C bus.
+
 config REGULATOR_MAX8907
 	tristate "Maxim 8907 voltage regulator"
 	depends on MFD_MAX8907 || COMPILE_TEST
@@ -591,12 +609,12 @@ config REGULATOR_MAX8952
 	  modes ranging from 0.77V to 1.40V by 0.01V steps.
 
 config REGULATOR_MAX8973
-	tristate "Maxim MAX8973 voltage regulator "
+	tristate "Maxim MAX8973A voltage regulator"
 	depends on I2C
 	depends on THERMAL && THERMAL_OF
 	select REGMAP_I2C
 	help
-	  The MAXIM MAX8973 high-efficiency. three phase, DC-DC step-down
+	  The MAXIM MAX8973A high-efficiency. three phase, DC-DC step-down
 	  switching regulator delivers up to 9A of output current. Each
 	  phase operates at a 2MHz fixed frequency with a 120 deg shift
 	  from the adjacent phase, allowing the use of small magnetic component.
@@ -617,6 +635,15 @@ config REGULATOR_MAX8998
 	  This driver controls a Maxim 8998 voltage output regulator
 	  via I2C bus. The provided regulator is suitable for S3C6410
 	  and S5PC1XX chips to control VCC_CORE and VCC_USIM voltages.
+
+config REGULATOR_MAX20086
+	tristate "Maxim MAX20086-MAX20089 Camera Power Protectors"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This driver controls a Maxim MAX20086-MAX20089 camera power
+	  protectorvia I2C bus. The regulator has 2 or 4 outputs depending on
+	  the device model. This driver is only capable to turn on/off them.
 
 config REGULATOR_MAX77686
 	tristate "Maxim 77686 regulator"
@@ -756,6 +783,15 @@ config REGULATOR_MT6358
 	help
 	  Say y here to select this option to enable the power regulator of
 	  MediaTek MT6358 PMIC.
+	  This driver supports the control of different power rails of device
+	  through regulator interface.
+
+config REGULATOR_MT6359
+	tristate "MediaTek MT6359 PMIC"
+	depends on MFD_MT6397
+	help
+	  Say y here to select this option to enable the power regulator of
+	  MediaTek MT6359 PMIC.
 	  This driver supports the control of different power rails of device
 	  through regulator interface.
 
@@ -948,6 +984,7 @@ config REGULATOR_RASPBERRYPI_TOUCHSCREEN_ATTINY
 	tristate "Raspberry Pi 7-inch touchscreen panel ATTINY regulator"
 	depends on BACKLIGHT_CLASS_DEVICE
 	depends on I2C
+	depends on OF_GPIO
 	select REGMAP_I2C
 	help
 	  This driver supports ATTINY regulator on the Raspberry Pi 7-inch
@@ -1010,14 +1047,64 @@ config REGULATOR_RT5033
 	  RT5033 PMIC. The device supports multiple regulators like
 	  current source, LDO and Buck.
 
+config REGULATOR_RT5190A
+	tristate "Richtek RT5190A PMIC"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This adds support for voltage regulator in Richtek RT5190A PMIC.
+	  It integratas 1 channel buck controller, 3 channels high efficiency
+	  buck converters, 1 LDO, mute AC OFF depop function, with the general
+	  I2C control interface.
+
+config REGULATOR_RT6160
+	tristate "Richtek RT6160 BuckBoost voltage regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This adds support for voltage regulator in Richtek RT6160.
+	  This device automatically change voltage output mode from
+	  Buck or Boost. The mode transition depend on the input source voltage.
+	  The wide output range is from 2025mV to 5200mV and can be used on most
+	  common application scenario.
+
+config REGULATOR_RT6245
+	tristate "Richtek RT6245 voltage regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This adds support for Richtek RT6245 voltage regulator.
+	  It can support up to 14A output current and adjustable output voltage
+	  from 0.4375V to 1.3875V, per step 12.5mV.
+
+config REGULATOR_RTQ2134
+	tristate "Richtek RTQ2134 SubPMIC Regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This driver adds support for RTQ2134 SubPMIC regulators.
+	  The RTQ2134 is a multi-phase, programmable power management IC that
+	  integrate with four high efficient, synchronous step-down converter
+	  cores. It features wide output voltage range and the capability to
+	  configure the corresponding power stages.
+
 config REGULATOR_RTMV20
-	tristate "RTMV20 Laser Diode Regulator"
+	tristate "Richtek RTMV20 Laser Diode Regulator"
 	depends on I2C
 	select REGMAP_I2C
 	help
 	  This driver adds support for the load switch current regulator on
 	  the Richtek RTMV20. It can support the load current up to 6A and
 	  integrate strobe/vsync/fsin signal to synchronize the IR camera.
+
+config REGULATOR_RTQ6752
+	tristate "Richtek RTQ6752 TFT LCD voltage regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This driver adds support for Richtek RTQ6752. RTQ6752 includes two
+	  synchronous boost converters for PAVDD, and one synchronous NAVDD
+	  buck-boost. This device is suitable for automotive TFT-LCD panel.
 
 config REGULATOR_S2MPA01
 	tristate "Samsung S2MPA01 voltage regulator"
@@ -1114,7 +1201,7 @@ config REGULATOR_STPMIC1
 
 config REGULATOR_TI_ABB
 	tristate "TI Adaptive Body Bias on-chip LDO"
-	depends on ARCH_OMAP
+	depends on ARCH_OMAP || COMPILE_TEST
 	help
 	  Select this option to support Texas Instruments' on-chip Adaptive Body
 	  Bias (ABB) LDO regulators. It is recommended that this option be
@@ -1129,6 +1216,11 @@ config REGULATOR_STW481X_VMMC
 	help
 	  This driver supports the internal VMMC regulator in the STw481x
 	  PMIC chips.
+
+config REGULATOR_SY7636A
+	tristate "Silergy SY7636A voltage regulator"
+	help
+	  This driver supports Silergy SY3686A voltage regulator.
 
 config REGULATOR_SY8106A
 	tristate "Silergy SY8106A regulator"
@@ -1180,6 +1272,15 @@ config REGULATOR_TPS62360
 	  regulator is meant for processor core supply. This chip is
 	  high-frequency synchronous step down dc-dc converter optimized
 	  for battery-powered portable applications.
+
+config REGULATOR_TPS6286X
+	tristate "TI TPS6286x Power Regulator"
+	depends on I2C && OF
+	select REGMAP_I2C
+	help
+	  This driver supports TPS6236x voltage regulator chips. These are
+	  high-frequency synchronous step-down converters with an I2C
+	  interface.
 
 config REGULATOR_TPS65023
 	tristate "TI TPS65023 Power regulators"
@@ -1266,14 +1367,14 @@ config REGULATOR_TPS65912
 	help
 	    This driver supports TPS65912 voltage regulator chip.
 
-config REGULATOR_TPS80031
-	tristate "TI TPS80031/TPS80032 power regulator driver"
-	depends on MFD_TPS80031
+config REGULATOR_TPS68470
+	tristate "TI TPS68470 PMIC Regulators Driver"
+	depends on INTEL_SKL_INT3472 || COMPILE_TEST
 	help
-	  TPS80031/ TPS80032 Fully Integrated Power Management with Power
-	  Path and Battery Charger. It has 5 configurable step-down
-	  converters, 11 general purpose LDOs, VBUS generator and digital
-	  output to control regulators.
+	  This driver adds support for the TPS68470 PMIC to register
+	  regulators against the usual framework.
+
+	  The module will be called "tps68470-regulator".
 
 config REGULATOR_TWL4030
 	tristate "TI TWL4030/TWL5030/TWL6030/TPS659x0 PMIC"
@@ -1351,4 +1452,3 @@ config REGULATOR_QCOM_LABIBB
 	  for LCD display panel.
 
 endif
-

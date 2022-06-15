@@ -100,6 +100,7 @@ enum crc_selection {
 
 enum otg_out_mux_dest {
 	OUT_MUX_DIO = 0,
+	OUT_MUX_HPO_DP = 2,
 };
 
 enum h_timing_div_mode {
@@ -107,6 +108,12 @@ enum h_timing_div_mode {
 	H_TIMING_DIV_BY2,
 	H_TIMING_RESERVED,
 	H_TIMING_DIV_BY4,
+};
+
+enum timing_synchronization_type {
+	NOT_SYNCHRONIZABLE,
+	TIMING_SYNCHRONIZABLE,
+	VBLANK_SYNCHRONIZABLE
 };
 
 struct crc_params {
@@ -167,6 +174,7 @@ struct timing_generator_funcs {
 
 	bool (*enable_crtc)(struct timing_generator *tg);
 	bool (*disable_crtc)(struct timing_generator *tg);
+	bool (*immediate_disable_crtc)(struct timing_generator *tg);
 	bool (*is_counter_moving)(struct timing_generator *tg);
 	void (*get_position)(struct timing_generator *tg,
 				struct crtc_position *position);
@@ -217,6 +225,8 @@ struct timing_generator_funcs {
 	void (*enable_advanced_request)(struct timing_generator *tg,
 					bool enable, const struct dc_crtc_timing *timing);
 	void (*set_drr)(struct timing_generator *tg, const struct drr_params *params);
+	void (*set_vtotal_min_max)(struct timing_generator *optc, int vtotal_min, int vtotal_max);
+	void (*get_last_used_drr_vtotal)(struct timing_generator *optc, uint32_t *refresh_rate);
 	void (*set_static_screen_control)(struct timing_generator *tg,
 						uint32_t event_triggers,
 						uint32_t num_frames);
@@ -278,6 +288,8 @@ struct timing_generator_funcs {
 			       enum optc_dsc_mode dsc_mode,
 			       uint32_t dsc_bytes_per_pixel,
 			       uint32_t dsc_slice_width);
+	void (*get_dsc_status)(struct timing_generator *optc,
+					uint32_t *dsc_mode);
 	void (*set_odm_bypass)(struct timing_generator *optc, const struct dc_crtc_timing *dc_crtc_timing);
 	void (*set_odm_combine)(struct timing_generator *optc, int *opp_id, int opp_cnt,
 			struct dc_crtc_timing *timing);
@@ -292,6 +304,12 @@ struct timing_generator_funcs {
 			uint32_t window_start, uint32_t window_end);
 	void (*set_vtotal_change_limit)(struct timing_generator *optc,
 			uint32_t limit);
+	void (*align_vblanks)(struct timing_generator *master_optc,
+			struct timing_generator *slave_optc,
+			uint32_t master_pixel_clock_100Hz,
+			uint32_t slave_pixel_clock_100Hz,
+			uint8_t master_clock_divider,
+			uint8_t slave_clock_divider);
 };
 
 #endif

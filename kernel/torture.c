@@ -521,11 +521,11 @@ static void torture_shuffle_tasks(void)
 	struct shuffle_task *stp;
 
 	cpumask_setall(shuffle_tmp_mask);
-	get_online_cpus();
+	cpus_read_lock();
 
 	/* No point in shuffling if there is only one online CPU (ex: UP) */
 	if (num_online_cpus() == 1) {
-		put_online_cpus();
+		cpus_read_unlock();
 		return;
 	}
 
@@ -541,7 +541,7 @@ static void torture_shuffle_tasks(void)
 		set_cpus_allowed_ptr(stp->st_t, shuffle_tmp_mask);
 	mutex_unlock(&shuffle_task_mutex);
 
-	put_online_cpus();
+	cpus_read_unlock();
 }
 
 /* Shuffle tasks across CPUs, with the intent of allowing each CPU in the
@@ -570,7 +570,7 @@ int torture_shuffle_init(long shuffint)
 	shuffle_idle_cpu = -1;
 
 	if (!alloc_cpumask_var(&shuffle_tmp_mask, GFP_KERNEL)) {
-		VERBOSE_TOROUT_ERRSTRING("Failed to alloc mask");
+		TOROUT_ERRSTRING("Failed to alloc mask");
 		return -ENOMEM;
 	}
 
@@ -816,9 +816,9 @@ bool torture_init_begin(char *ttype, int v)
 {
 	mutex_lock(&fullstop_mutex);
 	if (torture_type != NULL) {
-		pr_alert("torture_init_begin: Refusing %s init: %s running.\n",
-			 ttype, torture_type);
-		pr_alert("torture_init_begin: One torture test at a time!\n");
+		pr_alert("%s: Refusing %s init: %s running.\n",
+			  __func__, ttype, torture_type);
+		pr_alert("%s: One torture test at a time!\n", __func__);
 		mutex_unlock(&fullstop_mutex);
 		return false;
 	}
@@ -911,7 +911,7 @@ void torture_kthread_stopping(char *title)
 {
 	char buf[128];
 
-	snprintf(buf, sizeof(buf), "Stopping %s", title);
+	snprintf(buf, sizeof(buf), "%s is stopping", title);
 	VERBOSE_TOROUT_STRING(buf);
 	while (!kthread_should_stop()) {
 		torture_shutdown_absorb(title);
@@ -931,12 +931,14 @@ int _torture_create_kthread(int (*fn)(void *arg), void *arg, char *s, char *m,
 	int ret = 0;
 
 	VERBOSE_TOROUT_STRING(m);
-	*tp = kthread_run(fn, arg, "%s", s);
+	*tp = kthread_create(fn, arg, "%s", s);
 	if (IS_ERR(*tp)) {
 		ret = PTR_ERR(*tp);
-		VERBOSE_TOROUT_ERRSTRING(f);
+		TOROUT_ERRSTRING(f);
 		*tp = NULL;
+		return ret;
 	}
+	wake_up_process(*tp);  // Process is sleeping, so ordering provided.
 	torture_shuffle_task_register(*tp);
 	return ret;
 }

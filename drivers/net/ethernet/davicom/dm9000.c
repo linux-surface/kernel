@@ -1372,7 +1372,7 @@ static const struct net_device_ops dm9000_netdev_ops = {
 	.ndo_start_xmit		= dm9000_start_xmit,
 	.ndo_tx_timeout		= dm9000_timeout,
 	.ndo_set_rx_mode	= dm9000_hash_table,
-	.ndo_do_ioctl		= dm9000_ioctl,
+	.ndo_eth_ioctl		= dm9000_ioctl,
 	.ndo_set_features	= dm9000_set_features,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= eth_mac_addr,
@@ -1385,7 +1385,7 @@ static struct dm9000_plat_data *dm9000_parse_dt(struct device *dev)
 {
 	struct dm9000_plat_data *pdata;
 	struct device_node *np = dev->of_node;
-	const void *mac_addr;
+	int ret;
 
 	if (!IS_ENABLED(CONFIG_OF) || !np)
 		return ERR_PTR(-ENXIO);
@@ -1399,11 +1399,9 @@ static struct dm9000_plat_data *dm9000_parse_dt(struct device *dev)
 	if (of_find_property(np, "davicom,no-eeprom", NULL))
 		pdata->flags |= DM9000_PLATF_NO_EEPROM;
 
-	mac_addr = of_get_mac_address(np);
-	if (!IS_ERR(mac_addr))
-		ether_addr_copy(pdata->dev_addr, mac_addr);
-	else if (PTR_ERR(mac_addr) == -EPROBE_DEFER)
-		return ERR_CAST(mac_addr);
+	ret = of_get_mac_address(np, pdata->dev_addr);
+	if (ret == -EPROBE_DEFER)
+		return ERR_PTR(ret);
 
 	return pdata;
 }
@@ -1427,6 +1425,7 @@ dm9000_probe(struct platform_device *pdev)
 	enum of_gpio_flags flags;
 	struct regulator *power;
 	bool inv_mac_addr = false;
+	u8 addr[ETH_ALEN];
 
 	power = devm_regulator_get(dev, "vcc");
 	if (IS_ERR(power)) {
@@ -1471,8 +1470,10 @@ dm9000_probe(struct platform_device *pdev)
 
 	/* Init network device */
 	ndev = alloc_etherdev(sizeof(struct board_info));
-	if (!ndev)
-		return -ENOMEM;
+	if (!ndev) {
+		ret = -ENOMEM;
+		goto out_regulator_disable;
+	}
 
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 
@@ -1522,7 +1523,6 @@ dm9000_probe(struct platform_device *pdev)
 			if (ret) {
 				dev_err(db->dev, "irq %d cannot set wakeup (%d)\n",
 					db->irq_wake, ret);
-				ret = 0;
 			} else {
 				irq_set_irq_wake(db->irq_wake, 0);
 				db->wake_supported = 1;
@@ -1667,11 +1667,12 @@ dm9000_probe(struct platform_device *pdev)
 
 	/* try reading the node address from the attached EEPROM */
 	for (i = 0; i < 6; i += 2)
-		dm9000_read_eeprom(db, i / 2, ndev->dev_addr+i);
+		dm9000_read_eeprom(db, i / 2, addr + i);
+	eth_hw_addr_set(ndev, addr);
 
 	if (!is_valid_ether_addr(ndev->dev_addr) && pdata != NULL) {
 		mac_src = "platform data";
-		memcpy(ndev->dev_addr, pdata->dev_addr, ETH_ALEN);
+		eth_hw_addr_set(ndev, pdata->dev_addr);
 	}
 
 	if (!is_valid_ether_addr(ndev->dev_addr)) {
@@ -1679,7 +1680,8 @@ dm9000_probe(struct platform_device *pdev)
 
 		mac_src = "chip";
 		for (i = 0; i < 6; i++)
-			ndev->dev_addr[i] = ior(db, i+DM9000_PAR);
+			addr[i] = ior(db, i + DM9000_PAR);
+		eth_hw_addr_set(ndev, pdata->dev_addr);
 	}
 
 	if (!is_valid_ether_addr(ndev->dev_addr)) {

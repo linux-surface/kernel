@@ -13,6 +13,8 @@ typedef struct kernel_siginfo {
 	__SIGINFO;
 } kernel_siginfo_t;
 
+struct ucounts;
+
 /*
  * Real Time signals may be queued.
  */
@@ -21,7 +23,7 @@ struct sigqueue {
 	struct list_head list;
 	int flags;
 	kernel_siginfo_t info;
-	struct user_struct *user;
+	struct ucounts *ucounts;
 };
 
 /* flags values. */
@@ -67,6 +69,9 @@ struct ksignal {
 	kernel_siginfo_t info;
 	int sig;
 };
+
+/* Used to kill the race between sigaction and forced signals */
+#define SA_IMMUTABLE		0x00800000
 
 #ifndef __ARCH_UAPI_SA_FLAGS
 #ifdef SA_RESTORER

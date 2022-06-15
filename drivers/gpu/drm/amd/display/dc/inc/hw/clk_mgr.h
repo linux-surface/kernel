@@ -91,6 +91,7 @@ struct clk_limit_table_entry {
 	unsigned int dispclk_mhz;
 	unsigned int dppclk_mhz;
 	unsigned int phyclk_mhz;
+	unsigned int wck_ratio;
 };
 
 /* This table is contiguous */
@@ -210,6 +211,8 @@ struct dummy_pstate_entry {
 struct clk_bw_params {
 	unsigned int vram_type;
 	unsigned int num_channels;
+ 	unsigned int dispclk_vco_khz;
+	unsigned int dc_mode_softmax_memclk;
 	struct clk_limit_table clk_table;
 	struct wm_table wm_table;
 	struct dummy_pstate_entry dummy_pstate_table[4];
@@ -260,16 +263,15 @@ struct clk_mgr_funcs {
 	/* Send message to PMFW to set hard max memclk frequency to highest DPM */
 	void (*set_hard_max_memclk)(struct clk_mgr *clk_mgr);
 
+	/* Custom set a memclk freq range*/
+	void (*set_max_memclk)(struct clk_mgr *clk_mgr, unsigned int memclk_mhz);
+	void (*set_min_memclk)(struct clk_mgr *clk_mgr, unsigned int memclk_mhz);
+
 	/* Get current memclk states from PMFW, update relevant structures */
 	void (*get_memclk_states_from_smu)(struct clk_mgr *clk_mgr);
-};
 
-struct dpm_clocks;
-struct wartermarks;
-
-struct smu_watermark_set {
-	struct watermarks *wm_set;
-	union large_integer mc_address;
+	/* Get SMU present */
+	bool (*is_smu_present)(struct clk_mgr *clk_mgr);
 };
 
 struct clk_mgr {
@@ -278,12 +280,12 @@ struct clk_mgr {
 	struct dc_clocks clks;
 	bool psr_allow_active_cache;
 	bool force_smu_not_present;
+	bool dc_mode_softmax_enabled;
 	int dprefclk_khz; // Used by program pixel clock in clock source funcs, need to figureout where this goes
 	int dentist_vco_freq_khz;
 	struct clk_state_registers_and_bypass boot_snapshot;
 	struct clk_bw_params *bw_params;
 	struct pp_smu_wm_range_sets ranges;
-	struct smu_watermark_set smu_wm_set;
 };
 
 /* forward declarations */

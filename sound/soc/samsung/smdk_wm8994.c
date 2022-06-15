@@ -73,7 +73,7 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 /*
  * SMDK WM8994 DAI operations.
  */
-static struct snd_soc_ops smdk_ops = {
+static const struct snd_soc_ops smdk_ops = {
 	.hw_params = smdk_hw_params,
 };
 
@@ -164,6 +164,7 @@ static int smdk_audio_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev,
 			   "Property 'samsung,i2s-controller' missing or invalid\n");
 			ret = -EINVAL;
+			return ret;
 		}
 
 		smdk_dai[0].platforms->name = NULL;
@@ -178,8 +179,8 @@ static int smdk_audio_probe(struct platform_device *pdev)
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 
-	if (ret && ret != -EPROBE_DEFER)
-		dev_err(&pdev->dev, "snd_soc_register_card() failed:%d\n", ret);
+	if (ret)
+		dev_err_probe(&pdev->dev, ret, "snd_soc_register_card() failed\n");
 
 	return ret;
 }

@@ -38,6 +38,7 @@
 
 #include <asm/trace/irq_vectors.h>
 #include <asm/irq_remapping.h>
+#include <asm/pc-conf-reg.h>
 #include <asm/perf_event.h>
 #include <asm/x86_init.h>
 #include <linux/atomic.h>
@@ -132,18 +133,14 @@ static int enabled_via_apicbase __ro_after_init;
  */
 static inline void imcr_pic_to_apic(void)
 {
-	/* select IMCR register */
-	outb(0x70, 0x22);
 	/* NMI and 8259 INTR go through APIC */
-	outb(0x01, 0x23);
+	pc_conf_set(PC_CONF_MPS_IMCR, 0x01);
 }
 
 static inline void imcr_apic_to_pic(void)
 {
-	/* select IMCR register */
-	outb(0x70, 0x22);
 	/* NMI and 8259 INTR go directly to BSP */
-	outb(0x00, 0x23);
+	pc_conf_set(PC_CONF_MPS_IMCR, 0x00);
 }
 #endif
 
@@ -619,7 +616,7 @@ static void setup_APIC_timer(void)
 
 	if (this_cpu_has(X86_FEATURE_ARAT)) {
 		lapic_clockevent.features &= ~CLOCK_EVT_FEAT_C3STOP;
-		/* Make LAPIC timer preferrable over percpu HPET */
+		/* Make LAPIC timer preferable over percpu HPET */
 		lapic_clockevent.rating = 150;
 	}
 
@@ -666,7 +663,7 @@ void lapic_update_tsc_freq(void)
  * In this functions we calibrate APIC bus clocks to the external timer.
  *
  * We want to do the calibration only once since we want to have local timer
- * irqs syncron. CPUs connected by the same APIC bus have the very same bus
+ * irqs synchronous. CPUs connected by the same APIC bus have the very same bus
  * frequency.
  *
  * This was previously done by reading the PIT/HPET and waiting for a wrap
@@ -1532,7 +1529,7 @@ static bool apic_check_and_ack(union apic_ir *irr, union apic_ir *isr)
  * Most probably by now the CPU has serviced that pending interrupt and it
  * might not have done the ack_APIC_irq() because it thought, interrupt
  * came from i8259 as ExtInt. LAPIC did not get EOI so it does not clear
- * the ISR bit and cpu thinks it has already serivced the interrupt. Hence
+ * the ISR bit and cpu thinks it has already serviced the interrupt. Hence
  * a vector might get locked. It was noticed for timer irq (vector
  * 0x31). Issue an extra EOI to clear ISR.
  *
@@ -1657,7 +1654,7 @@ static void setup_local_APIC(void)
 	 */
 	/*
 	 * Actually disabling the focus CPU check just makes the hang less
-	 * frequent as it makes the interrupt distributon model be more
+	 * frequent as it makes the interrupt distribution model be more
 	 * like LRU than MRU (the short-term load is more even across CPUs).
 	 */
 
@@ -1875,7 +1872,7 @@ static __init void try_to_enable_x2apic(int remap_mode)
 
 		/*
 		 * Without IR, all CPUs can be addressed by IOAPIC/MSI only
-		 * in physical mode, and CPUs with an APIC ID that cannnot
+		 * in physical mode, and CPUs with an APIC ID that cannot
 		 * be addressed must not be brought online.
 		 */
 		x2apic_set_max_apicid(apic_limit);
@@ -2342,6 +2339,11 @@ static int cpuid_to_apicid[] = {
 	[0 ... NR_CPUS - 1] = -1,
 };
 
+bool arch_match_cpu_phys_id(int cpu, u64 phys_id)
+{
+	return phys_id == cpuid_to_apicid[cpu];
+}
+
 #ifdef CONFIG_SMP
 /**
  * apic_id_is_primary_thread - Check whether APIC ID belongs to a primary thread
@@ -2599,6 +2601,7 @@ static void __init apic_bsp_setup(bool upmode)
 	end_local_APIC_setup();
 	irq_remap_enable_fault_handling();
 	setup_IO_APIC();
+	lapic_update_legacy_vectors();
 }
 
 #ifdef CONFIG_UP_LATE_INIT

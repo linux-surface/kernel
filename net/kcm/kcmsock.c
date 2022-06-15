@@ -9,6 +9,7 @@
 #include <linux/errno.h>
 #include <linux/errqueue.h>
 #include <linux/file.h>
+#include <linux/filter.h>
 #include <linux/in.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -47,7 +48,7 @@ static inline struct kcm_tx_msg *kcm_tx_msg(struct sk_buff *skb)
 static void report_csk_error(struct sock *csk, int err)
 {
 	csk->sk_err = EPIPE;
-	csk->sk_error_report(csk);
+	sk_error_report(csk);
 }
 
 static void kcm_abort_tx_psock(struct kcm_psock *psock, int err,
@@ -663,7 +664,7 @@ do_frag:
 
 				/* Hard failure in sending message, abort this
 				 * psock since it has lost framing
-				 * synchonization and retry sending the
+				 * synchronization and retry sending the
 				 * message from the beginning.
 				 */
 				kcm_abort_tx_psock(psock, ret ? -ret : EPIPE,
@@ -1419,7 +1420,7 @@ static int kcm_attach(struct socket *sock, struct socket *csock,
 
 	write_lock_bh(&csk->sk_callback_lock);
 
-	/* Check if sk_user_data is aready by KCM or someone else.
+	/* Check if sk_user_data is already by KCM or someone else.
 	 * Must be done under lock to prevent race conditions.
 	 */
 	if (csk->sk_user_data) {

@@ -25,6 +25,8 @@
 #include "protocol.h"
 #include "mib.h"
 
+#include <trace/events/mptcp.h>
+
 static void mptcp_subflow_ops_undo_override(struct sock *ssk);
 
 static void SUBFLOW_REQ_INC_STATS(struct request_sock *req,
@@ -84,7 +86,7 @@ static struct mptcp_sock *subflow_token_join_request(struct request_sock *req)
 	struct mptcp_sock *msk;
 	int local_id;
 
-	msk = mptcp_token_get_sock(subflow_req->token);
+	msk = mptcp_token_get_sock(sock_net(req_to_sk(req)), subflow_req->token);
 	if (!msk) {
 		SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_JOINNOTOKEN);
 		return NULL;
@@ -106,6 +108,8 @@ static void subflow_init_req(struct request_sock *req, const struct sock *sk_lis
 
 	subflow_req->mp_capable = 0;
 	subflow_req->mp_join = 0;
+	subflow_req->csum_reqd = mptcp_is_checksum_enabled(sock_net(sk_listener));
+	subflow_req->allow_join_id0 = mptcp_allow_join_id0(sock_net(sk_listener));
 	subflow_req->msk = NULL;
 	mptcp_token_init_request(req);
 }
@@ -113,6 +117,16 @@ static void subflow_init_req(struct request_sock *req, const struct sock *sk_lis
 static bool subflow_use_different_sport(struct mptcp_sock *msk, const struct sock *sk)
 {
 	return inet_sk(sk)->inet_sport != inet_sk((struct sock *)msk)->inet_sport;
+}
+
+static void subflow_add_reset_reason(struct sk_buff *skb, u8 reason)
+{
+	struct mptcp_ext *mpext = skb_ext_add(skb, SKB_EXT_MPTCP);
+
+	if (mpext) {
+		memset(mpext, 0, sizeof(*mpext));
+		mpext->reset_reason = reason;
+	}
 }
 
 /* Init mptcp request socket.
@@ -127,6 +141,7 @@ static int subflow_check_req(struct request_sock *req,
 	struct mptcp_subflow_context *listener = mptcp_subflow_ctx(sk_listener);
 	struct mptcp_subflow_request_sock *subflow_req = mptcp_subflow_rsk(req);
 	struct mptcp_options_received mp_opt;
+	bool opt_mp_capable, opt_mp_join;
 
 	pr_debug("subflow_req=%p, listener=%p", subflow_req, listener);
 
@@ -140,17 +155,19 @@ static int subflow_check_req(struct request_sock *req,
 
 	mptcp_get_options(skb, &mp_opt);
 
-	if (mp_opt.mp_capable) {
+	opt_mp_capable = !!(mp_opt.suboptions & OPTIONS_MPTCP_MPC);
+	opt_mp_join = !!(mp_opt.suboptions & OPTIONS_MPTCP_MPJ);
+	if (opt_mp_capable) {
 		SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_MPCAPABLEPASSIVE);
 
-		if (mp_opt.mp_join)
+		if (opt_mp_join)
 			return 0;
-	} else if (mp_opt.mp_join) {
+	} else if (opt_mp_join) {
 		SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_JOINSYNRX);
 	}
 
-	if (mp_opt.mp_capable && listener->request_mptcp) {
-		int err, retries = 4;
+	if (opt_mp_capable && listener->request_mptcp) {
+		int err, retries = MPTCP_TOKEN_MAX_RETRIES;
 
 		subflow_req->ssn_offset = TCP_SKB_CB(skb)->seq;
 again:
@@ -165,6 +182,7 @@ again:
 			if (mptcp_token_exists(subflow_req->token)) {
 				if (retries-- > 0)
 					goto again;
+				SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_TOKENFALLBACKINIT);
 			} else {
 				subflow_req->mp_capable = 1;
 			}
@@ -176,8 +194,10 @@ again:
 			subflow_req->mp_capable = 1;
 		else if (retries-- > 0)
 			goto again;
+		else
+			SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_TOKENFALLBACKINIT);
 
-	} else if (mp_opt.mp_join && listener->request_mptcp) {
+	} else if (opt_mp_join && listener->request_mptcp) {
 		subflow_req->ssn_offset = TCP_SKB_CB(skb)->seq;
 		subflow_req->mp_join = 1;
 		subflow_req->backup = mp_opt.backup;
@@ -187,19 +207,16 @@ again:
 		subflow_req->msk = subflow_token_join_request(req);
 
 		/* Can't fall back to TCP in this case. */
-		if (!subflow_req->msk)
+		if (!subflow_req->msk) {
+			subflow_add_reset_reason(skb, MPTCP_RST_EMPTCP);
 			return -EPERM;
+		}
 
 		if (subflow_use_different_sport(subflow_req->msk, sk_listener)) {
 			pr_debug("syn inet_sport=%d %d",
 				 ntohs(inet_sk(sk_listener)->inet_sport),
 				 ntohs(inet_sk((struct sock *)subflow_req->msk)->inet_sport));
 			if (!mptcp_pm_sport_in_anno_list(subflow_req->msk, sk_listener)) {
-				sock_put((struct sock *)subflow_req->msk);
-				mptcp_token_destroy_request(req);
-				tcp_request_sock_ops.destructor(req);
-				subflow_req->msk = NULL;
-				subflow_req->mp_join = 0;
 				SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_MISMATCHPORTSYNRX);
 				return -EPERM;
 			}
@@ -211,6 +228,8 @@ again:
 		if (unlikely(req->syncookie)) {
 			if (mptcp_can_accept_new_subflow(subflow_req->msk))
 				subflow_init_req_cookie_join_save(subflow_req, skb);
+			else
+				return -EPERM;
 		}
 
 		pr_debug("token=%u, remote_nonce=%u msk=%p", subflow_req->token,
@@ -227,15 +246,18 @@ int mptcp_subflow_init_cookie_req(struct request_sock *req,
 	struct mptcp_subflow_context *listener = mptcp_subflow_ctx(sk_listener);
 	struct mptcp_subflow_request_sock *subflow_req = mptcp_subflow_rsk(req);
 	struct mptcp_options_received mp_opt;
+	bool opt_mp_capable, opt_mp_join;
 	int err;
 
 	subflow_init_req(req, sk_listener);
 	mptcp_get_options(skb, &mp_opt);
 
-	if (mp_opt.mp_capable && mp_opt.mp_join)
+	opt_mp_capable = !!(mp_opt.suboptions & OPTIONS_MPTCP_MPC);
+	opt_mp_join = !!(mp_opt.suboptions & OPTIONS_MPTCP_MPJ);
+	if (opt_mp_capable && opt_mp_join)
 		return -EINVAL;
 
-	if (mp_opt.mp_capable && listener->request_mptcp) {
+	if (opt_mp_capable && listener->request_mptcp) {
 		if (mp_opt.sndr_key == 0)
 			return -EINVAL;
 
@@ -246,13 +268,11 @@ int mptcp_subflow_init_cookie_req(struct request_sock *req,
 
 		subflow_req->mp_capable = 1;
 		subflow_req->ssn_offset = TCP_SKB_CB(skb)->seq - 1;
-	} else if (mp_opt.mp_join && listener->request_mptcp) {
+	} else if (opt_mp_join && listener->request_mptcp) {
 		if (!mptcp_token_join_cookie_init_state(subflow_req, skb))
 			return -EINVAL;
 
-		if (mptcp_can_accept_new_subflow(subflow_req->msk))
-			subflow_req->mp_join = 1;
-
+		subflow_req->mp_join = 1;
 		subflow_req->ssn_offset = TCP_SKB_CB(skb)->seq - 1;
 	}
 
@@ -324,9 +344,7 @@ static bool subflow_thmac_valid(struct mptcp_subflow_context *subflow)
 
 	thmac = get_unaligned_be64(hmac);
 	pr_debug("subflow=%p, token=%u, thmac=%llu, subflow->thmac=%llu\n",
-		 subflow, subflow->token,
-		 (unsigned long long)thmac,
-		 (unsigned long long)subflow->thmac);
+		 subflow, subflow->token, thmac, subflow->thmac);
 
 	return thmac == subflow->thmac;
 }
@@ -354,6 +372,24 @@ static bool subflow_use_different_dport(struct mptcp_sock *msk, const struct soc
 	return inet_sk(sk)->inet_dport != inet_sk((struct sock *)msk)->inet_dport;
 }
 
+void __mptcp_set_connected(struct sock *sk)
+{
+	if (sk->sk_state == TCP_SYN_SENT) {
+		inet_sk_state_store(sk, TCP_ESTABLISHED);
+		sk->sk_state_change(sk);
+	}
+}
+
+static void mptcp_set_connected(struct sock *sk)
+{
+	mptcp_data_lock(sk);
+	if (!sock_owned_by_user(sk))
+		__mptcp_set_connected(sk);
+	else
+		__set_bit(MPTCP_CONNECTED, &mptcp_sk(sk)->cb_flags);
+	mptcp_data_unlock(sk);
+}
+
 static void subflow_finish_connect(struct sock *sk, const struct sk_buff *skb)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
@@ -361,11 +397,6 @@ static void subflow_finish_connect(struct sock *sk, const struct sk_buff *skb)
 	struct sock *parent = subflow->conn;
 
 	subflow->icsk_af_ops->sk_rx_dst_set(sk, skb);
-
-	if (inet_sk_state_load(parent) == TCP_SYN_SENT) {
-		inet_sk_state_store(parent, TCP_ESTABLISHED);
-		parent->sk_state_change(parent);
-	}
 
 	/* be sure no special action on any packet other than syn-ack */
 	if (subflow->conn_finished)
@@ -379,7 +410,7 @@ static void subflow_finish_connect(struct sock *sk, const struct sk_buff *skb)
 
 	mptcp_get_options(skb, &mp_opt);
 	if (subflow->request_mptcp) {
-		if (!mp_opt.mp_capable) {
+		if (!(mp_opt.suboptions & OPTIONS_MPTCP_MPC)) {
 			MPTCP_INC_STATS(sock_net(sk),
 					MPTCP_MIB_MPCAPABLEACTIVEFALLBACK);
 			mptcp_do_fallback(sk);
@@ -387,36 +418,47 @@ static void subflow_finish_connect(struct sock *sk, const struct sk_buff *skb)
 			goto fallback;
 		}
 
+		if (mp_opt.suboptions & OPTION_MPTCP_CSUMREQD)
+			WRITE_ONCE(mptcp_sk(parent)->csum_enabled, true);
+		if (mp_opt.deny_join_id0)
+			WRITE_ONCE(mptcp_sk(parent)->pm.remote_deny_join_id0, true);
 		subflow->mp_capable = 1;
 		subflow->can_ack = 1;
 		subflow->remote_key = mp_opt.sndr_key;
 		pr_debug("subflow=%p, remote_key=%llu", subflow,
 			 subflow->remote_key);
+		MPTCP_INC_STATS(sock_net(sk), MPTCP_MIB_MPCAPABLEACTIVEACK);
 		mptcp_finish_connect(sk);
+		mptcp_set_connected(parent);
 	} else if (subflow->request_join) {
 		u8 hmac[SHA256_DIGEST_SIZE];
 
-		if (!mp_opt.mp_join)
+		if (!(mp_opt.suboptions & OPTIONS_MPTCP_MPJ)) {
+			subflow->reset_reason = MPTCP_RST_EMPTCP;
 			goto do_reset;
+		}
 
+		subflow->backup = mp_opt.backup;
 		subflow->thmac = mp_opt.thmac;
 		subflow->remote_nonce = mp_opt.nonce;
-		pr_debug("subflow=%p, thmac=%llu, remote_nonce=%u", subflow,
-			 subflow->thmac, subflow->remote_nonce);
+		pr_debug("subflow=%p, thmac=%llu, remote_nonce=%u backup=%d",
+			 subflow, subflow->thmac, subflow->remote_nonce,
+			 subflow->backup);
 
 		if (!subflow_thmac_valid(subflow)) {
 			MPTCP_INC_STATS(sock_net(sk), MPTCP_MIB_JOINACKMAC);
+			subflow->reset_reason = MPTCP_RST_EMPTCP;
 			goto do_reset;
 		}
+
+		if (!mptcp_finish_join(sk))
+			goto do_reset;
 
 		subflow_generate_hmac(subflow->local_key, subflow->remote_key,
 				      subflow->local_nonce,
 				      subflow->remote_nonce,
 				      hmac);
 		memcpy(subflow->hmac, hmac, MPTCPOPT_HMAC_LEN);
-
-		if (!mptcp_finish_join(sk))
-			goto do_reset;
 
 		subflow->mp_join = 1;
 		MPTCP_INC_STATS(sock_net(sk), MPTCP_MIB_JOINSYNACKRX);
@@ -430,16 +472,62 @@ static void subflow_finish_connect(struct sock *sk, const struct sk_buff *skb)
 	} else if (mptcp_check_fallback(sk)) {
 fallback:
 		mptcp_rcv_space_init(mptcp_sk(parent), sk);
+		mptcp_set_connected(parent);
 	}
 	return;
 
 do_reset:
+	subflow->reset_transient = 0;
 	mptcp_subflow_reset(sk);
 }
 
+static void subflow_set_local_id(struct mptcp_subflow_context *subflow, int local_id)
+{
+	subflow->local_id = local_id;
+	subflow->local_id_valid = 1;
+}
+
+static int subflow_chk_local_id(struct sock *sk)
+{
+	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
+	struct mptcp_sock *msk = mptcp_sk(subflow->conn);
+	int err;
+
+	if (likely(subflow->local_id_valid))
+		return 0;
+
+	err = mptcp_pm_get_local_id(msk, (struct sock_common *)sk);
+	if (err < 0)
+		return err;
+
+	subflow_set_local_id(subflow, err);
+	return 0;
+}
+
+static int subflow_rebuild_header(struct sock *sk)
+{
+	int err = subflow_chk_local_id(sk);
+
+	if (unlikely(err < 0))
+		return err;
+
+	return inet_sk_rebuild_header(sk);
+}
+
+#if IS_ENABLED(CONFIG_MPTCP_IPV6)
+static int subflow_v6_rebuild_header(struct sock *sk)
+{
+	int err = subflow_chk_local_id(sk);
+
+	if (unlikely(err < 0))
+		return err;
+
+	return inet6_sk_rebuild_header(sk);
+}
+#endif
+
 struct request_sock_ops mptcp_subflow_request_sock_ops;
-EXPORT_SYMBOL_GPL(mptcp_subflow_request_sock_ops);
-static struct tcp_request_sock_ops subflow_request_sock_ipv4_ops;
+static struct tcp_request_sock_ops subflow_request_sock_ipv4_ops __ro_after_init;
 
 static int subflow_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 {
@@ -460,9 +548,9 @@ drop:
 }
 
 #if IS_ENABLED(CONFIG_MPTCP_IPV6)
-static struct tcp_request_sock_ops subflow_request_sock_ipv6_ops;
-static struct inet_connection_sock_af_ops subflow_v6_specific;
-static struct inet_connection_sock_af_ops subflow_v6m_specific;
+static struct tcp_request_sock_ops subflow_request_sock_ipv6_ops __ro_after_init;
+static struct inet_connection_sock_af_ops subflow_v6_specific __ro_after_init;
+static struct inet_connection_sock_af_ops subflow_v6m_specific __ro_after_init;
 static struct proto tcpv6_prot_override;
 
 static int subflow_v6_conn_request(struct sock *sk, struct sk_buff *skb)
@@ -476,6 +564,11 @@ static int subflow_v6_conn_request(struct sock *sk, struct sk_buff *skb)
 
 	if (!ipv6_unicast_destination(skb))
 		goto drop;
+
+	if (ipv6_addr_v4mapped(&ipv6_hdr(skb)->saddr)) {
+		__IP6_INC_STATS(sock_net(sk), NULL, IPSTATS_MIB_INHDRERRORS);
+		return 0;
+	}
 
 	return tcp_conn_request(&mptcp_subflow_request_sock_ops,
 				&subflow_request_sock_ipv6_ops, sk, skb);
@@ -519,8 +612,7 @@ static void mptcp_sock_destruct(struct sock *sk)
 	 * ESTABLISHED state and will not have the SOCK_DEAD flag.
 	 * Both result in warnings from inet_sock_destruct.
 	 */
-
-	if (sk->sk_state == TCP_ESTABLISHED) {
+	if ((1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT)) {
 		sk->sk_state = TCP_CLOSE;
 		WARN_ON_ONCE(sk->sk_socket);
 		sock_orphan(sk);
@@ -532,6 +624,7 @@ static void mptcp_sock_destruct(struct sock *sk)
 
 static void mptcp_force_close(struct sock *sk)
 {
+	/* the msk is not yet exposed to user-space */
 	inet_sk_state_store(sk, TCP_CLOSE);
 	sk_common_release(sk);
 }
@@ -590,10 +683,10 @@ static struct sock *subflow_syn_recv_sock(const struct sock *sk,
 
 	pr_debug("listener=%p, req=%p, conn=%p", listener, req, listener->conn);
 
-	/* After child creation we must look for 'mp_capable' even when options
+	/* After child creation we must look for MPC even when options
 	 * are not parsed
 	 */
-	mp_opt.mp_capable = 0;
+	mp_opt.suboptions = 0;
 
 	/* hopefully temporary handling for MP_JOIN+syncookie */
 	subflow_req = mptcp_subflow_rsk(req);
@@ -604,27 +697,27 @@ static struct sock *subflow_syn_recv_sock(const struct sock *sk,
 
 	/* if the sk is MP_CAPABLE, we try to fetch the client key */
 	if (subflow_req->mp_capable) {
-		if (TCP_SKB_CB(skb)->seq != subflow_req->ssn_offset + 1) {
-			/* here we can receive and accept an in-window,
-			 * out-of-order pkt, which will not carry the MP_CAPABLE
-			 * opt even on mptcp enabled paths
-			 */
-			goto create_msk;
-		}
-
+		/* we can receive and accept an in-window, out-of-order pkt,
+		 * which may not carry the MP_CAPABLE opt even on mptcp enabled
+		 * paths: always try to extract the peer key, and fallback
+		 * for packets missing it.
+		 * Even OoO DSS packets coming legitly after dropped or
+		 * reordered MPC will cause fallback, but we don't have other
+		 * options.
+		 */
 		mptcp_get_options(skb, &mp_opt);
-		if (!mp_opt.mp_capable) {
+		if (!(mp_opt.suboptions & OPTIONS_MPTCP_MPC)) {
 			fallback = true;
 			goto create_child;
 		}
 
-create_msk:
 		new_msk = mptcp_sk_clone(listener->conn, &mp_opt, req);
 		if (!new_msk)
 			fallback = true;
 	} else if (subflow_req->mp_join) {
 		mptcp_get_options(skb, &mp_opt);
-		if (!mp_opt.mp_join || !subflow_hmac_valid(req, &mp_opt) ||
+		if (!(mp_opt.suboptions & OPTIONS_MPTCP_MPJ) ||
+		    !subflow_hmac_valid(req, &mp_opt) ||
 		    !mptcp_can_accept_new_subflow(subflow_req->msk)) {
 			SUBFLOW_REQ_INC_STATS(req, MPTCP_MIB_JOINACKMAC);
 			fallback = true;
@@ -645,12 +738,17 @@ create_child:
 		 * to reset the context to non MPTCP status.
 		 */
 		if (!ctx || fallback) {
-			if (fallback_is_fatal)
+			if (fallback_is_fatal) {
+				subflow_add_reset_reason(skb, MPTCP_RST_EMPTCP);
 				goto dispose_child;
+			}
 
 			subflow_drop_ctx(child);
 			goto out;
 		}
+
+		/* ssk inherits options of listener sk */
+		ctx->setsockopt_seq = listener->setsockopt_seq;
 
 		if (ctx->mp_capable) {
 			/* this can't race with mptcp_close(), as the msk is
@@ -667,6 +765,7 @@ create_child:
 			 * created mptcp socket
 			 */
 			new_msk->sk_destruct = mptcp_sock_destruct;
+			mptcp_sk(new_msk)->setsockopt_seq = ctx->setsockopt_seq;
 			mptcp_pm_new_connection(mptcp_sk(new_msk), child, 1);
 			mptcp_token_accept(subflow_req, mptcp_sk(new_msk));
 			ctx->conn = new_msk;
@@ -675,14 +774,16 @@ create_child:
 			/* with OoO packets we can reach here without ingress
 			 * mpc option
 			 */
-			if (mp_opt.mp_capable)
+			if (mp_opt.suboptions & OPTIONS_MPTCP_MPC)
 				mptcp_subflow_fully_established(ctx, &mp_opt);
 		} else if (ctx->mp_join) {
 			struct mptcp_sock *owner;
 
 			owner = subflow_req->msk;
-			if (!owner)
+			if (!owner) {
+				subflow_add_reset_reason(skb, MPTCP_RST_EPROHIBIT);
 				goto dispose_child;
+			}
 
 			/* move the msk reference ownership to the subflow */
 			subflow_req->msk = NULL;
@@ -731,7 +832,7 @@ dispose_child:
 	return child;
 }
 
-static struct inet_connection_sock_af_ops subflow_specific;
+static struct inet_connection_sock_af_ops subflow_specific __ro_after_init;
 static struct proto tcp_prot_override;
 
 enum mapping_status {
@@ -742,19 +843,10 @@ enum mapping_status {
 	MAPPING_DUMMY
 };
 
-static u64 expand_seq(u64 old_seq, u16 old_data_len, u64 seq)
+static void dbg_bad_map(struct mptcp_subflow_context *subflow, u32 ssn)
 {
-	if ((u32)seq == (u32)old_seq)
-		return old_seq;
-
-	/* Assume map covers data not mapped yet. */
-	return seq | ((old_seq + old_data_len + 1) & GENMASK_ULL(63, 32));
-}
-
-static void warn_bad_map(struct mptcp_subflow_context *subflow, u32 ssn)
-{
-	WARN_ONCE(1, "Bad mapping: ssn=%d map_seq=%d map_data_len=%d",
-		  ssn, subflow->map_subflow_seq, subflow->map_data_len);
+	pr_debug("Bad mapping: ssn=%d map_seq=%d map_data_len=%d",
+		 ssn, subflow->map_subflow_seq, subflow->map_data_len);
 }
 
 static bool skb_is_fully_mapped(struct sock *ssk, struct sk_buff *skb)
@@ -779,22 +871,106 @@ static bool validate_mapping(struct sock *ssk, struct sk_buff *skb)
 		/* Mapping covers data later in the subflow stream,
 		 * currently unsupported.
 		 */
-		warn_bad_map(subflow, ssn);
+		dbg_bad_map(subflow, ssn);
 		return false;
 	}
 	if (unlikely(!before(ssn, subflow->map_subflow_seq +
 				  subflow->map_data_len))) {
 		/* Mapping does covers past subflow data, invalid */
-		warn_bad_map(subflow, ssn + skb->len);
+		dbg_bad_map(subflow, ssn);
 		return false;
 	}
 	return true;
+}
+
+static enum mapping_status validate_data_csum(struct sock *ssk, struct sk_buff *skb,
+					      bool csum_reqd)
+{
+	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(ssk);
+	u32 offset, seq, delta;
+	__sum16 csum;
+	int len;
+
+	if (!csum_reqd)
+		return MAPPING_OK;
+
+	/* mapping already validated on previous traversal */
+	if (subflow->map_csum_len == subflow->map_data_len)
+		return MAPPING_OK;
+
+	/* traverse the receive queue, ensuring it contains a full
+	 * DSS mapping and accumulating the related csum.
+	 * Preserve the accoumlate csum across multiple calls, to compute
+	 * the csum only once
+	 */
+	delta = subflow->map_data_len - subflow->map_csum_len;
+	for (;;) {
+		seq = tcp_sk(ssk)->copied_seq + subflow->map_csum_len;
+		offset = seq - TCP_SKB_CB(skb)->seq;
+
+		/* if the current skb has not been accounted yet, csum its contents
+		 * up to the amount covered by the current DSS
+		 */
+		if (offset < skb->len) {
+			__wsum csum;
+
+			len = min(skb->len - offset, delta);
+			csum = skb_checksum(skb, offset, len, 0);
+			subflow->map_data_csum = csum_block_add(subflow->map_data_csum, csum,
+								subflow->map_csum_len);
+
+			delta -= len;
+			subflow->map_csum_len += len;
+		}
+		if (delta == 0)
+			break;
+
+		if (skb_queue_is_last(&ssk->sk_receive_queue, skb)) {
+			/* if this subflow is closed, the partial mapping
+			 * will be never completed; flush the pending skbs, so
+			 * that subflow_sched_work_if_closed() can kick in
+			 */
+			if (unlikely(ssk->sk_state == TCP_CLOSE))
+				while ((skb = skb_peek(&ssk->sk_receive_queue)))
+					sk_eat_skb(ssk, skb);
+
+			/* not enough data to validate the csum */
+			return MAPPING_EMPTY;
+		}
+
+		/* the DSS mapping for next skbs will be validated later,
+		 * when a get_mapping_status call will process such skb
+		 */
+		skb = skb->next;
+	}
+
+	/* note that 'map_data_len' accounts only for the carried data, does
+	 * not include the eventual seq increment due to the data fin,
+	 * while the pseudo header requires the original DSS data len,
+	 * including that
+	 */
+	csum = __mptcp_make_csum(subflow->map_seq,
+				 subflow->map_subflow_seq,
+				 subflow->map_data_len + subflow->map_data_fin,
+				 subflow->map_data_csum);
+	if (unlikely(csum)) {
+		MPTCP_INC_STATS(sock_net(ssk), MPTCP_MIB_DATACSUMERR);
+		if (subflow->mp_join || subflow->valid_csum_seen) {
+			subflow->send_mp_fail = 1;
+			MPTCP_INC_STATS(sock_net(ssk), MPTCP_MIB_MPFAILTX);
+		}
+		return subflow->mp_join ? MAPPING_INVALID : MAPPING_DUMMY;
+	}
+
+	subflow->valid_csum_seen = 1;
+	return MAPPING_OK;
 }
 
 static enum mapping_status get_mapping_status(struct sock *ssk,
 					      struct mptcp_sock *msk)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(ssk);
+	bool csum_reqd = READ_ONCE(msk->csum_enabled);
 	struct mptcp_ext *mpext;
 	struct sk_buff *skb;
 	u16 data_len;
@@ -829,13 +1005,10 @@ static enum mapping_status get_mapping_status(struct sock *ssk,
 		goto validate_seq;
 	}
 
-	pr_debug("seq=%llu is64=%d ssn=%u data_len=%u data_fin=%d",
-		 mpext->data_seq, mpext->dsn64, mpext->subflow_seq,
-		 mpext->data_len, mpext->data_fin);
+	trace_get_mapping_status(mpext);
 
 	data_len = mpext->data_len;
 	if (data_len == 0) {
-		pr_err("Infinite mapping not handled");
 		MPTCP_INC_STATS(sock_net(ssk), MPTCP_MIB_INFINITEMAPRX);
 		return MAPPING_INVALID;
 	}
@@ -877,22 +1050,17 @@ static enum mapping_status get_mapping_status(struct sock *ssk,
 		data_len--;
 	}
 
-	if (!mpext->dsn64) {
-		map_seq = expand_seq(subflow->map_seq, subflow->map_data_len,
-				     mpext->data_seq);
-		pr_debug("expanded seq=%llu", subflow->map_seq);
-	} else {
-		map_seq = mpext->data_seq;
-	}
+	map_seq = mptcp_expand_seq(READ_ONCE(msk->ack_seq), mpext->data_seq, mpext->dsn64);
 	WRITE_ONCE(mptcp_sk(subflow->conn)->use_64bit_ack, !!mpext->dsn64);
 
 	if (subflow->map_valid) {
 		/* Allow replacing only with an identical map */
 		if (subflow->map_seq == map_seq &&
 		    subflow->map_subflow_seq == mpext->subflow_seq &&
-		    subflow->map_data_len == data_len) {
+		    subflow->map_data_len == data_len &&
+		    subflow->map_csum_reqd == mpext->csum_reqd) {
 			skb_ext_del(skb, SKB_EXT_MPTCP);
-			return MAPPING_OK;
+			goto validate_csum;
 		}
 
 		/* If this skb data are fully covered by the current mapping,
@@ -904,27 +1072,41 @@ static enum mapping_status get_mapping_status(struct sock *ssk,
 		}
 
 		/* will validate the next map after consuming the current one */
-		return MAPPING_OK;
+		goto validate_csum;
 	}
 
 	subflow->map_seq = map_seq;
 	subflow->map_subflow_seq = mpext->subflow_seq;
 	subflow->map_data_len = data_len;
 	subflow->map_valid = 1;
+	subflow->map_data_fin = mpext->data_fin;
 	subflow->mpc_map = mpext->mpc_map;
-	pr_debug("new map seq=%llu subflow_seq=%u data_len=%u",
+	subflow->map_csum_reqd = mpext->csum_reqd;
+	subflow->map_csum_len = 0;
+	subflow->map_data_csum = csum_unfold(mpext->csum);
+
+	/* Cfr RFC 8684 Section 3.3.0 */
+	if (unlikely(subflow->map_csum_reqd != csum_reqd))
+		return MAPPING_INVALID;
+
+	pr_debug("new map seq=%llu subflow_seq=%u data_len=%u csum=%d:%u",
 		 subflow->map_seq, subflow->map_subflow_seq,
-		 subflow->map_data_len);
+		 subflow->map_data_len, subflow->map_csum_reqd,
+		 subflow->map_data_csum);
 
 validate_seq:
 	/* we revalidate valid mapping on new skb, because we must ensure
 	 * the current skb is completely covered by the available mapping
 	 */
-	if (!validate_mapping(ssk, skb))
+	if (!validate_mapping(ssk, skb)) {
+		MPTCP_INC_STATS(sock_net(ssk), MPTCP_MIB_DSSTCPMISMATCH);
 		return MAPPING_INVALID;
+	}
 
 	skb_ext_del(skb, SKB_EXT_MPTCP);
-	return MAPPING_OK;
+
+validate_csum:
+	return validate_data_csum(ssk, skb, csum_reqd);
 }
 
 static void mptcp_subflow_discard_data(struct sock *ssk, struct sk_buff *skb,
@@ -962,6 +1144,18 @@ static void subflow_sched_work_if_closed(struct mptcp_sock *msk, struct sock *ss
 	}
 }
 
+static bool subflow_can_fallback(struct mptcp_subflow_context *subflow)
+{
+	struct mptcp_sock *msk = mptcp_sk(subflow->conn);
+
+	if (subflow->mp_join)
+		return false;
+	else if (READ_ONCE(msk->csum_enabled))
+		return !subflow->valid_csum_seen;
+	else
+		return !subflow->fully_established;
+}
+
 static bool subflow_check_data_avail(struct sock *ssk)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(ssk);
@@ -969,10 +1163,8 @@ static bool subflow_check_data_avail(struct sock *ssk)
 	struct mptcp_sock *msk;
 	struct sk_buff *skb;
 
-	pr_debug("msk=%p ssk=%p data_avail=%d skb=%p", subflow->conn, ssk,
-		 subflow->data_avail, skb_peek(&ssk->sk_receive_queue));
 	if (!skb_peek(&ssk->sk_receive_queue))
-		subflow->data_avail = 0;
+		WRITE_ONCE(subflow->data_avail, MPTCP_SUBFLOW_NODATA);
 	if (subflow->data_avail)
 		return true;
 
@@ -982,22 +1174,12 @@ static bool subflow_check_data_avail(struct sock *ssk)
 		u64 old_ack;
 
 		status = get_mapping_status(ssk, msk);
-		pr_debug("msk=%p ssk=%p status=%d", msk, ssk, status);
-		if (status == MAPPING_INVALID) {
-			ssk->sk_err = EBADMSG;
-			goto fatal;
-		}
-		if (status == MAPPING_DUMMY) {
-			__mptcp_do_fallback(msk);
-			skb = skb_peek(&ssk->sk_receive_queue);
-			subflow->map_valid = 1;
-			subflow->map_seq = READ_ONCE(msk->ack_seq);
-			subflow->map_data_len = skb->len;
-			subflow->map_subflow_seq = tcp_sk(ssk)->copied_seq -
-						   subflow->ssn_offset;
-			subflow->data_avail = MPTCP_SUBFLOW_DATA_AVAIL;
-			return true;
-		}
+		trace_subflow_check_data_avail(status, skb_peek(&ssk->sk_receive_queue));
+		if (unlikely(status == MAPPING_INVALID))
+			goto fallback;
+
+		if (unlikely(status == MAPPING_DUMMY))
+			goto fallback;
 
 		if (status != MAPPING_OK)
 			goto no_data;
@@ -1010,10 +1192,8 @@ static bool subflow_check_data_avail(struct sock *ssk)
 		 * MP_CAPABLE-based mapping
 		 */
 		if (unlikely(!READ_ONCE(msk->can_ack))) {
-			if (!subflow->mpc_map) {
-				ssk->sk_err = EBADMSG;
-				goto fatal;
-			}
+			if (!subflow->mpc_map)
+				goto fallback;
 			WRITE_ONCE(msk->remote_key, subflow->remote_key);
 			WRITE_ONCE(msk->ack_seq, subflow->map_seq);
 			WRITE_ONCE(msk->can_ack, true);
@@ -1023,33 +1203,57 @@ static bool subflow_check_data_avail(struct sock *ssk)
 		ack_seq = mptcp_subflow_get_mapped_dsn(subflow);
 		pr_debug("msk ack_seq=%llx subflow ack_seq=%llx", old_ack,
 			 ack_seq);
-		if (ack_seq == old_ack) {
-			subflow->data_avail = MPTCP_SUBFLOW_DATA_AVAIL;
-			break;
-		} else if (after64(ack_seq, old_ack)) {
-			subflow->data_avail = MPTCP_SUBFLOW_OOO_DATA;
-			break;
+		if (unlikely(before64(ack_seq, old_ack))) {
+			mptcp_subflow_discard_data(ssk, skb, old_ack - ack_seq);
+			continue;
 		}
 
-		/* only accept in-sequence mapping. Old values are spurious
-		 * retransmission
-		 */
-		mptcp_subflow_discard_data(ssk, skb, old_ack - ack_seq);
+		WRITE_ONCE(subflow->data_avail, MPTCP_SUBFLOW_DATA_AVAIL);
+		break;
 	}
 	return true;
 
 no_data:
 	subflow_sched_work_if_closed(msk, ssk);
 	return false;
-fatal:
-	/* fatal protocol error, close the socket */
-	/* This barrier is coupled with smp_rmb() in tcp_poll() */
-	smp_wmb();
-	ssk->sk_error_report(ssk);
-	tcp_set_state(ssk, TCP_CLOSE);
-	tcp_send_active_reset(ssk, GFP_ATOMIC);
-	subflow->data_avail = 0;
-	return false;
+
+fallback:
+	/* RFC 8684 section 3.7. */
+	if (subflow->send_mp_fail) {
+		if (mptcp_has_another_subflow(ssk)) {
+			while ((skb = skb_peek(&ssk->sk_receive_queue)))
+				sk_eat_skb(ssk, skb);
+		}
+		ssk->sk_err = EBADMSG;
+		tcp_set_state(ssk, TCP_CLOSE);
+		subflow->reset_transient = 0;
+		subflow->reset_reason = MPTCP_RST_EMIDDLEBOX;
+		tcp_send_active_reset(ssk, GFP_ATOMIC);
+		WRITE_ONCE(subflow->data_avail, MPTCP_SUBFLOW_NODATA);
+		return true;
+	}
+
+	if (!subflow_can_fallback(subflow)) {
+		/* fatal protocol error, close the socket.
+		 * subflow_error_report() will introduce the appropriate barriers
+		 */
+		ssk->sk_err = EBADMSG;
+		tcp_set_state(ssk, TCP_CLOSE);
+		subflow->reset_transient = 0;
+		subflow->reset_reason = MPTCP_RST_EMPTCP;
+		tcp_send_active_reset(ssk, GFP_ATOMIC);
+		WRITE_ONCE(subflow->data_avail, MPTCP_SUBFLOW_NODATA);
+		return false;
+	}
+
+	__mptcp_do_fallback(msk);
+	skb = skb_peek(&ssk->sk_receive_queue);
+	subflow->map_valid = 1;
+	subflow->map_seq = READ_ONCE(msk->ack_seq);
+	subflow->map_data_len = skb->len;
+	subflow->map_subflow_seq = tcp_sk(ssk)->copied_seq - subflow->ssn_offset;
+	WRITE_ONCE(subflow->data_avail, MPTCP_SUBFLOW_DATA_AVAIL);
+	return true;
 }
 
 bool mptcp_subflow_data_available(struct sock *sk)
@@ -1060,7 +1264,7 @@ bool mptcp_subflow_data_available(struct sock *sk)
 	if (subflow->map_valid &&
 	    mptcp_subflow_get_map_offset(subflow) >= subflow->map_data_len) {
 		subflow->map_valid = 0;
-		subflow->data_avail = 0;
+		WRITE_ONCE(subflow->data_avail, MPTCP_SUBFLOW_NODATA);
 
 		pr_debug("Done with mapping: seq=%u data_len=%u",
 			 subflow->map_subflow_seq,
@@ -1076,7 +1280,7 @@ bool mptcp_subflow_data_available(struct sock *sk)
  * In mptcp, rwin is about the mptcp-level connection data.
  *
  * Data that is still on the ssk rx queue can thus be ignored,
- * as far as mptcp peer is concerened that data is still inflight.
+ * as far as mptcp peer is concerned that data is still inflight.
  * DSS ACK is updated when skb is moved to the mptcp rx queue.
  */
 void mptcp_space(const struct sock *ssk, int *space, int *full_space)
@@ -1086,41 +1290,6 @@ void mptcp_space(const struct sock *ssk, int *space, int *full_space)
 
 	*space = __mptcp_space(sk);
 	*full_space = tcp_full_space(sk);
-}
-
-static void subflow_data_ready(struct sock *sk)
-{
-	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
-	u16 state = 1 << inet_sk_state_load(sk);
-	struct sock *parent = subflow->conn;
-	struct mptcp_sock *msk;
-
-	msk = mptcp_sk(parent);
-	if (state & TCPF_LISTEN) {
-		/* MPJ subflow are removed from accept queue before reaching here,
-		 * avoid stray wakeups
-		 */
-		if (reqsk_queue_empty(&inet_csk(sk)->icsk_accept_queue))
-			return;
-
-		set_bit(MPTCP_DATA_READY, &msk->flags);
-		parent->sk_data_ready(parent);
-		return;
-	}
-
-	WARN_ON_ONCE(!__mptcp_check_fallback(msk) && !subflow->mp_capable &&
-		     !subflow->mp_join && !(state & TCPF_CLOSE));
-
-	if (mptcp_subflow_data_available(sk))
-		mptcp_data_ready(parent, sk);
-}
-
-static void subflow_write_space(struct sock *ssk)
-{
-	struct sock *sk = mptcp_subflow_ctx(ssk)->conn;
-
-	mptcp_propagate_sndbuf(sk, ssk);
-	mptcp_write_space(sk);
 }
 
 void __mptcp_error_report(struct sock *sk)
@@ -1146,7 +1315,7 @@ void __mptcp_error_report(struct sock *sk)
 
 		/* This barrier is coupled with smp_rmb() in mptcp_poll() */
 		smp_wmb();
-		sk->sk_error_report(sk);
+		sk_error_report(sk);
 		break;
 	}
 }
@@ -1159,11 +1328,47 @@ static void subflow_error_report(struct sock *ssk)
 	if (!sock_owned_by_user(sk))
 		__mptcp_error_report(sk);
 	else
-		set_bit(MPTCP_ERROR_REPORT,  &mptcp_sk(sk)->flags);
+		__set_bit(MPTCP_ERROR_REPORT,  &mptcp_sk(sk)->cb_flags);
 	mptcp_data_unlock(sk);
 }
 
-static struct inet_connection_sock_af_ops *
+static void subflow_data_ready(struct sock *sk)
+{
+	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
+	u16 state = 1 << inet_sk_state_load(sk);
+	struct sock *parent = subflow->conn;
+	struct mptcp_sock *msk;
+
+	msk = mptcp_sk(parent);
+	if (state & TCPF_LISTEN) {
+		/* MPJ subflow are removed from accept queue before reaching here,
+		 * avoid stray wakeups
+		 */
+		if (reqsk_queue_empty(&inet_csk(sk)->icsk_accept_queue))
+			return;
+
+		parent->sk_data_ready(parent);
+		return;
+	}
+
+	WARN_ON_ONCE(!__mptcp_check_fallback(msk) && !subflow->mp_capable &&
+		     !subflow->mp_join && !(state & TCPF_CLOSE));
+
+	if (mptcp_subflow_data_available(sk))
+		mptcp_data_ready(parent, sk);
+	else if (unlikely(sk->sk_err))
+		subflow_error_report(sk);
+}
+
+static void subflow_write_space(struct sock *ssk)
+{
+	struct sock *sk = mptcp_subflow_ctx(ssk)->conn;
+
+	mptcp_propagate_sndbuf(sk, ssk);
+	mptcp_write_space(sk);
+}
+
+static const struct inet_connection_sock_af_ops *
 subflow_default_af_ops(struct sock *sk)
 {
 #if IS_ENABLED(CONFIG_MPTCP_IPV6)
@@ -1178,7 +1383,7 @@ void mptcpv6_handle_mapped(struct sock *sk, bool mapped)
 {
 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
 	struct inet_connection_sock *icsk = inet_csk(sk);
-	struct inet_connection_sock_af_ops *target;
+	const struct inet_connection_sock_af_ops *target;
 
 	target = mapped ? &subflow_v6m_specific : subflow_default_af_ops(sk);
 
@@ -1232,18 +1437,20 @@ int __mptcp_subflow_connect(struct sock *sk, const struct mptcp_addr_info *loc,
 	struct sockaddr_storage addr;
 	int remote_id = remote->id;
 	int local_id = loc->id;
+	int err = -ENOTCONN;
 	struct socket *sf;
 	struct sock *ssk;
 	u32 remote_token;
 	int addrlen;
-	int err;
+	int ifindex;
+	u8 flags;
 
 	if (!mptcp_is_fully_established(sk))
-		return -ENOTCONN;
+		goto err_out;
 
 	err = mptcp_subflow_create_socket(sk, &sf);
 	if (err)
-		return err;
+		goto err_out;
 
 	ssk = sf->sk;
 	subflow = mptcp_subflow_ctx(ssk);
@@ -1251,14 +1458,11 @@ int __mptcp_subflow_connect(struct sock *sk, const struct mptcp_addr_info *loc,
 		get_random_bytes(&subflow->local_nonce, sizeof(u32));
 	} while (!subflow->local_nonce);
 
-	if (!local_id) {
-		err = mptcp_pm_get_local_id(msk, (struct sock_common *)ssk);
-		if (err < 0)
-			goto failed;
+	if (local_id)
+		subflow_set_local_id(subflow, local_id);
 
-		local_id = err;
-	}
-
+	mptcp_pm_get_flags_and_ifindex_by_id(sock_net(sk), local_id,
+					     &flags, &ifindex);
 	subflow->remote_key = msk->remote_key;
 	subflow->local_key = msk->local_key;
 	subflow->token = msk->token;
@@ -1269,7 +1473,9 @@ int __mptcp_subflow_connect(struct sock *sk, const struct mptcp_addr_info *loc,
 	if (addr.ss_family == AF_INET6)
 		addrlen = sizeof(struct sockaddr_in6);
 #endif
-	ssk->sk_bound_dev_if = loc->ifindex;
+	mptcp_sockopt_sync(msk, ssk);
+
+	ssk->sk_bound_dev_if = ifindex;
 	err = kernel_bind(sf, (struct sockaddr *)&addr, addrlen);
 	if (err)
 		goto failed;
@@ -1278,13 +1484,13 @@ int __mptcp_subflow_connect(struct sock *sk, const struct mptcp_addr_info *loc,
 	pr_debug("msk=%p remote_token=%u local_id=%d remote_id=%d", msk,
 		 remote_token, local_id, remote_id);
 	subflow->remote_token = remote_token;
-	subflow->local_id = local_id;
 	subflow->remote_id = remote_id;
 	subflow->request_join = 1;
-	subflow->request_bkup = !!(loc->flags & MPTCP_PM_ADDR_FLAG_BACKUP);
+	subflow->request_bkup = !!(flags & MPTCP_PM_ADDR_FLAG_BACKUP);
 	mptcp_info2sockaddr(remote, &addr, ssk->sk_family);
 
-	mptcp_add_pending_subflow(msk, subflow);
+	sock_hold(ssk);
+	list_add_tail(&subflow->node, &msk->conn_list);
 	err = kernel_connect(sf, (struct sockaddr *)&addr, addrlen, O_NONBLOCK);
 	if (err && err != -EINPROGRESS)
 		goto failed_unlink;
@@ -1295,14 +1501,18 @@ int __mptcp_subflow_connect(struct sock *sk, const struct mptcp_addr_info *loc,
 	return err;
 
 failed_unlink:
-	spin_lock_bh(&msk->join_list_lock);
 	list_del(&subflow->node);
-	spin_unlock_bh(&msk->join_list_lock);
 	sock_put(mptcp_subflow_tcp_sock(subflow));
 
 failed:
 	subflow->disposable = 1;
 	sock_release(sf);
+
+err_out:
+	/* we account subflows before the creation, and this failures will not
+	 * be caught by sk_state_change()
+	 */
+	mptcp_pm_close_subflow(msk);
 	return err;
 }
 
@@ -1376,10 +1586,8 @@ int mptcp_subflow_create_socket(struct sock *sk, struct socket **new_sock)
 	 * needs it.
 	 */
 	sf->sk->sk_net_refcnt = 1;
-	get_net(net);
-#ifdef CONFIG_PROC_FS
-	this_cpu_add(*net->core.sock_inuse, 1);
-#endif
+	get_net_track(net, &sf->sk->ns_tracker, GFP_KERNEL);
+	sock_inuse_add(net, 1);
 	err = tcp_set_ulp(sf->sk, "mptcp");
 	release_sock(sf->sk);
 
@@ -1459,10 +1667,7 @@ static void subflow_state_change(struct sock *sk)
 		mptcp_rcv_space_init(mptcp_sk(parent), sk);
 		pr_fallback(mptcp_sk(parent));
 		subflow->conn_finished = 1;
-		if (inet_sk_state_load(parent) == TCP_SYN_SENT) {
-			inet_sk_state_store(parent, TCP_ESTABLISHED);
-			parent->sk_state_change(parent);
-		}
+		mptcp_set_connected(parent);
 	}
 
 	/* as recvmsg() does not acquire the subflow socket for ssk selection
@@ -1471,6 +1676,8 @@ static void subflow_state_change(struct sock *sk)
 	 */
 	if (mptcp_subflow_data_available(sk))
 		mptcp_data_ready(parent, sk);
+	else if (unlikely(sk->sk_err))
+		subflow_error_report(sk);
 
 	subflow_sched_work_if_closed(mptcp_sk(parent), sk);
 
@@ -1507,10 +1714,12 @@ static int subflow_ulp_init(struct sock *sk)
 	tp->is_mptcp = 1;
 	ctx->icsk_af_ops = icsk->icsk_af_ops;
 	icsk->icsk_af_ops = subflow_default_af_ops(sk);
-	ctx->tcp_data_ready = sk->sk_data_ready;
 	ctx->tcp_state_change = sk->sk_state_change;
-	ctx->tcp_write_space = sk->sk_write_space;
 	ctx->tcp_error_report = sk->sk_error_report;
+
+	WARN_ON_ONCE(sk->sk_data_ready != sock_def_readable);
+	WARN_ON_ONCE(sk->sk_write_space != sk_stream_write_space);
+
 	sk->sk_data_ready = subflow_data_ready;
 	sk->sk_write_space = subflow_write_space;
 	sk->sk_state_change = subflow_state_change;
@@ -1565,9 +1774,7 @@ static void subflow_ulp_clone(const struct request_sock *req,
 
 	new_ctx->conn_finished = 1;
 	new_ctx->icsk_af_ops = old_ctx->icsk_af_ops;
-	new_ctx->tcp_data_ready = old_ctx->tcp_data_ready;
 	new_ctx->tcp_state_change = old_ctx->tcp_state_change;
-	new_ctx->tcp_write_space = old_ctx->tcp_write_space;
 	new_ctx->tcp_error_report = old_ctx->tcp_error_report;
 	new_ctx->rel_write_seq = 1;
 	new_ctx->tcp_sock = newsk;
@@ -1581,15 +1788,22 @@ static void subflow_ulp_clone(const struct request_sock *req,
 		new_ctx->token = subflow_req->token;
 		new_ctx->ssn_offset = subflow_req->ssn_offset;
 		new_ctx->idsn = subflow_req->idsn;
+
+		/* this is the first subflow, id is always 0 */
+		new_ctx->local_id_valid = 1;
 	} else if (subflow_req->mp_join) {
 		new_ctx->ssn_offset = subflow_req->ssn_offset;
 		new_ctx->mp_join = 1;
 		new_ctx->fully_established = 1;
 		new_ctx->backup = subflow_req->backup;
-		new_ctx->local_id = subflow_req->local_id;
 		new_ctx->remote_id = subflow_req->remote_id;
 		new_ctx->token = subflow_req->token;
 		new_ctx->thmac = subflow_req->thmac;
+
+		/* the subflow req id is valid, fetched via subflow_check_req()
+		 * and subflow_token_join_request()
+		 */
+		subflow_set_local_id(new_ctx, subflow_req->local_id);
 	}
 }
 
@@ -1642,6 +1856,7 @@ void __init mptcp_subflow_init(void)
 	subflow_specific.conn_request = subflow_v4_conn_request;
 	subflow_specific.syn_recv_sock = subflow_syn_recv_sock;
 	subflow_specific.sk_rx_dst_set = subflow_finish_connect;
+	subflow_specific.rebuild_header = subflow_rebuild_header;
 
 	tcp_prot_override = tcp_prot;
 	tcp_prot_override.release_cb = tcp_release_cb_override;
@@ -1654,6 +1869,7 @@ void __init mptcp_subflow_init(void)
 	subflow_v6_specific.conn_request = subflow_v6_conn_request;
 	subflow_v6_specific.syn_recv_sock = subflow_syn_recv_sock;
 	subflow_v6_specific.sk_rx_dst_set = subflow_finish_connect;
+	subflow_v6_specific.rebuild_header = subflow_v6_rebuild_header;
 
 	subflow_v6m_specific = subflow_v6_specific;
 	subflow_v6m_specific.queue_xmit = ipv4_specific.queue_xmit;
@@ -1661,6 +1877,7 @@ void __init mptcp_subflow_init(void)
 	subflow_v6m_specific.net_header_len = ipv4_specific.net_header_len;
 	subflow_v6m_specific.mtu_reduced = ipv4_specific.mtu_reduced;
 	subflow_v6m_specific.net_frag_header_len = 0;
+	subflow_v6m_specific.rebuild_header = subflow_rebuild_header;
 
 	tcpv6_prot_override = tcpv6_prot;
 	tcpv6_prot_override.release_cb = tcp_release_cb_override;

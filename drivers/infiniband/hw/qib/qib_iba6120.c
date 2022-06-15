@@ -2609,7 +2609,7 @@ static void qib_chk_6120_errormask(struct qib_devdata *dd)
 }
 
 /**
- * qib_get_faststats - get word counters from chip before they overflow
+ * qib_get_6120_faststats - get word counters from chip before they overflow
  * @t: contains a pointer to the qlogic_ib device qib_devdata
  *
  * This needs more work; in particular, decision on whether we really
@@ -3030,7 +3030,7 @@ static int qib_6120_ib_updown(struct qib_pportdata *ppd, int ibup, u64 ibcs)
 
 /* Does read/modify/write to appropriate registers to
  * set output and direction bits selected by mask.
- * these are in their canonical postions (e.g. lsb of
+ * these are in their canonical positions (e.g. lsb of
  * dir will end up in D48 of extctrl on existing chips).
  * returns contents of GP Inputs.
  */

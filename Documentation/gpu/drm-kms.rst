@@ -159,6 +159,8 @@ KMS Core Structures and Functions
 .. kernel-doc:: drivers/gpu/drm/drm_mode_config.c
    :export:
 
+.. _kms_base_object_abstraction:
+
 Modeset Base Object Abstraction
 ===============================
 
@@ -421,11 +423,11 @@ Connector Functions Reference
 Writeback Connectors
 --------------------
 
-.. kernel-doc:: include/drm/drm_writeback.h
-  :internal:
-
 .. kernel-doc:: drivers/gpu/drm/drm_writeback.c
   :doc: overview
+
+.. kernel-doc:: include/drm/drm_writeback.h
+  :internal:
 
 .. kernel-doc:: drivers/gpu/drm/drm_writeback.c
   :export:
@@ -463,6 +465,35 @@ KMS Properties
 This section of the documentation is primarily aimed at user-space developers.
 For the driver APIs, see the other sections.
 
+Requirements
+------------
+
+KMS drivers might need to add extra properties to support new features. Each
+new property introduced in a driver needs to meet a few requirements, in
+addition to the one mentioned above:
+
+* It must be standardized, documenting:
+
+  * The full, exact, name string;
+  * If the property is an enum, all the valid value name strings;
+  * What values are accepted, and what these values mean;
+  * What the property does and how it can be used;
+  * How the property might interact with other, existing properties.
+
+* It must provide a generic helper in the core code to register that
+  property on the object it attaches to.
+
+* Its content must be decoded by the core and provided in the object's
+  associated state structure. That includes anything drivers might want
+  to precompute, like struct drm_clip_rect for planes.
+
+* Its initial state must match the behavior prior to the property
+  introduction. This might be a fixed value matching what the hardware
+  does, or it may be inherited from the state the firmware left the
+  system in during boot.
+
+* An IGT test must be submitted where reasonable.
+
 Property Types and Blob Property Support
 ----------------------------------------
 
@@ -474,6 +505,8 @@ Property Types and Blob Property Support
 
 .. kernel-doc:: drivers/gpu/drm/drm_property.c
    :export:
+
+.. _standard_connector_properties:
 
 Standard Connector Properties
 -----------------------------
@@ -508,8 +541,8 @@ Plane Composition Properties
 Damage Tracking Properties
 --------------------------
 
-.. kernel-doc:: drivers/gpu/drm/drm_damage_helper.c
-   :doc: overview
+.. kernel-doc:: drivers/gpu/drm/drm_plane.c
+   :doc: damage tracking
 
 Color Management Properties
 ---------------------------

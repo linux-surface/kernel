@@ -18,29 +18,19 @@
 #include <linux/extable.h>
 #include <linux/ftrace.h>
 #include <linux/memblock.h>
+#include <linux/of.h>
 
 #include <asm/interrupt.h>
 #include <asm/machdep.h>
 #include <asm/mce.h>
 #include <asm/nmi.h>
-#include <asm/asm-prototypes.h>
 
 #include "setup.h"
 
-static void machine_check_process_queued_event(struct irq_work *work);
-static void machine_check_ue_irq_work(struct irq_work *work);
 static void machine_check_ue_event(struct machine_check_event *evt);
 static void machine_process_ue_event(struct work_struct *work);
 
-static struct irq_work mce_event_process_work = {
-        .func = machine_check_process_queued_event,
-};
-
-static struct irq_work mce_ue_event_irq_work = {
-	.func = machine_check_ue_irq_work,
-};
-
-DECLARE_WORK(mce_ue_event_work, machine_process_ue_event);
+static DECLARE_WORK(mce_ue_event_work, machine_process_ue_event);
 
 static BLOCKING_NOTIFIER_HEAD(mce_notifier_list);
 
@@ -88,6 +78,13 @@ static void mce_set_error_info(struct machine_check_event *mce,
 	}
 }
 
+void mce_irq_work_queue(void)
+{
+	/* Raise decrementer interrupt */
+	arch_irq_work_raise();
+	set_mce_pending_irq_work();
+}
+
 /*
  * Decode and save high level MCE information into per cpu buffer which
  * is an array of machine_check_event structure.
@@ -131,6 +128,8 @@ void save_mce_event(struct pt_regs *regs, long handled,
 	 * Populate the mce error_type and type-specific error_type.
 	 */
 	mce_set_error_info(mce, mce_err);
+	if (mce->error_type == MCE_ERROR_TYPE_UE)
+		mce->u.ue_error.ignore_event = mce_err->ignore_event;
 
 	if (!addr)
 		return;
@@ -159,7 +158,6 @@ void save_mce_event(struct pt_regs *regs, long handled,
 		if (phys_addr != ULONG_MAX) {
 			mce->u.ue_error.physical_address_provided = true;
 			mce->u.ue_error.physical_address = phys_addr;
-			mce->u.ue_error.ignore_event = mce_err->ignore_event;
 			machine_check_ue_event(mce);
 		}
 	}
@@ -215,7 +213,7 @@ void release_mce_event(void)
 	get_mce_event(NULL, true);
 }
 
-static void machine_check_ue_irq_work(struct irq_work *work)
+static void machine_check_ue_work(void)
 {
 	schedule_work(&mce_ue_event_work);
 }
@@ -237,7 +235,7 @@ static void machine_check_ue_event(struct machine_check_event *evt)
 	       evt, sizeof(*evt));
 
 	/* Queue work to process this event later. */
-	irq_work_queue(&mce_ue_event_irq_work);
+	mce_irq_work_queue();
 }
 
 /*
@@ -260,8 +258,7 @@ void machine_check_queue_event(void)
 	memcpy(&local_paca->mce_info->mce_event_queue[index],
 	       &evt, sizeof(evt));
 
-	/* Queue irq work to process this event later. */
-	irq_work_queue(&mce_event_process_work);
+	mce_irq_work_queue();
 }
 
 void mce_common_process_ue(struct pt_regs *regs,
@@ -272,7 +269,7 @@ void mce_common_process_ue(struct pt_regs *regs,
 	entry = search_kernel_exception_table(regs->nip);
 	if (entry) {
 		mce_err->ignore_event = true;
-		regs->nip = extable_fixup(entry);
+		regs_set_return_ip(regs, extable_fixup(entry));
 	}
 }
 
@@ -323,7 +320,7 @@ static void machine_process_ue_event(struct work_struct *work)
  * process pending MCE event from the mce event queue. This function will be
  * called during syscall exit.
  */
-static void machine_check_process_queued_event(struct irq_work *work)
+static void machine_check_process_queued_event(void)
 {
 	int index;
 	struct machine_check_event *evt;
@@ -345,6 +342,27 @@ static void machine_check_process_queued_event(struct irq_work *work)
 		}
 		machine_check_print_event_info(evt, false, false);
 		local_paca->mce_info->mce_queue_count--;
+	}
+}
+
+void set_mce_pending_irq_work(void)
+{
+	local_paca->mce_pending_irq_work = 1;
+}
+
+void clear_mce_pending_irq_work(void)
+{
+	local_paca->mce_pending_irq_work = 0;
+}
+
+void mce_run_irq_context_handlers(void)
+{
+	if (unlikely(local_paca->mce_pending_irq_work)) {
+		if (ppc_md.machine_check_log_err)
+			ppc_md.machine_check_log_err();
+		machine_check_process_queued_event();
+		machine_check_ue_work();
+		clear_mce_pending_irq_work();
 	}
 }
 
@@ -386,14 +404,14 @@ void machine_check_print_event_info(struct machine_check_event *evt,
 	static const char *mc_ra_types[] = {
 		"Indeterminate",
 		"Instruction fetch (bad)",
-		"Instruction fetch (foreign)",
+		"Instruction fetch (foreign/control memory)",
 		"Page table walk ifetch (bad)",
-		"Page table walk ifetch (foreign)",
+		"Page table walk ifetch (foreign/control memory)",
 		"Load (bad)",
 		"Store (bad)",
 		"Page table walk Load/Store (bad)",
-		"Page table walk Load/Store (foreign)",
-		"Load/Store (foreign)",
+		"Page table walk Load/Store (foreign/control memory)",
+		"Load/Store (foreign/control memory)",
 	};
 	static const char *mc_link_types[] = {
 		"Indeterminate",
@@ -571,7 +589,7 @@ void machine_check_print_event_info(struct machine_check_event *evt,
 		mc_error_class[evt->error_class] : "Unknown";
 	printk("%sMCE: CPU%d: %s\n", level, evt->cpu, subtype);
 
-#ifdef CONFIG_PPC_BOOK3S_64
+#ifdef CONFIG_PPC_64S_HASH_MMU
 	/* Display faulty slb contents for SLB errors. */
 	if (evt->error_type == MCE_ERROR_TYPE_SLB && !in_guest)
 		slb_dump_contents(local_paca->mce_faulty_slbs);

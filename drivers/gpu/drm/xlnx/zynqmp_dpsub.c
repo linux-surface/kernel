@@ -25,6 +25,7 @@
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_mode_config.h>
+#include <drm/drm_module.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
@@ -110,8 +111,6 @@ static int zynqmp_dpsub_drm_init(struct zynqmp_dpsub *dpsub)
 	ret = drm_vblank_init(drm, 1);
 	if (ret)
 		return ret;
-
-	drm->irq_enabled = 1;
 
 	drm_kms_helper_poll_init(drm);
 
@@ -288,7 +287,7 @@ static struct platform_driver zynqmp_dpsub_driver = {
 	},
 };
 
-module_platform_driver(zynqmp_dpsub_driver);
+drm_module_platform_driver(zynqmp_dpsub_driver);
 
 MODULE_AUTHOR("Xilinx, Inc.");
 MODULE_DESCRIPTION("ZynqMP DP Subsystem Driver");

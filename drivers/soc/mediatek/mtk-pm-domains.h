@@ -37,7 +37,7 @@
 #define PWR_STATUS_AUDIO		BIT(24)
 #define PWR_STATUS_USB			BIT(25)
 
-#define SPM_MAX_BUS_PROT_DATA		5
+#define SPM_MAX_BUS_PROT_DATA		6
 
 #define _BUS_PROT(_mask, _set, _clr, _sta, _update, _ignore) {	\
 		.bus_prot_mask = (_mask),			\
@@ -60,7 +60,7 @@
 #define BUS_PROT_UPDATE_TOPAXI(_mask)				\
 		BUS_PROT_UPDATE(_mask,				\
 				INFRA_TOPAXI_PROTECTEN,		\
-				INFRA_TOPAXI_PROTECTEN_CLR,	\
+				INFRA_TOPAXI_PROTECTEN,		\
 				INFRA_TOPAXI_PROTECTSTA1)
 
 struct scpsys_bus_prot_data {
@@ -72,10 +72,9 @@ struct scpsys_bus_prot_data {
 	bool ignore_clr_ack;
 };
 
-#define MAX_SUBSYS_CLKS 10
-
 /**
  * struct scpsys_domain_data - scp domain data for power on/off flow
+ * @name: The name of the power domain.
  * @sta_mask: The mask for power on/off status bit.
  * @ctl_offs: The offset for main power control register.
  * @sram_pdn_bits: The mask for sram power control bits.
@@ -85,6 +84,7 @@ struct scpsys_bus_prot_data {
  * @bp_smi: bus protection for smi subsystem
  */
 struct scpsys_domain_data {
+	const char *name;
 	u32 sta_mask;
 	int ctl_offs;
 	u32 sram_pdn_bits;
@@ -92,13 +92,13 @@ struct scpsys_domain_data {
 	u8 caps;
 	const struct scpsys_bus_prot_data bp_infracfg[SPM_MAX_BUS_PROT_DATA];
 	const struct scpsys_bus_prot_data bp_smi[SPM_MAX_BUS_PROT_DATA];
+	int pwr_sta_offs;
+	int pwr_sta2nd_offs;
 };
 
 struct scpsys_soc_data {
 	const struct scpsys_domain_data *domains_data;
 	int num_domains;
-	int pwr_sta_offs;
-	int pwr_sta2nd_offs;
 };
 
 #endif /* __SOC_MEDIATEK_MTK_PM_DOMAINS_H */

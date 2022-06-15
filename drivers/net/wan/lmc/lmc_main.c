@@ -57,6 +57,7 @@
 #include <asm/io.h>
 #include <asm/dma.h>
 #include <linux/uaccess.h>
+#include <linux/jiffies.h>
 //#include <asm/spinlock.h>
 
 #define DRIVER_MAJOR_VERSION     1
@@ -105,7 +106,8 @@ static void lmc_driver_timeout(struct net_device *dev, unsigned int txqueue);
  * linux reserves 16 device specific IOCTLs.  We call them
  * LMCIOC* to control various bits of our world.
  */
-int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
+static int lmc_siocdevprivate(struct net_device *dev, struct ifreq *ifr,
+			      void __user *data, int cmd) /*fold00*/
 {
     lmc_softc_t *sc = dev_to_sc(dev);
     lmc_ctl_t ctl;
@@ -124,7 +126,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
          * To date internally, just copy this out to the user.
          */
     case LMCIOCGINFO: /*fold01*/
-	if (copy_to_user(ifr->ifr_data, &sc->ictl, sizeof(lmc_ctl_t)))
+	if (copy_to_user(data, &sc->ictl, sizeof(lmc_ctl_t)))
 		ret = -EFAULT;
 	else
 		ret = 0;
@@ -141,7 +143,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
             break;
         }
 
-	if (copy_from_user(&ctl, ifr->ifr_data, sizeof(lmc_ctl_t))) {
+	if (copy_from_user(&ctl, data, sizeof(lmc_ctl_t))) {
 		ret = -EFAULT;
 		break;
 	}
@@ -171,7 +173,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
 		break;
 	    }
 
-	    if (copy_from_user(&new_type, ifr->ifr_data, sizeof(u16))) {
+	    if (copy_from_user(&new_type, data, sizeof(u16))) {
 		ret = -EFAULT;
 		break;
 	    }
@@ -211,8 +213,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
 
         sc->lmc_xinfo.Magic1 = 0xDEADBEEF;
 
-        if (copy_to_user(ifr->ifr_data, &sc->lmc_xinfo,
-			 sizeof(struct lmc_xinfo)))
+	if (copy_to_user(data, &sc->lmc_xinfo, sizeof(struct lmc_xinfo)))
 		ret = -EFAULT;
 	else
 		ret = 0;
@@ -245,9 +246,9 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
 			    regVal & T1FRAMER_SEF_MASK;
 	    }
 	    spin_unlock_irqrestore(&sc->lmc_lock, flags);
-	    if (copy_to_user(ifr->ifr_data, &sc->lmc_device->stats,
+	    if (copy_to_user(data, &sc->lmc_device->stats,
 			     sizeof(sc->lmc_device->stats)) ||
-		copy_to_user(ifr->ifr_data + sizeof(sc->lmc_device->stats),
+		copy_to_user(data + sizeof(sc->lmc_device->stats),
 			     &sc->extra_stats, sizeof(sc->extra_stats)))
 		    ret = -EFAULT;
 	    else
@@ -282,7 +283,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
             break;
         }
 
-	if (copy_from_user(&ctl, ifr->ifr_data, sizeof(lmc_ctl_t))) {
+	if (copy_from_user(&ctl, data, sizeof(lmc_ctl_t))) {
 		ret = -EFAULT;
 		break;
 	}
@@ -314,11 +315,11 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
 
 #ifdef DEBUG
     case LMCIOCDUMPEVENTLOG:
-	if (copy_to_user(ifr->ifr_data, &lmcEventLogIndex, sizeof(u32))) {
+	if (copy_to_user(data, &lmcEventLogIndex, sizeof(u32))) {
 		ret = -EFAULT;
 		break;
 	}
-	if (copy_to_user(ifr->ifr_data + sizeof(u32), lmcEventLogBuf,
+	if (copy_to_user(data + sizeof(u32), lmcEventLogBuf,
 			 sizeof(lmcEventLogBuf)))
 		ret = -EFAULT;
 	else
@@ -346,7 +347,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
              */
             netif_stop_queue(dev);
 
-	    if (copy_from_user(&xc, ifr->ifr_data, sizeof(struct lmc_xilinx_control))) {
+	    if (copy_from_user(&xc, data, sizeof(struct lmc_xilinx_control))) {
 		ret = -EFAULT;
 		break;
 	    }
@@ -550,7 +551,7 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
                            (timeout-- > 0))
                         cpu_relax();
 
-                    printk(KERN_DEBUG "%s: Waited %d for the Xilinx to clear it's memory\n", dev->name, 500000-timeout);
+                    printk(KERN_DEBUG "%s: Waited %d for the Xilinx to clear its memory\n", dev->name, 500000-timeout);
 
                     for(pos = 0; pos < xc.len; pos++){
                         switch(data[pos]){
@@ -609,10 +610,8 @@ int lmc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) /*fold00*/
 
         }
         break;
-    default: /*fold01*/
-        /* If we don't know what to do, give the protocol a shot. */
-        ret = lmc_proto_ioctl (sc, ifr, cmd);
-        break;
+    default:
+	break;
     }
 
     return ret;
@@ -788,7 +787,8 @@ static const struct net_device_ops lmc_ops = {
 	.ndo_open       = lmc_open,
 	.ndo_stop       = lmc_close,
 	.ndo_start_xmit = hdlc_start_xmit,
-	.ndo_do_ioctl   = lmc_ioctl,
+	.ndo_siocwandev = hdlc_ioctl,
+	.ndo_siocdevprivate = lmc_siocdevprivate,
 	.ndo_tx_timeout = lmc_driver_timeout,
 	.ndo_get_stats  = lmc_get_stats,
 };
@@ -1969,7 +1969,7 @@ static void lmc_driver_timeout(struct net_device *dev, unsigned int txqueue)
     printk("%s: Xmitter busy|\n", dev->name);
 
     sc->extra_stats.tx_tbusy_calls++;
-    if (jiffies - dev_trans_start(dev) < TX_TIMEOUT)
+    if (time_is_before_jiffies(dev_trans_start(dev) + TX_TIMEOUT))
 	    goto bug_out;
 
     /*

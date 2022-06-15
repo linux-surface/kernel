@@ -3,6 +3,33 @@
 #include "mt7615.h"
 
 static int
+mt7615_reg_set(void *data, u64 val)
+{
+	struct mt7615_dev *dev = data;
+
+	mt7615_mutex_acquire(dev);
+	mt76_wr(dev, dev->mt76.debugfs_reg, val);
+	mt7615_mutex_release(dev);
+
+	return 0;
+}
+
+static int
+mt7615_reg_get(void *data, u64 *val)
+{
+	struct mt7615_dev *dev = data;
+
+	mt7615_mutex_acquire(dev);
+	*val = mt76_rr(dev, dev->mt76.debugfs_reg);
+	mt7615_mutex_release(dev);
+
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(fops_regval, mt7615_reg_get, mt7615_reg_set,
+			 "0x%08llx\n");
+
+static int
 mt7615_radar_pattern_set(void *data, u64 val)
 {
 	struct mt7615_dev *dev = data;
@@ -69,24 +96,39 @@ static int
 mt7615_pm_set(void *data, u64 val)
 {
 	struct mt7615_dev *dev = data;
+	struct mt76_connac_pm *pm = &dev->pm;
 	int ret = 0;
 
 	if (!mt7615_wait_for_mcu_init(dev))
 		return 0;
 
-	if (!mt7615_firmware_offload(dev) || !mt76_is_mmio(&dev->mt76))
+	if (!mt7615_firmware_offload(dev) || mt76_is_usb(&dev->mt76))
 		return -EOPNOTSUPP;
 
-	mt7615_mutex_acquire(dev);
+	mutex_lock(&dev->mt76.mutex);
+
+	if (val == pm->enable)
+		goto out;
 
 	if (dev->phy.n_beacon_vif) {
 		ret = -EBUSY;
 		goto out;
 	}
 
-	dev->pm.enable = val;
+	if (!pm->enable) {
+		pm->stats.last_wake_event = jiffies;
+		pm->stats.last_doze_event = jiffies;
+	}
+	/* make sure the chip is awake here and ps_work is scheduled
+	 * just at end of the this routine.
+	 */
+	pm->enable = false;
+	mt76_connac_pm_wake(&dev->mphy, pm);
+
+	pm->enable = val;
+	mt76_connac_power_save_sched(&dev->mphy, pm);
 out:
-	mt7615_mutex_release(dev);
+	mutex_unlock(&dev->mt76.mutex);
 
 	return ret;
 }
@@ -102,6 +144,26 @@ mt7615_pm_get(void *data, u64 *val)
 }
 
 DEFINE_DEBUGFS_ATTRIBUTE(fops_pm, mt7615_pm_get, mt7615_pm_set, "%lld\n");
+
+static int
+mt7615_pm_stats(struct seq_file *s, void *data)
+{
+	struct mt7615_dev *dev = dev_get_drvdata(s->private);
+	struct mt76_connac_pm *pm = &dev->pm;
+	unsigned long awake_time = pm->stats.awake_time;
+	unsigned long doze_time = pm->stats.doze_time;
+
+	if (!test_bit(MT76_STATE_PM, &dev->mphy.state))
+		awake_time += jiffies - pm->stats.last_wake_event;
+	else
+		doze_time += jiffies - pm->stats.last_doze_event;
+
+	seq_printf(s, "awake time: %14u\ndoze time: %15u\n",
+		   jiffies_to_msecs(awake_time),
+		   jiffies_to_msecs(doze_time));
+
+	return 0;
+}
 
 static int
 mt7615_pm_idle_timeout_set(void *data, u64 val)
@@ -291,24 +353,6 @@ mt7615_radio_read(struct seq_file *s, void *data)
 	return 0;
 }
 
-static int mt7615_read_temperature(struct seq_file *s, void *data)
-{
-	struct mt7615_dev *dev = dev_get_drvdata(s->private);
-	int temp;
-
-	if (!mt7615_wait_for_mcu_init(dev))
-		return 0;
-
-	/* cpu */
-	mt7615_mutex_acquire(dev);
-	temp = mt7615_mcu_get_temperature(dev, 0);
-	mt7615_mutex_release(dev);
-
-	seq_printf(s, "Temperature: %d\n", temp);
-
-	return 0;
-}
-
 static int
 mt7615_queues_acq(struct seq_file *s, void *data)
 {
@@ -321,6 +365,9 @@ mt7615_queues_acq(struct seq_file *s, void *data)
 		int j, wmm_idx = i % MT7615_MAX_WMM_SETS;
 		int acs = i / MT7615_MAX_WMM_SETS;
 		u32 ctrl, val, qlen = 0;
+
+		if (wmm_idx == 3 && is_mt7663(&dev->mt76))
+			continue;
 
 		val = mt76_rr(dev, MT_PLE_AC_QEMPTY(acs, wmm_idx));
 		ctrl = BIT(31) | BIT(15) | (acs << 8);
@@ -396,10 +443,15 @@ mt7615_ext_mac_addr_read(struct file *file, char __user *userbuf,
 			 size_t count, loff_t *ppos)
 {
 	struct mt7615_dev *dev = file->private_data;
-	char buf[32 * ((ETH_ALEN * 3) + 4) + 1];
+	u32 len = 32 * ((ETH_ALEN * 3) + 4) + 1;
 	u8 addr[ETH_ALEN];
+	char *buf;
 	int ofs = 0;
 	int i;
+
+	buf = kzalloc(len, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
 
 	for (i = 0; i < 32; i++) {
 		if (!(dev->muar_mask & BIT(i)))
@@ -411,10 +463,13 @@ mt7615_ext_mac_addr_read(struct file *file, char __user *userbuf,
 		put_unaligned_le32(mt76_rr(dev, MT_WF_RMAC_MAR0), addr);
 		put_unaligned_le16((mt76_rr(dev, MT_WF_RMAC_MAR1) &
 				    MT_WF_RMAC_MAR1_ADDR), addr + 4);
-		ofs += snprintf(buf + ofs, sizeof(buf) - ofs, "%d=%pM\n", i, addr);
+		ofs += snprintf(buf + ofs, len - ofs, "%d=%pM\n", i, addr);
 	}
 
-	return simple_read_from_buffer(userbuf, count, ppos, buf, ofs);
+	ofs = simple_read_from_buffer(userbuf, count, ppos, buf, ofs);
+
+	kfree(buf);
+	return ofs;
 }
 
 static ssize_t
@@ -496,7 +551,7 @@ int mt7615_init_debugfs(struct mt7615_dev *dev)
 {
 	struct dentry *dir;
 
-	dir = mt76_register_debugfs(&dev->mt76);
+	dir = mt76_register_debugfs_fops(&dev->mphy, &fops_regval);
 	if (!dir)
 		return -ENOMEM;
 
@@ -515,24 +570,29 @@ int mt7615_init_debugfs(struct mt7615_dev *dev)
 	debugfs_create_file("runtime-pm", 0600, dir, dev, &fops_pm);
 	debugfs_create_file("idle-timeout", 0600, dir, dev,
 			    &fops_pm_idle_timeout);
+	debugfs_create_devm_seqfile(dev->mt76.dev, "runtime_pm_stats", dir,
+				    mt7615_pm_stats);
 	debugfs_create_devm_seqfile(dev->mt76.dev, "radio", dir,
 				    mt7615_radio_read);
-	debugfs_create_u32("dfs_hw_pattern", 0400, dir, &dev->hw_pattern);
-	/* test pattern knobs */
-	debugfs_create_u8("pattern_len", 0600, dir,
-			  &dev->radar_pattern.n_pulses);
-	debugfs_create_u32("pulse_period", 0600, dir,
-			   &dev->radar_pattern.period);
-	debugfs_create_u16("pulse_width", 0600, dir,
-			   &dev->radar_pattern.width);
-	debugfs_create_u16("pulse_power", 0600, dir,
-			   &dev->radar_pattern.power);
-	debugfs_create_file("radar_trigger", 0200, dir, dev,
-			    &fops_radar_pattern);
+
+	if (is_mt7615(&dev->mt76)) {
+		debugfs_create_u32("dfs_hw_pattern", 0400, dir,
+				   &dev->hw_pattern);
+		/* test pattern knobs */
+		debugfs_create_u8("pattern_len", 0600, dir,
+				  &dev->radar_pattern.n_pulses);
+		debugfs_create_u32("pulse_period", 0600, dir,
+				   &dev->radar_pattern.period);
+		debugfs_create_u16("pulse_width", 0600, dir,
+				   &dev->radar_pattern.width);
+		debugfs_create_u16("pulse_power", 0600, dir,
+				   &dev->radar_pattern.power);
+		debugfs_create_file("radar_trigger", 0200, dir, dev,
+				    &fops_radar_pattern);
+	}
+
 	debugfs_create_file("reset_test", 0200, dir, dev,
 			    &fops_reset_test);
-	debugfs_create_devm_seqfile(dev->mt76.dev, "temperature", dir,
-				    mt7615_read_temperature);
 	debugfs_create_file("ext_mac_addr", 0600, dir, dev, &fops_ext_mac_addr);
 
 	debugfs_create_u32("rf_wfidx", 0600, dir, &dev->debugfs_rf_wf);

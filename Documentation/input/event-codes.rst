@@ -137,7 +137,11 @@ A few EV_KEY codes have special meanings:
     code should be set to a value of 1. When the tool is no longer interacting
     with the input device, the BTN_TOOL_<name> code should be reset to 0. All
     trackpads, tablets, and touchscreens should use at least one BTN_TOOL_<name>
-    code when events are generated.
+    code when events are generated. Likewise all trackpads, tablets, and
+    touchscreens should export only one BTN_TOOL_<name> at a time. To not break
+    existing userspace, it is recommended to not switch tool in one EV_SYN frame
+    but first emitting the old BTN_TOOL_<name> at 0, then emit one SYN_REPORT
+    and then set the new BTN_TOOL_<name> at 1.
 
 * BTN_TOUCH:
 
@@ -246,9 +250,9 @@ A few EV_ABS codes have special meanings:
 
      A device should set the resolution of the axis to indicate whether the
      pressure is in measurable units. If the resolution is zero, the
-     pressure data is in arbitrary units. If the resolution is nonzero, the
+     pressure data is in arbitrary units. If the resolution is non-zero, the
      pressure data is in units/gram. For example, a value of 10 with a
-     resolution of 1 represents 10 gram, a value of 10 with a resolution on
+     resolution of 1 represents 10 gram, a value of 10 with a resolution of
      1000 represents 10 microgram.
 
 EV_SW
@@ -344,7 +348,7 @@ INPUT_PROP_BUTTONPAD
 
 For touchpads where the button is placed beneath the surface, such that
 pressing down on the pad causes a button click, this property should be
-set. Common in clickpad notebooks and macbooks from 2009 and onwards.
+set. Common in Clickpad notebooks and Macbooks from 2009 and onwards.
 
 Originally, the buttonpad property was coded into the bcm5974 driver
 version field under the name integrated button. For backwards
@@ -356,7 +360,7 @@ INPUT_PROP_SEMI_MT
 Some touchpads, most common between 2008 and 2011, can detect the presence
 of multiple contacts without resolving the individual positions; only the
 number of contacts and a rectangular shape is known. For such
-touchpads, the semi-mt property should be set.
+touchpads, the SEMI_MT property should be set.
 
 Depending on the device, the rectangle may enclose all touches, like a
 bounding box, or just some of them, for instance the two most recent
@@ -394,7 +398,7 @@ Guidelines
 ==========
 
 The guidelines below ensure proper single-touch and multi-finger functionality.
-For multi-touch functionality, see the multi-touch-protocol.txt document for
+For multi-touch functionality, see the multi-touch-protocol.rst document for
 more information.
 
 Mice

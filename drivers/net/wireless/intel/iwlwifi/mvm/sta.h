@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2012-2014, 2018-2020 Intel Corporation
+ * Copyright (C) 2012-2014, 2018-2021 Intel Corporation
  * Copyright (C) 2013-2014 Intel Mobile Communications GmbH
  * Copyright (C) 2015-2016 Intel Deutschland GmbH
  */
@@ -281,6 +281,36 @@ struct iwl_mvm_key_pn {
 	} ____cacheline_aligned_in_smp q[];
 };
 
+/**
+ * enum iwl_mvm_rxq_notif_type - Internal message identifier
+ *
+ * @IWL_MVM_RXQ_EMPTY: empty sync notification
+ * @IWL_MVM_RXQ_NOTIF_DEL_BA: notify RSS queues of delBA
+ * @IWL_MVM_RXQ_NSSN_SYNC: notify all the RSS queues with the new NSSN
+ */
+enum iwl_mvm_rxq_notif_type {
+	IWL_MVM_RXQ_EMPTY,
+	IWL_MVM_RXQ_NOTIF_DEL_BA,
+	IWL_MVM_RXQ_NSSN_SYNC,
+};
+
+/**
+ * struct iwl_mvm_internal_rxq_notif - Internal representation of the data sent
+ * in &iwl_rxq_sync_cmd. Should be DWORD aligned.
+ * FW is agnostic to the payload, so there are no endianity requirements.
+ *
+ * @type: value from &iwl_mvm_rxq_notif_type
+ * @sync: ctrl path is waiting for all notifications to be received
+ * @cookie: internal cookie to identify old notifications
+ * @data: payload
+ */
+struct iwl_mvm_internal_rxq_notif {
+	u16 type;
+	u16 sync;
+	u32 cookie;
+	u8 data[];
+} __packed;
+
 struct iwl_mvm_delba_data {
 	u32 baid;
 } __packed;
@@ -288,14 +318,6 @@ struct iwl_mvm_delba_data {
 struct iwl_mvm_nssn_sync_data {
 	u32 baid;
 	u32 nssn;
-} __packed;
-
-struct iwl_mvm_rss_sync_notif {
-	struct iwl_mvm_internal_rxq_notif metadata;
-	union {
-		struct iwl_mvm_delba_data delba;
-		struct iwl_mvm_nssn_sync_data nssn_sync;
-	};
 } __packed;
 
 /**
@@ -351,6 +373,7 @@ struct iwl_mvm_rxq_dup_data {
  * @tx_ant: the index of the antenna to use for data tx to this station. Only
  *	used during connection establishment (e.g. for the 4 way handshake
  *	exchange).
+ * @pairwise_cipher: used to feed iwlmei upon authorization
  *
  * When mac80211 creates a station it reserves some space (hw->sta_data_size)
  * in the structure for use by driver. This structure is placed in that
@@ -393,6 +416,7 @@ struct iwl_mvm_sta {
 	u8 sleep_tx_count;
 	u8 avg_energy;
 	u8 tx_ant;
+	u32 pairwise_cipher;
 };
 
 u16 iwl_mvm_tid_queued(struct iwl_mvm *mvm, struct iwl_mvm_tid_data *tid_data);
@@ -524,4 +548,7 @@ void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk);
 int iwl_mvm_add_pasn_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			 struct iwl_mvm_int_sta *sta, u8 *addr, u32 cipher,
 			 u8 *key, u32 key_len);
+void iwl_mvm_cancel_channel_switch(struct iwl_mvm *mvm,
+				   struct ieee80211_vif *vif,
+				   u32 mac_id);
 #endif /* __sta_h__ */

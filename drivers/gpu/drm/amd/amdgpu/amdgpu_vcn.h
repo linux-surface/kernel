@@ -155,8 +155,11 @@
 		}										\
 	} while (0)
 
+#define AMDGPU_VCN_FW_SHARED_FLAG_0_RB	(1 << 6)
 #define AMDGPU_VCN_MULTI_QUEUE_FLAG	(1 << 8)
 #define AMDGPU_VCN_SW_RING_FLAG		(1 << 9)
+#define AMDGPU_VCN_FW_LOGGING_FLAG	(1 << 10)
+#define AMDGPU_VCN_SMU_VERSION_INFO_FLAG (1 << 11)
 
 #define AMDGPU_VCN_IB_FLAG_DECODE_BUFFER	0x00000001
 #define AMDGPU_VCN_CMD_FLAG_MSG_BUFFER		0x00000001
@@ -204,6 +207,13 @@ struct amdgpu_vcn_reg{
 	unsigned	scratch9;
 };
 
+struct amdgpu_vcn_fw_shared {
+	void        *cpu_addr;
+	uint64_t    gpu_addr;
+	uint32_t    mem_size;
+	uint32_t    log_offset;
+};
+
 struct amdgpu_vcn_inst {
 	struct amdgpu_bo	*vcpu_bo;
 	void			*cpu_addr;
@@ -211,6 +221,7 @@ struct amdgpu_vcn_inst {
 	void			*saved_bo;
 	struct amdgpu_ring	ring_dec;
 	struct amdgpu_ring	ring_enc[AMDGPU_VCN_MAX_ENC_RINGS];
+	atomic_t		sched_score;
 	struct amdgpu_irq_src	irq;
 	struct amdgpu_vcn_reg	external;
 	struct amdgpu_bo	*dpg_sram_bo;
@@ -219,8 +230,7 @@ struct amdgpu_vcn_inst {
 	uint64_t		dpg_sram_gpu_addr;
 	uint32_t		*dpg_sram_curr_addr;
 	atomic_t		dpg_enc_submission_cnt;
-	void			*fw_shared_cpu_addr;
-	uint64_t		fw_shared_gpu_addr;
+	struct amdgpu_vcn_fw_shared fw_shared;
 };
 
 struct amdgpu_vcn {
@@ -233,6 +243,7 @@ struct amdgpu_vcn {
 
 	uint8_t	num_vcn_inst;
 	struct amdgpu_vcn_inst	 inst[AMDGPU_MAX_VCN_INSTANCES];
+	uint8_t			 vcn_config[AMDGPU_MAX_VCN_INSTANCES];
 	struct amdgpu_vcn_reg	 internal;
 	struct mutex		 vcn_pg_lock;
 	struct mutex		vcn1_jpeg1_workaround;
@@ -241,6 +252,12 @@ struct amdgpu_vcn {
 	unsigned	harvest_config;
 	int (*pause_dpg_mode)(struct amdgpu_device *adev,
 		int inst_idx, struct dpg_pause_state *new_state);
+};
+
+struct amdgpu_fw_shared_rb_ptrs_struct {
+	/* to WA DPG R/W ptr issues.*/
+	uint32_t  rptr;
+	uint32_t  wptr;
 };
 
 struct amdgpu_fw_shared_multi_queue {
@@ -256,18 +273,52 @@ struct amdgpu_fw_shared_sw_ring {
 	uint8_t padding[3];
 };
 
+struct amdgpu_fw_shared_fw_logging {
+	uint8_t is_enabled;
+	uint32_t addr_lo;
+	uint32_t addr_hi;
+	uint32_t size;
+};
+
+struct amdgpu_fw_shared_smu_interface_info {
+	uint8_t smu_interface_type;
+	uint8_t padding[3];
+};
+
 struct amdgpu_fw_shared {
 	uint32_t present_flag_0;
-	uint8_t pad[53];
+	uint8_t pad[44];
+	struct amdgpu_fw_shared_rb_ptrs_struct rb;
+	uint8_t pad1[1];
 	struct amdgpu_fw_shared_multi_queue multi_queue;
 	struct amdgpu_fw_shared_sw_ring sw_ring;
-} __attribute__((__packed__));
+	struct amdgpu_fw_shared_fw_logging fw_log;
+	struct amdgpu_fw_shared_smu_interface_info smu_interface_info;
+};
+
+struct amdgpu_vcn_fwlog {
+	uint32_t rptr;
+	uint32_t wptr;
+	uint32_t buffer_size;
+	uint32_t header_size;
+	uint8_t wrapped;
+};
 
 struct amdgpu_vcn_decode_buffer {
 	uint32_t valid_buf_flag;
 	uint32_t msg_buffer_address_hi;
 	uint32_t msg_buffer_address_lo;
 	uint32_t pad[30];
+};
+
+#define VCN_BLOCK_ENCODE_DISABLE_MASK 0x80
+#define VCN_BLOCK_DECODE_DISABLE_MASK 0x40
+#define VCN_BLOCK_QUEUE_DISABLE_MASK 0xC0
+
+enum vcn_ring_type {
+	VCN_ENCODE_RING,
+	VCN_DECODE_RING,
+	VCN_UNIFIED_RING,
 };
 
 int amdgpu_vcn_sw_init(struct amdgpu_device *adev);
@@ -277,6 +328,9 @@ int amdgpu_vcn_resume(struct amdgpu_device *adev);
 void amdgpu_vcn_ring_begin_use(struct amdgpu_ring *ring);
 void amdgpu_vcn_ring_end_use(struct amdgpu_ring *ring);
 
+bool amdgpu_vcn_is_disabled_vcn(struct amdgpu_device *adev,
+				enum vcn_ring_type type, uint32_t vcn_instance);
+
 int amdgpu_vcn_dec_ring_test_ring(struct amdgpu_ring *ring);
 int amdgpu_vcn_dec_ring_test_ib(struct amdgpu_ring *ring, long timeout);
 int amdgpu_vcn_dec_sw_ring_test_ring(struct amdgpu_ring *ring);
@@ -285,4 +339,11 @@ int amdgpu_vcn_dec_sw_ring_test_ib(struct amdgpu_ring *ring, long timeout);
 int amdgpu_vcn_enc_ring_test_ring(struct amdgpu_ring *ring);
 int amdgpu_vcn_enc_ring_test_ib(struct amdgpu_ring *ring, long timeout);
 
+enum amdgpu_ring_priority_level amdgpu_vcn_get_enc_ring_prio(int ring);
+
+void amdgpu_vcn_setup_ucode(struct amdgpu_device *adev);
+
+void amdgpu_vcn_fwlog_init(struct amdgpu_vcn_inst *vcn);
+void amdgpu_debugfs_vcn_fwlog_init(struct amdgpu_device *adev,
+                                   uint8_t i, struct amdgpu_vcn_inst *vcn);
 #endif

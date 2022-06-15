@@ -84,8 +84,6 @@ typedef unsigned char uchar;
 
 #define ASC_CS_TYPE  unsigned short
 
-#define ASC_IS_ISA          (0x0001)
-#define ASC_IS_ISAPNP       (0x0081)
 #define ASC_IS_EISA         (0x0002)
 #define ASC_IS_PCI          (0x0004)
 #define ASC_IS_PCI_ULTRA    (0x0104)
@@ -101,11 +99,6 @@ typedef unsigned char uchar;
 #define ASC_CHIP_MIN_VER_PCI     (0x09)
 #define ASC_CHIP_MAX_VER_PCI     (0x0F)
 #define ASC_CHIP_VER_PCI_BIT     (0x08)
-#define ASC_CHIP_MIN_VER_ISA     (0x11)
-#define ASC_CHIP_MIN_VER_ISA_PNP (0x21)
-#define ASC_CHIP_MAX_VER_ISA     (0x27)
-#define ASC_CHIP_VER_ISA_BIT     (0x30)
-#define ASC_CHIP_VER_ISAPNP_BIT  (0x20)
 #define ASC_CHIP_VER_ASYN_BUG    (0x21)
 #define ASC_CHIP_VER_PCI             0x08
 #define ASC_CHIP_VER_PCI_ULTRA_3150  (ASC_CHIP_VER_PCI | 0x02)
@@ -116,7 +109,6 @@ typedef unsigned char uchar;
 #define ASC_CHIP_LATEST_VER_EISA   ((ASC_CHIP_MIN_VER_EISA - 1) + 3)
 #define ASC_MAX_VL_DMA_COUNT    (0x07FFFFFFL)
 #define ASC_MAX_PCI_DMA_COUNT   (0xFFFFFFFFL)
-#define ASC_MAX_ISA_DMA_COUNT   (0x00FFFFFFL)
 
 #define ASC_SCSI_ID_BITS  3
 #define ASC_SCSI_TIX_TYPE     uchar
@@ -194,7 +186,6 @@ typedef unsigned char uchar;
 #define ASC_FLAG_SRB_LINEAR_ADDR  0x08
 #define ASC_FLAG_WIN16            0x10
 #define ASC_FLAG_WIN32            0x20
-#define ASC_FLAG_ISA_OVER_16MB    0x40
 #define ASC_FLAG_DOS_VM_CALLBACK  0x80
 #define ASC_TAG_FLAG_EXTRA_BYTES               0x10
 #define ASC_TAG_FLAG_DISABLE_DISCONNECT        0x04
@@ -464,8 +455,6 @@ typedef struct asc_dvc_cfg {
 	ASC_SCSI_BIT_ID_TYPE disc_enable;
 	ASC_SCSI_BIT_ID_TYPE sdtr_enable;
 	uchar chip_scsi_id;
-	uchar isa_dma_speed;
-	uchar isa_dma_channel;
 	uchar chip_version;
 	ushort mcode_date;
 	ushort mcode_version;
@@ -572,10 +561,8 @@ typedef struct asc_cap_info_array {
 #define ASC_EEP_MAX_RETRY        20
 
 /*
- * These macros keep the chip SCSI id and ISA DMA speed
- * bitfields in board order. C bitfields aren't portable
- * between big and little-endian platforms so they are
- * not used.
+ * These macros keep the chip SCSI id  bitfields in board order. C bitfields
+ * aren't portable between big and little-endian platforms so they are not used.
  */
 
 #define ASC_EEP_GET_CHIP_ID(cfg)    ((cfg)->id_speed & 0x0f)
@@ -1812,7 +1799,7 @@ typedef struct adv_req {
  * Field naming convention:
  *
  *  *_able indicates both whether a feature should be enabled or disabled
- *  and whether a device isi capable of the feature. At initialization
+ *  and whether a device is capable of the feature. At initialization
  *  this field may be set, but later if a device is found to be incapable
  *  of the feature, the field is cleared.
  */
@@ -2290,6 +2277,15 @@ struct asc_board {
 							dvc_var.adv_dvc_var)
 #define adv_dvc_to_pdev(adv_dvc) to_pci_dev(adv_dvc_to_board(adv_dvc)->dev)
 
+struct advansys_cmd {
+	dma_addr_t dma_handle;
+};
+
+static struct advansys_cmd *advansys_cmd(struct scsi_cmnd *cmd)
+{
+	return scsi_cmd_priv(cmd);
+}
+
 #ifdef ADVANSYS_DEBUG
 static int asc_dbglvl = 3;
 
@@ -2340,9 +2336,8 @@ static void asc_prt_asc_dvc_cfg(ASC_DVC_CFG *h)
 	printk(" disc_enable 0x%x, sdtr_enable 0x%x,\n",
 	       h->disc_enable, h->sdtr_enable);
 
-	printk(" chip_scsi_id %d, isa_dma_speed %d, isa_dma_channel %d, "
-		"chip_version %d,\n", h->chip_scsi_id, h->isa_dma_speed,
-		h->isa_dma_channel, h->chip_version);
+	printk(" chip_scsi_id %d, chip_version %d,\n",
+	       h->chip_scsi_id, h->chip_version);
 
 	printk(" mcode_date 0x%x, mcode_version %d\n",
 		h->mcode_date, h->mcode_version);
@@ -2415,8 +2410,8 @@ static void asc_prt_scsi_host(struct Scsi_Host *s)
 	printk(" dma_channel %d, this_id %d, can_queue %d,\n",
 	       s->dma_channel, s->this_id, s->can_queue);
 
-	printk(" cmd_per_lun %d, sg_tablesize %d, unchecked_isa_dma %d\n",
-	       s->cmd_per_lun, s->sg_tablesize, s->unchecked_isa_dma);
+	printk(" cmd_per_lun %d, sg_tablesize %d\n",
+	       s->cmd_per_lun, s->sg_tablesize);
 
 	if (ASC_NARROW_BOARD(boardp)) {
 		asc_prt_asc_dvc_var(&boardp->dvc_var.asc_dvc_var);
@@ -2632,42 +2627,28 @@ static const char *advansys_info(struct Scsi_Host *shost)
 	if (ASC_NARROW_BOARD(boardp)) {
 		asc_dvc_varp = &boardp->dvc_var.asc_dvc_var;
 		ASC_DBG(1, "begin\n");
-		if (asc_dvc_varp->bus_type & ASC_IS_ISA) {
-			if ((asc_dvc_varp->bus_type & ASC_IS_ISAPNP) ==
-			    ASC_IS_ISAPNP) {
-				busname = "ISA PnP";
+
+		if (asc_dvc_varp->bus_type & ASC_IS_VL) {
+			busname = "VL";
+		} else if (asc_dvc_varp->bus_type & ASC_IS_EISA) {
+			busname = "EISA";
+		} else if (asc_dvc_varp->bus_type & ASC_IS_PCI) {
+			if ((asc_dvc_varp->bus_type & ASC_IS_PCI_ULTRA)
+			    == ASC_IS_PCI_ULTRA) {
+				busname = "PCI Ultra";
 			} else {
-				busname = "ISA";
+				busname = "PCI";
 			}
-			sprintf(info,
-				"AdvanSys SCSI %s: %s: IO 0x%lX-0x%lX, IRQ 0x%X, DMA 0x%X",
-				ASC_VERSION, busname,
-				(ulong)shost->io_port,
-				(ulong)shost->io_port + ASC_IOADR_GAP - 1,
-				boardp->irq, shost->dma_channel);
 		} else {
-			if (asc_dvc_varp->bus_type & ASC_IS_VL) {
-				busname = "VL";
-			} else if (asc_dvc_varp->bus_type & ASC_IS_EISA) {
-				busname = "EISA";
-			} else if (asc_dvc_varp->bus_type & ASC_IS_PCI) {
-				if ((asc_dvc_varp->bus_type & ASC_IS_PCI_ULTRA)
-				    == ASC_IS_PCI_ULTRA) {
-					busname = "PCI Ultra";
-				} else {
-					busname = "PCI";
-				}
-			} else {
-				busname = "?";
-				shost_printk(KERN_ERR, shost, "unknown bus "
-					"type %d\n", asc_dvc_varp->bus_type);
-			}
-			sprintf(info,
-				"AdvanSys SCSI %s: %s: IO 0x%lX-0x%lX, IRQ 0x%X",
-				ASC_VERSION, busname, (ulong)shost->io_port,
-				(ulong)shost->io_port + ASC_IOADR_GAP - 1,
-				boardp->irq);
+			busname = "?";
+			shost_printk(KERN_ERR, shost, "unknown bus "
+				"type %d\n", asc_dvc_varp->bus_type);
 		}
+		sprintf(info,
+			"AdvanSys SCSI %s: %s: IO 0x%lX-0x%lX, IRQ 0x%X",
+			ASC_VERSION, busname, (ulong)shost->io_port,
+			(ulong)shost->io_port + ASC_IOADR_GAP - 1,
+			boardp->irq);
 	} else {
 		/*
 		 * Wide Adapter Information
@@ -2873,12 +2854,7 @@ static void asc_prt_asc_board_eeprom(struct seq_file *m, struct Scsi_Host *shost
 	ASCEEP_CONFIG *ep;
 	int i;
 	uchar serialstr[13];
-#ifdef CONFIG_ISA
-	ASC_DVC_VAR *asc_dvc_varp;
-	int isa_dma_speed[] = { 10, 8, 7, 6, 5, 4, 3, 2 };
 
-	asc_dvc_varp = &boardp->dvc_var.asc_dvc_var;
-#endif /* CONFIG_ISA */
 	ep = &boardp->eep_config.asc_eep;
 
 	seq_printf(m,
@@ -2926,14 +2902,6 @@ static void asc_prt_asc_board_eeprom(struct seq_file *m, struct Scsi_Host *shost
 		seq_printf(m, " %c",
 			   (ep->init_sdtr & ADV_TID_TO_TIDMASK(i)) ? 'Y' : 'N');
 	seq_putc(m, '\n');
-
-#ifdef CONFIG_ISA
-	if (asc_dvc_varp->bus_type & ASC_IS_ISA) {
-		seq_printf(m,
-			   " Host ISA DMA speed:   %d MB/S\n",
-			   isa_dma_speed[ASC_EEP_GET_DMA_SPD(ep)]);
-	}
-#endif /* CONFIG_ISA */
 }
 
 /*
@@ -3181,10 +3149,6 @@ static void asc_prt_driver_conf(struct seq_file *m, struct Scsi_Host *shost)
 		   shost->sg_tablesize, shost->cmd_per_lun);
 
 	seq_printf(m,
-		   " unchecked_isa_dma %d\n",
-		   shost->unchecked_isa_dma);
-
-	seq_printf(m,
 		   " flags 0x%x, last_reset 0x%lx, jiffies 0x%lx, asc_n_io_port 0x%x\n",
 		   boardp->flags, shost->last_reset, jiffies,
 		   boardp->asc_n_io_port);
@@ -3353,8 +3317,8 @@ static void asc_prt_adv_board_info(struct seq_file *m, struct Scsi_Host *shost)
 		   shost->host_no);
 
 	seq_printf(m,
-		   " iop_base 0x%lx, cable_detect: %X, err_code %u\n",
-		   (unsigned long)v->iop_base,
+		   " iop_base 0x%p, cable_detect: %X, err_code %u\n",
+		   v->iop_base,
 		   AdvReadWordRegister(iop_base,IOPW_SCSI_CFG1) & CABLE_DETECT,
 		   v->err_code);
 
@@ -3637,7 +3601,7 @@ static void asc_scsi_done(struct scsi_cmnd *scp)
 {
 	scsi_dma_unmap(scp);
 	ASC_STATS(scp->device->host, done);
-	scp->scsi_done(scp);
+	scsi_done(scp);
 }
 
 static void AscSetBank(PortAddr iop_base, uchar bank)
@@ -6009,7 +5973,6 @@ static void adv_isr_callback(ADV_DVC_VAR *adv_dvc_varp, ADV_SCSI_REQ_Q *scsiqp)
 				ASC_DBG(2, "SAM_STAT_CHECK_CONDITION\n");
 				ASC_DBG_PRT_SENSE(2, scp->sense_buffer,
 						  SCSI_SENSE_BUFFERSIZE);
-				set_driver_byte(scp, DRIVER_SENSE);
 			}
 			break;
 
@@ -6727,7 +6690,7 @@ static void asc_isr_callback(ASC_DVC_VAR *asc_dvc_varp, ASC_QDONE_INFO *qdonep)
 
 	ASC_STATS(boardp->shost, callback);
 
-	dma_unmap_single(boardp->dev, scp->SCp.dma_handle,
+	dma_unmap_single(boardp->dev, advansys_cmd(scp)->dma_handle,
 			 SCSI_SENSE_BUFFERSIZE, DMA_FROM_DEVICE);
 	/*
 	 * 'qdonep' contains the command's ending status.
@@ -6760,7 +6723,6 @@ static void asc_isr_callback(ASC_DVC_VAR *asc_dvc_varp, ASC_QDONE_INFO *qdonep)
 				ASC_DBG(2, "SAM_STAT_CHECK_CONDITION\n");
 				ASC_DBG_PRT_SENSE(2, scp->sense_buffer,
 						  SCSI_SENSE_BUFFERSIZE);
-				set_driver_byte(scp, DRIVER_SENSE);
 			}
 			break;
 
@@ -6775,14 +6737,12 @@ static void asc_isr_callback(ASC_DVC_VAR *asc_dvc_varp, ASC_QDONE_INFO *qdonep)
 	case QD_ABORTED_BY_HOST:
 		ASC_DBG(1, "QD_ABORTED_BY_HOST\n");
 		set_status_byte(scp, qdonep->d3.scsi_stat);
-		set_msg_byte(scp, qdonep->d3.scsi_msg);
 		set_host_byte(scp, DID_ABORT);
 		break;
 
 	default:
 		ASC_DBG(1, "done_stat 0x%x\n", qdonep->d3.done_stat);
 		set_status_byte(scp, qdonep->d3.scsi_stat);
-		set_msg_byte(scp, qdonep->d3.scsi_msg);
 		set_host_byte(scp, DID_ERROR);
 		break;
 	}
@@ -7448,15 +7408,15 @@ static int advansys_slave_configure(struct scsi_device *sdev)
 static __le32 asc_get_sense_buffer_dma(struct scsi_cmnd *scp)
 {
 	struct asc_board *board = shost_priv(scp->device->host);
+	struct advansys_cmd *acmd = advansys_cmd(scp);
 
-	scp->SCp.dma_handle = dma_map_single(board->dev, scp->sense_buffer,
-					     SCSI_SENSE_BUFFERSIZE,
-					     DMA_FROM_DEVICE);
-	if (dma_mapping_error(board->dev, scp->SCp.dma_handle)) {
+	acmd->dma_handle = dma_map_single(board->dev, scp->sense_buffer,
+					SCSI_SENSE_BUFFERSIZE, DMA_FROM_DEVICE);
+	if (dma_mapping_error(board->dev, acmd->dma_handle)) {
 		ASC_DBG(1, "failed to map sense buffer\n");
 		return 0;
 	}
-	return cpu_to_le32(scp->SCp.dma_handle);
+	return cpu_to_le32(acmd->dma_handle);
 }
 
 static int asc_build_req(struct asc_board *boardp, struct scsi_cmnd *scp,
@@ -7472,7 +7432,7 @@ static int asc_build_req(struct asc_board *boardp, struct scsi_cmnd *scp,
 	 * Set the srb_tag to the command tag + 1, as
 	 * srb_tag '0' is used internally by the chip.
 	 */
-	srb_tag = scp->request->tag + 1;
+	srb_tag = scsi_cmd_to_rq(scp)->tag + 1;
 	asc_scsi_q->q2.srb_tag = srb_tag;
 
 	/*
@@ -7526,8 +7486,8 @@ static int asc_build_req(struct asc_board *boardp, struct scsi_cmnd *scp,
 			return ASC_ERROR;
 		}
 
-		asc_sg_head = kzalloc(sizeof(asc_scsi_q->sg_head) +
-			use_sg * sizeof(struct asc_sg_list), GFP_ATOMIC);
+		asc_sg_head = kzalloc(struct_size(asc_sg_head, sg_list, use_sg),
+				      GFP_ATOMIC);
 		if (!asc_sg_head) {
 			scsi_dma_unmap(scp);
 			set_host_byte(scp, DID_SOFT_ERROR);
@@ -7686,7 +7646,7 @@ static int
 adv_build_req(struct asc_board *boardp, struct scsi_cmnd *scp,
 	      adv_req_t **adv_reqpp)
 {
-	u32 srb_tag = scp->request->tag;
+	u32 srb_tag = scsi_cmd_to_rq(scp)->tag;
 	adv_req_t *reqp;
 	ADV_SCSI_REQ_Q *scsiqp;
 	int ret;
@@ -8502,14 +8462,12 @@ static int asc_execute_scsi_cmnd(struct scsi_cmnd *scp)
  * This function always returns 0. Command return status is saved
  * in the 'scp' result field.
  */
-static int
-advansys_queuecommand_lck(struct scsi_cmnd *scp, void (*done)(struct scsi_cmnd *))
+static int advansys_queuecommand_lck(struct scsi_cmnd *scp)
 {
 	struct Scsi_Host *shost = scp->device->host;
 	int asc_res, result = 0;
 
 	ASC_STATS(shost, queuecommand);
-	scp->scsi_done = done;
 
 	asc_res = asc_execute_scsi_cmnd(scp);
 
@@ -8563,12 +8521,6 @@ static unsigned short AscGetChipBiosAddress(PortAddr iop_base,
 	}
 
 	cfg_lsw = AscGetChipCfgLsw(iop_base);
-
-	/*
-	 *  ISA PnP uses the top bit as the 32K BIOS flag
-	 */
-	if (bus_type == ASC_IS_ISAPNP)
-		cfg_lsw &= 0x7FFF;
 	bios_addr = ASC_BIOS_MIN_ADDR + (cfg_lsw >> 12) * ASC_BIOS_BANK_SIZE;
 	return bios_addr;
 }
@@ -8611,19 +8563,6 @@ static unsigned char AscGetChipVersion(PortAddr iop_base,
 	return AscGetChipVerNo(iop_base);
 }
 
-#ifdef CONFIG_ISA
-static void AscEnableIsaDma(uchar dma_channel)
-{
-	if (dma_channel < 4) {
-		outp(0x000B, (ushort)(0xC0 | dma_channel));
-		outp(0x000A, dma_channel);
-	} else if (dma_channel < 8) {
-		outp(0x00D6, (ushort)(0xC0 | (dma_channel - 4)));
-		outp(0x00D4, (ushort)(dma_channel - 4));
-	}
-}
-#endif /* CONFIG_ISA */
-
 static int AscStopQueueExe(PortAddr iop_base)
 {
 	int count = 0;
@@ -8644,64 +8583,10 @@ static int AscStopQueueExe(PortAddr iop_base)
 
 static unsigned int AscGetMaxDmaCount(ushort bus_type)
 {
-	if (bus_type & ASC_IS_ISA)
-		return ASC_MAX_ISA_DMA_COUNT;
-	else if (bus_type & (ASC_IS_EISA | ASC_IS_VL))
+	if (bus_type & (ASC_IS_EISA | ASC_IS_VL))
 		return ASC_MAX_VL_DMA_COUNT;
 	return ASC_MAX_PCI_DMA_COUNT;
 }
-
-#ifdef CONFIG_ISA
-static ushort AscGetIsaDmaChannel(PortAddr iop_base)
-{
-	ushort channel;
-
-	channel = AscGetChipCfgLsw(iop_base) & 0x0003;
-	if (channel == 0x03)
-		return (0);
-	else if (channel == 0x00)
-		return (7);
-	return (channel + 4);
-}
-
-static ushort AscSetIsaDmaChannel(PortAddr iop_base, ushort dma_channel)
-{
-	ushort cfg_lsw;
-	uchar value;
-
-	if ((dma_channel >= 5) && (dma_channel <= 7)) {
-		if (dma_channel == 7)
-			value = 0x00;
-		else
-			value = dma_channel - 4;
-		cfg_lsw = AscGetChipCfgLsw(iop_base) & 0xFFFC;
-		cfg_lsw |= value;
-		AscSetChipCfgLsw(iop_base, cfg_lsw);
-		return (AscGetIsaDmaChannel(iop_base));
-	}
-	return 0;
-}
-
-static uchar AscGetIsaDmaSpeed(PortAddr iop_base)
-{
-	uchar speed_value;
-
-	AscSetBank(iop_base, 1);
-	speed_value = AscReadChipDmaSpeed(iop_base);
-	speed_value &= 0x07;
-	AscSetBank(iop_base, 0);
-	return speed_value;
-}
-
-static uchar AscSetIsaDmaSpeed(PortAddr iop_base, uchar speed_value)
-{
-	speed_value &= 0x07;
-	AscSetBank(iop_base, 1);
-	AscWriteChipDmaSpeed(iop_base, speed_value);
-	AscSetBank(iop_base, 0);
-	return AscGetIsaDmaSpeed(iop_base);
-}
-#endif /* CONFIG_ISA */
 
 static void AscInitAscDvcVar(ASC_DVC_VAR *asc_dvc)
 {
@@ -8712,7 +8597,7 @@ static void AscInitAscDvcVar(ASC_DVC_VAR *asc_dvc)
 	iop_base = asc_dvc->iop_base;
 	asc_dvc->err_code = 0;
 	if ((asc_dvc->bus_type &
-	     (ASC_IS_ISA | ASC_IS_PCI | ASC_IS_EISA | ASC_IS_VL)) == 0) {
+	     (ASC_IS_PCI | ASC_IS_EISA | ASC_IS_VL)) == 0) {
 		asc_dvc->err_code |= ASC_IERR_NO_BUS_TYPE;
 	}
 	AscSetChipControl(iop_base, CC_HALT);
@@ -8767,17 +8652,6 @@ static void AscInitAscDvcVar(ASC_DVC_VAR *asc_dvc)
 				   (SEC_ACTIVE_NEGATE | SEC_SLEW_RATE));
 	}
 
-	asc_dvc->cfg->isa_dma_speed = ASC_DEF_ISA_DMA_SPEED;
-#ifdef CONFIG_ISA
-	if ((asc_dvc->bus_type & ASC_IS_ISA) != 0) {
-		if (chip_version >= ASC_CHIP_MIN_VER_ISA_PNP) {
-			AscSetChipIFC(iop_base, IFC_INIT_DEFAULT);
-			asc_dvc->bus_type = ASC_IS_ISAPNP;
-		}
-		asc_dvc->cfg->isa_dma_channel =
-		    (uchar)AscGetIsaDmaChannel(iop_base);
-	}
-#endif /* CONFIG_ISA */
 	for (i = 0; i <= ASC_MAX_TID; i++) {
 		asc_dvc->cur_dvc_qng[i] = 0;
 		asc_dvc->max_dvc_qng[i] = ASC_MAX_SCSI1_QNG;
@@ -9141,7 +9015,6 @@ static int AscInitFromEEP(ASC_DVC_VAR *asc_dvc)
 	asc_dvc->cfg->sdtr_enable = eep_config->init_sdtr;
 	asc_dvc->cfg->disc_enable = eep_config->disc_enable;
 	asc_dvc->cfg->cmd_qng_enabled = eep_config->use_cmd_qng;
-	asc_dvc->cfg->isa_dma_speed = ASC_EEP_GET_DMA_SPD(eep_config);
 	asc_dvc->start_motor = eep_config->start_motor;
 	asc_dvc->dvc_cntl = eep_config->cntl;
 	asc_dvc->no_scam = eep_config->no_scam;
@@ -9314,22 +9187,10 @@ static int AscInitSetConfig(struct pci_dev *pdev, struct Scsi_Host *shost)
 		}
 	} else
 #endif /* CONFIG_PCI */
-	if (asc_dvc->bus_type == ASC_IS_ISAPNP) {
-		if (AscGetChipVersion(iop_base, asc_dvc->bus_type)
-		    == ASC_CHIP_VER_ASYN_BUG) {
-			asc_dvc->bug_fix_cntl |= ASC_BUG_FIX_ASYN_USE_SYN;
-		}
-	}
 	if (AscSetChipScsiID(iop_base, asc_dvc->cfg->chip_scsi_id) !=
 	    asc_dvc->cfg->chip_scsi_id) {
 		asc_dvc->err_code |= ASC_IERR_SET_SCSI_ID;
 	}
-#ifdef CONFIG_ISA
-	if (asc_dvc->bus_type & ASC_IS_ISA) {
-		AscSetIsaDmaChannel(iop_base, asc_dvc->cfg->isa_dma_channel);
-		AscSetIsaDmaSpeed(iop_base, asc_dvc->cfg->isa_dma_speed);
-	}
-#endif /* CONFIG_ISA */
 
 	asc_dvc->init_state |= ASC_INIT_STATE_END_SET_CFG;
 
@@ -10752,12 +10613,7 @@ static struct scsi_host_template advansys_template = {
 	.eh_host_reset_handler = advansys_reset,
 	.bios_param = advansys_biosparam,
 	.slave_configure = advansys_slave_configure,
-	/*
-	 * Because the driver may control an ISA adapter 'unchecked_isa_dma'
-	 * must be set. The flag will be cleared in advansys_board_found
-	 * for non-ISA adapters.
-	 */
-	.unchecked_isa_dma = true,
+	.cmd_size = sizeof(struct advansys_cmd),
 };
 
 static int advansys_wide_init_chip(struct Scsi_Host *shost)
@@ -10923,29 +10779,21 @@ static int advansys_board_found(struct Scsi_Host *shost, unsigned int iop,
 		 */
 		switch (asc_dvc_varp->bus_type) {
 #ifdef CONFIG_ISA
-		case ASC_IS_ISA:
-			shost->unchecked_isa_dma = true;
-			share_irq = 0;
-			break;
 		case ASC_IS_VL:
-			shost->unchecked_isa_dma = false;
 			share_irq = 0;
 			break;
 		case ASC_IS_EISA:
-			shost->unchecked_isa_dma = false;
 			share_irq = IRQF_SHARED;
 			break;
 #endif /* CONFIG_ISA */
 #ifdef CONFIG_PCI
 		case ASC_IS_PCI:
-			shost->unchecked_isa_dma = false;
 			share_irq = IRQF_SHARED;
 			break;
 #endif /* CONFIG_PCI */
 		default:
 			shost_printk(KERN_ERR, shost, "unknown adapter type: "
 					"%d\n", asc_dvc_varp->bus_type);
-			shost->unchecked_isa_dma = false;
 			share_irq = 0;
 			break;
 		}
@@ -10964,7 +10812,6 @@ static int advansys_board_found(struct Scsi_Host *shost, unsigned int iop,
 		 * For Wide boards set PCI information before calling
 		 * AdvInitGetConfig().
 		 */
-		shost->unchecked_isa_dma = false;
 		share_irq = IRQF_SHARED;
 		ASC_DBG(2, "AdvInitGetConfig()\n");
 
@@ -11000,7 +10847,7 @@ static int advansys_board_found(struct Scsi_Host *shost, unsigned int iop,
 		ep->init_sdtr = asc_dvc_varp->cfg->sdtr_enable;
 		ep->disc_enable = asc_dvc_varp->cfg->disc_enable;
 		ep->use_cmd_qng = asc_dvc_varp->cfg->cmd_qng_enabled;
-		ASC_EEP_SET_DMA_SPD(ep, asc_dvc_varp->cfg->isa_dma_speed);
+		ASC_EEP_SET_DMA_SPD(ep, ASC_DEF_ISA_DMA_SPEED);
 		ep->start_motor = asc_dvc_varp->start_motor;
 		ep->cntl = asc_dvc_varp->dvc_cntl;
 		ep->no_scam = asc_dvc_varp->no_scam;
@@ -11228,22 +11075,6 @@ static int advansys_board_found(struct Scsi_Host *shost, unsigned int iop,
 
 	/* Register DMA Channel for Narrow boards. */
 	shost->dma_channel = NO_ISA_DMA;	/* Default to no ISA DMA. */
-#ifdef CONFIG_ISA
-	if (ASC_NARROW_BOARD(boardp)) {
-		/* Register DMA channel for ISA bus. */
-		if (asc_dvc_varp->bus_type & ASC_IS_ISA) {
-			shost->dma_channel = asc_dvc_varp->cfg->isa_dma_channel;
-			ret = request_dma(shost->dma_channel, DRV_NAME);
-			if (ret) {
-				shost_printk(KERN_ERR, shost, "request_dma() "
-						"%d failed %d\n",
-						shost->dma_channel, ret);
-				goto err_unmap;
-			}
-			AscEnableIsaDma(shost->dma_channel);
-		}
-	}
-#endif /* CONFIG_ISA */
 
 	/* Register IRQ Number. */
 	ASC_DBG(2, "request_irq(%d, %p)\n", boardp->irq, shost);
@@ -11262,7 +11093,7 @@ static int advansys_board_found(struct Scsi_Host *shost, unsigned int iop,
 			shost_printk(KERN_ERR, shost, "request_irq(): IRQ 0x%x "
 					"failed with %d\n", boardp->irq, ret);
 		}
-		goto err_free_dma;
+		goto err_unmap;
 	}
 
 	/*
@@ -11314,11 +11145,6 @@ static int advansys_board_found(struct Scsi_Host *shost, unsigned int iop,
 		advansys_wide_free_mem(boardp);
  err_free_irq:
 	free_irq(boardp->irq, shost);
- err_free_dma:
-#ifdef CONFIG_ISA
-	if (shost->dma_channel != NO_ISA_DMA)
-		free_dma(shost->dma_channel);
-#endif
  err_unmap:
 	if (boardp->ioremap_addr)
 		iounmap(boardp->ioremap_addr);
@@ -11339,12 +11165,7 @@ static int advansys_release(struct Scsi_Host *shost)
 	ASC_DBG(1, "begin\n");
 	scsi_remove_host(shost);
 	free_irq(board->irq, shost);
-#ifdef CONFIG_ISA
-	if (shost->dma_channel != NO_ISA_DMA) {
-		ASC_DBG(1, "free_dma()\n");
-		free_dma(shost->dma_channel);
-	}
-#endif
+
 	if (ASC_NARROW_BOARD(board)) {
 		dma_unmap_single(board->dev,
 					board->dvc_var.asc_dvc_var.overrun_dma,
@@ -11366,78 +11187,12 @@ static PortAddr _asc_def_iop_base[ASC_IOADR_TABLE_MAX_IX] = {
 	0x0210, 0x0230, 0x0250, 0x0330
 };
 
-/*
- * The ISA IRQ number is found in bits 2 and 3 of the CfgLsw.  It decodes as:
- * 00: 10
- * 01: 11
- * 10: 12
- * 11: 15
- */
-static unsigned int advansys_isa_irq_no(PortAddr iop_base)
-{
-	unsigned short cfg_lsw = AscGetChipCfgLsw(iop_base);
-	unsigned int chip_irq = ((cfg_lsw >> 2) & 0x03) + 10;
-	if (chip_irq == 13)
-		chip_irq = 15;
-	return chip_irq;
-}
-
-static int advansys_isa_probe(struct device *dev, unsigned int id)
-{
-	int err = -ENODEV;
-	PortAddr iop_base = _asc_def_iop_base[id];
-	struct Scsi_Host *shost;
-	struct asc_board *board;
-
-	if (!request_region(iop_base, ASC_IOADR_GAP, DRV_NAME)) {
-		ASC_DBG(1, "I/O port 0x%x busy\n", iop_base);
-		return -ENODEV;
-	}
-	ASC_DBG(1, "probing I/O port 0x%x\n", iop_base);
-	if (!AscFindSignature(iop_base))
-		goto release_region;
-	if (!(AscGetChipVersion(iop_base, ASC_IS_ISA) & ASC_CHIP_VER_ISA_BIT))
-		goto release_region;
-
-	err = -ENOMEM;
-	shost = scsi_host_alloc(&advansys_template, sizeof(*board));
-	if (!shost)
-		goto release_region;
-
-	board = shost_priv(shost);
-	board->irq = advansys_isa_irq_no(iop_base);
-	board->dev = dev;
-	board->shost = shost;
-
-	err = advansys_board_found(shost, iop_base, ASC_IS_ISA);
-	if (err)
-		goto free_host;
-
-	dev_set_drvdata(dev, shost);
-	return 0;
-
- free_host:
-	scsi_host_put(shost);
- release_region:
-	release_region(iop_base, ASC_IOADR_GAP);
-	return err;
-}
-
-static void advansys_isa_remove(struct device *dev, unsigned int id)
+static void advansys_vlb_remove(struct device *dev, unsigned int id)
 {
 	int ioport = _asc_def_iop_base[id];
 	advansys_release(dev_get_drvdata(dev));
 	release_region(ioport, ASC_IOADR_GAP);
 }
-
-static struct isa_driver advansys_isa_driver = {
-	.probe		= advansys_isa_probe,
-	.remove		= advansys_isa_remove,
-	.driver = {
-		.owner	= THIS_MODULE,
-		.name	= DRV_NAME,
-	},
-};
 
 /*
  * The VLB IRQ number is found in bits 2 to 4 of the CfgLsw.  It decodes as:
@@ -11507,7 +11262,7 @@ static int advansys_vlb_probe(struct device *dev, unsigned int id)
 
 static struct isa_driver advansys_vlb_driver = {
 	.probe		= advansys_vlb_probe,
-	.remove		= advansys_isa_remove,
+	.remove		= advansys_vlb_remove,
 	.driver = {
 		.owner	= THIS_MODULE,
 		.name	= "advansys_vlb",
@@ -11757,15 +11512,10 @@ static int __init advansys_init(void)
 {
 	int error;
 
-	error = isa_register_driver(&advansys_isa_driver,
-				    ASC_IOADR_TABLE_MAX_IX);
-	if (error)
-		goto fail;
-
 	error = isa_register_driver(&advansys_vlb_driver,
 				    ASC_IOADR_TABLE_MAX_IX);
 	if (error)
-		goto unregister_isa;
+		goto fail;
 
 	error = eisa_driver_register(&advansys_eisa_driver);
 	if (error)
@@ -11781,8 +11531,6 @@ static int __init advansys_init(void)
 	eisa_driver_unregister(&advansys_eisa_driver);
  unregister_vlb:
 	isa_unregister_driver(&advansys_vlb_driver);
- unregister_isa:
-	isa_unregister_driver(&advansys_isa_driver);
  fail:
 	return error;
 }
@@ -11792,7 +11540,6 @@ static void __exit advansys_exit(void)
 	pci_unregister_driver(&advansys_pci_driver);
 	eisa_driver_unregister(&advansys_eisa_driver);
 	isa_unregister_driver(&advansys_vlb_driver);
-	isa_unregister_driver(&advansys_isa_driver);
 }
 
 module_init(advansys_init);

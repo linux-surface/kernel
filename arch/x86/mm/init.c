@@ -29,9 +29,8 @@
 
 /*
  * We need to define the tracepoints somewhere, and tlb.c
- * is only compied when SMP=y.
+ * is only compiled when SMP=y.
  */
-#define CREATE_TRACE_POINTS
 #include <trace/events/tlb.h>
 
 #include "mm_internal.h"
@@ -127,14 +126,12 @@ __ref void *alloc_low_pages(unsigned int num)
 		unsigned long ret = 0;
 
 		if (min_pfn_mapped < max_pfn_mapped) {
-			ret = memblock_find_in_range(
+			ret = memblock_phys_alloc_range(
+					PAGE_SIZE * num, PAGE_SIZE,
 					min_pfn_mapped << PAGE_SHIFT,
-					max_pfn_mapped << PAGE_SHIFT,
-					PAGE_SIZE * num , PAGE_SIZE);
+					max_pfn_mapped << PAGE_SHIFT);
 		}
-		if (ret)
-			memblock_reserve(ret, PAGE_SIZE * num);
-		else if (can_use_brk_pgt)
+		if (!ret && can_use_brk_pgt)
 			ret = __pa(extend_brk(PAGE_SIZE * num, PAGE_SIZE));
 
 		if (!ret)
@@ -610,8 +607,17 @@ static void __init memory_map_top_down(unsigned long map_start,
 	unsigned long addr;
 	unsigned long mapped_ram_size = 0;
 
-	/* xen has big range in reserved near end of ram, skip it at first.*/
-	addr = memblock_find_in_range(map_start, map_end, PMD_SIZE, PMD_SIZE);
+	/*
+	 * Systems that have many reserved areas near top of the memory,
+	 * e.g. QEMU with less than 1G RAM and EFI enabled, or Xen, will
+	 * require lots of 4K mappings which may exhaust pgt_buf.
+	 * Start with top-most PMD_SIZE range aligned at PMD_SIZE to ensure
+	 * there is enough mapped memory that can be allocated from
+	 * memblock.
+	 */
+	addr = memblock_phys_alloc_range(PMD_SIZE, PMD_SIZE, map_start,
+					 map_end);
+	memblock_phys_free(addr, PMD_SIZE);
 	real_end = addr + PMD_SIZE;
 
 	/* step_size need to be small so pgt_buf from BRK could cover it */
@@ -707,6 +713,11 @@ static void __init memory_map_bottom_up(unsigned long map_start,
 static void __init init_trampoline(void)
 {
 #ifdef CONFIG_X86_64
+	/*
+	 * The code below will alias kernel page-tables in the user-range of the
+	 * address space, including the Global bit. So global TLB entries will
+	 * be created when using the trampoline page-table.
+	 */
 	if (!kaslr_memory_enabled())
 		trampoline_pgd_entry = init_top_pgt[pgd_index(__PAGE_OFFSET)];
 	else
@@ -756,7 +767,7 @@ void __init init_mem_mapping(void)
 
 #ifdef CONFIG_X86_64
 	if (max_pfn > max_low_pfn) {
-		/* can we preseve max_low_pfn ?*/
+		/* can we preserve max_low_pfn ?*/
 		max_low_pfn = max_pfn;
 	}
 #else
@@ -939,7 +950,7 @@ void __init free_initrd_mem(unsigned long start, unsigned long end)
 {
 	/*
 	 * end could be not aligned, and We can not align that,
-	 * decompresser could be confused by aligned initrd_end
+	 * decompressor could be confused by aligned initrd_end
 	 * We already reserve the end partial page before in
 	 *   - i386_start_kernel()
 	 *   - x86_64_start_kernel()
@@ -1017,7 +1028,7 @@ void __init zone_sizes_init(void)
 	free_area_init(max_zone_pfns);
 }
 
-__visible DEFINE_PER_CPU_SHARED_ALIGNED(struct tlb_state, cpu_tlbstate) = {
+__visible DEFINE_PER_CPU_ALIGNED(struct tlb_state, cpu_tlbstate) = {
 	.loaded_mm = &init_mm,
 	.next_asid = 1,
 	.cr4 = ~0UL,	/* fail hard if we screw up cr4 shadow initialization */

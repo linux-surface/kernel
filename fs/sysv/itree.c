@@ -495,6 +495,8 @@ static sector_t sysv_bmap(struct address_space *mapping, sector_t block)
 }
 
 const struct address_space_operations sysv_aops = {
+	.dirty_folio = block_dirty_folio,
+	.invalidate_folio = block_invalidate_folio,
 	.readpage = sysv_readpage,
 	.writepage = sysv_writepage,
 	.write_begin = sysv_write_begin,

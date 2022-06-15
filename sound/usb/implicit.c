@@ -21,6 +21,7 @@ enum {
 	IMPLICIT_FB_NONE,
 	IMPLICIT_FB_GENERIC,
 	IMPLICIT_FB_FIXED,
+	IMPLICIT_FB_BOTH,	/* generic playback + capture (for BOSS) */
 };
 
 struct snd_usb_implicit_fb_match {
@@ -36,6 +37,9 @@ struct snd_usb_implicit_fb_match {
 #define IMPLICIT_FB_FIXED_DEV(vend, prod, ep, ifnum) \
 	{ .id = USB_ID(vend, prod), .type = IMPLICIT_FB_FIXED, .ep_num = (ep),\
 	    .iface = (ifnum) }
+#define IMPLICIT_FB_BOTH_DEV(vend, prod, ep, ifnum) \
+	{ .id = USB_ID(vend, prod), .type = IMPLICIT_FB_BOTH, .ep_num = (ep),\
+	    .iface = (ifnum) }
 #define IMPLICIT_FB_SKIP_DEV(vend, prod) \
 	{ .id = USB_ID(vend, prod), .type = IMPLICIT_FB_NONE }
 
@@ -43,15 +47,13 @@ struct snd_usb_implicit_fb_match {
 static const struct snd_usb_implicit_fb_match playback_implicit_fb_quirks[] = {
 	/* Generic matching */
 	IMPLICIT_FB_GENERIC_DEV(0x0499, 0x1509), /* Steinberg UR22 */
-	IMPLICIT_FB_GENERIC_DEV(0x0763, 0x2080), /* M-Audio FastTrack Ultra */
-	IMPLICIT_FB_GENERIC_DEV(0x0763, 0x2081), /* M-Audio FastTrack Ultra */
 	IMPLICIT_FB_GENERIC_DEV(0x0763, 0x2030), /* M-Audio Fast Track C400 */
 	IMPLICIT_FB_GENERIC_DEV(0x0763, 0x2031), /* M-Audio Fast Track C600 */
 
 	/* Fixed EP */
 	/* FIXME: check the availability of generic matching */
-	IMPLICIT_FB_FIXED_DEV(0x1397, 0x0001, 0x81, 1), /* Behringer UFX1604 */
-	IMPLICIT_FB_FIXED_DEV(0x1397, 0x0002, 0x81, 1), /* Behringer UFX1204 */
+	IMPLICIT_FB_FIXED_DEV(0x0763, 0x2080, 0x81, 2), /* M-Audio FastTrack Ultra */
+	IMPLICIT_FB_FIXED_DEV(0x0763, 0x2081, 0x81, 2), /* M-Audio FastTrack Ultra */
 	IMPLICIT_FB_FIXED_DEV(0x2466, 0x8010, 0x81, 2), /* Fractal Audio Axe-Fx III */
 	IMPLICIT_FB_FIXED_DEV(0x31e9, 0x0001, 0x81, 2), /* Solid State Logic SSL2 */
 	IMPLICIT_FB_FIXED_DEV(0x31e9, 0x0002, 0x81, 2), /* Solid State Logic SSL2+ */
@@ -70,30 +72,11 @@ static const struct snd_usb_implicit_fb_match playback_implicit_fb_quirks[] = {
 	  .type = IMPLICIT_FB_FIXED,
 	  .ep_num = 0x84, .iface = 0 },		/* MOTU MicroBook II */
 
-	/* No quirk for playback but with capture quirk (see below) */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x0130),	/* BOSS BR-80 */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x0171),   /* BOSS RC-505 */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x0185),	/* BOSS GP-10 */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x0189),	/* BOSS GT-100v2 */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x01d6),	/* BOSS GT-1 */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x01d8),	/* BOSS Katana */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x01e5),	/* BOSS GT-001 */
-	IMPLICIT_FB_SKIP_DEV(0x0582, 0x0203),   /* BOSS AD-10 */
-
 	{} /* terminator */
 };
 
 /* Implicit feedback quirk table for capture: only FIXED type */
 static const struct snd_usb_implicit_fb_match capture_implicit_fb_quirks[] = {
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x0130, 0x0d, 0x01), /* BOSS BR-80 */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x0171, 0x0d, 0x01), /* BOSS RC-505 */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x0185, 0x0d, 0x01), /* BOSS GP-10 */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x0189, 0x0d, 0x01), /* BOSS GT-100v2 */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x01d6, 0x0d, 0x01), /* BOSS GT-1 */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x01d8, 0x0d, 0x01), /* BOSS Katana */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x01e5, 0x0d, 0x01), /* BOSS GT-001 */
-	IMPLICIT_FB_FIXED_DEV(0x0582, 0x0203, 0x0d, 0x01), /* BOSS AD-10 */
-
 	{} /* terminator */
 };
 
@@ -151,44 +134,93 @@ static int add_generic_uac2_implicit_fb(struct snd_usb_audio *chip,
 				       ifnum, alts);
 }
 
-/* Like the function above, but specific to Roland with vendor class and hack */
-static int add_roland_implicit_fb(struct snd_usb_audio *chip,
-				  struct audioformat *fmt,
-				  unsigned int ifnum,
-				  unsigned int altsetting)
+static bool roland_sanity_check_iface(struct usb_host_interface *alts)
 {
-	struct usb_host_interface *alts;
-	struct usb_endpoint_descriptor *epd;
-
-	alts = snd_usb_get_host_interface(chip, ifnum, altsetting);
-	if (!alts)
-		return 0;
 	if (alts->desc.bInterfaceClass != USB_CLASS_VENDOR_SPEC ||
 	    (alts->desc.bInterfaceSubClass != 2 &&
 	     alts->desc.bInterfaceProtocol != 2) ||
 	    alts->desc.bNumEndpoints < 1)
-		return 0;
-	epd = get_endpoint(alts, 0);
-	if (!usb_endpoint_is_isoc_in(epd) ||
-	    (epd->bmAttributes & USB_ENDPOINT_USAGE_MASK) !=
-					USB_ENDPOINT_USAGE_IMPLICIT_FB)
-		return 0;
-	return add_implicit_fb_sync_ep(chip, fmt, epd->bEndpointAddress, 0,
-				       ifnum, alts);
+		return false;
+	return true;
 }
 
-/* Playback and capture EPs on Pioneer devices share the same iface/altset,
- * but they don't seem working with the implicit fb mode well, hence we
- * just return as if the sync were already set up.
- */
-static int skip_pioneer_sync_ep(struct snd_usb_audio *chip,
-				struct audioformat *fmt,
-				struct usb_host_interface *alts)
+/* Like the UAC2 case above, but specific to Roland with vendor class and hack */
+static int add_roland_implicit_fb(struct snd_usb_audio *chip,
+				  struct audioformat *fmt,
+				  struct usb_host_interface *alts)
 {
 	struct usb_endpoint_descriptor *epd;
 
-	if (alts->desc.bNumEndpoints != 2)
+	if (!roland_sanity_check_iface(alts))
 		return 0;
+	/* only when both streams are with ASYNC type */
+	epd = get_endpoint(alts, 0);
+	if (!usb_endpoint_is_isoc_out(epd) ||
+	    (epd->bmAttributes & USB_ENDPOINT_SYNCTYPE) != USB_ENDPOINT_SYNC_ASYNC)
+		return 0;
+
+	/* check capture EP */
+	alts = snd_usb_get_host_interface(chip,
+					  alts->desc.bInterfaceNumber + 1,
+					  alts->desc.bAlternateSetting);
+	if (!alts || !roland_sanity_check_iface(alts))
+		return 0;
+	epd = get_endpoint(alts, 0);
+	if (!usb_endpoint_is_isoc_in(epd) ||
+	    (epd->bmAttributes & USB_ENDPOINT_SYNCTYPE) != USB_ENDPOINT_SYNC_ASYNC)
+		return 0;
+	chip->quirk_flags |= QUIRK_FLAG_PLAYBACK_FIRST;
+	return add_implicit_fb_sync_ep(chip, fmt, epd->bEndpointAddress, 0,
+				       alts->desc.bInterfaceNumber, alts);
+}
+
+/* capture quirk for Roland device; always full-duplex */
+static int add_roland_capture_quirk(struct snd_usb_audio *chip,
+				    struct audioformat *fmt,
+				    struct usb_host_interface *alts)
+{
+	struct usb_endpoint_descriptor *epd;
+
+	if (!roland_sanity_check_iface(alts))
+		return 0;
+	epd = get_endpoint(alts, 0);
+	if (!usb_endpoint_is_isoc_in(epd) ||
+	    (epd->bmAttributes & USB_ENDPOINT_SYNCTYPE) != USB_ENDPOINT_SYNC_ASYNC)
+		return 0;
+
+	alts = snd_usb_get_host_interface(chip,
+					  alts->desc.bInterfaceNumber - 1,
+					  alts->desc.bAlternateSetting);
+	if (!alts || !roland_sanity_check_iface(alts))
+		return 0;
+	epd = get_endpoint(alts, 0);
+	if (!usb_endpoint_is_isoc_out(epd))
+		return 0;
+	return add_implicit_fb_sync_ep(chip, fmt, epd->bEndpointAddress, 0,
+				       alts->desc.bInterfaceNumber, alts);
+}
+
+/* Playback and capture EPs on Pioneer devices share the same iface/altset
+ * for the implicit feedback operation
+ */
+static bool is_pioneer_implicit_fb(struct snd_usb_audio *chip,
+				   struct usb_host_interface *alts)
+
+{
+	struct usb_endpoint_descriptor *epd;
+
+	if (USB_ID_VENDOR(chip->usb_id) != 0x2b73 &&
+	    USB_ID_VENDOR(chip->usb_id) != 0x08e4)
+		return false;
+	if (alts->desc.bInterfaceClass != USB_CLASS_VENDOR_SPEC)
+		return false;
+	if (alts->desc.bNumEndpoints != 2)
+		return false;
+
+	epd = get_endpoint(alts, 0);
+	if (!usb_endpoint_is_isoc_out(epd) ||
+	    (epd->bmAttributes & USB_ENDPOINT_SYNCTYPE) != USB_ENDPOINT_SYNC_ASYNC)
+		return false;
 
 	epd = get_endpoint(alts, 1);
 	if (!usb_endpoint_is_isoc_in(epd) ||
@@ -197,8 +229,9 @@ static int skip_pioneer_sync_ep(struct snd_usb_audio *chip,
 	     USB_ENDPOINT_USAGE_DATA &&
 	     (epd->bmAttributes & USB_ENDPOINT_USAGE_MASK) !=
 	     USB_ENDPOINT_USAGE_IMPLICIT_FB))
-		return 0;
-	return 1; /* don't handle with the implicit fb, just skip sync EP */
+		return false;
+
+	return true;
 }
 
 static int __add_generic_implicit_fb(struct snd_usb_audio *chip,
@@ -278,6 +311,18 @@ static int audioformat_implicit_fb_quirk(struct snd_usb_audio *chip,
 		}
 	}
 
+	/* Special handling for devices with capture quirks */
+	p = find_implicit_fb_entry(chip, capture_implicit_fb_quirks, alts);
+	if (p) {
+		switch (p->type) {
+		case IMPLICIT_FB_FIXED:
+			return 0; /* no quirk */
+		case IMPLICIT_FB_BOTH:
+			chip->quirk_flags |= QUIRK_FLAG_PLAYBACK_FIRST;
+			return add_generic_implicit_fb(chip, fmt, alts);
+		}
+	}
+
 	/* Generic UAC2 implicit feedback */
 	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
 	    alts->desc.bInterfaceClass == USB_CLASS_AUDIO &&
@@ -290,24 +335,18 @@ static int audioformat_implicit_fb_quirk(struct snd_usb_audio *chip,
 	}
 
 	/* Roland/BOSS implicit feedback with vendor spec class */
-	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
-	    alts->desc.bInterfaceClass == USB_CLASS_VENDOR_SPEC &&
-	    alts->desc.bInterfaceProtocol == 2 &&
-	    alts->desc.bNumEndpoints == 1 &&
-	    USB_ID_VENDOR(chip->usb_id) == 0x0582 /* Roland */) {
-		if (add_roland_implicit_fb(chip, fmt,
-					   alts->desc.bInterfaceNumber + 1,
-					   alts->desc.bAlternateSetting))
+	if (USB_ID_VENDOR(chip->usb_id) == 0x0582) {
+		if (add_roland_implicit_fb(chip, fmt, alts) > 0)
 			return 1;
 	}
 
 	/* Pioneer devices with vendor spec class */
-	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
-	    alts->desc.bInterfaceClass == USB_CLASS_VENDOR_SPEC &&
-	    (USB_ID_VENDOR(chip->usb_id) == 0x2b73 || /* Pioneer */
-	     USB_ID_VENDOR(chip->usb_id) == 0x08e4    /* Pioneer */)) {
-		if (skip_pioneer_sync_ep(chip, fmt, alts))
-			return 1;
+	if (is_pioneer_implicit_fb(chip, alts)) {
+		chip->quirk_flags |= QUIRK_FLAG_PLAYBACK_FIRST;
+		return add_implicit_fb_sync_ep(chip, fmt,
+					       get_endpoint(alts, 1)->bEndpointAddress,
+					       1, alts->desc.bInterfaceNumber,
+					       alts);
 	}
 
 	/* Try the generic implicit fb if available */
@@ -326,9 +365,18 @@ static int audioformat_capture_quirk(struct snd_usb_audio *chip,
 	const struct snd_usb_implicit_fb_match *p;
 
 	p = find_implicit_fb_entry(chip, capture_implicit_fb_quirks, alts);
-	if (p && p->type == IMPLICIT_FB_FIXED)
+	if (p && (p->type == IMPLICIT_FB_FIXED || p->type == IMPLICIT_FB_BOTH))
 		return add_implicit_fb_sync_ep(chip, fmt, p->ep_num, 0,
 					       p->iface, NULL);
+
+	/* Roland/BOSS need full-duplex streams */
+	if (USB_ID_VENDOR(chip->usb_id) == 0x0582) {
+		if (add_roland_capture_quirk(chip, fmt, alts) > 0)
+			return 1;
+	}
+
+	if (is_pioneer_implicit_fb(chip, alts))
+		return 1; /* skip the quirk, also don't handle generic sync EP */
 	return 0;
 }
 

@@ -9,6 +9,8 @@
 #include <linux/pci.h>
 #include "processor_thermal_device.h"
 
+MODULE_IMPORT_NS(INT340X_THERMAL);
+
 struct mmio_reg {
 	int read_only;
 	u32 offset;
@@ -29,7 +31,7 @@ static const char * const fivr_strings[] = {
 };
 
 static const struct mmio_reg tgl_fivr_mmio_regs[] = {
-	{ 0, 0x5A18, 3, 0x7, 12}, /* vco_ref_code_lo */
+	{ 0, 0x5A18, 3, 0x7, 11}, /* vco_ref_code_lo */
 	{ 0, 0x5A18, 8, 0xFF, 16}, /* vco_ref_code_hi */
 	{ 0, 0x5A08, 8, 0xFF, 0}, /* spread_spectrum_pct */
 	{ 0, 0x5A08, 1, 0x1, 8}, /* spread_spectrum_clk_enable */
@@ -190,6 +192,58 @@ static DEVICE_ATTR_RO(ddr_data_rate_point_2);
 static DEVICE_ATTR_RO(ddr_data_rate_point_3);
 static DEVICE_ATTR_RW(rfi_disable);
 
+static ssize_t rfi_restriction_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	u16 id = 0x0008;
+	u32 input;
+	int ret;
+
+	ret = kstrtou32(buf, 10, &input);
+	if (ret)
+		return ret;
+
+	ret = processor_thermal_send_mbox_write_cmd(to_pci_dev(dev), id, input);
+	if (ret)
+		return ret;
+
+	return count;
+}
+
+static ssize_t rfi_restriction_show(struct device *dev,
+				    struct device_attribute *attr,
+				    char *buf)
+{
+	u16 id = 0x0007;
+	u64 resp;
+	int ret;
+
+	ret = processor_thermal_send_mbox_read_cmd(to_pci_dev(dev), id, &resp);
+	if (ret)
+		return ret;
+
+	return sprintf(buf, "%llu\n", resp);
+}
+
+static ssize_t ddr_data_rate_show(struct device *dev,
+				  struct device_attribute *attr,
+				  char *buf)
+{
+	u16 id = 0x0107;
+	u64 resp;
+	int ret;
+
+	ret = processor_thermal_send_mbox_read_cmd(to_pci_dev(dev), id, &resp);
+	if (ret)
+		return ret;
+
+	return sprintf(buf, "%llu\n", resp);
+}
+
+static DEVICE_ATTR_RW(rfi_restriction);
+static DEVICE_ATTR_RO(ddr_data_rate);
+
 static struct attribute *dvfs_attrs[] = {
 	&dev_attr_rfi_restriction_run_busy.attr,
 	&dev_attr_rfi_restriction_err_code.attr,
@@ -199,6 +253,8 @@ static struct attribute *dvfs_attrs[] = {
 	&dev_attr_ddr_data_rate_point_2.attr,
 	&dev_attr_ddr_data_rate_point_3.attr,
 	&dev_attr_rfi_disable.attr,
+	&dev_attr_ddr_data_rate.attr,
+	&dev_attr_rfi_restriction.attr,
 	NULL
 };
 

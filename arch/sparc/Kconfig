@@ -19,7 +19,6 @@ config SPARC
 	select OF
 	select OF_PROMTREE
 	select HAVE_ASM_MODVERSIONS
-	select HAVE_IDE
 	select HAVE_ARCH_KGDB if !SMP || SPARC64
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_ARCH_SECCOMP if SPARC64
@@ -38,8 +37,6 @@ config SPARC
 	select HAVE_EBPF_JIT if SPARC64
 	select HAVE_DEBUG_BUGVERBOSE
 	select GENERIC_SMP_IDLE_THREAD
-	select GENERIC_STRNCPY_FROM_USER
-	select GENERIC_STRNLEN_USER
 	select MODULES_USE_ELF_RELA
 	select PCI_SYSCALL if PCI
 	select PCI_MSI_ARCH_FALLBACKS if PCI_MSI
@@ -49,19 +46,22 @@ config SPARC
 	select LOCKDEP_SMALL if LOCKDEP
 	select NEED_DMA_MAP_STATE
 	select NEED_SG_DMA_LENGTH
-	select SET_FS
+	select TRACE_IRQFLAGS_SUPPORT
 
 config SPARC32
 	def_bool !64BIT
 	select ARCH_32BIT_OFF_T
 	select ARCH_HAS_SYNC_DMA_FOR_CPU
-	select GENERIC_ATOMIC64
 	select CLZ_TAB
+	select DMA_DIRECT_REMAP
+	select GENERIC_ATOMIC64
 	select HAVE_UID16
 	select OLD_SIGACTION
+	select ZONE_DMA
 
 config SPARC64
 	def_bool 64BIT
+	select ALTERNATE_USER_ADDRESS_SPACE
 	select HAVE_FUNCTION_TRACER
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_KRETPROBES
@@ -97,6 +97,9 @@ config SPARC64
 	select PCI_DOMAINS if PCI
 	select ARCH_HAS_GIGANTIC_PAGE
 	select HAVE_SOFTIRQ_ON_OWN_STACK
+	select HAVE_SETUP_PER_CPU_AREA
+	select NEED_PER_CPU_EMBED_FIRST_CHUNK
+	select NEED_PER_CPU_PAGE_FIRST_CHUNK
 
 config ARCH_PROC_KCORE_TEXT
 	def_bool y
@@ -123,15 +126,6 @@ config AUDIT_ARCH
 	bool
 	default y
 
-config HAVE_SETUP_PER_CPU_AREA
-	def_bool y if SPARC64
-
-config NEED_PER_CPU_EMBED_FIRST_CHUNK
-	def_bool y if SPARC64
-
-config NEED_PER_CPU_PAGE_FIRST_CHUNK
-	def_bool y if SPARC64
-
 config MMU
 	bool
 	default y
@@ -140,10 +134,6 @@ config HIGHMEM
 	bool
 	default y if SPARC32
 	select KMAP_LOCAL
-
-config ZONE_DMA
-	bool
-	default y if SPARC32
 
 config GENERIC_ISA_DMA
 	bool
@@ -265,7 +255,7 @@ config NODES_SHIFT
 	int "Maximum NUMA Nodes (as a power of 2)"
 	range 4 5 if SPARC64
 	default "5"
-	depends on NEED_MULTIPLE_NODES
+	depends on NUMA
 	help
 	  Specify the maximum number of NUMA Nodes available on the target
 	  system.  Increases memory reserved to accommodate various tables.

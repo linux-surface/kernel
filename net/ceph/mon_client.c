@@ -1153,12 +1153,11 @@ static int build_initial_monmap(struct ceph_mon_client *monc)
 
 int ceph_monc_init(struct ceph_mon_client *monc, struct ceph_client *cl)
 {
-	int err = 0;
+	int err;
 
 	dout("init\n");
 	memset(monc, 0, sizeof(*monc));
 	monc->client = cl;
-	monc->monmap = NULL;
 	mutex_init(&monc->mutex);
 
 	err = build_initial_monmap(monc);
@@ -1508,7 +1507,7 @@ static struct ceph_msg *mon_alloc_msg(struct ceph_connection *con,
 			return get_generic_reply(con, hdr, skip);
 
 		/*
-		 * Older OSDs don't set reply tid even if the orignal
+		 * Older OSDs don't set reply tid even if the original
 		 * request had a non-zero tid.  Work around this weirdness
 		 * by allocating a new message.
 		 */

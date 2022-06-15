@@ -24,6 +24,7 @@
 
 #include "hyperv.h"
 #include "x86.h"
+#include "xen.h"
 
 static int kvm_set_pic_irq(struct kvm_kernel_irq_routing_entry *e,
 			   struct kvm *kvm, int irq_source_id, int level,
@@ -45,9 +46,9 @@ static int kvm_set_ioapic_irq(struct kvm_kernel_irq_routing_entry *e,
 int kvm_irq_delivery_to_apic(struct kvm *kvm, struct kvm_lapic *src,
 		struct kvm_lapic_irq *irq, struct dest_map *dest_map)
 {
-	int i, r = -1;
+	int r = -1;
 	struct kvm_vcpu *vcpu, *lowest = NULL;
-	unsigned long dest_vcpu_bitmap[BITS_TO_LONGS(KVM_MAX_VCPUS)];
+	unsigned long i, dest_vcpu_bitmap[BITS_TO_LONGS(KVM_MAX_VCPUS)];
 	unsigned int dest_vcpus = 0;
 
 	if (kvm_irq_delivery_to_apic_fast(kvm, src, irq, &r, dest_map))
@@ -175,6 +176,13 @@ int kvm_arch_set_irq_inatomic(struct kvm_kernel_irq_routing_entry *e,
 			return r;
 		break;
 
+#ifdef CONFIG_KVM_XEN
+	case KVM_IRQ_ROUTING_XEN_EVTCHN:
+		if (!level)
+			return -1;
+
+		return kvm_xen_set_evtchn_fast(e, kvm);
+#endif
 	default:
 		break;
 	}
@@ -269,7 +277,7 @@ int kvm_set_routing_entry(struct kvm *kvm,
 			  const struct kvm_irq_routing_entry *ue)
 {
 	/* We can't check irqchip_in_kernel() here as some callers are
-	 * currently inititalizing the irqchip. Other callers should therefore
+	 * currently initializing the irqchip. Other callers should therefore
 	 * check kvm_arch_can_set_irq_routing() before calling this function.
 	 */
 	switch (ue->type) {
@@ -310,6 +318,10 @@ int kvm_set_routing_entry(struct kvm *kvm,
 		e->hv_sint.vcpu = ue->u.hv_sint.vcpu;
 		e->hv_sint.sint = ue->u.hv_sint.sint;
 		break;
+#ifdef CONFIG_KVM_XEN
+	case KVM_IRQ_ROUTING_XEN_EVTCHN:
+		return kvm_xen_setup_evtchn(kvm, e, ue);
+#endif
 	default:
 		return -EINVAL;
 	}
@@ -320,7 +332,8 @@ int kvm_set_routing_entry(struct kvm *kvm,
 bool kvm_intr_is_single_vcpu(struct kvm *kvm, struct kvm_lapic_irq *irq,
 			     struct kvm_vcpu **dest_vcpu)
 {
-	int i, r = 0;
+	int r = 0;
+	unsigned long i;
 	struct kvm_vcpu *vcpu;
 
 	if (kvm_intr_is_single_vcpu_fast(kvm, irq, dest_vcpu))

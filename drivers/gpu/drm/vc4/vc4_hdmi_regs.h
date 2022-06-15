@@ -1,6 +1,8 @@
 #ifndef _VC4_HDMI_REGS_H_
 #define _VC4_HDMI_REGS_H_
 
+#include <linux/pm_runtime.h>
+
 #include "vc4_hdmi.h"
 
 #define VC4_HDMI_PACKET_STRIDE			0x24
@@ -100,6 +102,7 @@ enum vc4_hdmi_field {
 	HDMI_RM_FORMAT,
 	HDMI_RM_OFFSET,
 	HDMI_SCHEDULER_CONTROL,
+	HDMI_SCRAMBLER_CTL,
 	HDMI_SW_RESET_CONTROL,
 	HDMI_TX_PHY_CHANNEL_SWAP,
 	HDMI_TX_PHY_CLK_DIV,
@@ -238,6 +241,7 @@ static const struct vc4_hdmi_register __maybe_unused vc5_hdmi_hdmi0_fields[] = {
 	VC4_HDMI_REG(HDMI_GCP_CONFIG, 0x178),
 	VC4_HDMI_REG(HDMI_GCP_WORD_1, 0x17c),
 	VC4_HDMI_REG(HDMI_HOTPLUG, 0x1a8),
+	VC4_HDMI_REG(HDMI_SCRAMBLER_CTL, 0x1c4),
 
 	VC5_DVP_REG(HDMI_CLOCK_STOP, 0x0bc),
 	VC5_DVP_REG(HDMI_VEC_INTERFACE_XBAR, 0x0f0),
@@ -317,6 +321,7 @@ static const struct vc4_hdmi_register __maybe_unused vc5_hdmi_hdmi1_fields[] = {
 	VC4_HDMI_REG(HDMI_GCP_CONFIG, 0x178),
 	VC4_HDMI_REG(HDMI_GCP_WORD_1, 0x17c),
 	VC4_HDMI_REG(HDMI_HOTPLUG, 0x1a8),
+	VC4_HDMI_REG(HDMI_SCRAMBLER_CTL, 0x1c4),
 
 	VC5_DVP_REG(HDMI_CLOCK_STOP, 0x0bc),
 	VC5_DVP_REG(HDMI_VEC_INTERFACE_XBAR, 0x0f0),
@@ -409,6 +414,8 @@ static inline u32 vc4_hdmi_read(struct vc4_hdmi *hdmi,
 	const struct vc4_hdmi_variant *variant = hdmi->variant;
 	void __iomem *base;
 
+	WARN_ON(!pm_runtime_active(&hdmi->pdev->dev));
+
 	if (reg >= variant->num_registers) {
 		dev_warn(&hdmi->pdev->dev,
 			 "Invalid register ID %u\n", reg);
@@ -434,6 +441,10 @@ static inline void vc4_hdmi_write(struct vc4_hdmi *hdmi,
 	const struct vc4_hdmi_register *field;
 	const struct vc4_hdmi_variant *variant = hdmi->variant;
 	void __iomem *base;
+
+	lockdep_assert_held(&hdmi->hw_lock);
+
+	WARN_ON(!pm_runtime_active(&hdmi->pdev->dev));
 
 	if (reg >= variant->num_registers) {
 		dev_warn(&hdmi->pdev->dev,

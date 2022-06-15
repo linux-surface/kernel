@@ -77,6 +77,7 @@ struct dst_entry {
 #ifndef CONFIG_64BIT
 	atomic_t		__refcnt;	/* 32-bit offset 64 */
 #endif
+	netdevice_tracker	dev_tracker;
 };
 
 struct dst_metrics {
@@ -277,6 +278,7 @@ static inline void skb_dst_drop(struct sk_buff *skb)
 
 static inline void __skb_dst_copy(struct sk_buff *nskb, unsigned long refdst)
 {
+	nskb->slow_gro |= !!refdst;
 	nskb->_skb_refdst = refdst;
 	if (!(nskb->_skb_refdst & SKB_DST_NOREF))
 		dst_clone(skb_dst(nskb));
@@ -316,6 +318,7 @@ static inline bool skb_dst_force(struct sk_buff *skb)
 			dst = NULL;
 
 		skb->_skb_refdst = (unsigned long)dst;
+		skb->slow_gro |= !!dst;
 	}
 
 	return skb->_skb_refdst != 0UL;
@@ -549,5 +552,16 @@ static inline void skb_dst_update_pmtu_no_confirm(struct sk_buff *skb, u32 mtu)
 	if (dst && dst->ops->update_pmtu)
 		dst->ops->update_pmtu(dst, NULL, skb, mtu, false);
 }
+
+struct dst_entry *dst_blackhole_check(struct dst_entry *dst, u32 cookie);
+void dst_blackhole_update_pmtu(struct dst_entry *dst, struct sock *sk,
+			       struct sk_buff *skb, u32 mtu, bool confirm_neigh);
+void dst_blackhole_redirect(struct dst_entry *dst, struct sock *sk,
+			    struct sk_buff *skb);
+u32 *dst_blackhole_cow_metrics(struct dst_entry *dst, unsigned long old);
+struct neighbour *dst_blackhole_neigh_lookup(const struct dst_entry *dst,
+					     struct sk_buff *skb,
+					     const void *daddr);
+unsigned int dst_blackhole_mtu(const struct dst_entry *dst);
 
 #endif /* _NET_DST_H */

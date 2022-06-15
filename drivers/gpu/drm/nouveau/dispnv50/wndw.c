@@ -30,6 +30,7 @@
 #include <nvhw/class/cl507e.h>
 #include <nvhw/class/clc37e.h>
 
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_fourcc.h>
 
@@ -402,10 +403,7 @@ nv50_wndw_atomic_check_lut(struct nv50_wndw *wndw,
 	/* Recalculate LUT state. */
 	memset(&asyw->xlut, 0x00, sizeof(asyw->xlut));
 	if ((asyw->ilut = wndw->func->ilut ? ilut : NULL)) {
-		if (!wndw->func->ilut(wndw, asyw, drm_color_lut_size(ilut))) {
-			DRM_DEBUG_KMS("Invalid ilut\n");
-			return -EINVAL;
-		}
+		wndw->func->ilut(wndw, asyw, drm_color_lut_size(ilut));
 		asyw->xlut.handle = wndw->wndw.vram.handle;
 		asyw->xlut.i.buffer = !asyw->xlut.i.buffer;
 		asyw->set.xlut = true;
@@ -434,12 +432,15 @@ nv50_wndw_atomic_check_lut(struct nv50_wndw *wndw,
 }
 
 static int
-nv50_wndw_atomic_check(struct drm_plane *plane, struct drm_plane_state *state)
+nv50_wndw_atomic_check(struct drm_plane *plane,
+		       struct drm_atomic_state *state)
 {
+	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state,
+										 plane);
 	struct nouveau_drm *drm = nouveau_drm(plane->dev);
 	struct nv50_wndw *wndw = nv50_wndw(plane);
 	struct nv50_wndw_atom *armw = nv50_wndw_atom(wndw->plane.state);
-	struct nv50_wndw_atom *asyw = nv50_wndw_atom(state);
+	struct nv50_wndw_atom *asyw = nv50_wndw_atom(new_plane_state);
 	struct nv50_head_atom *harm = NULL, *asyh = NULL;
 	bool modeset = false;
 	int ret;
@@ -535,6 +536,8 @@ nv50_wndw_prepare_fb(struct drm_plane *plane, struct drm_plane_state *state)
 	struct nouveau_bo *nvbo;
 	struct nv50_head_atom *asyh;
 	struct nv50_wndw_ctxdma *ctxdma;
+	struct dma_resv_iter cursor;
+	struct dma_fence *fence;
 	int ret;
 
 	NV_ATOMIC(drm, "%s prepare: %p\n", plane->name, fb);
@@ -557,7 +560,13 @@ nv50_wndw_prepare_fb(struct drm_plane *plane, struct drm_plane_state *state)
 			asyw->image.handle[0] = ctxdma->object.handle;
 	}
 
-	asyw->state.fence = dma_resv_get_excl_rcu(nvbo->bo.base.resv);
+	dma_resv_iter_begin(&cursor, nvbo->bo.base.resv, false);
+	dma_resv_for_each_fence_unlocked(&cursor, fence) {
+		/* TODO: We only use the first writer here */
+		asyw->state.fence = dma_fence_get(fence);
+		break;
+	}
+	dma_resv_iter_end(&cursor);
 	asyw->image.offset[0] = nvbo->offset;
 
 	if (wndw->func->prepare) {
@@ -626,8 +635,6 @@ nv50_wndw_reset(struct drm_plane *plane)
 		plane->funcs->atomic_destroy_state(plane, plane->state);
 
 	__drm_atomic_helper_plane_reset(plane, &asyw->state);
-	plane->state->zpos = nv50_wndw_zpos_default(plane);
-	plane->state->normalized_zpos = nv50_wndw_zpos_default(plane);
 }
 
 static void

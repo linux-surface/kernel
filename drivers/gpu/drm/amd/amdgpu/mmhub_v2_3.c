@@ -90,8 +90,10 @@ mmhub_v2_3_print_l2_protection_fault_status(struct amdgpu_device *adev,
 	dev_err(adev->dev,
 		"MMVM_L2_PROTECTION_FAULT_STATUS:0x%08X\n",
 		status);
-	switch (adev->asic_type) {
-	case CHIP_VANGOGH:
+	switch (adev->ip_versions[MMHUB_HWIP][0]) {
+	case IP_VERSION(2, 3, 0):
+	case IP_VERSION(2, 4, 0):
+	case IP_VERSION(2, 4, 1):
 		mmhub_cid = mmhub_client_ids_vangogh[cid][rw];
 		break;
 	default:
@@ -162,8 +164,7 @@ static void mmhub_v2_3_init_system_aperture_regs(struct amdgpu_device *adev)
 		     max(adev->gmc.fb_end, adev->gmc.agp_end) >> 18);
 
 	/* Set default page address. */
-	value = adev->vram_scratch.gpu_addr - adev->gmc.vram_start +
-		adev->vm_manager.vram_base_offset;
+	value = amdgpu_gmc_vram_mc2pa(adev, adev->vram_scratch.gpu_addr);
 	WREG32_SOC15(MMHUB, 0, mmMMMC_VM_SYSTEM_APERTURE_DEFAULT_ADDR_LSB,
 		     (u32)(value >> 12));
 	WREG32_SOC15(MMHUB, 0, mmMMMC_VM_SYSTEM_APERTURE_DEFAULT_ADDR_MSB,
@@ -194,7 +195,6 @@ static void mmhub_v2_3_init_tlb_regs(struct amdgpu_device *adev)
 			    ENABLE_ADVANCED_DRIVER_MODEL, 1);
 	tmp = REG_SET_FIELD(tmp, MMMC_VM_MX_L1_TLB_CNTL,
 			    SYSTEM_APERTURE_UNMAPPED_ACCESS, 0);
-	tmp = REG_SET_FIELD(tmp, MMMC_VM_MX_L1_TLB_CNTL, ECO_BITS, 0);
 	tmp = REG_SET_FIELD(tmp, MMMC_VM_MX_L1_TLB_CNTL,
 			    MTYPE, MTYPE_UC); /* UC, uncached */
 
@@ -570,9 +570,9 @@ static int mmhub_v2_3_set_clockgating(struct amdgpu_device *adev,
 		return 0;
 
 	mmhub_v2_3_update_medium_grain_clock_gating(adev,
-			state == AMD_CG_STATE_GATE ? true : false);
+				state == AMD_CG_STATE_GATE);
 	mmhub_v2_3_update_medium_grain_light_sleep(adev,
-			state == AMD_CG_STATE_GATE ? true : false);
+				state == AMD_CG_STATE_GATE);
 
 	return 0;
 }
@@ -616,7 +616,6 @@ static void mmhub_v2_3_get_clockgating(struct amdgpu_device *adev, u32 *flags)
 }
 
 const struct amdgpu_mmhub_funcs mmhub_v2_3_funcs = {
-	.ras_late_init = amdgpu_mmhub_ras_late_init,
 	.init = mmhub_v2_3_init,
 	.gart_enable = mmhub_v2_3_gart_enable,
 	.set_fault_enable_default = mmhub_v2_3_set_fault_enable_default,

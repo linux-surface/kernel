@@ -239,7 +239,6 @@ static int softing_handle_1(struct softing *card)
 				DPRAM_INFO_BUSSTATE2 : DPRAM_INFO_BUSSTATE]);
 		/* timestamp */
 		tmp_u32 = le32_to_cpup((void *)ptr);
-		ptr += 4;
 		ktime = softing_raw2ktime(card, tmp_u32);
 
 		++netdev->stats.rx_errors;
@@ -276,7 +275,6 @@ static int softing_handle_1(struct softing *card)
 		ktime = softing_raw2ktime(card, tmp_u32);
 		if (!(msg.can_id & CAN_RTR_FLAG))
 			memcpy(&msg.data[0], ptr, 8);
-		ptr += 8;
 		/* update socket */
 		if (cmd & CMD_ACK) {
 			/* acknowledge, was tx msg */
@@ -284,7 +282,10 @@ static int softing_handle_1(struct softing *card)
 			skb = priv->can.echo_skb[priv->tx.echo_get];
 			if (skb)
 				skb->tstamp = ktime;
-			can_get_echo_skb(netdev, priv->tx.echo_get, NULL);
+			++netdev->stats.tx_packets;
+			netdev->stats.tx_bytes +=
+				can_get_echo_skb(netdev, priv->tx.echo_get,
+						 NULL);
 			++priv->tx.echo_get;
 			if (priv->tx.echo_get >= TX_ECHO_SKB_MAX)
 				priv->tx.echo_get = 0;
@@ -292,9 +293,6 @@ static int softing_handle_1(struct softing *card)
 				--priv->tx.pending;
 			if (card->tx.pending)
 				--card->tx.pending;
-			++netdev->stats.tx_packets;
-			if (!(msg.can_id & CAN_RTR_FLAG))
-				netdev->stats.tx_bytes += msg.len;
 		} else {
 			int ret;
 
@@ -394,13 +392,10 @@ static int softing_netdev_open(struct net_device *ndev)
 
 static int softing_netdev_stop(struct net_device *ndev)
 {
-	int ret;
-
 	netif_stop_queue(ndev);
 
 	/* softing cycle does close_candev() */
-	ret = softing_startstop(ndev, 0);
-	return ret;
+	return softing_startstop(ndev, 0);
 }
 
 static int softing_candev_set_mode(struct net_device *ndev, enum can_mode mode)

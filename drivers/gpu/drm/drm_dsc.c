@@ -12,7 +12,7 @@
 #include <linux/errno.h>
 #include <linux/byteorder/generic.h>
 #include <drm/drm_print.h>
-#include <drm/drm_dp_helper.h>
+#include <drm/dp/drm_dp_helper.h>
 #include <drm/drm_dsc.h>
 
 /**
@@ -98,7 +98,7 @@ void drm_dsc_pps_payload_pack(struct drm_dsc_picture_parameter_set *pps_payload,
 {
 	int i;
 
-	/* Protect against someone accidently changing struct size */
+	/* Protect against someone accidentally changing struct size */
 	BUILD_BUG_ON(sizeof(*pps_payload) !=
 		     DP_SDP_PPS_HEADER_PAYLOAD_BYTES_MINUS_1 + 1);
 

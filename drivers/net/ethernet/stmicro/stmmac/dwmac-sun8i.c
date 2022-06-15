@@ -16,6 +16,7 @@
 #include <linux/of_net.h>
 #include <linux/phy.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regmap.h>
 #include <linux/stmmac.h>
@@ -57,7 +58,6 @@ struct emac_variant {
 };
 
 /* struct sunxi_priv_data - hold all sunxi private data
- * @tx_clk:	reference to MAC TX clock
  * @ephy_clk:	reference to the optional EPHY clock for the internal PHY
  * @regulator:	reference to the optional regulator
  * @rst_ephy:	reference to the optional EPHY reset for the internal PHY
@@ -68,7 +68,6 @@ struct emac_variant {
  * @mux_handle:	Internal pointer used by mdio-mux lib
  */
 struct sunxi_priv_data {
-	struct clk *tx_clk;
 	struct clk *ephy_clk;
 	struct regulator *regulator;
 	struct reset_control *rst_ephy;
@@ -238,6 +237,22 @@ static const struct emac_variant emac_variant_h6 = {
 #define EMAC_RX_OVERFLOW_INT    BIT(12)
 #define EMAC_RX_EARLY_INT       BIT(13)
 #define EMAC_RGMII_STA_INT      BIT(16)
+
+#define EMAC_INT_MSK_COMMON	EMAC_RGMII_STA_INT
+#define EMAC_INT_MSK_TX		(EMAC_TX_INT | \
+				 EMAC_TX_DMA_STOP_INT | \
+				 EMAC_TX_BUF_UA_INT | \
+				 EMAC_TX_TIMEOUT_INT | \
+				 EMAC_TX_UNDERFLOW_INT | \
+				 EMAC_TX_EARLY_INT |\
+				 EMAC_INT_MSK_COMMON)
+#define EMAC_INT_MSK_RX		(EMAC_RX_INT | \
+				 EMAC_RX_BUF_UA_INT | \
+				 EMAC_RX_DMA_STOP_INT | \
+				 EMAC_RX_TIMEOUT_INT | \
+				 EMAC_RX_OVERFLOW_INT | \
+				 EMAC_RX_EARLY_INT | \
+				 EMAC_INT_MSK_COMMON)
 
 #define MAC_ADDR_TYPE_DST BIT(31)
 
@@ -412,12 +427,18 @@ static void sun8i_dwmac_dma_stop_rx(void __iomem *ioaddr, u32 chan)
 }
 
 static int sun8i_dwmac_dma_interrupt(void __iomem *ioaddr,
-				     struct stmmac_extra_stats *x, u32 chan)
+				     struct stmmac_extra_stats *x, u32 chan,
+				     u32 dir)
 {
 	u32 v;
 	int ret = 0;
 
 	v = readl(ioaddr + EMAC_INT_STA);
+
+	if (dir == DMA_DIR_RX)
+		v &= EMAC_INT_MSK_RX;
+	else if (dir == DMA_DIR_TX)
+		v &= EMAC_INT_MSK_TX;
 
 	if (v & EMAC_TX_INT) {
 		ret |= handle_tx;
@@ -557,22 +578,14 @@ static int sun8i_dwmac_init(struct platform_device *pdev, void *priv)
 		}
 	}
 
-	ret = clk_prepare_enable(gmac->tx_clk);
-	if (ret) {
-		dev_err(&pdev->dev, "Could not enable AHB clock\n");
-		goto err_disable_regulator;
-	}
-
 	if (gmac->use_internal_phy) {
 		ret = sun8i_dwmac_power_internal_phy(netdev_priv(ndev));
 		if (ret)
-			goto err_disable_clk;
+			goto err_disable_regulator;
 	}
 
 	return 0;
 
-err_disable_clk:
-	clk_disable_unprepare(gmac->tx_clk);
 err_disable_regulator:
 	if (gmac->regulator)
 		regulator_disable(gmac->regulator);
@@ -612,7 +625,7 @@ static void sun8i_dwmac_set_mac(void __iomem *ioaddr, bool enable)
  * If addr is NULL, clear the slot
  */
 static void sun8i_dwmac_set_umac_addr(struct mac_device_info *hw,
-				      unsigned char *addr,
+				      const unsigned char *addr,
 				      unsigned int reg_n)
 {
 	void __iomem *ioaddr = hw->pcsr;
@@ -734,7 +747,7 @@ static int sun8i_dwmac_reset(struct stmmac_priv *priv)
 
 	if (err) {
 		dev_err(priv->device, "EMAC reset timeout\n");
-		return -EFAULT;
+		return err;
 	}
 	return 0;
 }
@@ -894,6 +907,7 @@ static int sun8i_dwmac_register_mdio_mux(struct stmmac_priv *priv)
 
 	ret = mdio_mux_init(priv->device, mdio_mux, mdio_mux_syscon_switch_fn,
 			    &gmac->mux_handle, priv, priv->mii);
+	of_node_put(mdio_mux);
 	return ret;
 }
 
@@ -1021,8 +1035,6 @@ static void sun8i_dwmac_exit(struct platform_device *pdev, void *priv)
 	if (gmac->variant->soc_has_internal_phy)
 		sun8i_dwmac_unpower_internal_phy(gmac);
 
-	clk_disable_unprepare(gmac->tx_clk);
-
 	if (gmac->regulator)
 		regulator_disable(gmac->regulator);
 }
@@ -1145,12 +1157,6 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	gmac->tx_clk = devm_clk_get(dev, "stmmaceth");
-	if (IS_ERR(gmac->tx_clk)) {
-		dev_err(dev, "Could not get TX clock\n");
-		return PTR_ERR(gmac->tx_clk);
-	}
-
 	/* Optional regulator for PHY */
 	gmac->regulator = devm_regulator_get_optional(dev, "phy");
 	if (IS_ERR(gmac->regulator)) {
@@ -1199,7 +1205,7 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 	if (ret)
 		return -EINVAL;
 
-	plat_dat = stmmac_probe_config_dt(pdev, &stmmac_res.mac);
+	plat_dat = stmmac_probe_config_dt(pdev, stmmac_res.mac);
 	if (IS_ERR(plat_dat))
 		return PTR_ERR(plat_dat);
 
@@ -1214,6 +1220,8 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 	plat_dat->init = sun8i_dwmac_init;
 	plat_dat->exit = sun8i_dwmac_exit;
 	plat_dat->setup = sun8i_dwmac_setup;
+	plat_dat->tx_fifo_size = 4096;
+	plat_dat->rx_fifo_size = 16384;
 
 	ret = sun8i_dwmac_set_syscon(&pdev->dev, plat_dat);
 	if (ret)
@@ -1229,6 +1237,12 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 
 	ndev = dev_get_drvdata(&pdev->dev);
 	priv = netdev_priv(ndev);
+
+	/* the MAC is runtime suspended after stmmac_dvr_probe(), so we
+	 * need to ensure the MAC resume back before other operations such
+	 * as reset.
+	 */
+	pm_runtime_get_sync(&pdev->dev);
 
 	/* The mux must be registered after parent MDIO
 	 * so after stmmac_dvr_probe()
@@ -1248,12 +1262,15 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 			goto dwmac_remove;
 	}
 
+	pm_runtime_put(&pdev->dev);
+
 	return 0;
 
 dwmac_mux:
 	reset_control_put(gmac->rst_ephy);
 	clk_put(gmac->ephy_clk);
 dwmac_remove:
+	pm_runtime_put_noidle(&pdev->dev);
 	stmmac_dvr_remove(&pdev->dev);
 dwmac_exit:
 	sun8i_dwmac_exit(pdev, gmac);

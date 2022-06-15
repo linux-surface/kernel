@@ -326,7 +326,7 @@ void mei_io_cb_free(struct mei_cl_cb *cb)
 }
 
 /**
- * mei_tx_cb_queue - queue tx callback
+ * mei_tx_cb_enqueue - queue tx callback
  *
  * Locking: called under "dev->device_lock" lock
  *
@@ -699,6 +699,9 @@ int mei_cl_unlink(struct mei_cl *cl)
 	dev = cl->dev;
 
 	cl_dbg(dev, cl, "unlink client");
+
+	if (cl->state == MEI_FILE_UNINITIALIZED)
+		return 0;
 
 	if (dev->open_handle_count > 0)
 		dev->open_handle_count--;
@@ -1726,12 +1729,15 @@ nortpm:
 	return rets;
 }
 
-static inline u8 mei_ext_hdr_set_vtag(struct mei_ext_hdr *ext, u8 vtag)
+static inline u8 mei_ext_hdr_set_vtag(void *ext, u8 vtag)
 {
-	ext->type = MEI_EXT_HDR_VTAG;
-	ext->ext_payload[0] = vtag;
-	ext->length = mei_data2slots(sizeof(*ext));
-	return ext->length;
+	struct mei_ext_hdr_vtag *vtag_hdr = ext;
+
+	vtag_hdr->hdr.type = MEI_EXT_HDR_VTAG;
+	vtag_hdr->hdr.length = mei_data2slots(sizeof(*vtag_hdr));
+	vtag_hdr->vtag = vtag;
+	vtag_hdr->reserved = 0;
+	return vtag_hdr->hdr.length;
 }
 
 /**
@@ -1745,7 +1751,6 @@ static struct mei_msg_hdr *mei_msg_hdr_init(const struct mei_cl_cb *cb)
 {
 	size_t hdr_len;
 	struct mei_ext_meta_hdr *meta;
-	struct mei_ext_hdr *ext;
 	struct mei_msg_hdr *mei_hdr;
 	bool is_ext, is_vtag;
 
@@ -1764,7 +1769,7 @@ static struct mei_msg_hdr *mei_msg_hdr_init(const struct mei_cl_cb *cb)
 
 	hdr_len += sizeof(*meta);
 	if (is_vtag)
-		hdr_len += sizeof(*ext);
+		hdr_len += sizeof(struct mei_ext_hdr_vtag);
 
 setup_hdr:
 	mei_hdr = kzalloc(hdr_len, GFP_KERNEL);
@@ -2143,6 +2148,7 @@ void mei_cl_all_disconnect(struct mei_device *dev)
 	list_for_each_entry(cl, &dev->file_list, link)
 		mei_cl_set_disconnected(cl);
 }
+EXPORT_SYMBOL_GPL(mei_cl_all_disconnect);
 
 static struct mei_cl *mei_cl_dma_map_find(struct mei_device *dev, u8 buffer_id)
 {
@@ -2250,7 +2256,7 @@ static void mei_cl_dma_free(struct mei_cl *cl)
 }
 
 /**
- * mei_cl_alloc_and_map - send client dma map request
+ * mei_cl_dma_alloc_and_map - send client dma map request
  *
  * @cl: host client
  * @fp: pointer to file structure
@@ -2286,8 +2292,8 @@ int mei_cl_dma_alloc_and_map(struct mei_cl *cl, const struct file *fp,
 	if (buffer_id == 0)
 		return -EINVAL;
 
-	if (!mei_cl_is_connected(cl))
-		return -ENODEV;
+	if (mei_cl_is_connected(cl))
+		return -EPROTO;
 
 	if (cl->dma_mapped)
 		return -EPROTO;
@@ -2325,11 +2331,11 @@ int mei_cl_dma_alloc_and_map(struct mei_cl *cl, const struct file *fp,
 		list_move_tail(&cb->list, &dev->ctrl_rd_list);
 	}
 
+	cl->status = 0;
+
 	mutex_unlock(&dev->device_lock);
 	wait_event_timeout(cl->wait,
-			   cl->dma_mapped ||
-			   cl->status ||
-			   !mei_cl_is_connected(cl),
+			   cl->dma_mapped || cl->status,
 			   mei_secs_to_jiffies(MEI_CL_CONNECT_TIMEOUT));
 	mutex_lock(&dev->device_lock);
 
@@ -2351,7 +2357,7 @@ out:
 }
 
 /**
- * mei_cl_unmap_and_free - send client dma unmap request
+ * mei_cl_dma_unmap - send client dma unmap request
  *
  * @cl: host client
  * @fp: pointer to file structure
@@ -2376,8 +2382,9 @@ int mei_cl_dma_unmap(struct mei_cl *cl, const struct file *fp)
 		return -EOPNOTSUPP;
 	}
 
-	if (!mei_cl_is_connected(cl))
-		return -ENODEV;
+	/* do not allow unmap for connected client */
+	if (mei_cl_is_connected(cl))
+		return -EPROTO;
 
 	if (!cl->dma_mapped)
 		return -EPROTO;
@@ -2403,11 +2410,11 @@ int mei_cl_dma_unmap(struct mei_cl *cl, const struct file *fp)
 		list_move_tail(&cb->list, &dev->ctrl_rd_list);
 	}
 
+	cl->status = 0;
+
 	mutex_unlock(&dev->device_lock);
 	wait_event_timeout(cl->wait,
-			   !cl->dma_mapped ||
-			   cl->status ||
-			   !mei_cl_is_connected(cl),
+			   !cl->dma_mapped || cl->status,
 			   mei_secs_to_jiffies(MEI_CL_CONNECT_TIMEOUT));
 	mutex_lock(&dev->device_lock);
 

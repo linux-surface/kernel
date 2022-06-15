@@ -104,6 +104,7 @@ void enc2_stream_encoder_dp_set_stream_attribute(
 	uint32_t enable_sdp_splitting);
 
 void enc2_stream_encoder_dp_unblank(
+	struct dc_link *link,
 	struct stream_encoder *enc,
 	const struct encoder_unblank_param *param);
 
@@ -111,5 +112,8 @@ void enc2_set_dynamic_metadata(struct stream_encoder *enc,
 		bool enable_dme,
 		uint32_t hubp_requestor_id,
 		enum dynamic_metadata_mode dmdata_mode);
+
+uint32_t enc2_get_fifo_cal_average_level(
+		struct stream_encoder *enc);
 
 #endif /* __DC_STREAM_ENCODER_DCN20_H__ */

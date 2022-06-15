@@ -6,11 +6,8 @@
 #include <bpf/bpf_helpers.h>
 
 char _license[] SEC("license") = "GPL";
-__u32 _version SEC("version") = 1;
 
-#ifndef PAGE_SIZE
-#define PAGE_SIZE 4096
-#endif
+int page_size = 0; /* userspace should set it */
 
 #ifndef SOL_TCP
 #define SOL_TCP IPPROTO_TCP
@@ -35,6 +32,14 @@ int _getsockopt(struct bpf_sockopt *ctx)
 	__u8 *optval_end = ctx->optval_end;
 	__u8 *optval = ctx->optval;
 	struct sockopt_sk *storage;
+
+	/* Make sure bpf_get_netns_cookie is callable.
+	 */
+	if (bpf_get_netns_cookie(NULL) == 0)
+		return 0;
+
+	if (bpf_get_netns_cookie(ctx) == 0)
+		return 0;
 
 	if (ctx->level == SOL_IP && ctx->optname == IP_TOS) {
 		/* Not interested in SOL_IP:IP_TOS;
@@ -67,18 +72,19 @@ int _getsockopt(struct bpf_sockopt *ctx)
 		 * reasons.
 		 */
 
-		if (optval + sizeof(struct tcp_zerocopy_receive) > optval_end)
-			return 0; /* EPERM, bounds check */
+		/* Check that optval contains address (__u64) */
+		if (optval + sizeof(__u64) > optval_end)
+			return 0; /* bounds check */
 
 		if (((struct tcp_zerocopy_receive *)optval)->address != 0)
-			return 0; /* EPERM, unexpected data */
+			return 0; /* unexpected data */
 
 		return 1;
 	}
 
 	if (ctx->level == SOL_IP && ctx->optname == IP_FREEBIND) {
 		if (optval + 1 > optval_end)
-			return 0; /* EPERM, bounds check */
+			return 0; /* bounds check */
 
 		ctx->retval = 0; /* Reset system call return value to zero */
 
@@ -90,25 +96,25 @@ int _getsockopt(struct bpf_sockopt *ctx)
 		 * program can only see the first PAGE_SIZE
 		 * bytes of data.
 		 */
-		if (optval_end - optval != PAGE_SIZE)
-			return 0; /* EPERM, unexpected data size */
+		if (optval_end - optval != page_size)
+			return 0; /* unexpected data size */
 
 		return 1;
 	}
 
 	if (ctx->level != SOL_CUSTOM)
-		return 0; /* EPERM, deny everything except custom level */
+		return 0; /* deny everything except custom level */
 
 	if (optval + 1 > optval_end)
-		return 0; /* EPERM, bounds check */
+		return 0; /* bounds check */
 
 	storage = bpf_sk_storage_get(&socket_storage_map, ctx->sk, 0,
 				     BPF_SK_STORAGE_GET_F_CREATE);
 	if (!storage)
-		return 0; /* EPERM, couldn't get sk storage */
+		return 0; /* couldn't get sk storage */
 
 	if (!ctx->retval)
-		return 0; /* EPERM, kernel should not have handled
+		return 0; /* kernel should not have handled
 			   * SOL_CUSTOM, something is wrong!
 			   */
 	ctx->retval = 0; /* Reset system call return value to zero */
@@ -126,6 +132,14 @@ int _setsockopt(struct bpf_sockopt *ctx)
 	__u8 *optval = ctx->optval;
 	struct sockopt_sk *storage;
 
+	/* Make sure bpf_get_netns_cookie is callable.
+	 */
+	if (bpf_get_netns_cookie(NULL) == 0)
+		return 0;
+
+	if (bpf_get_netns_cookie(ctx) == 0)
+		return 0;
+
 	if (ctx->level == SOL_IP && ctx->optname == IP_TOS) {
 		/* Not interested in SOL_IP:IP_TOS;
 		 * let next BPF program in the cgroup chain or kernel
@@ -139,7 +153,7 @@ int _setsockopt(struct bpf_sockopt *ctx)
 		/* Overwrite SO_SNDBUF value */
 
 		if (optval + sizeof(__u32) > optval_end)
-			return 0; /* EPERM, bounds check */
+			return 0; /* bounds check */
 
 		*(__u32 *)optval = 0x55AA;
 		ctx->optlen = 4;
@@ -151,7 +165,7 @@ int _setsockopt(struct bpf_sockopt *ctx)
 		/* Always use cubic */
 
 		if (optval + 5 > optval_end)
-			return 0; /* EPERM, bounds check */
+			return 0; /* bounds check */
 
 		memcpy(optval, "cubic", 5);
 		ctx->optlen = 5;
@@ -161,11 +175,11 @@ int _setsockopt(struct bpf_sockopt *ctx)
 
 	if (ctx->level == SOL_IP && ctx->optname == IP_FREEBIND) {
 		/* Original optlen is larger than PAGE_SIZE. */
-		if (ctx->optlen != PAGE_SIZE * 2)
-			return 0; /* EPERM, unexpected data size */
+		if (ctx->optlen != page_size * 2)
+			return 0; /* unexpected data size */
 
 		if (optval + 1 > optval_end)
-			return 0; /* EPERM, bounds check */
+			return 0; /* bounds check */
 
 		/* Make sure we can trim the buffer. */
 		optval[0] = 0;
@@ -175,22 +189,22 @@ int _setsockopt(struct bpf_sockopt *ctx)
 		 * program can only see the first PAGE_SIZE
 		 * bytes of data.
 		 */
-		if (optval_end - optval != PAGE_SIZE)
-			return 0; /* EPERM, unexpected data size */
+		if (optval_end - optval != page_size)
+			return 0; /* unexpected data size */
 
 		return 1;
 	}
 
 	if (ctx->level != SOL_CUSTOM)
-		return 0; /* EPERM, deny everything except custom level */
+		return 0; /* deny everything except custom level */
 
 	if (optval + 1 > optval_end)
-		return 0; /* EPERM, bounds check */
+		return 0; /* bounds check */
 
 	storage = bpf_sk_storage_get(&socket_storage_map, ctx->sk, 0,
 				     BPF_SK_STORAGE_GET_F_CREATE);
 	if (!storage)
-		return 0; /* EPERM, couldn't get sk storage */
+		return 0; /* couldn't get sk storage */
 
 	storage->val = optval[0];
 	ctx->optlen = -1; /* BPF has consumed this option, don't call kernel

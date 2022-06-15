@@ -10,7 +10,7 @@ Overview
 Software Guard eXtensions (SGX) hardware enables for user space applications
 to set aside private memory regions of code and data:
 
-* Privileged (ring-0) ENCLS functions orchestrate the construction of the.
+* Privileged (ring-0) ENCLS functions orchestrate the construction of the
   regions.
 * Unprivileged (ring-3) ENCLU functions allow an application to enter and
   execute inside the regions.
@@ -91,7 +91,7 @@ In addition to the traditional compiler and linker build process, SGX has a
 separate enclave “build” process.  Enclaves must be built before they can be
 executed (entered). The first step in building an enclave is opening the
 **/dev/sgx_enclave** device.  Since enclave memory is protected from direct
-access, special privileged instructions are Then used to copy data into enclave
+access, special privileged instructions are then used to copy data into enclave
 pages and establish enclave page permissions.
 
 .. kernel-doc:: arch/x86/kernel/cpu/sgx/ioctl.c
@@ -126,13 +126,13 @@ the need to juggle signal handlers.
 ksgxd
 =====
 
-SGX support includes a kernel thread called *ksgxwapd*.
+SGX support includes a kernel thread called *ksgxd*.
 
 EPC sanitization
 ----------------
 
 ksgxd is started when SGX initializes.  Enclave memory is typically ready
-For use when the processor powers on or resets.  However, if SGX has been in
+for use when the processor powers on or resets.  However, if SGX has been in
 use since the reset, enclave pages may be in an inconsistent state.  This might
 occur after a crash and kexec() cycle, for instance.  At boot, ksgxd
 reinitializes all enclave pages so that they can be allocated and re-used.
@@ -147,7 +147,7 @@ Page reclaimer
 
 Similar to the core kswapd, ksgxd, is responsible for managing the
 overcommitment of enclave memory.  If the system runs out of enclave memory,
-*ksgxwapd* “swaps” enclave memory to normal memory.
+*ksgxd* “swaps” enclave memory to normal memory.
 
 Launch Control
 ==============
@@ -156,7 +156,7 @@ SGX provides a launch control mechanism. After all enclave pages have been
 copied, kernel executes EINIT function, which initializes the enclave. Only after
 this the CPU can execute inside the enclave.
 
-ENIT function takes an RSA-3072 signature of the enclave measurement.  The function
+EINIT function takes an RSA-3072 signature of the enclave measurement.  The function
 checks that the measurement is correct and signature is signed with the key
 hashed to the four **IA32_SGXLEPUBKEYHASH{0, 1, 2, 3}** MSRs representing the
 SHA256 of a public key.
@@ -184,7 +184,7 @@ CPUs starting from Icelake use Total Memory Encryption (TME) in the place of
 MEE. TME-based SGX implementations do not have an integrity Merkle tree, which
 means integrity and replay-attacks are not mitigated.  B, it includes
 additional changes to prevent cipher text from being returned and SW memory
-aliases from being Created.
+aliases from being created.
 
 DMA to enclave memory is blocked by range registers on both MEE and TME systems
 (SDM section 41.10).
@@ -209,3 +209,79 @@ An application may be loaded into a container enclave which is specially
 configured with a library OS and run-time which permits the application to run.
 The enclave run-time and library OS work together to execute the application
 when a thread enters the enclave.
+
+Impact of Potential Kernel SGX Bugs
+===================================
+
+EPC leaks
+---------
+
+When EPC page leaks happen, a WARNING like this is shown in dmesg:
+
+"EREMOVE returned ... and an EPC page was leaked.  SGX may become unusable..."
+
+This is effectively a kernel use-after-free of an EPC page, and due
+to the way SGX works, the bug is detected at freeing. Rather than
+adding the page back to the pool of available EPC pages, the kernel
+intentionally leaks the page to avoid additional errors in the future.
+
+When this happens, the kernel will likely soon leak more EPC pages, and
+SGX will likely become unusable because the memory available to SGX is
+limited. However, while this may be fatal to SGX, the rest of the kernel
+is unlikely to be impacted and should continue to work.
+
+As a result, when this happpens, user should stop running any new
+SGX workloads, (or just any new workloads), and migrate all valuable
+workloads. Although a machine reboot can recover all EPC memory, the bug
+should be reported to Linux developers.
+
+
+Virtual EPC
+===========
+
+The implementation has also a virtual EPC driver to support SGX enclaves
+in guests. Unlike the SGX driver, an EPC page allocated by the virtual
+EPC driver doesn't have a specific enclave associated with it. This is
+because KVM doesn't track how a guest uses EPC pages.
+
+As a result, the SGX core page reclaimer doesn't support reclaiming EPC
+pages allocated to KVM guests through the virtual EPC driver. If the
+user wants to deploy SGX applications both on the host and in guests
+on the same machine, the user should reserve enough EPC (by taking out
+total virtual EPC size of all SGX VMs from the physical EPC size) for
+host SGX applications so they can run with acceptable performance.
+
+Architectural behavior is to restore all EPC pages to an uninitialized
+state also after a guest reboot.  Because this state can be reached only
+through the privileged ``ENCLS[EREMOVE]`` instruction, ``/dev/sgx_vepc``
+provides the ``SGX_IOC_VEPC_REMOVE_ALL`` ioctl to execute the instruction
+on all pages in the virtual EPC.
+
+``EREMOVE`` can fail for three reasons.  Userspace must pay attention
+to expected failures and handle them as follows:
+
+1. Page removal will always fail when any thread is running in the
+   enclave to which the page belongs.  In this case the ioctl will
+   return ``EBUSY`` independent of whether it has successfully removed
+   some pages; userspace can avoid these failures by preventing execution
+   of any vcpu which maps the virtual EPC.
+
+2. Page removal will cause a general protection fault if two calls to
+   ``EREMOVE`` happen concurrently for pages that refer to the same
+   "SECS" metadata pages.  This can happen if there are concurrent
+   invocations to ``SGX_IOC_VEPC_REMOVE_ALL``, or if a ``/dev/sgx_vepc``
+   file descriptor in the guest is closed at the same time as
+   ``SGX_IOC_VEPC_REMOVE_ALL``; it will also be reported as ``EBUSY``.
+   This can be avoided in userspace by serializing calls to the ioctl()
+   and to close(), but in general it should not be a problem.
+
+3. Finally, page removal will fail for SECS metadata pages which still
+   have child pages.  Child pages can be removed by executing
+   ``SGX_IOC_VEPC_REMOVE_ALL`` on all ``/dev/sgx_vepc`` file descriptors
+   mapped into the guest.  This means that the ioctl() must be called
+   twice: an initial set of calls to remove child pages and a subsequent
+   set of calls to remove SECS pages.  The second set of calls is only
+   required for those mappings that returned a nonzero value from the
+   first call.  It indicates a bug in the kernel or the userspace client
+   if any of the second round of ``SGX_IOC_VEPC_REMOVE_ALL`` calls has
+   a return code other than 0.

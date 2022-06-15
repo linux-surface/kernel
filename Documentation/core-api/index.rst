@@ -44,11 +44,19 @@ Library functionality that is used throughout the kernel.
    timekeeping
    errseq
 
+Low level entry and exit
+========================
+
+.. toctree::
+   :maxdepth: 1
+
+   entry
+
 Concurrency primitives
 ======================
 
 How Linux keeps everything from happening at the same time.  See
-:doc:`/locking/index` for more related documentation.
+Documentation/locking/index.rst for more related documentation.
 
 .. toctree::
    :maxdepth: 1
@@ -77,7 +85,7 @@ Memory management
 =================
 
 How to allocate and use memory in the kernel.  Note that there is a lot
-more memory-management documentation in :doc:`/vm/index`.
+more memory-management documentation in Documentation/vm/index.rst.
 
 .. toctree::
    :maxdepth: 1

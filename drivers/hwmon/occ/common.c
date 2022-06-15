@@ -132,22 +132,20 @@ struct extended_sensor {
 static int occ_poll(struct occ *occ)
 {
 	int rc;
-	u16 checksum = occ->poll_cmd_data + occ->seq_no + 1;
-	u8 cmd[8];
+	u8 cmd[7];
 	struct occ_poll_response_header *header;
 
 	/* big endian */
-	cmd[0] = occ->seq_no++;		/* sequence number */
+	cmd[0] = 0;			/* sequence number */
 	cmd[1] = 0;			/* cmd type */
 	cmd[2] = 0;			/* data length msb */
 	cmd[3] = 1;			/* data length lsb */
 	cmd[4] = occ->poll_cmd_data;	/* data */
-	cmd[5] = checksum >> 8;		/* checksum msb */
-	cmd[6] = checksum & 0xFF;	/* checksum lsb */
-	cmd[7] = 0;
+	cmd[5] = 0;			/* checksum msb */
+	cmd[6] = 0;			/* checksum lsb */
 
 	/* mutex should already be locked if necessary */
-	rc = occ->send_cmd(occ, cmd);
+	rc = occ->send_cmd(occ, cmd, sizeof(cmd));
 	if (rc) {
 		occ->last_error = rc;
 		if (occ->error_count++ > OCC_ERROR_COUNT_THRESHOLD)
@@ -184,25 +182,23 @@ static int occ_set_user_power_cap(struct occ *occ, u16 user_power_cap)
 {
 	int rc;
 	u8 cmd[8];
-	u16 checksum = 0x24;
 	__be16 user_power_cap_be = cpu_to_be16(user_power_cap);
 
-	cmd[0] = 0;
-	cmd[1] = 0x22;
-	cmd[2] = 0;
-	cmd[3] = 2;
+	cmd[0] = 0;	/* sequence number */
+	cmd[1] = 0x22;	/* cmd type */
+	cmd[2] = 0;	/* data length msb */
+	cmd[3] = 2;	/* data length lsb */
 
 	memcpy(&cmd[4], &user_power_cap_be, 2);
 
-	checksum += cmd[4] + cmd[5];
-	cmd[6] = checksum >> 8;
-	cmd[7] = checksum & 0xFF;
+	cmd[6] = 0;	/* checksum msb */
+	cmd[7] = 0;	/* checksum lsb */
 
 	rc = mutex_lock_interruptible(&occ->lock);
 	if (rc)
 		return rc;
 
-	rc = occ->send_cmd(occ, cmd);
+	rc = occ->send_cmd(occ, cmd, sizeof(cmd));
 
 	mutex_unlock(&occ->lock);
 
@@ -217,9 +213,9 @@ int occ_update_response(struct occ *occ)
 		return rc;
 
 	/* limit the maximum rate of polling the OCC */
-	if (time_after(jiffies, occ->last_update + OCC_UPDATE_FREQUENCY)) {
+	if (time_after(jiffies, occ->next_update)) {
 		rc = occ_poll(occ);
-		occ->last_update = jiffies;
+		occ->next_update = jiffies + OCC_UPDATE_FREQUENCY;
 	} else {
 		rc = occ->last_error;
 	}
@@ -261,7 +257,7 @@ static ssize_t occ_show_temp_1(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%u\n", val);
+	return sysfs_emit(buf, "%u\n", val);
 }
 
 static ssize_t occ_show_temp_2(struct device *dev,
@@ -312,7 +308,7 @@ static ssize_t occ_show_temp_2(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%u\n", val);
+	return sysfs_emit(buf, "%u\n", val);
 }
 
 static ssize_t occ_show_temp_10(struct device *dev,
@@ -340,18 +336,11 @@ static ssize_t occ_show_temp_10(struct device *dev,
 		if (val == OCC_TEMP_SENSOR_FAULT)
 			return -EREMOTEIO;
 
-		/*
-		 * VRM doesn't return temperature, only alarm bit. This
-		 * attribute maps to tempX_alarm instead of tempX_input for
-		 * VRM
-		 */
-		if (temp->fru_type != OCC_FRU_TYPE_VRM) {
-			/* sensor not ready */
-			if (val == 0)
-				return -EAGAIN;
+		/* sensor not ready */
+		if (val == 0)
+			return -EAGAIN;
 
-			val *= 1000;
-		}
+		val *= 1000;
 		break;
 	case 2:
 		val = temp->fru_type;
@@ -366,7 +355,7 @@ static ssize_t occ_show_temp_10(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%u\n", val);
+	return sysfs_emit(buf, "%u\n", val);
 }
 
 static ssize_t occ_show_freq_1(struct device *dev,
@@ -396,7 +385,7 @@ static ssize_t occ_show_freq_1(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%u\n", val);
+	return sysfs_emit(buf, "%u\n", val);
 }
 
 static ssize_t occ_show_freq_2(struct device *dev,
@@ -426,7 +415,7 @@ static ssize_t occ_show_freq_2(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%u\n", val);
+	return sysfs_emit(buf, "%u\n", val);
 }
 
 static ssize_t occ_show_power_1(struct device *dev,
@@ -465,7 +454,7 @@ static ssize_t occ_show_power_1(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%llu\n", val);
+	return sysfs_emit(buf, "%llu\n", val);
 }
 
 static u64 occ_get_powr_avg(u64 *accum, u32 *samples)
@@ -494,9 +483,9 @@ static ssize_t occ_show_power_2(struct device *dev,
 
 	switch (sattr->nr) {
 	case 0:
-		return snprintf(buf, PAGE_SIZE - 1, "%u_%u_%u\n",
-				get_unaligned_be32(&power->sensor_id),
-				power->function_id, power->apss_channel);
+		return sysfs_emit(buf, "%u_%u_%u\n",
+				  get_unaligned_be32(&power->sensor_id),
+				  power->function_id, power->apss_channel);
 	case 1:
 		val = occ_get_powr_avg(&power->accumulator,
 				       &power->update_tag);
@@ -512,7 +501,7 @@ static ssize_t occ_show_power_2(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%llu\n", val);
+	return sysfs_emit(buf, "%llu\n", val);
 }
 
 static ssize_t occ_show_power_a0(struct device *dev,
@@ -533,8 +522,8 @@ static ssize_t occ_show_power_a0(struct device *dev,
 
 	switch (sattr->nr) {
 	case 0:
-		return snprintf(buf, PAGE_SIZE - 1, "%u_system\n",
-				get_unaligned_be32(&power->sensor_id));
+		return sysfs_emit(buf, "%u_system\n",
+				  get_unaligned_be32(&power->sensor_id));
 	case 1:
 		val = occ_get_powr_avg(&power->system.accumulator,
 				       &power->system.update_tag);
@@ -547,8 +536,8 @@ static ssize_t occ_show_power_a0(struct device *dev,
 		val = get_unaligned_be16(&power->system.value) * 1000000ULL;
 		break;
 	case 4:
-		return snprintf(buf, PAGE_SIZE - 1, "%u_proc\n",
-				get_unaligned_be32(&power->sensor_id));
+		return sysfs_emit(buf, "%u_proc\n",
+				  get_unaligned_be32(&power->sensor_id));
 	case 5:
 		val = occ_get_powr_avg(&power->proc.accumulator,
 				       &power->proc.update_tag);
@@ -561,8 +550,8 @@ static ssize_t occ_show_power_a0(struct device *dev,
 		val = get_unaligned_be16(&power->proc.value) * 1000000ULL;
 		break;
 	case 8:
-		return snprintf(buf, PAGE_SIZE - 1, "%u_vdd\n",
-				get_unaligned_be32(&power->sensor_id));
+		return sysfs_emit(buf, "%u_vdd\n",
+				  get_unaligned_be32(&power->sensor_id));
 	case 9:
 		val = occ_get_powr_avg(&power->vdd.accumulator,
 				       &power->vdd.update_tag);
@@ -575,8 +564,8 @@ static ssize_t occ_show_power_a0(struct device *dev,
 		val = get_unaligned_be16(&power->vdd.value) * 1000000ULL;
 		break;
 	case 12:
-		return snprintf(buf, PAGE_SIZE - 1, "%u_vdn\n",
-				get_unaligned_be32(&power->sensor_id));
+		return sysfs_emit(buf, "%u_vdn\n",
+				  get_unaligned_be32(&power->sensor_id));
 	case 13:
 		val = occ_get_powr_avg(&power->vdn.accumulator,
 				       &power->vdn.update_tag);
@@ -592,7 +581,7 @@ static ssize_t occ_show_power_a0(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%llu\n", val);
+	return sysfs_emit(buf, "%llu\n", val);
 }
 
 static ssize_t occ_show_caps_1_2(struct device *dev,
@@ -613,7 +602,7 @@ static ssize_t occ_show_caps_1_2(struct device *dev,
 
 	switch (sattr->nr) {
 	case 0:
-		return snprintf(buf, PAGE_SIZE - 1, "system\n");
+		return sysfs_emit(buf, "system\n");
 	case 1:
 		val = get_unaligned_be16(&caps->cap) * 1000000ULL;
 		break;
@@ -642,7 +631,7 @@ static ssize_t occ_show_caps_1_2(struct device *dev,
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%llu\n", val);
+	return sysfs_emit(buf, "%llu\n", val);
 }
 
 static ssize_t occ_show_caps_3(struct device *dev,
@@ -663,7 +652,7 @@ static ssize_t occ_show_caps_3(struct device *dev,
 
 	switch (sattr->nr) {
 	case 0:
-		return snprintf(buf, PAGE_SIZE - 1, "system\n");
+		return sysfs_emit(buf, "system\n");
 	case 1:
 		val = get_unaligned_be16(&caps->cap) * 1000000ULL;
 		break;
@@ -685,11 +674,14 @@ static ssize_t occ_show_caps_3(struct device *dev,
 	case 7:
 		val = caps->user_source;
 		break;
+	case 8:
+		val = get_unaligned_be16(&caps->soft_min) * 1000000ULL;
+		break;
 	default:
 		return -EINVAL;
 	}
 
-	return snprintf(buf, PAGE_SIZE - 1, "%llu\n", val);
+	return sysfs_emit(buf, "%llu\n", val);
 }
 
 static ssize_t occ_store_caps_user(struct device *dev,
@@ -732,21 +724,22 @@ static ssize_t occ_show_extended(struct device *dev,
 
 	switch (sattr->nr) {
 	case 0:
-		if (extn->flags & EXTN_FLAG_SENSOR_ID)
-			rc = snprintf(buf, PAGE_SIZE - 1, "%u",
-				      get_unaligned_be32(&extn->sensor_id));
-		else
-			rc = snprintf(buf, PAGE_SIZE - 1, "%02x%02x%02x%02x\n",
-				      extn->name[0], extn->name[1],
-				      extn->name[2], extn->name[3]);
+		if (extn->flags & EXTN_FLAG_SENSOR_ID) {
+			rc = sysfs_emit(buf, "%u",
+					get_unaligned_be32(&extn->sensor_id));
+		} else {
+			rc = sysfs_emit(buf, "%02x%02x%02x%02x\n",
+					extn->name[0], extn->name[1],
+					extn->name[2], extn->name[3]);
+		}
 		break;
 	case 1:
-		rc = snprintf(buf, PAGE_SIZE - 1, "%02x\n", extn->flags);
+		rc = sysfs_emit(buf, "%02x\n", extn->flags);
 		break;
 	case 2:
-		rc = snprintf(buf, PAGE_SIZE - 1, "%02x%02x%02x%02x%02x%02x\n",
-			      extn->data[0], extn->data[1], extn->data[2],
-			      extn->data[3], extn->data[4], extn->data[5]);
+		rc = sysfs_emit(buf, "%02x%02x%02x%02x%02x%02x\n",
+				extn->data[0], extn->data[1], extn->data[2],
+				extn->data[3], extn->data[4], extn->data[5]);
 		break;
 	default:
 		return -EINVAL;
@@ -845,11 +838,12 @@ static int occ_setup_sensor_attrs(struct occ *occ)
 	case 1:
 		num_attrs += (sensors->caps.num_sensors * 7);
 		break;
-	case 3:
-		show_caps = occ_show_caps_3;
-		fallthrough;
 	case 2:
 		num_attrs += (sensors->caps.num_sensors * 8);
+		break;
+	case 3:
+		show_caps = occ_show_caps_3;
+		num_attrs += (sensors->caps.num_sensors * 9);
 		break;
 	default:
 		sensors->caps.num_sensors = 0;
@@ -885,7 +879,7 @@ static int occ_setup_sensor_attrs(struct occ *occ)
 					     0, i);
 		attr++;
 
-		if (sensors->temp.version > 1 &&
+		if (sensors->temp.version == 2 &&
 		    temp->fru_type == OCC_FRU_TYPE_VRM) {
 			snprintf(attr->name, sizeof(attr->name),
 				 "temp%d_alarm", s);
@@ -1057,6 +1051,15 @@ static int occ_setup_sensor_attrs(struct occ *occ)
 			attr->sensor = OCC_INIT_ATTR(attr->name, 0444,
 						     show_caps, NULL, 7, 0);
 			attr++;
+
+			if (sensors->caps.version > 2) {
+				snprintf(attr->name, sizeof(attr->name),
+					 "power%d_cap_min_soft", s);
+				attr->sensor = OCC_INIT_ATTR(attr->name, 0444,
+							     show_caps, NULL,
+							     8, 0);
+				attr++;
+			}
 		}
 	}
 
@@ -1159,11 +1162,13 @@ int occ_setup(struct occ *occ, const char *name)
 		dev_info(occ->bus_dev, "host is not ready\n");
 		return rc;
 	} else if (rc < 0) {
-		dev_err(occ->bus_dev, "failed to get OCC poll response: %d\n",
-			rc);
+		dev_err(occ->bus_dev,
+			"failed to get OCC poll response=%02x: %d\n",
+			occ->resp.return_status, rc);
 		return rc;
 	}
 
+	occ->next_update = jiffies + OCC_UPDATE_FREQUENCY;
 	occ_parse_poll_response(occ);
 
 	rc = occ_setup_sensor_attrs(occ);

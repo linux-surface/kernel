@@ -2206,10 +2206,8 @@ static int gpi_probe(struct platform_device *pdev)
 
 		/* set up irq */
 		ret = platform_get_irq(pdev, i);
-		if (ret < 0) {
-			dev_err(gpi_dev->dev, "platform_get_irq failed for %d:%d\n", i, ret);
+		if (ret < 0)
 			return ret;
-		}
 		gpii->irq = ret;
 
 		/* set up channel specific register info */
@@ -2281,6 +2279,8 @@ static int gpi_probe(struct platform_device *pdev)
 
 static const struct of_device_id gpi_of_match[] = {
 	{ .compatible = "qcom,sdm845-gpi-dma" },
+	{ .compatible = "qcom,sm8150-gpi-dma" },
+	{ .compatible = "qcom,sm8250-gpi-dma" },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, gpi_of_match);

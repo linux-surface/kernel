@@ -1686,8 +1686,8 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_adma_alloc_slots(
 {
 	struct ppc440spe_adma_desc_slot *iter = NULL, *_iter;
 	struct ppc440spe_adma_desc_slot *alloc_start = NULL;
-	struct list_head chain = LIST_HEAD_INIT(chain);
 	int slots_found, retry = 0;
+	LIST_HEAD(chain);
 
 
 	BUG_ON(!num_slots || !slots_per_op);
@@ -3240,7 +3240,6 @@ static int ppc440spe_adma_dma2rxor_prep_src(
 		struct ppc440spe_rxor *cursor, int index,
 		int src_cnt, u32 addr)
 {
-	int rval = 0;
 	u32 sign;
 	struct ppc440spe_adma_desc_slot *desc = hdesc;
 	int i;
@@ -3348,7 +3347,7 @@ static int ppc440spe_adma_dma2rxor_prep_src(
 		break;
 	}
 
-	return rval;
+	return 0;
 }
 
 /**
@@ -4319,6 +4318,7 @@ static ssize_t enable_store(struct device_driver *dev, const char *buf,
 			    size_t count)
 {
 	unsigned long val;
+	int err;
 
 	if (!count || count > 11)
 		return -EINVAL;
@@ -4327,7 +4327,10 @@ static ssize_t enable_store(struct device_driver *dev, const char *buf,
 		return -EFAULT;
 
 	/* Write a key */
-	sscanf(buf, "%lx", &val);
+	err = kstrtoul(buf, 16, &val);
+	if (err)
+		return err;
+
 	dcr_write(ppc440spe_mq_dcr_host, DCRN_MQ0_XORBA, val);
 	isync();
 
@@ -4368,7 +4371,7 @@ static ssize_t poly_store(struct device_driver *dev, const char *buf,
 			  size_t count)
 {
 	unsigned long reg, val;
-
+	int err;
 #ifdef CONFIG_440SP
 	/* 440SP uses default 0x14D polynomial only */
 	return -EINVAL;
@@ -4378,7 +4381,9 @@ static ssize_t poly_store(struct device_driver *dev, const char *buf,
 		return -EINVAL;
 
 	/* e.g., 0x14D or 0x11D */
-	sscanf(buf, "%lx", &val);
+	err = kstrtoul(buf, 16, &val);
+	if (err)
+		return err;
 
 	if (val & ~0x1FF)
 		return -EINVAL;

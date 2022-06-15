@@ -44,19 +44,22 @@ else
 obj-y		:= $(filter-out %/, $(obj-y))
 endif
 
-# Expand $(foo-objs) $(foo-y) by calling $(call suffix-search,foo.o,-objs -y)
-suffix-search = $(foreach s,$(2),$($(1:.o=$s)))
+# Expand $(foo-objs) $(foo-y) etc. by replacing their individuals
+suffix-search = $(strip $(foreach s, $3, $($(1:%$(strip $2)=%$s))))
+# List composite targets that are constructed by combining other targets
+multi-search = $(sort $(foreach m, $1, $(if $(call suffix-search, $m, $2, $3 -), $m)))
+# List primitive targets that are compiled from source files
+real-search = $(foreach m, $1, $(if $(call suffix-search, $m, $2, $3 -), $(call suffix-search, $m, $2, $3), $m))
+
 # If $(foo-objs), $(foo-y), $(foo-m), or $(foo-) exists, foo.o is a composite object
-multi-search = $(sort $(foreach m,$(1), $(if $(strip $(call suffix-search,$(m),$(2) -)), $(m))))
-multi-used-y := $(call multi-search,$(obj-y),-objs -y)
-multi-used-m := $(call multi-search,$(obj-m),-objs -y -m)
-multi-used   := $(multi-used-y) $(multi-used-m)
+multi-obj-y := $(call multi-search, $(obj-y), .o, -objs -y)
+multi-obj-m := $(call multi-search, $(obj-m), .o, -objs -y -m)
+multi-obj-ym := $(multi-obj-y) $(multi-obj-m)
 
 # Replace multi-part objects by their individual parts,
 # including built-in.a from subdirectories
-real-search = $(foreach m,$(1), $(if $(strip $(call suffix-search,$(m),$(2) -)),$(call suffix-search,$(m),$(2)),$(m)))
-real-obj-y := $(call real-search, $(obj-y),-objs -y)
-real-obj-m := $(call real-search, $(obj-m),-objs -y -m)
+real-obj-y := $(call real-search, $(obj-y), .o, -objs -y)
+real-obj-m := $(call real-search, $(obj-m), .o, -objs -y -m)
 
 always-y += $(always-m)
 
@@ -73,15 +76,16 @@ always-y += $(userprogs-always-y) $(userprogs-always-m)
 
 # DTB
 # If CONFIG_OF_ALL_DTBS is enabled, all DT blobs are built
-always-y			+= $(dtb-y)
-always-$(CONFIG_OF_ALL_DTBS)	+= $(dtb-)
+dtb-$(CONFIG_OF_ALL_DTBS)       += $(dtb-)
 
-ifneq ($(CHECK_DTBS),)
-always-y += $(patsubst %.dtb,%.dt.yaml, $(dtb-y))
-always-y += $(patsubst %.dtbo,%.dt.yaml, $(dtb-y))
-always-$(CONFIG_OF_ALL_DTBS) += $(patsubst %.dtb,%.dt.yaml, $(dtb-))
-always-$(CONFIG_OF_ALL_DTBS) += $(patsubst %.dtbo,%.dt.yaml, $(dtb-))
-endif
+# Composite DTB (i.e. DTB constructed by overlay)
+multi-dtb-y := $(call multi-search, $(dtb-y), .dtb, -dtbs)
+# Primitive DTB compiled from *.dts
+real-dtb-y := $(call real-search, $(dtb-y), .dtb, -dtbs)
+# Base DTB that overlay is applied onto (each first word of $(*-dtbs) expansion)
+base-dtb-y := $(foreach m, $(multi-dtb-y), $(firstword $(call suffix-search, $m, .dtb, -dtbs)))
+
+always-y			+= $(dtb-y)
 
 # Add subdir path
 
@@ -92,15 +96,17 @@ obj-m		:= $(addprefix $(obj)/,$(obj-m))
 lib-y		:= $(addprefix $(obj)/,$(lib-y))
 real-obj-y	:= $(addprefix $(obj)/,$(real-obj-y))
 real-obj-m	:= $(addprefix $(obj)/,$(real-obj-m))
-multi-used-m	:= $(addprefix $(obj)/,$(multi-used-m))
+multi-obj-m	:= $(addprefix $(obj)/, $(multi-obj-m))
+multi-dtb-y	:= $(addprefix $(obj)/, $(multi-dtb-y))
+real-dtb-y	:= $(addprefix $(obj)/, $(real-dtb-y))
 subdir-ym	:= $(addprefix $(obj)/,$(subdir-ym))
 
 # Finds the multi-part object the current object will be linked into.
 # If the object belongs to two or more multi-part objects, list them all.
-modname-multi = $(sort $(foreach m,$(multi-used),\
-		$(if $(filter $*.o, $($(m:.o=-objs)) $($(m:.o=-y)) $($(m:.o=-m))),$(m:.o=))))
+modname-multi = $(sort $(foreach m,$(multi-obj-ym),\
+		$(if $(filter $*.o, $(call suffix-search, $m, .o, -objs -y -m)),$(m:.o=))))
 
-__modname = $(if $(modname-multi),$(modname-multi),$(basetarget))
+__modname = $(or $(modname-multi),$(basetarget))
 
 modname = $(subst $(space),:,$(__modname))
 modfile = $(addprefix $(obj)/,$(__modname))
@@ -171,6 +177,11 @@ ifeq ($(CONFIG_KCSAN),y)
 _c_flags += $(if $(patsubst n%,, \
 	$(KCSAN_SANITIZE_$(basetarget).o)$(KCSAN_SANITIZE)y), \
 	$(CFLAGS_KCSAN))
+# Some uninstrumented files provide implied barriers required to avoid false
+# positives: set KCSAN_INSTRUMENT_BARRIERS for barrier instrumentation only.
+_c_flags += $(if $(patsubst n%,, \
+	$(KCSAN_INSTRUMENT_BARRIERS_$(basetarget).o)$(KCSAN_INSTRUMENT_BARRIERS)n), \
+	-D__KCSAN_INSTRUMENT_BARRIERS__)
 endif
 
 # $(srctree)/$(src) for including checkin headers from generated source files
@@ -214,17 +225,12 @@ dtc_cpp_flags  = -Wp,-MMD,$(depfile).pre.tmp -nostdinc                    \
 		 $(addprefix -I,$(DTC_INCLUDE))                          \
 		 -undef -D__DTS__
 
-# Objtool arguments are also needed for modfinal with LTO, so we define
-# then here to avoid duplication.
-objtool_args =								\
-	$(if $(CONFIG_UNWINDER_ORC),orc generate,check)			\
-	$(if $(part-of-module), --module,)				\
-	$(if $(CONFIG_FRAME_POINTER),, --no-fp)				\
-	$(if $(or $(CONFIG_GCOV_KERNEL),$(CONFIG_LTO_CLANG)), 		\
-		--no-unreachable,)					\
-	$(if $(CONFIG_RETPOLINE), --retpoline,)				\
-	$(if $(CONFIG_X86_SMAP), --uaccess,)				\
-	$(if $(CONFIG_FTRACE_MCOUNT_USE_OBJTOOL), --mcount,)
+ifneq ($(CONFIG_LTO_CLANG)$(CONFIG_X86_KERNEL_IBT),)
+# With CONFIG_LTO_CLANG, .o files in modules might be LLVM bitcode, so we
+# need to run LTO to compile them into native code (.lto.o) before further
+# processing.
+mod-prelink-ext := .prelink
+endif
 
 # Useful for describing the dependency of composite objects
 # Usage:
@@ -235,17 +241,16 @@ $(foreach m, $(notdir $1), \
 	$(addprefix $(obj)/, $(foreach s, $3, $($(m:%$(strip $2)=%$(s)))))))
 endef
 
-quiet_cmd_copy = COPY    $@
-      cmd_copy = cp $< $@
-
-# Shipped files
+# Copy a file
 # ===========================================================================
-
-quiet_cmd_shipped = SHIPPED $@
-cmd_shipped = cat $< > $@
+# 'cp' preserves permissions. If you use it to copy a file in read-only srctree,
+# the copy would be read-only as well, leading to an error when executing the
+# rule next time. Use 'cat' instead in order to generate a writable file.
+quiet_cmd_copy = COPY    $@
+      cmd_copy = cat $< > $@
 
 $(obj)/%: $(src)/%_shipped
-	$(call cmd,shipped)
+	$(call cmd,copy)
 
 # Commands useful for building a boot image
 # ===========================================================================
@@ -290,13 +295,11 @@ DTC_FLAGS += -Wno-interrupt_provider
 # Disable noisy checks by default
 ifeq ($(findstring 1,$(KBUILD_EXTRA_WARN)),)
 DTC_FLAGS += -Wno-unit_address_vs_reg \
-	-Wno-unit_address_format \
 	-Wno-avoid_unnecessary_addr_size \
 	-Wno-alias_paths \
 	-Wno-graph_child_address \
 	-Wno-simple_bus_reg \
-	-Wno-unique_unit_address \
-	-Wno-pci_device_reg
+	-Wno-unique_unit_address
 endif
 
 ifneq ($(findstring 2,$(KBUILD_EXTRA_WARN)),)
@@ -306,6 +309,9 @@ DTC_FLAGS += -Wnode_name_chars_strict \
 endif
 
 DTC_FLAGS += $(DTC_FLAGS_$(basetarget))
+
+# Set -@ if the target is a base DTB that overlay is applied onto
+DTC_FLAGS += $(if $(filter $(patsubst $(obj)/%,%,$@), $(base-dtb-y)), -@)
 
 # Generate an assembly file to wrap the output of the device tree compiler
 quiet_cmd_dt_S_dtb= DTB     $@
@@ -332,27 +338,33 @@ cmd_dtc = $(HOSTCC) -E $(dtc_cpp_flags) -x assembler-with-cpp -o $(dtc-tmp) $< ;
 		-d $(depfile).dtc.tmp $(dtc-tmp) ; \
 	cat $(depfile).pre.tmp $(depfile).dtc.tmp > $(depfile)
 
-$(obj)/%.dtb: $(src)/%.dts $(DTC) FORCE
-	$(call if_changed_dep,dtc)
+quiet_cmd_fdtoverlay = DTOVL   $@
+      cmd_fdtoverlay = $(objtree)/scripts/dtc/fdtoverlay -o $@ -i $(real-prereqs)
 
-$(obj)/%.dtbo: $(src)/%.dts $(DTC) FORCE
-	$(call if_changed_dep,dtc)
+$(multi-dtb-y): FORCE
+	$(call if_changed,fdtoverlay)
+$(call multi_depend, $(multi-dtb-y), .dtb, -dtbs)
 
+ifneq ($(CHECK_DTBS)$(CHECK_DT_BINDING),)
 DT_CHECKER ?= dt-validate
+DT_CHECKER_FLAGS ?= $(if $(DT_SCHEMA_FILES),-l $(DT_SCHEMA_FILES),-m)
 DT_BINDING_DIR := Documentation/devicetree/bindings
-# DT_TMP_SCHEMA may be overridden from Documentation/devicetree/bindings/Makefile
-DT_TMP_SCHEMA ?= $(objtree)/$(DT_BINDING_DIR)/processed-schema.json
+DT_TMP_SCHEMA := $(objtree)/$(DT_BINDING_DIR)/processed-schema.json
 
 quiet_cmd_dtb_check =	CHECK   $@
-      cmd_dtb_check =	$(DT_CHECKER) -u $(srctree)/$(DT_BINDING_DIR) -p $(DT_TMP_SCHEMA) $@
+      cmd_dtb_check =	$(DT_CHECKER) $(DT_CHECKER_FLAGS) -u $(srctree)/$(DT_BINDING_DIR) -p $(DT_TMP_SCHEMA) $@ || true
+endif
 
 define rule_dtc
 	$(call cmd_and_fixdep,dtc)
 	$(call cmd,dtb_check)
 endef
 
-$(obj)/%.dt.yaml: $(src)/%.dts $(DTC) $(DT_TMP_SCHEMA) FORCE
+$(obj)/%.dtb: $(src)/%.dts $(DTC) $(DT_TMP_SCHEMA) FORCE
 	$(call if_changed_rule,dtc)
+
+$(obj)/%.dtbo: $(src)/%.dts $(DTC) FORCE
+	$(call if_changed_dep,dtc)
 
 dtc-tmp = $(subst $(comma),_,$(dot-target).dts.tmp)
 
@@ -376,20 +388,35 @@ printf "%08x\n" $$dec_size |						\
 	}								\
 )
 
+quiet_cmd_file_size = GEN     $@
+      cmd_file_size = $(size_append) > $@
+
 quiet_cmd_bzip2 = BZIP2   $@
-      cmd_bzip2 = { cat $(real-prereqs) | $(KBZIP2) -9; $(size_append); } > $@
+      cmd_bzip2 = cat $(real-prereqs) | $(KBZIP2) -9 > $@
+
+quiet_cmd_bzip2_with_size = BZIP2   $@
+      cmd_bzip2_with_size = { cat $(real-prereqs) | $(KBZIP2) -9; $(size_append); } > $@
 
 # Lzma
 # ---------------------------------------------------------------------------
 
 quiet_cmd_lzma = LZMA    $@
-      cmd_lzma = { cat $(real-prereqs) | $(LZMA) -9; $(size_append); } > $@
+      cmd_lzma = cat $(real-prereqs) | $(LZMA) -9 > $@
+
+quiet_cmd_lzma_with_size = LZMA    $@
+      cmd_lzma_with_size = { cat $(real-prereqs) | $(LZMA) -9; $(size_append); } > $@
 
 quiet_cmd_lzo = LZO     $@
-      cmd_lzo = { cat $(real-prereqs) | $(KLZOP) -9; $(size_append); } > $@
+      cmd_lzo = cat $(real-prereqs) | $(KLZOP) -9 > $@
+
+quiet_cmd_lzo_with_size = LZO     $@
+      cmd_lzo_with_size = { cat $(real-prereqs) | $(KLZOP) -9; $(size_append); } > $@
 
 quiet_cmd_lz4 = LZ4     $@
-      cmd_lz4 = { cat $(real-prereqs) | $(LZ4) -l -c1 stdin stdout; \
+      cmd_lz4 = cat $(real-prereqs) | $(LZ4) -l -c1 stdin stdout > $@
+
+quiet_cmd_lz4_with_size = LZ4     $@
+      cmd_lz4_with_size = { cat $(real-prereqs) | $(LZ4) -l -c1 stdin stdout; \
                   $(size_append); } > $@
 
 # U-Boot mkimage
@@ -400,7 +427,7 @@ MKIMAGE := $(srctree)/scripts/mkuboot.sh
 # SRCARCH just happens to match slightly more than ARCH (on sparc), so reduces
 # the number of overrides in arch makefiles
 UIMAGE_ARCH ?= $(SRCARCH)
-UIMAGE_COMPRESSION ?= $(if $(2),$(2),none)
+UIMAGE_COMPRESSION ?= $(or $(2),none)
 UIMAGE_OPTS-y ?=
 UIMAGE_TYPE ?= kernel
 UIMAGE_LOADADDR ?= arch_must_set_this
@@ -432,7 +459,10 @@ quiet_cmd_uimage = UIMAGE  $@
 # big dictionary would increase the memory usage too much in the multi-call
 # decompression mode. A BCJ filter isn't used either.
 quiet_cmd_xzkern = XZKERN  $@
-      cmd_xzkern = { cat $(real-prereqs) | sh $(srctree)/scripts/xz_wrap.sh; \
+      cmd_xzkern = cat $(real-prereqs) | sh $(srctree)/scripts/xz_wrap.sh > $@
+
+quiet_cmd_xzkern_with_size = XZKERN  $@
+      cmd_xzkern_with_size = { cat $(real-prereqs) | sh $(srctree)/scripts/xz_wrap.sh; \
                      $(size_append); } > $@
 
 quiet_cmd_xzmisc = XZMISC  $@
@@ -455,10 +485,13 @@ quiet_cmd_xzmisc = XZMISC  $@
 # be used because it would require zstd to allocate a 128 MB buffer.
 
 quiet_cmd_zstd = ZSTD    $@
-      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -19; $(size_append); } > $@
+      cmd_zstd = cat $(real-prereqs) | $(ZSTD) -19 > $@
 
 quiet_cmd_zstd22 = ZSTD22  $@
-      cmd_zstd22 = { cat $(real-prereqs) | $(ZSTD) -22 --ultra; $(size_append); } > $@
+      cmd_zstd22 = cat $(real-prereqs) | $(ZSTD) -22 --ultra > $@
+
+quiet_cmd_zstd22_with_size = ZSTD22  $@
+      cmd_zstd22_with_size = { cat $(real-prereqs) | $(ZSTD) -22 --ultra; $(size_append); } > $@
 
 # ASM offsets
 # ---------------------------------------------------------------------------

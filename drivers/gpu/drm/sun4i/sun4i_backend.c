@@ -510,7 +510,6 @@ static int sun4i_backend_atomic_check(struct sunxi_engine *engine,
 		struct sun4i_layer_state *layer_state =
 			state_to_sun4i_layer_state(plane_state);
 		struct drm_framebuffer *fb = plane_state->fb;
-		struct drm_format_name_buf format_name;
 
 		if (!sun4i_backend_plane_is_supported(plane_state,
 						      &layer_state->uses_frontend))
@@ -527,9 +526,8 @@ static int sun4i_backend_atomic_check(struct sunxi_engine *engine,
 			}
 		}
 
-		DRM_DEBUG_DRIVER("Plane FB format is %s\n",
-				 drm_get_format_name(fb->format->format,
-						     &format_name));
+		DRM_DEBUG_DRIVER("Plane FB format is %p4cc\n",
+				 &fb->format->format);
 		if (fb->format->has_alpha || (plane_state->alpha != DRM_BLEND_ALPHA_OPAQUE))
 			num_alpha_planes++;
 
@@ -784,7 +782,6 @@ static int sun4i_backend_bind(struct device *dev, struct device *master,
 	struct sun4i_drv *drv = drm->dev_private;
 	struct sun4i_backend *backend;
 	const struct sun4i_backend_quirks *quirks;
-	struct resource *res;
 	void __iomem *regs;
 	int i, ret;
 
@@ -817,8 +814,7 @@ static int sun4i_backend_bind(struct device *dev, struct device *master,
 	if (IS_ERR(backend->frontend))
 		dev_warn(dev, "Couldn't find matching frontend, frontend features disabled\n");
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	regs = devm_ioremap_resource(dev, res);
+	regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(regs))
 		return PTR_ERR(regs);
 

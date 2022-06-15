@@ -336,7 +336,7 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 	replace = -1;
 
 	/* No CPU hotplug when we change MTRR entries */
-	get_online_cpus();
+	cpus_read_lock();
 
 	/* Search for existing MTRR  */
 	mutex_lock(&mtrr_mutex);
@@ -398,7 +398,7 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 	error = i;
  out:
 	mutex_unlock(&mtrr_mutex);
-	put_online_cpus();
+	cpus_read_unlock();
 	return error;
 }
 
@@ -485,7 +485,7 @@ int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 
 	max = num_var_ranges;
 	/* No CPU hotplug when we change MTRR entries */
-	get_online_cpus();
+	cpus_read_lock();
 	mutex_lock(&mtrr_mutex);
 	if (reg < 0) {
 		/*  Search for existing MTRR  */
@@ -520,7 +520,7 @@ int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 	error = reg;
  out:
 	mutex_unlock(&mtrr_mutex);
-	put_online_cpus();
+	cpus_read_unlock();
 	return error;
 }
 
@@ -799,7 +799,7 @@ void mtrr_ap_init(void)
 	 *
 	 * This routine is called in two cases:
 	 *
-	 *   1. very earily time of software resume, when there absolutely
+	 *   1. very early time of software resume, when there absolutely
 	 *      isn't mtrr entry changes;
 	 *
 	 *   2. cpu hotadd time. We let mtrr_add/del_page hold cpuhotplug

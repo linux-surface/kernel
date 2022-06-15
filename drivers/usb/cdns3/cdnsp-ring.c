@@ -1029,6 +1029,8 @@ static void cdnsp_process_ctrl_td(struct cdnsp_device *pdev,
 		return;
 	}
 
+	*status = 0;
+
 	cdnsp_finish_td(pdev, td, event, pep, status);
 }
 
@@ -1517,13 +1519,21 @@ irqreturn_t cdnsp_thread_irq_handler(int irq, void *data)
 {
 	struct cdnsp_device *pdev = (struct cdnsp_device *)data;
 	union cdnsp_trb *event_ring_deq;
+	unsigned long flags;
 	int counter = 0;
 
-	spin_lock(&pdev->lock);
+	spin_lock_irqsave(&pdev->lock, flags);
 
 	if (pdev->cdnsp_state & (CDNSP_STATE_HALTED | CDNSP_STATE_DYING)) {
-		cdnsp_died(pdev);
-		spin_unlock(&pdev->lock);
+		/*
+		 * While removing or stopping driver there may still be deferred
+		 * not handled interrupt which should not be treated as error.
+		 * Driver should simply ignore it.
+		 */
+		if (pdev->gadget_driver)
+			cdnsp_died(pdev);
+
+		spin_unlock_irqrestore(&pdev->lock, flags);
 		return IRQ_HANDLED;
 	}
 
@@ -1539,7 +1549,7 @@ irqreturn_t cdnsp_thread_irq_handler(int irq, void *data)
 
 	cdnsp_update_erst_dequeue(pdev, event_ring_deq, 1);
 
-	spin_unlock(&pdev->lock);
+	spin_unlock_irqrestore(&pdev->lock, flags);
 
 	return IRQ_HANDLED;
 }
@@ -1931,15 +1941,13 @@ int cdnsp_queue_bulk_tx(struct cdnsp_device *pdev, struct cdnsp_request *preq)
 		}
 
 		if (enqd_len + trb_buff_len >= full_len) {
-			if (need_zero_pkt && zero_len_trb) {
-				zero_len_trb = true;
-			} else {
-				field &= ~TRB_CHAIN;
-				field |= TRB_IOC;
-				more_trbs_coming = false;
-				need_zero_pkt = false;
-				preq->td.last_trb = ring->enqueue;
-			}
+			if (need_zero_pkt)
+				zero_len_trb = !zero_len_trb;
+
+			field &= ~TRB_CHAIN;
+			field |= TRB_IOC;
+			more_trbs_coming = false;
+			preq->td.last_trb = ring->enqueue;
 		}
 
 		/* Only set interrupt on short packet for OUT endpoints. */
@@ -1954,7 +1962,7 @@ int cdnsp_queue_bulk_tx(struct cdnsp_device *pdev, struct cdnsp_request *preq)
 		length_field = TRB_LEN(trb_buff_len) | TRB_TD_SIZE(remainder) |
 			TRB_INTR_TARGET(0);
 
-		cdnsp_queue_trb(pdev, ring, more_trbs_coming | need_zero_pkt,
+		cdnsp_queue_trb(pdev, ring, more_trbs_coming | zero_len_trb,
 				lower_32_bits(send_addr),
 				upper_32_bits(send_addr),
 				length_field,
@@ -2197,7 +2205,10 @@ static int cdnsp_queue_isoc_tx(struct cdnsp_device *pdev,
 	 * inverted in the first TDs isoc TRB.
 	 */
 	field = TRB_TYPE(TRB_ISOC) | TRB_TLBPC(last_burst_pkt) |
-		start_cycle ? 0 : 1 | TRB_SIA | TRB_TBC(burst_count);
+		TRB_SIA | TRB_TBC(burst_count);
+
+	if (!start_cycle)
+		field |= TRB_CYCLE;
 
 	/* Fill the rest of the TRB fields, and remaining normal TRBs. */
 	for (i = 0; i < trbs_per_td; i++) {

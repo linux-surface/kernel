@@ -406,7 +406,7 @@ static long adf_ctl_ioctl(struct file *fp, unsigned int cmd, unsigned long arg)
 		ret = adf_ctl_ioctl_get_status(fp, cmd, arg);
 		break;
 	default:
-		pr_err("QAT: Invalid ioctl\n");
+		pr_err_ratelimited("QAT: Invalid ioctl %d\n", cmd);
 		ret = -EFAULT;
 		break;
 	}
@@ -418,6 +418,9 @@ static int __init adf_register_ctl_device_driver(void)
 {
 	if (adf_chr_drv_create())
 		goto err_chr_dev;
+
+	if (adf_init_misc_wq())
+		goto err_misc_wq;
 
 	if (adf_init_aer())
 		goto err_aer;
@@ -440,6 +443,8 @@ err_vf_wq:
 err_pf_wq:
 	adf_exit_aer();
 err_aer:
+	adf_exit_misc_wq();
+err_misc_wq:
 	adf_chr_drv_destroy();
 err_chr_dev:
 	mutex_destroy(&adf_ctl_lock);
@@ -449,6 +454,7 @@ err_chr_dev:
 static void __exit adf_unregister_ctl_device_driver(void)
 {
 	adf_chr_drv_destroy();
+	adf_exit_misc_wq();
 	adf_exit_aer();
 	adf_exit_vf_wq();
 	adf_exit_pf_wq();

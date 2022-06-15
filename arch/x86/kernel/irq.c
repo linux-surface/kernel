@@ -291,8 +291,10 @@ void kvm_set_posted_intr_wakeup_handler(void (*handler)(void))
 {
 	if (handler)
 		kvm_posted_intr_wakeup_handler = handler;
-	else
+	else {
 		kvm_posted_intr_wakeup_handler = dummy_handler;
+		synchronize_rcu();
+	}
 }
 EXPORT_SYMBOL_GPL(kvm_set_posted_intr_wakeup_handler);
 
@@ -338,7 +340,7 @@ void fixup_irqs(void)
 	irq_migrate_all_off_this_cpu();
 
 	/*
-	 * We can remove mdelay() and then send spuriuous interrupts to
+	 * We can remove mdelay() and then send spurious interrupts to
 	 * new cpu targets for all the irqs that were handled previously by
 	 * this cpu. While it works, I have seen spurious interrupt messages
 	 * (nothing wrong but still...).

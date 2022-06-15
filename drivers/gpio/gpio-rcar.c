@@ -213,8 +213,8 @@ static irqreturn_t gpio_rcar_irq_handler(int irq, void *dev_id)
 			  gpio_rcar_read(p, INTMSK))) {
 		offset = __ffs(pending);
 		gpio_rcar_write(p, INTCLR, BIT(offset));
-		generic_handle_irq(irq_find_mapping(p->gpio_chip.irq.domain,
-						    offset));
+		generic_handle_domain_irq(p->gpio_chip.irq.domain,
+					  offset);
 		irqs_handled++;
 	}
 
@@ -477,7 +477,6 @@ static void gpio_rcar_enable_inputs(struct gpio_rcar_priv *p)
 static int gpio_rcar_probe(struct platform_device *pdev)
 {
 	struct gpio_rcar_priv *p;
-	struct resource *irq;
 	struct gpio_chip *gpio_chip;
 	struct irq_chip *irq_chip;
 	struct gpio_irq_chip *girq;
@@ -502,12 +501,10 @@ static int gpio_rcar_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(dev);
 
-	irq = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!irq) {
-		dev_err(dev, "missing IRQ\n");
-		ret = -EINVAL;
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0)
 		goto err0;
-	}
+	p->irq_parent = ret;
 
 	p->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(p->base)) {
@@ -533,7 +530,6 @@ static int gpio_rcar_probe(struct platform_device *pdev)
 
 	irq_chip = &p->irq_chip;
 	irq_chip->name = "gpio-rcar";
-	irq_chip->parent_device = dev;
 	irq_chip->irq_mask = gpio_rcar_irq_disable;
 	irq_chip->irq_unmask = gpio_rcar_irq_enable;
 	irq_chip->irq_set_type = gpio_rcar_irq_set_type;
@@ -555,18 +551,18 @@ static int gpio_rcar_probe(struct platform_device *pdev)
 		goto err0;
 	}
 
-	p->irq_parent = irq->start;
-	if (devm_request_irq(dev, irq->start, gpio_rcar_irq_handler,
-			     IRQF_SHARED, name, p)) {
+	irq_domain_set_pm_device(gpio_chip->irq.domain, dev);
+	ret = devm_request_irq(dev, p->irq_parent, gpio_rcar_irq_handler,
+			       IRQF_SHARED, name, p);
+	if (ret) {
 		dev_err(dev, "failed to request IRQ\n");
-		ret = -ENOENT;
 		goto err1;
 	}
 
 	if (p->info.has_inen) {
-		pm_runtime_get_sync(p->dev);
+		pm_runtime_get_sync(dev);
 		gpio_rcar_enable_inputs(p);
-		pm_runtime_put(p->dev);
+		pm_runtime_put(dev);
 	}
 
 	dev_info(dev, "driving %d GPIOs\n", npins);

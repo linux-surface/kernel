@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * APEI Hardware Error Souce Table support
+ * APEI Hardware Error Source Table support
  *
  * HEST describes error sources in detail; communicates operational
  * parameters (i.e. severity levels, masking bits, and threshold
@@ -86,7 +86,9 @@ static int hest_esrc_len(struct acpi_hest_header *hest_hdr)
 	return len;
 };
 
-int apei_hest_parse(apei_hest_func_t func, void *data)
+typedef int (*apei_hest_func_t)(struct acpi_hest_header *hest_hdr, void *data);
+
+static int apei_hest_parse(apei_hest_func_t func, void *data)
 {
 	struct acpi_hest_header *hest_hdr;
 	int i, rc, len;
@@ -121,7 +123,6 @@ int apei_hest_parse(apei_hest_func_t func, void *data)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(apei_hest_parse);
 
 /*
  * Check if firmware advertises firmware first mode. We need FF bit to be set
@@ -223,7 +224,7 @@ err:
 static int __init setup_hest_disable(char *str)
 {
 	hest_disable = HEST_DISABLED;
-	return 0;
+	return 1;
 }
 
 __setup("hest_disable", setup_hest_disable);

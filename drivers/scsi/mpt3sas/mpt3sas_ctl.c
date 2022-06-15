@@ -454,7 +454,7 @@ out:
 }
 
 /**
- * mpt3sas_ctl_reset_handler - reset callback handler (for ctl)
+ * mpt3sas_ctl_pre_reset_handler - reset callback handler (for ctl)
  * @ioc: per adapter object
  *
  * The handler for doing any required cleanup or initialization.
@@ -486,7 +486,7 @@ void mpt3sas_ctl_pre_reset_handler(struct MPT3SAS_ADAPTER *ioc)
 }
 
 /**
- * mpt3sas_ctl_reset_handler - clears outstanding ioctl cmd.
+ * mpt3sas_ctl_clear_outstanding_ioctls - clears outstanding ioctl cmd.
  * @ioc: per adapter object
  *
  * The handler for doing any required cleanup or initialization.
@@ -503,7 +503,7 @@ void mpt3sas_ctl_clear_outstanding_ioctls(struct MPT3SAS_ADAPTER *ioc)
 }
 
 /**
- * mpt3sas_ctl_reset_handler - reset callback handler (for ctl)
+ * mpt3sas_ctl_reset_done_handler - reset callback handler (for ctl)
  * @ioc: per adapter object
  *
  * The handler for doing any required cleanup or initialization.
@@ -2178,7 +2178,7 @@ mpt3sas_send_diag_release(struct MPT3SAS_ADAPTER *ioc, u8 buffer_type,
 		mpt3sas_check_cmd_timeout(ioc,
 		    ioc->ctl_cmds.status, mpi_request,
 		    sizeof(Mpi2DiagReleaseRequest_t)/4, reset_needed);
-		 *issue_reset = reset_needed;
+		*issue_reset = reset_needed;
 		rc = -EFAULT;
 		goto out;
 	}
@@ -2507,7 +2507,7 @@ _ctl_addnl_diag_query(struct MPT3SAS_ADAPTER *ioc, void __user *arg)
 		    __func__, karg.unique_id);
 		return -EPERM;
 	}
-	memset(&karg.buffer_rel_condition, 0, sizeof(struct htb_rel_query));
+	memset(&karg.rel_query, 0, sizeof(karg.rel_query));
 	if ((ioc->diag_buffer_status[buffer_type] &
 	    MPT3_DIAG_BUFFER_IS_REGISTERED) == 0) {
 		ioc_info(ioc, "%s: buffer_type(0x%02x) is not registered\n",
@@ -2520,8 +2520,7 @@ _ctl_addnl_diag_query(struct MPT3SAS_ADAPTER *ioc, void __user *arg)
 		    __func__, buffer_type);
 		return -EPERM;
 	}
-	memcpy(&karg.buffer_rel_condition, &ioc->htb_rel,
-	    sizeof(struct  htb_rel_query));
+	memcpy(&karg.rel_query, &ioc->htb_rel, sizeof(karg.rel_query));
 out:
 	if (copy_to_user(arg, &karg, sizeof(struct mpt3_addnl_diag_query))) {
 		ioc_err(ioc, "%s: unable to write mpt3_addnl_diag_query data @ %p\n",
@@ -2759,7 +2758,7 @@ _ctl_mpt2_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 #ifdef CONFIG_COMPAT
 /**
- *_ ctl_ioctl_compat - main ioctl entry point (compat)
+ * _ctl_ioctl_compat - main ioctl entry point (compat)
  * @file: ?
  * @cmd: ?
  * @arg: ?
@@ -2777,7 +2776,7 @@ _ctl_ioctl_compat(struct file *file, unsigned cmd, unsigned long arg)
 }
 
 /**
- *_ ctl_mpt2_ioctl_compat - main ioctl entry point (compat)
+ * _ctl_mpt2_ioctl_compat - main ioctl entry point (compat)
  * @file: ?
  * @cmd: ?
  * @arg: ?
@@ -3045,7 +3044,7 @@ fw_queue_depth_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR_RO(fw_queue_depth);
 
 /**
- * sas_address_show - sas address
+ * host_sas_address_show - sas address
  * @cdev: pointer to embedded class device
  * @attr: ?
  * @buf: the buffer returned
@@ -3203,7 +3202,7 @@ BRM_status_show(struct device *cdev, struct device_attribute *attr,
 {
 	struct Scsi_Host *shost = class_to_shost(cdev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
-	Mpi2IOUnitPage3_t *io_unit_pg3 = NULL;
+	Mpi2IOUnitPage3_t io_unit_pg3;
 	Mpi2ConfigReply_t mpi_reply;
 	u16 backup_rail_monitor_status = 0;
 	u16 ioc_status;
@@ -3220,17 +3219,10 @@ BRM_status_show(struct device *cdev, struct device_attribute *attr,
 	if (ioc->pci_error_recovery || ioc->remove_host)
 		goto out;
 
-	/* allocate upto GPIOVal 36 entries */
-	sz = offsetof(Mpi2IOUnitPage3_t, GPIOVal) + (sizeof(u16) * 36);
-	io_unit_pg3 = kzalloc(sz, GFP_KERNEL);
-	if (!io_unit_pg3) {
-		rc = -ENOMEM;
-		ioc_err(ioc, "%s: failed allocating memory for iounit_pg3: (%d) bytes\n",
-			__func__, sz);
-		goto out;
-	}
+	sz = sizeof(io_unit_pg3);
+	memset(&io_unit_pg3, 0, sz);
 
-	if (mpt3sas_config_get_iounit_pg3(ioc, &mpi_reply, io_unit_pg3, sz) !=
+	if (mpt3sas_config_get_iounit_pg3(ioc, &mpi_reply, &io_unit_pg3, sz) !=
 	    0) {
 		ioc_err(ioc, "%s: failed reading iounit_pg3\n",
 			__func__);
@@ -3246,19 +3238,18 @@ BRM_status_show(struct device *cdev, struct device_attribute *attr,
 		goto out;
 	}
 
-	if (io_unit_pg3->GPIOCount < 25) {
-		ioc_err(ioc, "%s: iounit_pg3->GPIOCount less than 25 entries, detected (%d) entries\n",
-			__func__, io_unit_pg3->GPIOCount);
+	if (io_unit_pg3.GPIOCount < 25) {
+		ioc_err(ioc, "%s: iounit_pg3.GPIOCount less than 25 entries, detected (%d) entries\n",
+			__func__, io_unit_pg3.GPIOCount);
 		rc = -EINVAL;
 		goto out;
 	}
 
 	/* BRM status is in bit zero of GPIOVal[24] */
-	backup_rail_monitor_status = le16_to_cpu(io_unit_pg3->GPIOVal[24]);
+	backup_rail_monitor_status = le16_to_cpu(io_unit_pg3.GPIOVal[24]);
 	rc = snprintf(buf, PAGE_SIZE, "%d\n", (backup_rail_monitor_status & 1));
 
  out:
-	kfree(io_unit_pg3);
 	mutex_unlock(&ioc->pci_access_mutex);
 	return rc;
 }
@@ -3542,11 +3533,31 @@ diag_trigger_master_store(struct device *cdev,
 {
 	struct Scsi_Host *shost = class_to_shost(cdev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
+	struct SL_WH_MASTER_TRIGGER_T *master_tg;
 	unsigned long flags;
 	ssize_t rc;
+	bool set = 1;
+
+	rc = min(sizeof(struct SL_WH_MASTER_TRIGGER_T), count);
+
+	if (ioc->supports_trigger_pages) {
+		master_tg = kzalloc(sizeof(struct SL_WH_MASTER_TRIGGER_T),
+		    GFP_KERNEL);
+		if (!master_tg)
+			return -ENOMEM;
+
+		memcpy(master_tg, buf, rc);
+		if (!master_tg->MasterData)
+			set = 0;
+		if (mpt3sas_config_update_driver_trigger_pg1(ioc, master_tg,
+		    set)) {
+			kfree(master_tg);
+			return -EFAULT;
+		}
+		kfree(master_tg);
+	}
 
 	spin_lock_irqsave(&ioc->diag_trigger_lock, flags);
-	rc = min(sizeof(struct SL_WH_MASTER_TRIGGER_T), count);
 	memset(&ioc->diag_trigger_master, 0,
 	    sizeof(struct SL_WH_MASTER_TRIGGER_T));
 	memcpy(&ioc->diag_trigger_master, buf, rc);
@@ -3598,11 +3609,31 @@ diag_trigger_event_store(struct device *cdev,
 {
 	struct Scsi_Host *shost = class_to_shost(cdev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
+	struct SL_WH_EVENT_TRIGGERS_T *event_tg;
 	unsigned long flags;
 	ssize_t sz;
+	bool set = 1;
+
+	sz = min(sizeof(struct SL_WH_EVENT_TRIGGERS_T), count);
+	if (ioc->supports_trigger_pages) {
+		event_tg = kzalloc(sizeof(struct SL_WH_EVENT_TRIGGERS_T),
+		    GFP_KERNEL);
+		if (!event_tg)
+			return -ENOMEM;
+
+		memcpy(event_tg, buf, sz);
+		if (!event_tg->ValidEntries)
+			set = 0;
+		if (mpt3sas_config_update_driver_trigger_pg2(ioc, event_tg,
+		    set)) {
+			kfree(event_tg);
+			return -EFAULT;
+		}
+		kfree(event_tg);
+	}
 
 	spin_lock_irqsave(&ioc->diag_trigger_lock, flags);
-	sz = min(sizeof(struct SL_WH_EVENT_TRIGGERS_T), count);
+
 	memset(&ioc->diag_trigger_event, 0,
 	    sizeof(struct SL_WH_EVENT_TRIGGERS_T));
 	memcpy(&ioc->diag_trigger_event, buf, sz);
@@ -3653,11 +3684,31 @@ diag_trigger_scsi_store(struct device *cdev,
 {
 	struct Scsi_Host *shost = class_to_shost(cdev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
+	struct SL_WH_SCSI_TRIGGERS_T *scsi_tg;
 	unsigned long flags;
 	ssize_t sz;
+	bool set = 1;
+
+	sz = min(sizeof(struct SL_WH_SCSI_TRIGGERS_T), count);
+	if (ioc->supports_trigger_pages) {
+		scsi_tg = kzalloc(sizeof(struct SL_WH_SCSI_TRIGGERS_T),
+		    GFP_KERNEL);
+		if (!scsi_tg)
+			return -ENOMEM;
+
+		memcpy(scsi_tg, buf, sz);
+		if (!scsi_tg->ValidEntries)
+			set = 0;
+		if (mpt3sas_config_update_driver_trigger_pg3(ioc, scsi_tg,
+		    set)) {
+			kfree(scsi_tg);
+			return -EFAULT;
+		}
+		kfree(scsi_tg);
+	}
 
 	spin_lock_irqsave(&ioc->diag_trigger_lock, flags);
-	sz = min(sizeof(ioc->diag_trigger_scsi), count);
+
 	memset(&ioc->diag_trigger_scsi, 0, sizeof(ioc->diag_trigger_scsi));
 	memcpy(&ioc->diag_trigger_scsi, buf, sz);
 	if (ioc->diag_trigger_scsi.ValidEntries > NUM_VALID_ENTRIES)
@@ -3669,7 +3720,7 @@ static DEVICE_ATTR_RW(diag_trigger_scsi);
 
 
 /**
- * diag_trigger_scsi_show - show the diag_trigger_mpi attribute
+ * diag_trigger_mpi_show - show the diag_trigger_mpi attribute
  * @cdev: pointer to embedded class device
  * @attr: ?
  * @buf: the buffer returned
@@ -3707,11 +3758,30 @@ diag_trigger_mpi_store(struct device *cdev,
 {
 	struct Scsi_Host *shost = class_to_shost(cdev);
 	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
+	struct SL_WH_MPI_TRIGGERS_T *mpi_tg;
 	unsigned long flags;
 	ssize_t sz;
+	bool set = 1;
+
+	sz = min(sizeof(struct SL_WH_MPI_TRIGGERS_T), count);
+	if (ioc->supports_trigger_pages) {
+		mpi_tg = kzalloc(sizeof(struct SL_WH_MPI_TRIGGERS_T),
+		    GFP_KERNEL);
+		if (!mpi_tg)
+			return -ENOMEM;
+
+		memcpy(mpi_tg, buf, sz);
+		if (!mpi_tg->ValidEntries)
+			set = 0;
+		if (mpt3sas_config_update_driver_trigger_pg4(ioc, mpi_tg,
+		    set)) {
+			kfree(mpi_tg);
+			return -EFAULT;
+		}
+		kfree(mpi_tg);
+	}
 
 	spin_lock_irqsave(&ioc->diag_trigger_lock, flags);
-	sz = min(sizeof(struct SL_WH_MPI_TRIGGERS_T), count);
 	memset(&ioc->diag_trigger_mpi, 0,
 	    sizeof(ioc->diag_trigger_mpi));
 	memcpy(&ioc->diag_trigger_mpi, buf, sz);
@@ -3829,9 +3899,10 @@ enable_sdev_max_qd_store(struct device *cdev,
 				}
 			} else if (sas_target_priv_data->flags &
 			    MPT_TARGET_FLAGS_PCIE_DEVICE)
-				qdepth = MPT3SAS_NVME_QUEUE_DEPTH;
+				qdepth = ioc->max_nvme_qd;
 			else
-				qdepth = MPT3SAS_SAS_QUEUE_DEPTH;
+				qdepth = (sas_target_priv_data->sas_dev->port_type > 1) ?
+				    ioc->max_wideport_qd : ioc->max_narrowport_qd;
 
 			mpt3sas_scsih_change_queue_depth(sdev, qdepth);
 		}
@@ -3850,35 +3921,44 @@ enable_sdev_max_qd_store(struct device *cdev,
 }
 static DEVICE_ATTR_RW(enable_sdev_max_qd);
 
-struct device_attribute *mpt3sas_host_attrs[] = {
-	&dev_attr_version_fw,
-	&dev_attr_version_bios,
-	&dev_attr_version_mpi,
-	&dev_attr_version_product,
-	&dev_attr_version_nvdata_persistent,
-	&dev_attr_version_nvdata_default,
-	&dev_attr_board_name,
-	&dev_attr_board_assembly,
-	&dev_attr_board_tracer,
-	&dev_attr_io_delay,
-	&dev_attr_device_delay,
-	&dev_attr_logging_level,
-	&dev_attr_fwfault_debug,
-	&dev_attr_fw_queue_depth,
-	&dev_attr_host_sas_address,
-	&dev_attr_ioc_reset_count,
-	&dev_attr_host_trace_buffer_size,
-	&dev_attr_host_trace_buffer,
-	&dev_attr_host_trace_buffer_enable,
-	&dev_attr_reply_queue_count,
-	&dev_attr_diag_trigger_master,
-	&dev_attr_diag_trigger_event,
-	&dev_attr_diag_trigger_scsi,
-	&dev_attr_diag_trigger_mpi,
-	&dev_attr_drv_support_bitmap,
-	&dev_attr_BRM_status,
-	&dev_attr_enable_sdev_max_qd,
+static struct attribute *mpt3sas_host_attrs[] = {
+	&dev_attr_version_fw.attr,
+	&dev_attr_version_bios.attr,
+	&dev_attr_version_mpi.attr,
+	&dev_attr_version_product.attr,
+	&dev_attr_version_nvdata_persistent.attr,
+	&dev_attr_version_nvdata_default.attr,
+	&dev_attr_board_name.attr,
+	&dev_attr_board_assembly.attr,
+	&dev_attr_board_tracer.attr,
+	&dev_attr_io_delay.attr,
+	&dev_attr_device_delay.attr,
+	&dev_attr_logging_level.attr,
+	&dev_attr_fwfault_debug.attr,
+	&dev_attr_fw_queue_depth.attr,
+	&dev_attr_host_sas_address.attr,
+	&dev_attr_ioc_reset_count.attr,
+	&dev_attr_host_trace_buffer_size.attr,
+	&dev_attr_host_trace_buffer.attr,
+	&dev_attr_host_trace_buffer_enable.attr,
+	&dev_attr_reply_queue_count.attr,
+	&dev_attr_diag_trigger_master.attr,
+	&dev_attr_diag_trigger_event.attr,
+	&dev_attr_diag_trigger_scsi.attr,
+	&dev_attr_diag_trigger_mpi.attr,
+	&dev_attr_drv_support_bitmap.attr,
+	&dev_attr_BRM_status.attr,
+	&dev_attr_enable_sdev_max_qd.attr,
 	NULL,
+};
+
+static const struct attribute_group mpt3sas_host_attr_group = {
+	.attrs = mpt3sas_host_attrs
+};
+
+const struct attribute_group *mpt3sas_host_groups[] = {
+	&mpt3sas_host_attr_group,
+	NULL
 };
 
 /* device attributes */
@@ -3928,7 +4008,25 @@ sas_device_handle_show(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR_RO(sas_device_handle);
 
 /**
- * sas_ncq_io_prio_show - send prioritized io commands to device
+ * sas_ncq_prio_supported_show - Indicate if device supports NCQ priority
+ * @dev: pointer to embedded device
+ * @attr: sas_ncq_prio_supported attribute descriptor
+ * @buf: the buffer returned
+ *
+ * A sysfs 'read-only' sdev attribute, only works with SATA
+ */
+static ssize_t
+sas_ncq_prio_supported_show(struct device *dev,
+			    struct device_attribute *attr, char *buf)
+{
+	struct scsi_device *sdev = to_scsi_device(dev);
+
+	return sysfs_emit(buf, "%d\n", scsih_ncq_prio_supp(sdev));
+}
+static DEVICE_ATTR_RO(sas_ncq_prio_supported);
+
+/**
+ * sas_ncq_prio_enable_show - send prioritized io commands to device
  * @dev: pointer to embedded device
  * @attr: ?
  * @buf: the buffer returned
@@ -3966,11 +4064,21 @@ sas_ncq_prio_enable_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(sas_ncq_prio_enable);
 
-struct device_attribute *mpt3sas_dev_attrs[] = {
-	&dev_attr_sas_address,
-	&dev_attr_sas_device_handle,
-	&dev_attr_sas_ncq_prio_enable,
+static struct attribute *mpt3sas_dev_attrs[] = {
+	&dev_attr_sas_address.attr,
+	&dev_attr_sas_device_handle.attr,
+	&dev_attr_sas_ncq_prio_supported.attr,
+	&dev_attr_sas_ncq_prio_enable.attr,
 	NULL,
+};
+
+static const struct attribute_group mpt3sas_dev_attr_group = {
+	.attrs = mpt3sas_dev_attrs
+};
+
+const struct attribute_group *mpt3sas_dev_groups[] = {
+	&mpt3sas_dev_attr_group,
+	NULL
 };
 
 /* file operations table for mpt3ctl device */

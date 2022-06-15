@@ -65,7 +65,6 @@ static const struct usb_device_id usb_ids[] = {
 	{ USB_DEVICE(0x0586, 0x3412), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x0586, 0x3413), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x079b, 0x0062), .driver_info = DEVICE_ZD1211B },
-	{ USB_DEVICE(0x07b8, 0x6001), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x07fa, 0x1196), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x083a, 0x4505), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x083a, 0xe501), .driver_info = DEVICE_ZD1211B },
@@ -1544,14 +1543,14 @@ static int __init usb_init(void)
 
 	zd_workqueue = create_singlethread_workqueue(driver.name);
 	if (zd_workqueue == NULL) {
-		printk(KERN_ERR "%s couldn't create workqueue\n", driver.name);
+		pr_err("%s couldn't create workqueue\n", driver.name);
 		return -ENOMEM;
 	}
 
 	r = usb_register(&driver);
 	if (r) {
 		destroy_workqueue(zd_workqueue);
-		printk(KERN_ERR "%s usb_register() failed. Error number %d\n",
+		pr_err("%s usb_register() failed. Error number %d\n",
 		       driver.name, r);
 		return r;
 	}

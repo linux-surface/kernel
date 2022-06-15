@@ -56,7 +56,8 @@ u32 cdnsp_port_state_to_neutral(u32 state)
 }
 
 /**
- * Find the offset of the extended capabilities with capability ID id.
+ * cdnsp_find_next_ext_cap - Find the offset of the extended capabilities
+ *                           with capability ID id.
  * @base: PCI MMIO registers base address.
  * @start: Address at which to start looking, (0 or HCC_PARAMS to start at
  *         beginning of list)
@@ -80,7 +81,7 @@ int cdnsp_find_next_ext_cap(void __iomem *base, u32 start, int id)
 		offset = HCC_EXT_CAPS(val) << 2;
 		if (!offset)
 			return 0;
-	};
+	}
 
 	do {
 		val = readl(base + offset);
@@ -422,17 +423,17 @@ unmap:
 int cdnsp_ep_dequeue(struct cdnsp_ep *pep, struct cdnsp_request *preq)
 {
 	struct cdnsp_device *pdev = pep->pdev;
-	int ret;
+	int ret_stop = 0;
+	int ret_rem;
 
 	trace_cdnsp_request_dequeue(preq);
 
-	if (GET_EP_CTX_STATE(pep->out_ctx) == EP_STATE_RUNNING) {
-		ret = cdnsp_cmd_stop_ep(pdev, pep);
-		if (ret)
-			return ret;
-	}
+	if (GET_EP_CTX_STATE(pep->out_ctx) == EP_STATE_RUNNING)
+		ret_stop = cdnsp_cmd_stop_ep(pdev, pep);
 
-	return cdnsp_remove_request(pdev, preq, pep);
+	ret_rem = cdnsp_remove_request(pdev, preq, pep);
+
+	return ret_rem ? ret_rem : ret_stop;
 }
 
 static void cdnsp_zero_in_ctx(struct cdnsp_device *pdev)
@@ -727,7 +728,7 @@ int cdnsp_reset_device(struct cdnsp_device *pdev)
 	 * are in Disabled state.
 	 */
 	for (i = 1; i < CDNSP_ENDPOINTS_NUM; ++i)
-		pdev->eps[i].ep_state |= EP_STOPPED;
+		pdev->eps[i].ep_state |= EP_STOPPED | EP_UNCONFIGURED;
 
 	trace_cdnsp_handle_cmd_reset_dev(slot_ctx);
 
@@ -942,6 +943,7 @@ static int cdnsp_gadget_ep_enable(struct usb_ep *ep,
 
 	pep = to_cdnsp_ep(ep);
 	pdev = pep->pdev;
+	pep->ep_state &= ~EP_UNCONFIGURED;
 
 	if (dev_WARN_ONCE(pdev->dev, pep->ep_state & EP_ENABLED,
 			  "%s is already enabled\n", pep->name))
@@ -1023,9 +1025,13 @@ static int cdnsp_gadget_ep_disable(struct usb_ep *ep)
 		goto finish;
 	}
 
-	cdnsp_cmd_stop_ep(pdev, pep);
 	pep->ep_state |= EP_DIS_IN_RROGRESS;
-	cdnsp_cmd_flush_ep(pdev, pep);
+
+	/* Endpoint was unconfigured by Reset Device command. */
+	if (!(pep->ep_state & EP_UNCONFIGURED)) {
+		cdnsp_cmd_stop_ep(pdev, pep);
+		cdnsp_cmd_flush_ep(pdev, pep);
+	}
 
 	/* Remove all queued USB requests. */
 	while (!list_empty(&pep->pending_list)) {
@@ -1043,10 +1049,12 @@ static int cdnsp_gadget_ep_disable(struct usb_ep *ep)
 
 	cdnsp_endpoint_zero(pdev, pep);
 
-	ret = cdnsp_update_eps_configuration(pdev, pep);
+	if (!(pep->ep_state & EP_UNCONFIGURED))
+		ret = cdnsp_update_eps_configuration(pdev, pep);
+
 	cdnsp_free_endpoint_rings(pdev, pep);
 
-	pep->ep_state &= ~EP_ENABLED;
+	pep->ep_state &= ~(EP_ENABLED | EP_UNCONFIGURED);
 	pep->ep_state |= EP_STOPPED;
 
 finish:
@@ -1128,6 +1136,10 @@ static int cdnsp_gadget_ep_dequeue(struct usb_ep *ep,
 		return -ESHUTDOWN;
 	}
 
+	/* Requests has been dequeued during disabling endpoint. */
+	if (!(pep->ep_state & EP_ENABLED))
+		return 0;
+
 	spin_lock_irqsave(&pdev->lock, flags);
 	ret = cdnsp_ep_dequeue(pep, to_cdnsp_request(request));
 	spin_unlock_irqrestore(&pdev->lock, flags);
@@ -1140,7 +1152,7 @@ static int cdnsp_gadget_ep_set_halt(struct usb_ep *ep, int value)
 	struct cdnsp_ep *pep = to_cdnsp_ep(ep);
 	struct cdnsp_device *pdev = pep->pdev;
 	struct cdnsp_request *preq;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int ret;
 
 	spin_lock_irqsave(&pdev->lock, flags);
@@ -1165,7 +1177,7 @@ static int cdnsp_gadget_ep_set_wedge(struct usb_ep *ep)
 {
 	struct cdnsp_ep *pep = to_cdnsp_ep(ep);
 	struct cdnsp_device *pdev = pep->pdev;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int ret;
 
 	spin_lock_irqsave(&pdev->lock, flags);
@@ -1231,12 +1243,9 @@ static int cdnsp_run(struct cdnsp_device *pdev,
 		     enum usb_device_speed speed)
 {
 	u32 fs_speed = 0;
-	u64 temp_64;
 	u32 temp;
 	int ret;
 
-	temp_64 = cdnsp_read_64(&pdev->ir_set->erst_dequeue);
-	temp_64 &= ~ERST_PTR_MASK;
 	temp = readl(&pdev->ir_set->irq_control);
 	temp &= ~IMOD_INTERVAL_MASK;
 	temp |= ((IMOD_DEFAULT_INTERVAL / 250) & IMOD_INTERVAL_MASK);
@@ -1529,8 +1538,16 @@ static int cdnsp_gadget_pullup(struct usb_gadget *gadget, int is_on)
 {
 	struct cdnsp_device *pdev = gadget_to_cdnsp(gadget);
 	struct cdns *cdns = dev_get_drvdata(pdev->dev);
+	unsigned long flags;
 
 	trace_cdnsp_pullup(is_on);
+
+	/*
+	 * Disable events handling while controller is being
+	 * enabled/disabled.
+	 */
+	disable_irq(cdns->dev_irq);
+	spin_lock_irqsave(&pdev->lock, flags);
 
 	if (!is_on) {
 		cdnsp_reset_device(pdev);
@@ -1538,6 +1555,10 @@ static int cdnsp_gadget_pullup(struct usb_gadget *gadget, int is_on)
 	} else {
 		cdns_set_vbus(cdns);
 	}
+
+	spin_unlock_irqrestore(&pdev->lock, flags);
+	enable_irq(cdns->dev_irq);
+
 	return 0;
 }
 
@@ -1870,7 +1891,7 @@ static int __cdnsp_gadget_init(struct cdns *cdns)
 	pdev->gadget.name = "cdnsp-gadget";
 	pdev->gadget.speed = USB_SPEED_UNKNOWN;
 	pdev->gadget.sg_supported = 1;
-	pdev->gadget.max_speed = USB_SPEED_SUPER_PLUS;
+	pdev->gadget.max_speed = max_speed;
 	pdev->gadget.lpm_capable = 1;
 
 	pdev->setup_buf = kzalloc(CDNSP_EP0_SETUP_SIZE, GFP_KERNEL);

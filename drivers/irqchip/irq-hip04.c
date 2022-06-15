@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Hisilicon HiP04 INTC
+ * HiSilicon HiP04 INTC
  *
  * Copyright (C) 2002-2014 ARM Limited.
- * Copyright (c) 2013-2014 Hisilicon Ltd.
+ * Copyright (c) 2013-2014 HiSilicon Ltd.
  * Copyright (c) 2013-2014 Linaro Ltd.
  *
  * Interrupt architecture for the HIP04 INTC:
@@ -206,7 +206,7 @@ static void __exception_irq_entry hip04_handle_irq(struct pt_regs *regs)
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 
 		if (irqnr <= HIP04_MAX_IRQS)
-			handle_domain_irq(hip04_data.domain, irqnr, regs);
+			generic_handle_domain_irq(hip04_data.domain, irqnr);
 	} while (irqnr > HIP04_MAX_IRQS);
 }
 

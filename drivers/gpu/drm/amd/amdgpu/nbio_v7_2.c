@@ -28,6 +28,25 @@
 #include "nbio/nbio_7_2_0_sh_mask.h"
 #include <uapi/linux/kfd_ioctl.h>
 
+#define regRCC_STRAP0_RCC_DEV0_EPF0_STRAP0_YC				0x0015
+#define regRCC_STRAP0_RCC_DEV0_EPF0_STRAP0_YC_BASE_IDX		2
+#define regBIF_BX0_BIF_FB_EN_YC								0x0100
+#define regBIF_BX0_BIF_FB_EN_YC_BASE_IDX					2
+#define regBIF1_PCIE_MST_CTRL_3								0x4601c6
+#define regBIF1_PCIE_MST_CTRL_3_BASE_IDX					5
+#define BIF1_PCIE_MST_CTRL_3__CI_SWUS_MAX_READ_REQUEST_SIZE_MODE__SHIFT \
+			0x1b
+#define BIF1_PCIE_MST_CTRL_3__CI_SWUS_MAX_READ_REQUEST_SIZE_PRIV__SHIFT \
+			0x1c
+#define BIF1_PCIE_MST_CTRL_3__CI_SWUS_MAX_READ_REQUEST_SIZE_MODE_MASK \
+			0x08000000L
+#define BIF1_PCIE_MST_CTRL_3__CI_SWUS_MAX_READ_REQUEST_SIZE_PRIV_MASK \
+			0x30000000L
+#define regBIF1_PCIE_TX_POWER_CTRL_1						0x460187
+#define regBIF1_PCIE_TX_POWER_CTRL_1_BASE_IDX				5
+#define BIF1_PCIE_TX_POWER_CTRL_1__MST_MEM_LS_EN_MASK		0x00000001L
+#define BIF1_PCIE_TX_POWER_CTRL_1__REPLAY_MEM_LS_EN_MASK	0x00000008L
+
 static void nbio_v7_2_remap_hdp_registers(struct amdgpu_device *adev)
 {
 	WREG32_SOC15(NBIO, 0, regBIF_BX0_REMAP_HDP_MEM_FLUSH_CNTL,
@@ -38,7 +57,18 @@ static void nbio_v7_2_remap_hdp_registers(struct amdgpu_device *adev)
 
 static u32 nbio_v7_2_get_rev_id(struct amdgpu_device *adev)
 {
-	u32 tmp = RREG32_SOC15(NBIO, 0, regRCC_STRAP0_RCC_DEV0_EPF0_STRAP0);
+	u32 tmp;
+
+	switch (adev->ip_versions[NBIO_HWIP][0]) {
+	case IP_VERSION(7, 2, 1):
+	case IP_VERSION(7, 3, 0):
+	case IP_VERSION(7, 5, 0):
+		tmp = RREG32_SOC15(NBIO, 0, regRCC_STRAP0_RCC_DEV0_EPF0_STRAP0_YC);
+		break;
+	default:
+		tmp = RREG32_SOC15(NBIO, 0, regRCC_STRAP0_RCC_DEV0_EPF0_STRAP0);
+		break;
+	}
 
 	tmp &= RCC_STRAP0_RCC_DEV0_EPF0_STRAP0__STRAP_ATI_REV_ID_DEV0_F0_MASK;
 	tmp >>= RCC_STRAP0_RCC_DEV0_EPF0_STRAP0__STRAP_ATI_REV_ID_DEV0_F0__SHIFT;
@@ -48,12 +78,26 @@ static u32 nbio_v7_2_get_rev_id(struct amdgpu_device *adev)
 
 static void nbio_v7_2_mc_access_enable(struct amdgpu_device *adev, bool enable)
 {
-	if (enable)
-		WREG32_SOC15(NBIO, 0, regBIF_BX0_BIF_FB_EN,
-			     BIF_BX0_BIF_FB_EN__FB_READ_EN_MASK |
-			     BIF_BX0_BIF_FB_EN__FB_WRITE_EN_MASK);
-	else
-		WREG32_SOC15(NBIO, 0, regBIF_BX0_BIF_FB_EN, 0);
+	switch (adev->ip_versions[NBIO_HWIP][0]) {
+	case IP_VERSION(7, 2, 1):
+	case IP_VERSION(7, 3, 0):
+	case IP_VERSION(7, 5, 0):
+		if (enable)
+			WREG32_SOC15(NBIO, 0, regBIF_BX0_BIF_FB_EN_YC,
+				BIF_BX0_BIF_FB_EN__FB_READ_EN_MASK |
+				BIF_BX0_BIF_FB_EN__FB_WRITE_EN_MASK);
+		else
+			WREG32_SOC15(NBIO, 0, regBIF_BX0_BIF_FB_EN_YC, 0);
+	break;
+	default:
+		if (enable)
+			WREG32_SOC15(NBIO, 0, regBIF_BX0_BIF_FB_EN,
+				BIF_BX0_BIF_FB_EN__FB_READ_EN_MASK |
+				BIF_BX0_BIF_FB_EN__FB_WRITE_EN_MASK);
+		else
+			WREG32_SOC15(NBIO, 0, regBIF_BX0_BIF_FB_EN, 0);
+		break;
+	}
 }
 
 static u32 nbio_v7_2_get_memsize(struct amdgpu_device *adev)
@@ -92,13 +136,13 @@ static void nbio_v7_2_vcn_doorbell_range(struct amdgpu_device *adev, bool use_do
 
 	if (use_doorbell) {
 		doorbell_range = REG_SET_FIELD(doorbell_range,
-					       GDC0_BIF_VCN0_DOORBELL_RANGE, OFFSET,
-					       doorbell_index);
+							GDC0_BIF_VCN0_DOORBELL_RANGE, OFFSET,
+							doorbell_index);
 		doorbell_range = REG_SET_FIELD(doorbell_range,
-					       GDC0_BIF_VCN0_DOORBELL_RANGE, SIZE, 8);
+							GDC0_BIF_VCN0_DOORBELL_RANGE, SIZE, 8);
 	} else {
 		doorbell_range = REG_SET_FIELD(doorbell_range,
-					       GDC0_BIF_VCN0_DOORBELL_RANGE, SIZE, 0);
+							GDC0_BIF_VCN0_DOORBELL_RANGE, SIZE, 0);
 	}
 
 	WREG32_PCIE_PORT(reg, doorbell_range);
@@ -123,22 +167,22 @@ static void nbio_v7_2_enable_doorbell_selfring_aperture(struct amdgpu_device *ad
 
 	if (enable) {
 		tmp = REG_SET_FIELD(tmp, BIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_CNTL,
-				    DOORBELL_SELFRING_GPA_APER_EN, 1) |
-		      REG_SET_FIELD(tmp, BIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_CNTL,
-				    DOORBELL_SELFRING_GPA_APER_MODE, 1) |
-		      REG_SET_FIELD(tmp, BIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_CNTL,
-				    DOORBELL_SELFRING_GPA_APER_SIZE, 0);
+				DOORBELL_SELFRING_GPA_APER_EN, 1) |
+			REG_SET_FIELD(tmp, BIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_CNTL,
+				DOORBELL_SELFRING_GPA_APER_MODE, 1) |
+			REG_SET_FIELD(tmp, BIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_CNTL,
+				DOORBELL_SELFRING_GPA_APER_SIZE, 0);
 
 		WREG32_SOC15(NBIO, 0,
-			     regBIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_BASE_LOW,
-			     lower_32_bits(adev->doorbell.base));
+			regBIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_BASE_LOW,
+			lower_32_bits(adev->doorbell.base));
 		WREG32_SOC15(NBIO, 0,
-			     regBIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_BASE_HIGH,
-			     upper_32_bits(adev->doorbell.base));
+			regBIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_BASE_HIGH,
+			upper_32_bits(adev->doorbell.base));
 	}
 
 	WREG32_SOC15(NBIO, 0, regBIF_BX_PF0_DOORBELL_SELFRING_GPA_APER_CNTL,
-		     tmp);
+		tmp);
 }
 
 
@@ -218,19 +262,47 @@ static void nbio_v7_2_update_medium_grain_light_sleep(struct amdgpu_device *adev
 {
 	uint32_t def, data;
 
-	def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CNTL2));
-	if (enable && (adev->cg_flags & AMD_CG_SUPPORT_BIF_LS)) {
-		data |= (PCIE_CNTL2__SLV_MEM_LS_EN_MASK |
-			 PCIE_CNTL2__MST_MEM_LS_EN_MASK |
-			 PCIE_CNTL2__REPLAY_MEM_LS_EN_MASK);
-	} else {
-		data &= ~(PCIE_CNTL2__SLV_MEM_LS_EN_MASK |
-			  PCIE_CNTL2__MST_MEM_LS_EN_MASK |
-			  PCIE_CNTL2__REPLAY_MEM_LS_EN_MASK);
-	}
+	switch (adev->ip_versions[NBIO_HWIP][0]) {
+	case IP_VERSION(7, 2, 1):
+	case IP_VERSION(7, 3, 0):
+	case IP_VERSION(7, 5, 0):
+		def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CNTL2));
+		if (enable && (adev->cg_flags & AMD_CG_SUPPORT_BIF_LS))
+			data |= PCIE_CNTL2__SLV_MEM_LS_EN_MASK;
+		else
+			data &= ~PCIE_CNTL2__SLV_MEM_LS_EN_MASK;
 
-	if (def != data)
-		WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CNTL2), data);
+		if (def != data)
+			WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CNTL2), data);
+
+		def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0,
+			regBIF1_PCIE_TX_POWER_CTRL_1));
+		if (enable && (adev->cg_flags & AMD_CG_SUPPORT_BIF_LS))
+			data |= (BIF1_PCIE_TX_POWER_CTRL_1__MST_MEM_LS_EN_MASK |
+				BIF1_PCIE_TX_POWER_CTRL_1__REPLAY_MEM_LS_EN_MASK);
+		else
+			data &= ~(BIF1_PCIE_TX_POWER_CTRL_1__MST_MEM_LS_EN_MASK |
+				BIF1_PCIE_TX_POWER_CTRL_1__REPLAY_MEM_LS_EN_MASK);
+
+		if (def != data)
+			WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regBIF1_PCIE_TX_POWER_CTRL_1),
+				data);
+		break;
+	default:
+		def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CNTL2));
+		if (enable && (adev->cg_flags & AMD_CG_SUPPORT_BIF_LS))
+			data |= (PCIE_CNTL2__SLV_MEM_LS_EN_MASK |
+				 PCIE_CNTL2__MST_MEM_LS_EN_MASK |
+				 PCIE_CNTL2__REPLAY_MEM_LS_EN_MASK);
+		else
+			data &= ~(PCIE_CNTL2__SLV_MEM_LS_EN_MASK |
+				  PCIE_CNTL2__MST_MEM_LS_EN_MASK |
+				  PCIE_CNTL2__REPLAY_MEM_LS_EN_MASK);
+
+		if (def != data)
+			WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CNTL2), data);
+		break;
+	}
 }
 
 static void nbio_v7_2_get_clockgating_state(struct amdgpu_device *adev,
@@ -297,14 +369,34 @@ const struct nbio_hdp_flush_reg nbio_v7_2_hdp_flush_reg = {
 static void nbio_v7_2_init_registers(struct amdgpu_device *adev)
 {
 	uint32_t def, data;
+	switch (adev->ip_versions[NBIO_HWIP][0]) {
+	case IP_VERSION(7, 2, 1):
+	case IP_VERSION(7, 3, 0):
+	case IP_VERSION(7, 5, 0):
+		def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regBIF1_PCIE_MST_CTRL_3));
+		data = REG_SET_FIELD(data, BIF1_PCIE_MST_CTRL_3,
+			CI_SWUS_MAX_READ_REQUEST_SIZE_MODE, 1);
+		data = REG_SET_FIELD(data, BIF1_PCIE_MST_CTRL_3,
+			CI_SWUS_MAX_READ_REQUEST_SIZE_PRIV, 1);
 
-	def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CONFIG_CNTL));
-	data = REG_SET_FIELD(data, PCIE_CONFIG_CNTL, CI_SWUS_MAX_READ_REQUEST_SIZE_MODE, 1);
-	data = REG_SET_FIELD(data, PCIE_CONFIG_CNTL, CI_SWUS_MAX_READ_REQUEST_SIZE_PRIV, 1);
+		if (def != data)
+			WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regBIF1_PCIE_MST_CTRL_3), data);
+		break;
+	default:
+		def = data = RREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CONFIG_CNTL));
+		data = REG_SET_FIELD(data, PCIE_CONFIG_CNTL,
+			CI_SWUS_MAX_READ_REQUEST_SIZE_MODE, 1);
+		data = REG_SET_FIELD(data, PCIE_CONFIG_CNTL,
+			CI_SWUS_MAX_READ_REQUEST_SIZE_PRIV, 1);
 
-	if (def != data)
-		WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CONFIG_CNTL),
-				 data);
+		if (def != data)
+			WREG32_PCIE_PORT(SOC15_REG_OFFSET(NBIO, 0, regPCIE_CONFIG_CNTL), data);
+		break;
+	}
+
+	if (amdgpu_sriov_vf(adev))
+		adev->rmmio_remap.reg_offset = SOC15_REG_OFFSET(NBIO, 0,
+			regBIF_BX_PF0_HDP_MEM_COHERENCY_FLUSH_CNTL) << 2;
 }
 
 const struct amdgpu_nbio_funcs nbio_v7_2_funcs = {

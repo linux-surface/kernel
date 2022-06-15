@@ -231,16 +231,33 @@ config CRYPTO_DH
 	help
 	  Generic implementation of the Diffie-Hellman algorithm.
 
+config CRYPTO_DH_RFC7919_GROUPS
+	bool "Support for RFC 7919 FFDHE group parameters"
+	depends on CRYPTO_DH
+	select CRYPTO_RNG_DEFAULT
+	help
+	  Provide support for RFC 7919 FFDHE group parameters. If unsure, say N.
+
 config CRYPTO_ECC
 	tristate
+	select CRYPTO_RNG_DEFAULT
 
 config CRYPTO_ECDH
 	tristate "ECDH algorithm"
 	select CRYPTO_ECC
 	select CRYPTO_KPP
-	select CRYPTO_RNG_DEFAULT
 	help
 	  Generic implementation of the ECDH algorithm
+
+config CRYPTO_ECDSA
+	tristate "ECDSA (NIST P192, P256 etc.) algorithm"
+	select CRYPTO_ECC
+	select CRYPTO_AKCIPHER
+	select ASN1
+	help
+	  Elliptic Curve Digital Signature Algorithm (NIST P192, P256 etc.)
+	  is A NIST cryptographic standard algorithm. Only signature verification
+	  is implemented.
 
 config CRYPTO_ECRDSA
 	tristate "EC-RDSA (GOST 34.10) algorithm"
@@ -257,7 +274,7 @@ config CRYPTO_ECRDSA
 
 config CRYPTO_SM2
 	tristate "SM2 algorithm"
-	select CRYPTO_SM3
+	select CRYPTO_LIB_SM3
 	select CRYPTO_AKCIPHER
 	select CRYPTO_MANAGER
 	select MPILIB
@@ -415,6 +432,7 @@ config CRYPTO_LRW
 	select CRYPTO_SKCIPHER
 	select CRYPTO_MANAGER
 	select CRYPTO_GF128MUL
+	select CRYPTO_ECB
 	help
 	  LRW: Liskov Rivest Wagner, a tweakable, non malleable, non movable
 	  narrow block cipher mode for dm-crypt.  Use it with cipher
@@ -725,6 +743,11 @@ config CRYPTO_CRCT10DIF_VPMSUM
 	  multiply-sum (vpmsum) instructions, introduced in POWER8. Enable on
 	  POWER8 and newer processors for improved performance.
 
+config CRYPTO_CRC64_ROCKSOFT
+	tristate "Rocksoft Model CRC64 algorithm"
+	depends on CRC64
+	select CRYPTO_HASH
+
 config CRYPTO_VPMSUM_TESTER
 	tristate "Powerpc64 vpmsum hardware acceleration tester"
 	depends on CRYPTO_CRCT10DIF_VPMSUM && CRYPTO_CRC32C_VPMSUM
@@ -989,6 +1012,7 @@ config CRYPTO_SHA3
 config CRYPTO_SM3
 	tristate "SM3 digest algorithm"
 	select CRYPTO_HASH
+	select CRYPTO_LIB_SM3
 	help
 	  SM3 secure hash function as defined by OSCCA GM/T 0004-2012 SM3).
 	  It is part of the Chinese Commercial Cryptography suite.
@@ -996,6 +1020,19 @@ config CRYPTO_SM3
 	  References:
 	  http://www.oscca.gov.cn/UpFile/20101222141857786.pdf
 	  https://datatracker.ietf.org/doc/html/draft-shen-sm3-hash
+
+config CRYPTO_SM3_AVX_X86_64
+	tristate "SM3 digest algorithm (x86_64/AVX)"
+	depends on X86 && 64BIT
+	select CRYPTO_HASH
+	select CRYPTO_LIB_SM3
+	help
+	  SM3 secure hash function as defined by OSCCA GM/T 0004-2012 SM3).
+	  It is part of the Chinese Commercial Cryptography suite. This is
+	  SM3 optimized implementation using Advanced Vector Extensions (AVX)
+	  when available.
+
+	  If unsure, say N.
 
 config CRYPTO_STREEBOG
 	tristate "Streebog Hash Function"
@@ -1213,7 +1250,6 @@ config CRYPTO_BLOWFISH_X86_64
 
 config CRYPTO_CAMELLIA
 	tristate "Camellia cipher algorithms"
-	depends on CRYPTO
 	select CRYPTO_ALGAPI
 	help
 	  Camellia cipher algorithms module.
@@ -1229,7 +1265,6 @@ config CRYPTO_CAMELLIA
 config CRYPTO_CAMELLIA_X86_64
 	tristate "Camellia cipher algorithm (x86_64)"
 	depends on X86 && 64BIT
-	depends on CRYPTO
 	select CRYPTO_SKCIPHER
 	imply CRYPTO_CTR
 	help
@@ -1246,7 +1281,6 @@ config CRYPTO_CAMELLIA_X86_64
 config CRYPTO_CAMELLIA_AESNI_AVX_X86_64
 	tristate "Camellia cipher algorithm (x86_64/AES-NI/AVX)"
 	depends on X86 && 64BIT
-	depends on CRYPTO
 	select CRYPTO_SKCIPHER
 	select CRYPTO_CAMELLIA_X86_64
 	select CRYPTO_SIMD
@@ -1265,7 +1299,6 @@ config CRYPTO_CAMELLIA_AESNI_AVX_X86_64
 config CRYPTO_CAMELLIA_AESNI_AVX2_X86_64
 	tristate "Camellia cipher algorithm (x86_64/AES-NI/AVX2)"
 	depends on X86 && 64BIT
-	depends on CRYPTO
 	select CRYPTO_CAMELLIA_AESNI_AVX_X86_64
 	help
 	  Camellia cipher algorithm module (x86_64/AES-NI/AVX2).
@@ -1281,7 +1314,6 @@ config CRYPTO_CAMELLIA_AESNI_AVX2_X86_64
 config CRYPTO_CAMELLIA_SPARC64
 	tristate "Camellia cipher algorithm (SPARC64)"
 	depends on SPARC64
-	depends on CRYPTO
 	select CRYPTO_ALGAPI
 	select CRYPTO_SKCIPHER
 	help
@@ -1542,6 +1574,7 @@ config CRYPTO_SERPENT_AVX2_X86_64
 config CRYPTO_SM4
 	tristate "SM4 cipher algorithm"
 	select CRYPTO_ALGAPI
+	select CRYPTO_LIB_SM4
 	help
 	  SM4 cipher algorithms (OSCCA GB/T 32907-2016).
 
@@ -1561,6 +1594,49 @@ config CRYPTO_SM4
 	  The input, output, and key of SMS4 are each 128 bits.
 
 	  See also: <https://eprint.iacr.org/2008/329.pdf>
+
+	  If unsure, say N.
+
+config CRYPTO_SM4_AESNI_AVX_X86_64
+	tristate "SM4 cipher algorithm (x86_64/AES-NI/AVX)"
+	depends on X86 && 64BIT
+	select CRYPTO_SKCIPHER
+	select CRYPTO_SIMD
+	select CRYPTO_ALGAPI
+	select CRYPTO_LIB_SM4
+	help
+	  SM4 cipher algorithms (OSCCA GB/T 32907-2016) (x86_64/AES-NI/AVX).
+
+	  SM4 (GBT.32907-2016) is a cryptographic standard issued by the
+	  Organization of State Commercial Administration of China (OSCCA)
+	  as an authorized cryptographic algorithms for the use within China.
+
+	  This is SM4 optimized implementation using AES-NI/AVX/x86_64
+	  instruction set for block cipher. Through two affine transforms,
+	  we can use the AES S-Box to simulate the SM4 S-Box to achieve the
+	  effect of instruction acceleration.
+
+	  If unsure, say N.
+
+config CRYPTO_SM4_AESNI_AVX2_X86_64
+	tristate "SM4 cipher algorithm (x86_64/AES-NI/AVX2)"
+	depends on X86 && 64BIT
+	select CRYPTO_SKCIPHER
+	select CRYPTO_SIMD
+	select CRYPTO_ALGAPI
+	select CRYPTO_LIB_SM4
+	select CRYPTO_SM4_AESNI_AVX_X86_64
+	help
+	  SM4 cipher algorithms (OSCCA GB/T 32907-2016) (x86_64/AES-NI/AVX2).
+
+	  SM4 (GBT.32907-2016) is a cryptographic standard issued by the
+	  Organization of State Commercial Administration of China (OSCCA)
+	  as an authorized cryptographic algorithms for the use within China.
+
+	  This is SM4 optimized implementation using AES-NI/AVX2/x86_64
+	  instruction set for block cipher. Through two affine transforms,
+	  we can use the AES S-Box to simulate the SM4 S-Box to achieve the
+	  effect of instruction acceleration.
 
 	  If unsure, say N.
 
@@ -1763,7 +1839,7 @@ config CRYPTO_DRBG_HMAC
 	bool
 	default y
 	select CRYPTO_HMAC
-	select CRYPTO_SHA256
+	select CRYPTO_SHA512
 
 config CRYPTO_DRBG_HASH
 	bool "Enable Hash DRBG"
@@ -1795,6 +1871,11 @@ config CRYPTO_JITTERENTROPY
 	  perform any cryptographic whitening of the generated
 	  random numbers. This Jitterentropy RNG registers with
 	  the kernel crypto API and can be used by any caller.
+
+config CRYPTO_KDF800108_CTR
+	tristate
+	select CRYPTO_HMAC
+	select CRYPTO_SHA256
 
 config CRYPTO_USER_API
 	tristate
@@ -1870,7 +1951,6 @@ config CRYPTO_STATS
 config CRYPTO_HASH_INFO
 	bool
 
-source "lib/crypto/Kconfig"
 source "drivers/crypto/Kconfig"
 source "crypto/asymmetric_keys/Kconfig"
 source "certs/Kconfig"

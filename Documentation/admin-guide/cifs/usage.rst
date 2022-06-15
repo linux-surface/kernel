@@ -714,6 +714,7 @@ DebugData		Displays information about active CIFS sessions and
 			version.
 Stats			Lists summary resource usage information as well as per
 			share statistics.
+open_files		List all the open file handles on all active SMB sessions.
 ======================= =======================================================
 
 Configuration pseudo-files:
@@ -733,10 +734,9 @@ SecurityFlags		Flags which control security negotiation and
 			using weaker password hashes is 0x37037 (lanman,
 			plaintext, ntlm, ntlmv2, signing allowed).  Some
 			SecurityFlags require the corresponding menuconfig
-			options to be enabled (lanman and plaintext require
-			CONFIG_CIFS_WEAK_PW_HASH for example).  Enabling
-			plaintext authentication currently requires also
-			enabling lanman authentication in the security flags
+			options to be enabled.  Enabling plaintext
+			authentication currently requires also enabling
+			lanman authentication in the security flags
 			because the cifs module only supports sending
 			laintext passwords using the older lanman dialect
 			form of the session setup SMB.  (e.g. for authentication
@@ -794,6 +794,8 @@ LinuxExtensionsEnabled	If set to one then the client will attempt to
 			support and want to map the uid and gid fields
 			to values supplied at mount (rather than the
 			actual values, then set this to zero. (default 1)
+dfscache		List the content of the DFS cache.
+			If set to 0, the client will clear the cache.
 ======================= =======================================================
 
 These experimental features and tracing can be enabled by changing flags in

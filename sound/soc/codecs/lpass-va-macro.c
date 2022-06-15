@@ -9,11 +9,14 @@
 #include <linux/of_clk.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
+
+#include "lpass-macro-common.h"
 
 /* VA macro registers */
 #define CDC_VA_CLK_RST_CTRL_MCLK_CONTROL	(0x0000)
@@ -189,13 +192,15 @@ struct va_macro {
 	struct device *dev;
 	unsigned long active_ch_mask[VA_MACRO_MAX_DAIS];
 	unsigned long active_ch_cnt[VA_MACRO_MAX_DAIS];
-	unsigned long active_decimator[VA_MACRO_MAX_DAIS];
 	u16 dmic_clk_div;
 
 	int dec_mode[VA_MACRO_NUM_DECIMATORS];
 	struct regmap *regmap;
-	struct clk_bulk_data clks[VA_NUM_CLKS_MAX];
+	struct clk *mclk;
+	struct clk *macro;
+	struct clk *dcodec;
 	struct clk_hw hw;
+	struct lpass_macro *pds;
 
 	s32 dmic_0_1_clk_cnt;
 	s32 dmic_2_3_clk_cnt;
@@ -549,11 +554,9 @@ static int va_macro_tx_mixer_put(struct snd_kcontrol *kcontrol,
 	if (enable) {
 		set_bit(dec_id, &va->active_ch_mask[dai_id]);
 		va->active_ch_cnt[dai_id]++;
-		va->active_decimator[dai_id] = dec_id;
 	} else {
 		clear_bit(dec_id, &va->active_ch_mask[dai_id]);
 		va->active_ch_cnt[dai_id]--;
-		va->active_decimator[dai_id] = -1;
 	}
 
 	snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol, enable, update);
@@ -783,7 +786,7 @@ static int va_macro_dec_mode_get(struct snd_kcontrol *kcontrol,
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	int path = e->shift_l;
 
-	ucontrol->value.integer.value[0] = va->dec_mode[path];
+	ucontrol->value.enumerated.item[0] = va->dec_mode[path];
 
 	return 0;
 }
@@ -792,7 +795,7 @@ static int va_macro_dec_mode_put(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *comp = snd_soc_kcontrol_component(kcontrol);
-	int value = ucontrol->value.integer.value[0];
+	int value = ucontrol->value.enumerated.item[0];
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	int path = e->shift_l;
 	struct va_macro *va = snd_soc_component_get_drvdata(comp);
@@ -880,23 +883,24 @@ static int va_macro_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
 	struct va_macro *va = snd_soc_component_get_drvdata(component);
 	u16 tx_vol_ctl_reg, decimator;
 
-	decimator = va->active_decimator[dai->id];
-
-	tx_vol_ctl_reg = CDC_VA_TX0_TX_PATH_CTL +
-				VA_MACRO_TX_PATH_OFFSET * decimator;
-	if (mute)
-		snd_soc_component_update_bits(component, tx_vol_ctl_reg,
-					      CDC_VA_TX_PATH_PGA_MUTE_EN_MASK,
-					      CDC_VA_TX_PATH_PGA_MUTE_EN);
-	else
-		snd_soc_component_update_bits(component, tx_vol_ctl_reg,
-					      CDC_VA_TX_PATH_PGA_MUTE_EN_MASK,
-					      CDC_VA_TX_PATH_PGA_MUTE_DISABLE);
+	for_each_set_bit(decimator, &va->active_ch_mask[dai->id],
+			 VA_MACRO_DEC_MAX) {
+		tx_vol_ctl_reg = CDC_VA_TX0_TX_PATH_CTL +
+					VA_MACRO_TX_PATH_OFFSET * decimator;
+		if (mute)
+			snd_soc_component_update_bits(component, tx_vol_ctl_reg,
+					CDC_VA_TX_PATH_PGA_MUTE_EN_MASK,
+					CDC_VA_TX_PATH_PGA_MUTE_EN);
+		else
+			snd_soc_component_update_bits(component, tx_vol_ctl_reg,
+					CDC_VA_TX_PATH_PGA_MUTE_EN_MASK,
+					CDC_VA_TX_PATH_PGA_MUTE_DISABLE);
+	}
 
 	return 0;
 }
 
-static struct snd_soc_dai_ops va_macro_dai_ops = {
+static const struct snd_soc_dai_ops va_macro_dai_ops = {
 	.hw_params = va_macro_hw_params,
 	.get_channel_map = va_macro_get_channel_map,
 	.mute_stream = va_macro_digital_mute,
@@ -1323,7 +1327,7 @@ static const struct clk_ops fsgen_gate_ops = {
 
 static int va_macro_register_fsgen_output(struct va_macro *va)
 {
-	struct clk *parent = va->clks[2].clk;
+	struct clk *parent = va->mclk;
 	struct device *dev = va->dev;
 	struct device_node *np = dev->of_node;
 	const char *parent_clk_name;
@@ -1345,7 +1349,7 @@ static int va_macro_register_fsgen_output(struct va_macro *va)
 	if (ret)
 		return ret;
 
-	return of_clk_add_provider(np, of_clk_src_simple_get, va->hw.clk);
+	return devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, &va->hw);
 }
 
 static int va_macro_validate_dmic_sample_rate(u32 dmic_sample_rate,
@@ -1406,15 +1410,22 @@ static int va_macro_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	va->dev = dev;
-	va->clks[0].id = "macro";
-	va->clks[1].id = "dcodec";
-	va->clks[2].id = "mclk";
 
-	ret = devm_clk_bulk_get(dev, VA_NUM_CLKS_MAX, va->clks);
-	if (ret) {
-		dev_err(dev, "Error getting VA Clocks (%d)\n", ret);
-		return ret;
-	}
+	va->macro = devm_clk_get_optional(dev, "macro");
+	if (IS_ERR(va->macro))
+		return PTR_ERR(va->macro);
+
+	va->dcodec = devm_clk_get_optional(dev, "dcodec");
+	if (IS_ERR(va->dcodec))
+		return PTR_ERR(va->dcodec);
+
+	va->mclk = devm_clk_get(dev, "mclk");
+	if (IS_ERR(va->mclk))
+		return PTR_ERR(va->mclk);
+
+	va->pds = lpass_macro_pds_init(dev);
+	if (IS_ERR(va->pds))
+		return PTR_ERR(va->pds);
 
 	ret = of_property_read_u32(dev->of_node, "qcom,dmic-sample-rate",
 				   &sample_rate);
@@ -1423,15 +1434,11 @@ static int va_macro_probe(struct platform_device *pdev)
 		va->dmic_clk_div = VA_MACRO_CLK_DIV_2;
 	} else {
 		ret = va_macro_validate_dmic_sample_rate(sample_rate, va);
-		if (!ret)
-			return -EINVAL;
+		if (!ret) {
+			ret = -EINVAL;
+			goto err;
+		}
 	}
-
-	/* mclk rate */
-	clk_set_rate(va->clks[1].clk, VA_MACRO_MCLK_FREQ);
-	ret = clk_bulk_prepare_enable(VA_NUM_CLKS_MAX, va->clks);
-	if (ret)
-		return ret;
 
 	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base)) {
@@ -1446,22 +1453,48 @@ static int va_macro_probe(struct platform_device *pdev)
 	}
 
 	dev_set_drvdata(dev, va);
-	ret = va_macro_register_fsgen_output(va);
+
+	/* mclk rate */
+	clk_set_rate(va->mclk, 2 * VA_MACRO_MCLK_FREQ);
+
+	ret = clk_prepare_enable(va->macro);
 	if (ret)
 		goto err;
+
+	ret = clk_prepare_enable(va->dcodec);
+	if (ret)
+		goto err_dcodec;
+
+	ret = clk_prepare_enable(va->mclk);
+	if (ret)
+		goto err_mclk;
+
+	ret = va_macro_register_fsgen_output(va);
+	if (ret)
+		goto err_clkout;
 
 	ret = devm_snd_soc_register_component(dev, &va_macro_component_drv,
 					      va_macro_dais,
 					      ARRAY_SIZE(va_macro_dais));
 	if (ret)
-		goto soc_err;
+		goto err_clkout;
 
-	return ret;
+	pm_runtime_set_autosuspend_delay(dev, 3000);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_mark_last_busy(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
 
-soc_err:
-	of_clk_del_provider(pdev->dev.of_node);
+	return 0;
+
+err_clkout:
+	clk_disable_unprepare(va->mclk);
+err_mclk:
+	clk_disable_unprepare(va->dcodec);
+err_dcodec:
+	clk_disable_unprepare(va->macro);
 err:
-	clk_bulk_disable_unprepare(VA_NUM_CLKS_MAX, va->clks);
+	lpass_macro_pds_exit(va->pds);
 
 	return ret;
 }
@@ -1470,13 +1503,51 @@ static int va_macro_remove(struct platform_device *pdev)
 {
 	struct va_macro *va = dev_get_drvdata(&pdev->dev);
 
-	of_clk_del_provider(pdev->dev.of_node);
-	clk_bulk_disable_unprepare(VA_NUM_CLKS_MAX, va->clks);
+	clk_disable_unprepare(va->mclk);
+	clk_disable_unprepare(va->dcodec);
+	clk_disable_unprepare(va->macro);
+
+	lpass_macro_pds_exit(va->pds);
 
 	return 0;
 }
 
+static int __maybe_unused va_macro_runtime_suspend(struct device *dev)
+{
+	struct va_macro *va = dev_get_drvdata(dev);
+
+	regcache_cache_only(va->regmap, true);
+	regcache_mark_dirty(va->regmap);
+
+	clk_disable_unprepare(va->mclk);
+
+	return 0;
+}
+
+static int __maybe_unused va_macro_runtime_resume(struct device *dev)
+{
+	struct va_macro *va = dev_get_drvdata(dev);
+	int ret;
+
+	ret = clk_prepare_enable(va->mclk);
+	if (ret) {
+		dev_err(va->dev, "unable to prepare mclk\n");
+		return ret;
+	}
+
+	regcache_cache_only(va->regmap, false);
+	regcache_sync(va->regmap);
+
+	return 0;
+}
+
+
+static const struct dev_pm_ops va_macro_pm_ops = {
+	SET_RUNTIME_PM_OPS(va_macro_runtime_suspend, va_macro_runtime_resume, NULL)
+};
+
 static const struct of_device_id va_macro_dt_match[] = {
+	{ .compatible = "qcom,sc7280-lpass-va-macro" },
 	{ .compatible = "qcom,sm8250-lpass-va-macro" },
 	{}
 };
@@ -1487,6 +1558,7 @@ static struct platform_driver va_macro_driver = {
 		.name = "va_macro",
 		.of_match_table = va_macro_dt_match,
 		.suppress_bind_attrs = true,
+		.pm = &va_macro_pm_ops,
 	},
 	.probe = va_macro_probe,
 	.remove = va_macro_remove,

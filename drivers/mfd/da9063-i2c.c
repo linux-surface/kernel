@@ -391,6 +391,7 @@ static int da9063_i2c_probe(struct i2c_client *i2c,
 				&da9063_bb_da_volatile_table;
 			break;
 		case PMIC_DA9063_DA:
+		case PMIC_DA9063_EA:
 			da9063_regmap_config.rd_table =
 				&da9063_da_readable_table;
 			da9063_regmap_config.wr_table =
@@ -416,6 +417,7 @@ static int da9063_i2c_probe(struct i2c_client *i2c,
 				&da9063l_bb_da_volatile_table;
 			break;
 		case PMIC_DA9063_DA:
+		case PMIC_DA9063_EA:
 			da9063_regmap_config.rd_table =
 				&da9063l_da_readable_table;
 			da9063_regmap_config.wr_table =
@@ -440,6 +442,16 @@ static int da9063_i2c_probe(struct i2c_client *i2c,
 		dev_err(da9063->dev, "Failed to allocate register map: %d\n",
 			ret);
 		return ret;
+	}
+
+	/* If SMBus is not available and only I2C is possible, enter I2C mode */
+	if (i2c_check_functionality(i2c->adapter, I2C_FUNC_I2C)) {
+		ret = regmap_clear_bits(da9063->regmap, DA9063_REG_CONFIG_J,
+					DA9063_TWOWIRE_TO);
+		if (ret < 0) {
+			dev_err(da9063->dev, "Failed to set Two-Wire Bus Mode.\n");
+			return ret;
+		}
 	}
 
 	return da9063_device_init(da9063, i2c->irq);

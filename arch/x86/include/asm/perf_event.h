@@ -7,7 +7,7 @@
  */
 
 #define INTEL_PMC_MAX_GENERIC				       32
-#define INTEL_PMC_MAX_FIXED					4
+#define INTEL_PMC_MAX_FIXED				       16
 #define INTEL_PMC_IDX_FIXED				       32
 
 #define X86_PMC_IDX_MAX					       64
@@ -240,6 +240,11 @@ struct x86_pmu_capability {
 #define MSR_ARCH_PERFMON_FIXED_CTR3	0x30c
 #define INTEL_PMC_IDX_FIXED_SLOTS	(INTEL_PMC_IDX_FIXED + 3)
 #define INTEL_PMC_MSK_FIXED_SLOTS	(1ULL << INTEL_PMC_IDX_FIXED_SLOTS)
+
+static inline bool use_fixed_pseudo_encoding(u64 code)
+{
+	return !(code & 0xff);
+}
 
 /*
  * We model BTS tracing as another fixed-mode PMC.
@@ -478,6 +483,7 @@ struct x86_pmu_lbr {
 
 extern void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap);
 extern void perf_check_microcode(void);
+extern void perf_clear_dirty_counters(void);
 extern int x86_perf_rdpmc_index(struct perf_event *event);
 #else
 static inline void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap)

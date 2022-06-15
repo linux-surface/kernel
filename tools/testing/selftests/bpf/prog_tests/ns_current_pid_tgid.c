@@ -68,17 +68,18 @@ static void test_ns_current_pid_tgid_new_ns(void)
 	cpid = clone(test_current_pid_tgid, child_stack + STACK_SIZE,
 		     CLONE_NEWPID | SIGCHLD, NULL);
 
-	if (CHECK(cpid == -1, "clone", strerror(errno)))
+	if (CHECK(cpid == -1, "clone", "%s\n", strerror(errno)))
 		return;
 
-	if (CHECK(waitpid(cpid, &wstatus, 0) == -1, "waitpid", strerror(errno)))
+	if (CHECK(waitpid(cpid, &wstatus, 0) == -1, "waitpid", "%s\n", strerror(errno)))
 		return;
 
 	if (CHECK(WEXITSTATUS(wstatus) != 0, "newns_pidtgid", "failed"))
 		return;
 }
 
-void test_ns_current_pid_tgid(void)
+/* TODO: use a different tracepoint */
+void serial_test_ns_current_pid_tgid(void)
 {
 	if (test__start_subtest("ns_current_pid_tgid_root_ns"))
 		test_current_pid_tgid(NULL);

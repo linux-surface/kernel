@@ -1,12 +1,13 @@
 Linux Networking Documentation
 ==============================
 
+Refer to :ref:`netdev-FAQ` for a guide on netdev development process specifics.
+
 Contents:
 
 .. toctree::
    :maxdepth: 2
 
-   netdev-FAQ
    af_xdp
    bareudp
    batman-adv
@@ -57,6 +58,7 @@ Contents:
    gen_stats
    gtp
    ila
+   ioam6-sysctl
    ipddp
    ip_dynaddr
    ipsec
@@ -68,6 +70,7 @@ Contents:
    l2tp
    lapb-module
    mac80211-injection
+   mctp
    mpls-sysctl
    mptcp-sysctl
    multiqueue
@@ -76,6 +79,7 @@ Contents:
    netdevices
    netfilter-sysctl
    netif-msg
+   nexthop-group-resilient
    nf_conntrack-sysctl
    nf_flowtable
    openvswitch
@@ -93,6 +97,7 @@ Contents:
    sctp
    secid
    seg6-sysctl
+   smc-sysctl
    statistics
    strparser
    switchdev

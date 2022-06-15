@@ -233,6 +233,12 @@ static ssize_t ceph_vxattrcb_dir_rsubdirs(struct ceph_inode_info *ci, char *val,
 	return ceph_fmt_xattr(val, size, "%lld", ci->i_rsubdirs);
 }
 
+static ssize_t ceph_vxattrcb_dir_rsnaps(struct ceph_inode_info *ci, char *val,
+					  size_t size)
+{
+	return ceph_fmt_xattr(val, size, "%lld", ci->i_rsnaps);
+}
+
 static ssize_t ceph_vxattrcb_dir_rbytes(struct ceph_inode_info *ci, char *val,
 					size_t size)
 {
@@ -334,6 +340,18 @@ static ssize_t ceph_vxattrcb_caps(struct ceph_inode_info *ci, char *val,
 			      ceph_cap_string(issued), issued);
 }
 
+static ssize_t ceph_vxattrcb_auth_mds(struct ceph_inode_info *ci,
+				       char *val, size_t size)
+{
+	int ret;
+
+	spin_lock(&ci->i_ceph_lock);
+	ret = ceph_fmt_xattr(val, size, "%d",
+			     ci->i_auth_cap ? ci->i_auth_cap->session->s_mds : -1);
+	spin_unlock(&ci->i_ceph_lock);
+	return ret;
+}
+
 #define CEPH_XATTR_NAME(_type, _name)	XATTR_CEPH_PREFIX #_type "." #_name
 #define CEPH_XATTR_NAME2(_type, _name, _name2)	\
 	XATTR_CEPH_PREFIX #_type "." #_name "." #_name2
@@ -384,6 +402,7 @@ static struct ceph_vxattr ceph_dir_vxattrs[] = {
 	XATTR_RSTAT_FIELD(dir, rentries),
 	XATTR_RSTAT_FIELD(dir, rfiles),
 	XATTR_RSTAT_FIELD(dir, rsubdirs),
+	XATTR_RSTAT_FIELD(dir, rsnaps),
 	XATTR_RSTAT_FIELD(dir, rbytes),
 	XATTR_RSTAT_FIELD(dir, rctime),
 	{
@@ -463,6 +482,13 @@ static struct ceph_vxattr ceph_common_vxattrs[] = {
 		.name = "ceph.client_id",
 		.name_size = sizeof("ceph.client_id"),
 		.getxattr_cb = ceph_vxattrcb_client_id,
+		.exists_cb = NULL,
+		.flags = VXATTR_FLAG_READONLY,
+	},
+	{
+		.name = "ceph.auth_mds",
+		.name_size = sizeof("ceph.auth_mds"),
+		.getxattr_cb = ceph_vxattrcb_auth_mds,
 		.exists_cb = NULL,
 		.flags = VXATTR_FLAG_READONLY,
 	},
@@ -897,9 +923,12 @@ ssize_t __ceph_getxattr(struct inode *inode, const char *name, void *value,
 {
 	struct ceph_inode_info *ci = ceph_inode(inode);
 	struct ceph_inode_xattr *xattr;
-	struct ceph_vxattr *vxattr = NULL;
+	struct ceph_vxattr *vxattr;
 	int req_mask;
 	ssize_t err;
+
+	if (strncmp(name, XATTR_CEPH_PREFIX, XATTR_CEPH_PREFIX_LEN))
+		goto handle_non_vxattrs;
 
 	/* let's see if a virtual xattr was requested */
 	vxattr = ceph_match_vxattr(inode, name);
@@ -919,8 +948,14 @@ ssize_t __ceph_getxattr(struct inode *inode, const char *name, void *value,
 				err = -ERANGE;
 		}
 		return err;
+	} else {
+		err = ceph_do_getvxattr(inode, name, value, size);
+		/* this would happen with a new client and old server combo */
+		if (err == -EOPNOTSUPP)
+			err = -ENODATA;
+		return err;
 	}
-
+handle_non_vxattrs:
 	req_mask = __get_request_mask(inode);
 
 	spin_lock(&ci->i_ceph_lock);
@@ -1285,7 +1320,7 @@ int ceph_security_init_secctx(struct dentry *dentry, umode_t mode,
 	int err;
 
 	err = security_dentry_init_security(dentry, mode, &dentry->d_name,
-					    &as_ctx->sec_ctx,
+					    &name, &as_ctx->sec_ctx,
 					    &as_ctx->sec_ctxlen);
 	if (err < 0) {
 		WARN_ON_ONCE(err != -EOPNOTSUPP);
@@ -1309,7 +1344,6 @@ int ceph_security_init_secctx(struct dentry *dentry, umode_t mode,
 	 * It only supports single security module and only selinux has
 	 * dentry_init_security hook.
 	 */
-	name = XATTR_NAME_SELINUX;
 	name_len = strlen(name);
 	err = ceph_pagelist_reserve(pagelist,
 				    4 * 2 + name_len + as_ctx->sec_ctxlen);

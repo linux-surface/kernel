@@ -65,7 +65,7 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 	if (filename__fprintf_build_id(input_name, stdout) > 0)
 		goto out;
 
-	session = perf_session__new(&data, false, &build_id__mark_dso_hit_ops);
+	session = perf_session__new(&data, &build_id__mark_dso_hit_ops);
 	if (IS_ERR(session))
 		return PTR_ERR(session);
 
@@ -79,6 +79,9 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 
 	if (!perf_header__has_feat(&session->header, HEADER_BUILD_ID))
 		with_hits = true;
+
+	if (zstd_init(&(session->zstd_data), 0) < 0)
+		pr_warning("Decompression initialization failed. Reported data may be incomplete.\n");
 
 	/*
 	 * in pipe-mode, the only way to get the buildids is to parse

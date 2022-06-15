@@ -342,7 +342,6 @@ static int qat_uclo_init_umem_seg(struct icp_qat_fw_loader_handle *handle,
 	return 0;
 }
 
-#define ICP_DH895XCC_PESRAM_BAR_SIZE 0x80000
 static int qat_uclo_init_ae_memory(struct icp_qat_fw_loader_handle *handle,
 				   struct icp_qat_uof_initmem *init_mem)
 {
@@ -388,7 +387,9 @@ static int qat_uclo_init_ustore(struct icp_qat_fw_loader_handle *handle,
 	page = image->page;
 
 	for_each_set_bit(ae, &ae_mask, handle->hal_handle->ae_max_num) {
-		if (!test_bit(ae, (unsigned long *)&uof_image->ae_assigned))
+		unsigned long ae_assigned = uof_image->ae_assigned;
+
+		if (!test_bit(ae, &ae_assigned))
 			continue;
 
 		if (!test_bit(ae, &cfg_ae_mask))
@@ -665,8 +666,9 @@ static int qat_uclo_map_ae(struct icp_qat_fw_loader_handle *handle, int max_ae)
 			continue;
 
 		for (i = 0; i < obj_handle->uimage_num; i++) {
-			if (!test_bit(ae, (unsigned long *)
-			&obj_handle->ae_uimage[i].img_ptr->ae_assigned))
+			unsigned long ae_assigned = obj_handle->ae_uimage[i].img_ptr->ae_assigned;
+
+			if (!test_bit(ae, &ae_assigned))
 				continue;
 			mflag = 1;
 			if (qat_uclo_init_ae_data(obj_handle, ae, i))
@@ -1546,15 +1548,14 @@ int qat_uclo_wr_mimage(struct icp_qat_fw_loader_handle *handle,
 	int status = 0;
 
 	if (handle->chip_info->fw_auth) {
-		if (!qat_uclo_map_auth_fw(handle, addr_ptr, mem_size, &desc))
+		status = qat_uclo_map_auth_fw(handle, addr_ptr, mem_size, &desc);
+		if (!status)
 			status = qat_uclo_auth_fw(handle, desc);
 		qat_uclo_ummap_auth_fw(handle, &desc);
 	} else {
-		if (!handle->chip_info->sram_visible) {
-			dev_dbg(&handle->pci_dev->dev,
-				"QAT MMP fw not loaded for device 0x%x",
-				handle->pci_dev->device);
-			return status;
+		if (handle->chip_info->mmp_sram_size < mem_size) {
+			pr_err("QAT: MMP size is too large: 0x%x\n", mem_size);
+			return -EFBIG;
 		}
 		qat_uclo_wr_sram_by_words(handle, 0, addr_ptr, mem_size);
 	}

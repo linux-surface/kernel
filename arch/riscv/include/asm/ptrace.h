@@ -119,6 +119,11 @@ extern int regs_query_register_offset(const char *name);
 extern unsigned long regs_get_kernel_stack_nth(struct pt_regs *regs,
 					       unsigned int n);
 
+void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
+			   unsigned long frame_pointer);
+int do_syscall_trace_enter(struct pt_regs *regs);
+void do_syscall_trace_exit(struct pt_regs *regs);
+
 /**
  * regs_get_register() - get register value from its offset
  * @regs:	pt_regs from which register value is gotten
@@ -136,6 +141,37 @@ static inline unsigned long regs_get_register(struct pt_regs *regs,
 
 	return *(unsigned long *)((unsigned long)regs + offset);
 }
+
+/**
+ * regs_get_kernel_argument() - get Nth function argument in kernel
+ * @regs:       pt_regs of that context
+ * @n:          function argument number (start from 0)
+ *
+ * regs_get_argument() returns @n th argument of the function call.
+ *
+ * Note you can get the parameter correctly if the function has no
+ * more than eight arguments.
+ */
+static inline unsigned long regs_get_kernel_argument(struct pt_regs *regs,
+						unsigned int n)
+{
+	static const int nr_reg_arguments = 8;
+	static const unsigned int argument_offs[] = {
+		offsetof(struct pt_regs, a0),
+		offsetof(struct pt_regs, a1),
+		offsetof(struct pt_regs, a2),
+		offsetof(struct pt_regs, a3),
+		offsetof(struct pt_regs, a4),
+		offsetof(struct pt_regs, a5),
+		offsetof(struct pt_regs, a6),
+		offsetof(struct pt_regs, a7),
+	};
+
+	if (n < nr_reg_arguments)
+		return regs_get_register(regs, argument_offs[n]);
+	return 0;
+}
+
 #endif /* __ASSEMBLY__ */
 
 #endif /* _ASM_RISCV_PTRACE_H */

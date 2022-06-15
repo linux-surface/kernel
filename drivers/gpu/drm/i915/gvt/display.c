@@ -33,6 +33,7 @@
  */
 
 #include "i915_drv.h"
+#include "i915_reg.h"
 #include "gvt.h"
 
 static int get_edp_pipe(struct intel_vgpu *vgpu)
@@ -184,10 +185,10 @@ static void emulate_monitor_status_change(struct intel_vgpu *vgpu)
 
 		for_each_pipe(dev_priv, pipe) {
 			vgpu_vreg_t(vgpu, PIPECONF(pipe)) &=
-				~(PIPECONF_ENABLE | I965_PIPECONF_ACTIVE);
-			vgpu_vreg_t(vgpu, DSPCNTR(pipe)) &= ~DISPLAY_PLANE_ENABLE;
+				~(PIPECONF_ENABLE | PIPECONF_STATE_ENABLE);
+			vgpu_vreg_t(vgpu, DSPCNTR(pipe)) &= ~DISP_ENABLE;
 			vgpu_vreg_t(vgpu, SPRCTL(pipe)) &= ~SPRITE_ENABLE;
-			vgpu_vreg_t(vgpu, CURCNTR(pipe)) &= ~MCURSOR_MODE;
+			vgpu_vreg_t(vgpu, CURCNTR(pipe)) &= ~MCURSOR_MODE_MASK;
 			vgpu_vreg_t(vgpu, CURCNTR(pipe)) |= MCURSOR_MODE_DISABLE;
 		}
 
@@ -245,7 +246,7 @@ static void emulate_monitor_status_change(struct intel_vgpu *vgpu)
 		 *   setup_virtual_dp_monitor.
 		 */
 		vgpu_vreg_t(vgpu, PIPECONF(PIPE_A)) |= PIPECONF_ENABLE;
-		vgpu_vreg_t(vgpu, PIPECONF(PIPE_A)) |= I965_PIPECONF_ACTIVE;
+		vgpu_vreg_t(vgpu, PIPECONF(PIPE_A)) |= PIPECONF_STATE_ENABLE;
 
 		/*
 		 * Golden M/N are calculated based on:
@@ -253,7 +254,7 @@ static void emulate_monitor_status_change(struct intel_vgpu *vgpu)
 		 *   DP link clk 1620 MHz and non-constant_n.
 		 * TODO: calculate DP link symbol clk and stream clk m/n.
 		 */
-		vgpu_vreg_t(vgpu, PIPE_DATA_M1(TRANSCODER_A)) = 63 << TU_SIZE_SHIFT;
+		vgpu_vreg_t(vgpu, PIPE_DATA_M1(TRANSCODER_A)) = TU_SIZE(64);
 		vgpu_vreg_t(vgpu, PIPE_DATA_M1(TRANSCODER_A)) |= 0x5b425e;
 		vgpu_vreg_t(vgpu, PIPE_DATA_N1(TRANSCODER_A)) = 0x800000;
 		vgpu_vreg_t(vgpu, PIPE_LINK_M1(TRANSCODER_A)) = 0x3cd6e;
@@ -387,7 +388,7 @@ static void emulate_monitor_status_change(struct intel_vgpu *vgpu)
 		 *   DP link clk 1620 MHz and non-constant_n.
 		 * TODO: calculate DP link symbol clk and stream clk m/n.
 		 */
-		vgpu_vreg_t(vgpu, PIPE_DATA_M1(TRANSCODER_A)) = 63 << TU_SIZE_SHIFT;
+		vgpu_vreg_t(vgpu, PIPE_DATA_M1(TRANSCODER_A)) = TU_SIZE(64);
 		vgpu_vreg_t(vgpu, PIPE_DATA_M1(TRANSCODER_A)) |= 0x5b425e;
 		vgpu_vreg_t(vgpu, PIPE_DATA_N1(TRANSCODER_A)) = 0x800000;
 		vgpu_vreg_t(vgpu, PIPE_LINK_M1(TRANSCODER_A)) = 0x3cd6e;
@@ -496,9 +497,9 @@ static void emulate_monitor_status_change(struct intel_vgpu *vgpu)
 
 	/* Disable Primary/Sprite/Cursor plane */
 	for_each_pipe(dev_priv, pipe) {
-		vgpu_vreg_t(vgpu, DSPCNTR(pipe)) &= ~DISPLAY_PLANE_ENABLE;
+		vgpu_vreg_t(vgpu, DSPCNTR(pipe)) &= ~DISP_ENABLE;
 		vgpu_vreg_t(vgpu, SPRCTL(pipe)) &= ~SPRITE_ENABLE;
-		vgpu_vreg_t(vgpu, CURCNTR(pipe)) &= ~MCURSOR_MODE;
+		vgpu_vreg_t(vgpu, CURCNTR(pipe)) &= ~MCURSOR_MODE_MASK;
 		vgpu_vreg_t(vgpu, CURCNTR(pipe)) |= MCURSOR_MODE_DISABLE;
 	}
 
@@ -516,11 +517,27 @@ static void clean_virtual_dp_monitor(struct intel_vgpu *vgpu, int port_num)
 	port->dpcd = NULL;
 }
 
+static enum hrtimer_restart vblank_timer_fn(struct hrtimer *data)
+{
+	struct intel_vgpu_vblank_timer *vblank_timer;
+	struct intel_vgpu *vgpu;
+
+	vblank_timer = container_of(data, struct intel_vgpu_vblank_timer, timer);
+	vgpu = container_of(vblank_timer, struct intel_vgpu, vblank_timer);
+
+	/* Set vblank emulation request per-vGPU bit */
+	intel_gvt_request_service(vgpu->gvt,
+				  INTEL_GVT_REQUEST_EMULATE_VBLANK + vgpu->id);
+	hrtimer_add_expires_ns(&vblank_timer->timer, vblank_timer->period);
+	return HRTIMER_RESTART;
+}
+
 static int setup_virtual_dp_monitor(struct intel_vgpu *vgpu, int port_num,
 				    int type, unsigned int resolution)
 {
 	struct drm_i915_private *i915 = vgpu->gvt->gt->i915;
 	struct intel_vgpu_port *port = intel_vgpu_port(vgpu, port_num);
+	struct intel_vgpu_vblank_timer *vblank_timer = &vgpu->vblank_timer;
 
 	if (drm_WARN_ON(&i915->drm, resolution >= GVT_EDID_NUM))
 		return -EINVAL;
@@ -544,6 +561,14 @@ static int setup_virtual_dp_monitor(struct intel_vgpu *vgpu, int port_num,
 	port->dpcd->data[DPCD_SINK_COUNT] = 0x1;
 	port->type = type;
 	port->id = resolution;
+	port->vrefresh_k = GVT_DEFAULT_REFRESH_RATE * MSEC_PER_SEC;
+	vgpu->display.port_num = port_num;
+
+	/* Init hrtimer based on default refresh rate */
+	hrtimer_init(&vblank_timer->timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+	vblank_timer->timer.function = vblank_timer_fn;
+	vblank_timer->vrefresh_k = port->vrefresh_k;
+	vblank_timer->period = DIV64_U64_ROUND_CLOSEST(NSEC_PER_SEC * MSEC_PER_SEC, vblank_timer->vrefresh_k);
 
 	emulate_monitor_status_change(vgpu);
 
@@ -551,41 +576,44 @@ static int setup_virtual_dp_monitor(struct intel_vgpu *vgpu, int port_num,
 }
 
 /**
- * intel_gvt_check_vblank_emulation - check if vblank emulation timer should
- * be turned on/off when a virtual pipe is enabled/disabled.
- * @gvt: a GVT device
+ * vgpu_update_vblank_emulation - Update per-vGPU vblank_timer
+ * @vgpu: vGPU operated
+ * @turnon: Turn ON/OFF vblank_timer
  *
- * This function is used to turn on/off vblank timer according to currently
- * enabled/disabled virtual pipes.
+ * This function is used to turn on/off or update the per-vGPU vblank_timer
+ * when PIPECONF is enabled or disabled. vblank_timer period is also updated
+ * if guest changed the refresh rate.
  *
  */
-void intel_gvt_check_vblank_emulation(struct intel_gvt *gvt)
+void vgpu_update_vblank_emulation(struct intel_vgpu *vgpu, bool turnon)
 {
-	struct intel_gvt_irq *irq = &gvt->irq;
-	struct intel_vgpu *vgpu;
-	int pipe, id;
-	int found = false;
+	struct intel_vgpu_vblank_timer *vblank_timer = &vgpu->vblank_timer;
+	struct intel_vgpu_port *port =
+		intel_vgpu_port(vgpu, vgpu->display.port_num);
 
-	mutex_lock(&gvt->lock);
-	for_each_active_vgpu(gvt, vgpu, id) {
-		for (pipe = 0; pipe < I915_MAX_PIPES; pipe++) {
-			if (pipe_is_enabled(vgpu, pipe)) {
-				found = true;
-				break;
-			}
+	if (turnon) {
+		/*
+		 * Skip the re-enable if already active and vrefresh unchanged.
+		 * Otherwise, stop timer if already active and restart with new
+		 *   period.
+		 */
+		if (vblank_timer->vrefresh_k != port->vrefresh_k ||
+		    !hrtimer_active(&vblank_timer->timer)) {
+			/* Stop timer before start with new period if active */
+			if (hrtimer_active(&vblank_timer->timer))
+				hrtimer_cancel(&vblank_timer->timer);
+
+			/* Make sure new refresh rate updated to timer period */
+			vblank_timer->vrefresh_k = port->vrefresh_k;
+			vblank_timer->period = DIV64_U64_ROUND_CLOSEST(NSEC_PER_SEC * MSEC_PER_SEC, vblank_timer->vrefresh_k);
+			hrtimer_start(&vblank_timer->timer,
+				      ktime_add_ns(ktime_get(), vblank_timer->period),
+				      HRTIMER_MODE_ABS);
 		}
-		if (found)
-			break;
+	} else {
+		/* Caller request to stop vblank */
+		hrtimer_cancel(&vblank_timer->timer);
 	}
-
-	/* all the pipes are disabled */
-	if (!found)
-		hrtimer_cancel(&irq->vblank_timer.timer);
-	else
-		hrtimer_start(&irq->vblank_timer.timer,
-			ktime_add_ns(ktime_get(), irq->vblank_timer.period),
-			HRTIMER_MODE_ABS);
-	mutex_unlock(&gvt->lock);
 }
 
 static void emulate_vblank_on_pipe(struct intel_vgpu *vgpu, int pipe)
@@ -617,7 +645,7 @@ static void emulate_vblank_on_pipe(struct intel_vgpu *vgpu, int pipe)
 	}
 }
 
-static void emulate_vblank(struct intel_vgpu *vgpu)
+void intel_vgpu_emulate_vblank(struct intel_vgpu *vgpu)
 {
 	int pipe;
 
@@ -625,24 +653,6 @@ static void emulate_vblank(struct intel_vgpu *vgpu)
 	for_each_pipe(vgpu->gvt->gt->i915, pipe)
 		emulate_vblank_on_pipe(vgpu, pipe);
 	mutex_unlock(&vgpu->vgpu_lock);
-}
-
-/**
- * intel_gvt_emulate_vblank - trigger vblank events for vGPUs on GVT device
- * @gvt: a GVT device
- *
- * This function is used to trigger vblank interrupts for vGPUs on GVT device
- *
- */
-void intel_gvt_emulate_vblank(struct intel_gvt *gvt)
-{
-	struct intel_vgpu *vgpu;
-	int id;
-
-	mutex_lock(&gvt->lock);
-	for_each_active_vgpu(gvt, vgpu, id)
-		emulate_vblank(vgpu);
-	mutex_unlock(&gvt->lock);
 }
 
 /**
@@ -753,6 +763,8 @@ void intel_vgpu_clean_display(struct intel_vgpu *vgpu)
 		clean_virtual_dp_monitor(vgpu, PORT_D);
 	else
 		clean_virtual_dp_monitor(vgpu, PORT_B);
+
+	vgpu_update_vblank_emulation(vgpu, false);
 }
 
 /**

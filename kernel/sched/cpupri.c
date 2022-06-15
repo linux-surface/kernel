@@ -22,7 +22,6 @@
  *  worst case complexity of O(min(101, nr_domcpus)), though the scenario that
  *  yields the worst case search is fairly contrived.
  */
-#include "sched.h"
 
 /*
  * p->rt_priority   p->prio   newpri   cpupri
@@ -77,7 +76,7 @@ static inline int __cpupri_find(struct cpupri *cp, struct task_struct *p,
 	 * When looking at the vector, we need to read the counter,
 	 * do a memory barrier, then read the mask.
 	 *
-	 * Note: This is still all racey, but we can deal with it.
+	 * Note: This is still all racy, but we can deal with it.
 	 *  Ideally, we only want to look at masks that are set.
 	 *
 	 *  If a mask is not set, then the only thing wrong is that we
@@ -186,7 +185,7 @@ int cpupri_find_fitness(struct cpupri *cp, struct task_struct *p,
 	 * The cost of this trade-off is not entirely clear and will probably
 	 * be good for some workloads and bad for others.
 	 *
-	 * The main idea here is that if some CPUs were overcommitted, we try
+	 * The main idea here is that if some CPUs were over-committed, we try
 	 * to spread which is what the scheduler traditionally did. Sys admins
 	 * must do proper RT planning to avoid overloading the system if they
 	 * really care.

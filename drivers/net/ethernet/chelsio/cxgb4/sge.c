@@ -443,7 +443,7 @@ static void free_rx_bufs(struct adapter *adap, struct sge_fl *q, int n)
 		if (is_buf_mapped(d))
 			dma_unmap_page(adap->pdev_dev, get_buf_addr(d),
 				       get_buf_size(adap, d),
-				       PCI_DMA_FROMDEVICE);
+				       DMA_FROM_DEVICE);
 		put_page(d->page);
 		d->page = NULL;
 		if (++q->cidx == q->size)
@@ -469,7 +469,7 @@ static void unmap_rx_buf(struct adapter *adap, struct sge_fl *q)
 
 	if (is_buf_mapped(d))
 		dma_unmap_page(adap->pdev_dev, get_buf_addr(d),
-			       get_buf_size(adap, d), PCI_DMA_FROMDEVICE);
+			       get_buf_size(adap, d), DMA_FROM_DEVICE);
 	d->page = NULL;
 	if (++q->cidx == q->size)
 		q->cidx = 0;
@@ -566,7 +566,7 @@ static unsigned int refill_fl(struct adapter *adap, struct sge_fl *q, int n,
 
 		mapping = dma_map_page(adap->pdev_dev, pg, 0,
 				       PAGE_SIZE << s->fl_pg_order,
-				       PCI_DMA_FROMDEVICE);
+				       DMA_FROM_DEVICE);
 		if (unlikely(dma_mapping_error(adap->pdev_dev, mapping))) {
 			__free_pages(pg, s->fl_pg_order);
 			q->mapping_err++;
@@ -596,7 +596,7 @@ alloc_small_pages:
 		}
 
 		mapping = dma_map_page(adap->pdev_dev, pg, 0, PAGE_SIZE,
-				       PCI_DMA_FROMDEVICE);
+				       DMA_FROM_DEVICE);
 		if (unlikely(dma_mapping_error(adap->pdev_dev, mapping))) {
 			put_page(pg);
 			q->mapping_err++;
@@ -1842,8 +1842,10 @@ static netdev_tx_t cxgb4_vf_eth_xmit(struct sk_buff *skb,
 	 * (including the VLAN tag) into the header so we reject anything
 	 * smaller than that ...
 	 */
-	fw_hdr_copy_len = sizeof(wr->ethmacdst) + sizeof(wr->ethmacsrc) +
-			  sizeof(wr->ethtype) + sizeof(wr->vlantci);
+	BUILD_BUG_ON(sizeof(wr->firmware) !=
+		     (sizeof(wr->ethmacdst) + sizeof(wr->ethmacsrc) +
+		      sizeof(wr->ethtype) + sizeof(wr->vlantci)));
+	fw_hdr_copy_len = sizeof(wr->firmware);
 	ret = cxgb4_validate_skb(skb, dev, fw_hdr_copy_len);
 	if (ret)
 		goto out_free;
@@ -1924,7 +1926,7 @@ static netdev_tx_t cxgb4_vf_eth_xmit(struct sk_buff *skb,
 	wr->equiq_to_len16 = cpu_to_be32(wr_mid);
 	wr->r3[0] = cpu_to_be32(0);
 	wr->r3[1] = cpu_to_be32(0);
-	skb_copy_from_linear_data(skb, (void *)wr->ethmacdst, fw_hdr_copy_len);
+	skb_copy_from_linear_data(skb, &wr->firmware, fw_hdr_copy_len);
 	end = (u64 *)wr + flits;
 
 	/* If this is a Large Send Offload packet we'll put in an LSO CPL
@@ -2556,6 +2558,12 @@ int cxgb4_ethofld_send_flowc(struct net_device *dev, u32 eotid, u32 tc)
 	if (!eosw_txq)
 		return -ENOMEM;
 
+	if (!(adap->flags & CXGB4_FW_OK)) {
+		/* Don't stall caller when access to FW is lost */
+		complete(&eosw_txq->completion);
+		return -EIO;
+	}
+
 	skb = alloc_skb(len, GFP_KERNEL);
 	if (!skb)
 		return -ENOMEM;
@@ -2563,12 +2571,12 @@ int cxgb4_ethofld_send_flowc(struct net_device *dev, u32 eotid, u32 tc)
 	spin_lock_bh(&eosw_txq->lock);
 	if (tc != FW_SCHED_CLS_NONE) {
 		if (eosw_txq->state != CXGB4_EO_STATE_CLOSED)
-			goto out_unlock;
+			goto out_free_skb;
 
 		next_state = CXGB4_EO_STATE_FLOWC_OPEN_SEND;
 	} else {
 		if (eosw_txq->state != CXGB4_EO_STATE_ACTIVE)
-			goto out_unlock;
+			goto out_free_skb;
 
 		next_state = CXGB4_EO_STATE_FLOWC_CLOSE_SEND;
 	}
@@ -2604,17 +2612,19 @@ int cxgb4_ethofld_send_flowc(struct net_device *dev, u32 eotid, u32 tc)
 		eosw_txq_flush_pending_skbs(eosw_txq);
 
 	ret = eosw_txq_enqueue(eosw_txq, skb);
-	if (ret) {
-		dev_consume_skb_any(skb);
-		goto out_unlock;
-	}
+	if (ret)
+		goto out_free_skb;
 
 	eosw_txq->state = next_state;
 	eosw_txq->flowc_idx = eosw_txq->pidx;
 	eosw_txq_advance(eosw_txq, 1);
 	ethofld_xmit(dev, eosw_txq);
 
-out_unlock:
+	spin_unlock_bh(&eosw_txq->lock);
+	return 0;
+
+out_free_skb:
+	dev_consume_skb_any(skb);
 	spin_unlock_bh(&eosw_txq->lock);
 	return ret;
 }

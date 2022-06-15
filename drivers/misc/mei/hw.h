@@ -23,6 +23,11 @@
 #define MEI_HBM_TIMEOUT             1  /* 1 second */
 
 /*
+ * FW page size for DMA allocations
+ */
+#define MEI_FW_PAGE_SIZE 4096UL
+
+/*
  * MEI Version
  */
 #define HBM_MINOR_VERSION                   2
@@ -235,9 +240,8 @@ enum mei_ext_hdr_type {
 struct mei_ext_hdr {
 	u8 type;
 	u8 length;
-	u8 ext_payload[2];
-	u8 hdr[];
-};
+	u8 data[];
+} __packed;
 
 /**
  * struct mei_ext_meta_hdr - extend header meta data
@@ -250,8 +254,21 @@ struct mei_ext_meta_hdr {
 	u8 count;
 	u8 size;
 	u8 reserved[2];
-	struct mei_ext_hdr hdrs[];
-};
+	u8 hdrs[];
+} __packed;
+
+/**
+ * struct mei_ext_hdr_vtag - extend header for vtag
+ *
+ * @hdr: standard extend header
+ * @vtag: virtual tag
+ * @reserved: reserved
+ */
+struct mei_ext_hdr_vtag {
+	struct mei_ext_hdr hdr;
+	u8 vtag;
+	u8 reserved;
+} __packed;
 
 /*
  * Extended header iterator functions
@@ -266,7 +283,7 @@ struct mei_ext_meta_hdr {
  */
 static inline struct mei_ext_hdr *mei_ext_begin(struct mei_ext_meta_hdr *meta)
 {
-	return meta->hdrs;
+	return (struct mei_ext_hdr *)meta->hdrs;
 }
 
 /**
@@ -284,7 +301,7 @@ static inline bool mei_ext_last(struct mei_ext_meta_hdr *meta,
 }
 
 /**
- *mei_ext_next - following extended header on the TLV list
+ * mei_ext_next - following extended header on the TLV list
  *
  * @ext: current extend header
  *
@@ -295,7 +312,7 @@ static inline bool mei_ext_last(struct mei_ext_meta_hdr *meta,
  */
 static inline struct mei_ext_hdr *mei_ext_next(struct mei_ext_hdr *ext)
 {
-	return (struct mei_ext_hdr *)(ext->hdr + (ext->length * 4));
+	return (struct mei_ext_hdr *)((u8 *)ext + (ext->length * 4));
 }
 
 /**

@@ -11,6 +11,7 @@
 #include "debug.h"
 #include "expr.h"
 #include "stat.h"
+#include "pmu.h"
 
 static struct pmu_event pme_test[] = {
 {
@@ -78,7 +79,7 @@ static struct pmu_event pme_test[] = {
 }
 };
 
-static struct pmu_events_map map = {
+static const struct pmu_events_map map = {
 	.cpuid		= "test",
 	.version	= "1",
 	.type		= "core",
@@ -98,7 +99,7 @@ static u64 find_value(const char *name, struct value *values)
 		if (!strcmp(name, v->event))
 			return v->val;
 		v++;
-	};
+	}
 	return 0;
 }
 
@@ -108,6 +109,7 @@ static void load_runtime_stat(struct runtime_stat *st, struct evlist *evlist,
 	struct evsel *evsel;
 	u64 count;
 
+	perf_stat__reset_shadow_stats();
 	evlist__for_each_entry(evlist, evsel) {
 		count = find_value(evsel->name, vals);
 		perf_stat__update_shadow_stats(evsel, count, 0, st);
@@ -186,7 +188,7 @@ static int __compute_metric(const char *name, struct value *vals,
 		*ratio2 = compute_single(&metric_events, evlist, &st, name2);
 
 out:
-	/* ... clenup. */
+	/* ... cleanup. */
 	metricgroup__rblist_exit(&metric_events);
 	runtime_stat__exit(&st);
 	evlist__free_stats(evlist);
@@ -368,14 +370,19 @@ static int test_metric_group(void)
 	return 0;
 }
 
-int test__parse_metric(struct test *test __maybe_unused, int subtest __maybe_unused)
+static int test__parse_metric(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	TEST_ASSERT_VAL("IPC failed", test_ipc() == 0);
 	TEST_ASSERT_VAL("frontend failed", test_frontend() == 0);
-	TEST_ASSERT_VAL("cache_miss_cycles failed", test_cache_miss_cycles() == 0);
 	TEST_ASSERT_VAL("DCache_L2 failed", test_dcache_l2() == 0);
 	TEST_ASSERT_VAL("recursion fail failed", test_recursion_fail() == 0);
-	TEST_ASSERT_VAL("test metric group", test_metric_group() == 0);
 	TEST_ASSERT_VAL("Memory bandwidth", test_memory_bandwidth() == 0);
+
+	if (!perf_pmu__has_hybrid()) {
+		TEST_ASSERT_VAL("cache_miss_cycles failed", test_cache_miss_cycles() == 0);
+		TEST_ASSERT_VAL("test metric group", test_metric_group() == 0);
+	}
 	return 0;
 }
+
+DEFINE_SUITE("Parse and process metrics", parse_metric);

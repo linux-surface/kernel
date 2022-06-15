@@ -16,6 +16,7 @@ struct mlx5_sf_dev {
 	struct mlx5_core_dev *mdev;
 	phys_addr_t bar_base_addr;
 	u32 sfnum;
+	u16 fn_id;
 };
 
 void mlx5_sf_dev_table_create(struct mlx5_core_dev *dev);
@@ -47,7 +48,7 @@ static inline void mlx5_sf_driver_unregister(void)
 
 static inline bool mlx5_sf_dev_allocated(const struct mlx5_core_dev *dev)
 {
-	return 0;
+	return false;
 }
 
 #endif

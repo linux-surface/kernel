@@ -213,8 +213,9 @@ static void fusb302_debugfs_init(struct fusb302_chip *chip)
 
 	mutex_init(&chip->logbuffer_lock);
 	snprintf(name, NAME_MAX, "fusb302-%s", dev_name(chip->dev));
-	chip->dentry = debugfs_create_file(name, S_IFREG | 0444, usb_debug_root,
-					   chip, &fusb302_debug_fops);
+	chip->dentry = debugfs_create_dir(name, usb_debug_root);
+	debugfs_create_file("log", S_IFREG | 0444, chip->dentry, chip,
+			    &fusb302_debug_fops);
 }
 
 static void fusb302_debugfs_exit(struct fusb302_chip *chip)
@@ -668,25 +669,27 @@ static int tcpm_set_cc(struct tcpc_dev *dev, enum typec_cc_status cc)
 		ret = fusb302_i2c_mask_write(chip, FUSB_REG_MASK,
 					     FUSB_REG_MASK_BC_LVL |
 					     FUSB_REG_MASK_COMP_CHNG,
-					     FUSB_REG_MASK_COMP_CHNG);
-		if (ret < 0) {
-			fusb302_log(chip, "cannot set SRC interrupt, ret=%d",
-				    ret);
-			goto done;
-		}
-		chip->intr_comp_chng = true;
-		break;
-	case TYPEC_CC_RD:
-		ret = fusb302_i2c_mask_write(chip, FUSB_REG_MASK,
-					     FUSB_REG_MASK_BC_LVL |
-					     FUSB_REG_MASK_COMP_CHNG,
 					     FUSB_REG_MASK_BC_LVL);
 		if (ret < 0) {
 			fusb302_log(chip, "cannot set SRC interrupt, ret=%d",
 				    ret);
 			goto done;
 		}
+		chip->intr_comp_chng = true;
+		chip->intr_bc_lvl = false;
+		break;
+	case TYPEC_CC_RD:
+		ret = fusb302_i2c_mask_write(chip, FUSB_REG_MASK,
+					     FUSB_REG_MASK_BC_LVL |
+					     FUSB_REG_MASK_COMP_CHNG,
+					     FUSB_REG_MASK_COMP_CHNG);
+		if (ret < 0) {
+			fusb302_log(chip, "cannot set SRC interrupt, ret=%d",
+				    ret);
+			goto done;
+		}
 		chip->intr_bc_lvl = true;
+		chip->intr_comp_chng = false;
 		break;
 	default:
 		break;

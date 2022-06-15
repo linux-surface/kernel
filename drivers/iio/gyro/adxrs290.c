@@ -7,6 +7,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
@@ -124,7 +125,7 @@ static int adxrs290_get_rate_data(struct iio_dev *indio_dev, const u8 cmd, int *
 		goto err_unlock;
 	}
 
-	*val = temp;
+	*val = sign_extend32(temp, 15);
 
 err_unlock:
 	mutex_unlock(&st->lock);
@@ -146,7 +147,7 @@ static int adxrs290_get_temp_data(struct iio_dev *indio_dev, int *val)
 	}
 
 	/* extract lower 12 bits temperature reading */
-	*val = temp & 0x0FFF;
+	*val = sign_extend32(temp, 11);
 
 err_unlock:
 	mutex_unlock(&st->lock);
@@ -589,11 +590,10 @@ static int adxrs290_probe_trigger(struct iio_dev *indio_dev)
 
 	st->dready_trig = devm_iio_trigger_alloc(&st->spi->dev, "%s-dev%d",
 						 indio_dev->name,
-						 indio_dev->id);
+						 iio_device_id(indio_dev));
 	if (!st->dready_trig)
 		return -ENOMEM;
 
-	st->dready_trig->dev.parent = &st->spi->dev;
 	st->dready_trig->ops = &adxrs290_trigger_ops;
 	iio_trigger_set_drvdata(st->dready_trig, indio_dev);
 

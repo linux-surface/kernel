@@ -6,15 +6,14 @@
  *    Author(s): Martin Schwidefsky (schwidefsky@de.ibm.com),
  *		 Hartmut Penner (hp@de.ibm.com),
  *		 Denis Joseph Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com),
- *		 Heiko Carstens <heiko.carstens@de.ibm.com>
  */
 
 #include <linux/init.h>
 #include <linux/linkage.h>
+#include <asm/asm-extable.h>
 #include <asm/alternative-asm.h>
 #include <asm/processor.h>
 #include <asm/cache.h>
-#include <asm/ctl_reg.h>
 #include <asm/dwarf.h>
 #include <asm/errno.h>
 #include <asm/ptrace.h>
@@ -53,6 +52,22 @@ STACK_INIT = STACK_SIZE - STACK_FRAME_OVERHEAD - __PT_SIZE
 
 _LPP_OFFSET	= __LC_LPP
 
+	.macro STBEAR address
+	ALTERNATIVE "", ".insn	s,0xb2010000,\address", 193
+	.endm
+
+	.macro LBEAR address
+	ALTERNATIVE "", ".insn	s,0xb2000000,\address", 193
+	.endm
+
+	.macro LPSWEY address,lpswe
+	ALTERNATIVE "b \lpswe", ".insn siy,0xeb0000000071,\address,0", 193
+	.endm
+
+	.macro MBEAR reg
+	ALTERNATIVE "", __stringify(mvc __PT_LAST_BREAK(8,\reg),__LC_LAST_BREAK), 193
+	.endm
+
 	.macro	CHECK_STACK savearea
 #ifdef CONFIG_CHECK_STACK
 	tml	%r15,STACK_SIZE - CONFIG_STACK_GUARD
@@ -83,11 +98,6 @@ _LPP_OFFSET	= __LC_LPP
 #endif
 	.endm
 
-	.macro STCK savearea
-	ALTERNATIVE ".insn	s,0xb2050000,\savearea", \
-		    ".insn	s,0xb27c0000,\savearea", 25
-	.endm
-
 	/*
 	 * The TSTMSK macro generates a test-under-mask instruction by
 	 * calculating the memory offset for the specified mask value.
@@ -111,26 +121,71 @@ _LPP_OFFSET	= __LC_LPP
 	.endm
 
 	.macro BPOFF
-	ALTERNATIVE "", ".long 0xb2e8c000", 82
+	ALTERNATIVE "", ".insn rrf,0xb2e80000,0,0,12,0", 82
 	.endm
 
 	.macro BPON
-	ALTERNATIVE "", ".long 0xb2e8d000", 82
+	ALTERNATIVE "", ".insn rrf,0xb2e80000,0,0,13,0", 82
 	.endm
 
 	.macro BPENTER tif_ptr,tif_mask
-	ALTERNATIVE "TSTMSK \tif_ptr,\tif_mask; jz .+8; .long 0xb2e8d000", \
+	ALTERNATIVE "TSTMSK \tif_ptr,\tif_mask; jz .+8; .insn rrf,0xb2e80000,0,0,13,0", \
 		    "", 82
 	.endm
 
 	.macro BPEXIT tif_ptr,tif_mask
 	TSTMSK	\tif_ptr,\tif_mask
-	ALTERNATIVE "jz .+8;  .long 0xb2e8c000", \
-		    "jnz .+8; .long 0xb2e8d000", 82
+	ALTERNATIVE "jz .+8;  .insn rrf,0xb2e80000,0,0,12,0", \
+		    "jnz .+8; .insn rrf,0xb2e80000,0,0,13,0", 82
 	.endm
 
+	/*
+	 * The CHKSTG macro jumps to the provided label in case the
+	 * machine check interruption code reports one of unrecoverable
+	 * storage errors:
+	 * - Storage error uncorrected
+	 * - Storage key error uncorrected
+	 * - Storage degradation with Failing-storage-address validity
+	 */
+	.macro CHKSTG errlabel
+	TSTMSK	__LC_MCCK_CODE,(MCCK_CODE_STG_ERROR|MCCK_CODE_STG_KEY_ERROR)
+	jnz	\errlabel
+	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_STG_DEGRAD
+	jz	.Loklabel\@
+	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_STG_FAIL_ADDR
+	jnz	\errlabel
+.Loklabel\@:
+	.endm
+
+#if IS_ENABLED(CONFIG_KVM)
+	/*
+	 * The OUTSIDE macro jumps to the provided label in case the value
+	 * in the provided register is outside of the provided range. The
+	 * macro is useful for checking whether a PSW stored in a register
+	 * pair points inside or outside of a block of instructions.
+	 * @reg: register to check
+	 * @start: start of the range
+	 * @end: end of the range
+	 * @outside_label: jump here if @reg is outside of [@start..@end)
+	 */
+	.macro OUTSIDE reg,start,end,outside_label
+	lgr	%r14,\reg
+	larl	%r13,\start
+	slgr	%r14,%r13
+	lghi	%r13,\end - \start
+	clgr	%r14,%r13
+	jhe	\outside_label
+	.endm
+
+	.macro SIEEXIT
+	lg	%r9,__SF_SIE_CONTROL(%r15)	# get control block pointer
+	ni	__SIE_PROG0C+3(%r9),0xfe	# no longer in SIE
+	lctlg	%c1,%c1,__LC_KERNEL_ASCE	# load primary asce
+	larl	%r9,sie_exit			# skip forward to sie_exit
+	.endm
+#endif
+
 	GEN_BR_THUNK %r14
-	GEN_BR_THUNK %r14,%r13
 
 	.section .kprobes.text, "ax"
 .Ldummy:
@@ -171,7 +226,7 @@ ENTRY(__switch_to)
 	aghi	%r3,__TASK_pid
 	mvc	__LC_CURRENT_PID(4,%r0),0(%r3)	# store pid of next
 	lmg	%r6,%r15,__SF_GPRS(%r15)	# load gprs of next task
-	ALTERNATIVE "", ".insn s,0xb2800000,_LPP_OFFSET", 40
+	ALTERNATIVE "", "lpp _LPP_OFFSET", 40
 	BR_EX	%r14
 ENDPROC(__switch_to)
 
@@ -214,7 +269,6 @@ ENTRY(sie64a)
 # are some corner cases (e.g. runtime instrumentation) where ILC is unpredictable.
 # Other instructions between sie64a and .Lsie_done should not cause program
 # interrupts. So lets use 3 nops as a landing pad for all possible rewinds.
-# See also .Lcleanup_sie_mcck/.Lcleanup_sie_int
 .Lrewind_pad6:
 	nopr	7
 .Lrewind_pad4:
@@ -258,6 +312,7 @@ ENTRY(system_call)
 	BPOFF
 	lghi	%r14,0
 .Lsysc_per:
+	STBEAR	__LC_LAST_BREAK
 	lctlg	%c1,%c1,__LC_KERNEL_ASCE
 	lg	%r12,__LC_CURRENT
 	lg	%r15,__LC_KERNEL_STACK
@@ -276,14 +331,17 @@ ENTRY(system_call)
 	xgr	%r10,%r10
 	xgr	%r11,%r11
 	la	%r2,STACK_FRAME_OVERHEAD(%r15)	# pointer to pt_regs
+	mvc	__PT_R8(64,%r2),__LC_SAVE_AREA_SYNC
+	MBEAR	%r2
 	lgr	%r3,%r14
 	brasl	%r14,__do_syscall
 	lctlg	%c1,%c1,__LC_USER_ASCE
 	mvc	__LC_RETURN_PSW(16),STACK_FRAME_OVERHEAD+__PT_PSW(%r15)
 	BPEXIT __TI_flags(%r12),_TIF_ISOLATE_BP
+	LBEAR	STACK_FRAME_OVERHEAD+__PT_LAST_BREAK(%r15)
 	lmg	%r0,%r15,STACK_FRAME_OVERHEAD+__PT_R0(%r15)
 	stpt	__LC_EXIT_TIMER
-	b	__LC_RETURN_LPSWE
+	LPSWEY	__LC_RETURN_PSW,__LC_RETURN_LPSWE
 ENDPROC(system_call)
 
 #
@@ -295,9 +353,10 @@ ENTRY(ret_from_fork)
 	lctlg	%c1,%c1,__LC_USER_ASCE
 	mvc	__LC_RETURN_PSW(16),STACK_FRAME_OVERHEAD+__PT_PSW(%r15)
 	BPEXIT __TI_flags(%r12),_TIF_ISOLATE_BP
+	LBEAR	STACK_FRAME_OVERHEAD+__PT_LAST_BREAK(%r15)
 	lmg	%r0,%r15,STACK_FRAME_OVERHEAD+__PT_R0(%r15)
 	stpt	__LC_EXIT_TIMER
-	b	__LC_RETURN_LPSWE
+	LPSWEY	__LC_RETURN_PSW,__LC_RETURN_LPSWE
 ENDPROC(ret_from_fork)
 
 /*
@@ -318,16 +377,8 @@ ENTRY(pgm_check_handler)
 .Lpgm_skip_asce:
 #if IS_ENABLED(CONFIG_KVM)
 	# cleanup critical section for program checks in sie64a
-	lgr	%r14,%r9
-	larl	%r13,.Lsie_gmap
-	slgr	%r14,%r13
-	lghi	%r13,.Lsie_done - .Lsie_gmap
-	clgr	%r14,%r13
-	jhe	1f
-	lg	%r14,__SF_SIE_CONTROL(%r15)	# get control block pointer
-	ni	__SIE_PROG0C+3(%r14),0xfe	# no longer in SIE
-	lctlg	%c1,%c1,__LC_KERNEL_ASCE	# load primary asce
-	larl	%r9,sie_exit			# skip forward to sie_exit
+	OUTSIDE	%r9,.Lsie_gmap,.Lsie_done,1f
+	SIEEXIT
 	lghi	%r10,_PIF_GUEST_FAULT
 #endif
 1:	tmhh	%r8,0x4000		# PER bit set in old PSW ?
@@ -345,6 +396,7 @@ ENTRY(pgm_check_handler)
 	xc	__SF_BACKCHAIN(8,%r15),__SF_BACKCHAIN(%r15)
 	stmg	%r0,%r7,__PT_R0(%r11)
 	mvc	__PT_R8(64,%r11),__LC_SAVE_AREA_SYNC
+	mvc	__PT_LAST_BREAK(8,%r11),__LC_PGM_LAST_BREAK
 	stmg	%r8,%r9,__PT_PSW(%r11)
 
 	# clear user controlled registers to prevent speculative use
@@ -364,8 +416,9 @@ ENTRY(pgm_check_handler)
 	stpt	__LC_EXIT_TIMER
 .Lpgm_exit_kernel:
 	mvc	__LC_RETURN_PSW(16),STACK_FRAME_OVERHEAD+__PT_PSW(%r15)
+	LBEAR	STACK_FRAME_OVERHEAD+__PT_LAST_BREAK(%r15)
 	lmg	%r0,%r15,STACK_FRAME_OVERHEAD+__PT_R0(%r15)
-	b	__LC_RETURN_LPSWE
+	LPSWEY	__LC_RETURN_PSW,__LC_RETURN_LPSWE
 
 #
 # single stepped system call
@@ -375,7 +428,8 @@ ENTRY(pgm_check_handler)
 	larl	%r14,.Lsysc_per
 	stg	%r14,__LC_RETURN_PSW+8
 	lghi	%r14,1
-	lpswe	__LC_RETURN_PSW		# branch to .Lsysc_per
+	LBEAR	__LC_PGM_LAST_BREAK
+	LPSWEY	__LC_RETURN_PSW,__LC_RETURN_LPSWE # branch to .Lsysc_per
 ENDPROC(pgm_check_handler)
 
 /*
@@ -383,8 +437,9 @@ ENDPROC(pgm_check_handler)
  */
 .macro INT_HANDLER name,lc_old_psw,handler
 ENTRY(\name)
-	STCK	__LC_INT_CLOCK
+	stckf	__LC_INT_CLOCK
 	stpt	__LC_SYS_ENTER_TIMER
+	STBEAR	__LC_LAST_BREAK
 	BPOFF
 	stmg	%r8,%r15,__LC_SAVE_AREA_ASYNC
 	lg	%r12,__LC_CURRENT
@@ -392,24 +447,18 @@ ENTRY(\name)
 	tmhh	%r8,0x0001			# interrupting from user ?
 	jnz	1f
 #if IS_ENABLED(CONFIG_KVM)
-	lgr	%r14,%r9
-	larl	%r13,.Lsie_gmap
-	slgr	%r14,%r13
-	lghi	%r13,.Lsie_done - .Lsie_gmap
-	clgr	%r14,%r13
-	jhe	0f
-	brasl	%r14,.Lcleanup_sie_int
+	OUTSIDE	%r9,.Lsie_gmap,.Lsie_done,0f
+	BPENTER	__SF_SIE_FLAGS(%r15),(_TIF_ISOLATE_BP|_TIF_ISOLATE_BP_GUEST)
+	SIEEXIT
 #endif
 0:	CHECK_STACK __LC_SAVE_AREA_ASYNC
-	lgr	%r11,%r15
 	aghi	%r15,-(STACK_FRAME_OVERHEAD + __PT_SIZE)
-	stg	%r11,__SF_BACKCHAIN(%r15)
 	j	2f
 1:	BPENTER __TI_flags(%r12),_TIF_ISOLATE_BP
 	lctlg	%c1,%c1,__LC_KERNEL_ASCE
 	lg	%r15,__LC_KERNEL_STACK
-	xc	__SF_BACKCHAIN(8,%r15),__SF_BACKCHAIN(%r15)
-2:	la	%r11,STACK_FRAME_OVERHEAD(%r15)
+2:	xc	__SF_BACKCHAIN(8,%r15),__SF_BACKCHAIN(%r15)
+	la	%r11,STACK_FRAME_OVERHEAD(%r15)
 	stmg	%r0,%r7,__PT_R0(%r11)
 	# clear user controlled registers to prevent speculative use
 	xgr	%r0,%r0
@@ -420,7 +469,9 @@ ENTRY(\name)
 	xgr	%r6,%r6
 	xgr	%r7,%r7
 	xgr	%r10,%r10
+	xc	__PT_FLAGS(8,%r11),__PT_FLAGS(%r11)
 	mvc	__PT_R8(64,%r11),__LC_SAVE_AREA_ASYNC
+	MBEAR	%r11
 	stmg	%r8,%r9,__PT_PSW(%r11)
 	tm	%r8,0x0001		# coming from user space?
 	jno	1f
@@ -433,8 +484,9 @@ ENTRY(\name)
 	lctlg	%c1,%c1,__LC_USER_ASCE
 	BPEXIT	__TI_flags(%r12),_TIF_ISOLATE_BP
 	stpt	__LC_EXIT_TIMER
-2:	lmg	%r0,%r15,__PT_R0(%r11)
-	b	__LC_RETURN_LPSWE
+2:	LBEAR	__PT_LAST_BREAK(%r11)
+	lmg	%r0,%r15,__PT_R0(%r11)
+	LPSWEY	__LC_RETURN_PSW,__LC_RETURN_LPSWE
 ENDPROC(\name)
 .endm
 
@@ -445,6 +497,7 @@ INT_HANDLER io_int_handler,__LC_IO_OLD_PSW,do_io_irq
  * Load idle PSW.
  */
 ENTRY(psw_idle)
+	stg	%r14,(__SF_GPRS+8*8)(%r15)
 	stg	%r3,__SF_EMPTY(%r15)
 	larl	%r1,psw_idle_exit
 	stg	%r1,__SF_EMPTY+8(%r15)
@@ -456,7 +509,7 @@ ENTRY(psw_idle)
 .Lpsw_idle_stcctm:
 	oi	__LC_CPU_FLAGS+7,_CIF_ENABLED_WAIT
 	BPON
-	STCK	__CLOCK_IDLE_ENTER(%r2)
+	stckf	__CLOCK_IDLE_ENTER(%r2)
 	stpt	__TIMER_IDLE_ENTER(%r2)
 	lpswe	__SF_EMPTY(%r15)
 .globl psw_idle_exit
@@ -468,12 +521,11 @@ ENDPROC(psw_idle)
  * Machine check handler routines
  */
 ENTRY(mcck_int_handler)
-	STCK	__LC_MCCK_CLOCK
+	stckf	__LC_MCCK_CLOCK
 	BPOFF
 	la	%r1,4095		# validate r1
 	spt	__LC_CPU_TIMER_SAVE_AREA-4095(%r1)	# validate cpu timer
-	sckc	__LC_CLOCK_COMPARATOR			# validate comparator
-	lam	%a0,%a15,__LC_AREGS_SAVE_AREA-4095(%r1) # validate acrs
+	LBEAR	__LC_LAST_BREAK_SAVE_AREA-4095(%r1)		# validate bear
 	lmg	%r0,%r15,__LC_GPREGS_SAVE_AREA-4095(%r1)# validate gprs
 	lg	%r12,__LC_CURRENT
 	lmg	%r8,%r9,__LC_MCK_OLD_PSW
@@ -484,41 +536,7 @@ ENTRY(mcck_int_handler)
 	la	%r14,4095
 	lctlg	%c0,%c15,__LC_CREGS_SAVE_AREA-4095(%r14) # validate ctl regs
 	ptlb
-	lg	%r11,__LC_MCESAD-4095(%r14) # extended machine check save area
-	nill	%r11,0xfc00		# MCESA_ORIGIN_MASK
-	TSTMSK	__LC_CREGS_SAVE_AREA+16-4095(%r14),CR2_GUARDED_STORAGE
-	jno	0f
-	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_GS_VALID
-	jno	0f
-	.insn	 rxy,0xe3000000004d,0,__MCESA_GS_SAVE_AREA(%r11) # LGSC
-0:	l	%r14,__LC_FP_CREG_SAVE_AREA-4095(%r14)
-	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_FC_VALID
-	jo	0f
-	sr	%r14,%r14
-0:	sfpc	%r14
-	TSTMSK	__LC_MACHINE_FLAGS,MACHINE_FLAG_VX
-	jo	0f
-	lghi	%r14,__LC_FPREGS_SAVE_AREA
-	ld	%f0,0(%r14)
-	ld	%f1,8(%r14)
-	ld	%f2,16(%r14)
-	ld	%f3,24(%r14)
-	ld	%f4,32(%r14)
-	ld	%f5,40(%r14)
-	ld	%f6,48(%r14)
-	ld	%f7,56(%r14)
-	ld	%f8,64(%r14)
-	ld	%f9,72(%r14)
-	ld	%f10,80(%r14)
-	ld	%f11,88(%r14)
-	ld	%f12,96(%r14)
-	ld	%f13,104(%r14)
-	ld	%f14,112(%r14)
-	ld	%f15,120(%r14)
-	j	1f
-0:	VLM	%v0,%v15,0,%r11
-	VLM	%v16,%v31,256,%r11
-1:	lghi	%r14,__LC_CPU_TIMER_SAVE_AREA
+	lghi	%r14,__LC_CPU_TIMER_SAVE_AREA
 	mvc	__LC_MCCK_ENTER_TIMER(8),0(%r14)
 	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_CPU_TIMER_VALID
 	jo	3f
@@ -534,27 +552,29 @@ ENTRY(mcck_int_handler)
 3:	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_PSW_MWP_VALID
 	jno	.Lmcck_panic
 	tmhh	%r8,0x0001		# interrupting from user ?
-	jnz	4f
+	jnz	6f
 	TSTMSK	__LC_MCCK_CODE,MCCK_CODE_PSW_IA_VALID
 	jno	.Lmcck_panic
-4:	ssm	__LC_PGM_NEW_PSW	# turn dat on, keep irqs off
-	tmhh	%r8,0x0001			# interrupting from user ?
-	jnz	.Lmcck_user
 #if IS_ENABLED(CONFIG_KVM)
-	lgr	%r14,%r9
-	larl	%r13,.Lsie_gmap
-	slgr	%r14,%r13
-	lghi	%r13,.Lsie_done - .Lsie_gmap
-	clgr	%r14,%r13
-	jhe	.Lmcck_stack
-	brasl	%r14,.Lcleanup_sie_mcck
-#endif
+	OUTSIDE	%r9,.Lsie_gmap,.Lsie_done,6f
+	OUTSIDE	%r9,.Lsie_entry,.Lsie_skip,4f
+	oi	__LC_CPU_FLAGS+7, _CIF_MCCK_GUEST
+	j	5f
+4:	CHKSTG	.Lmcck_panic
+5:	larl	%r14,.Lstosm_tmp
+	stosm	0(%r14),0x04		# turn dat on, keep irqs off
+	BPENTER	__SF_SIE_FLAGS(%r15),(_TIF_ISOLATE_BP|_TIF_ISOLATE_BP_GUEST)
+	SIEEXIT
 	j	.Lmcck_stack
-.Lmcck_user:
+#endif
+6:	CHKSTG	.Lmcck_panic
+	larl	%r14,.Lstosm_tmp
+	stosm	0(%r14),0x04		# turn dat on, keep irqs off
+	tmhh	%r8,0x0001		# interrupting from user ?
+	jz	.Lmcck_stack
 	BPENTER __TI_flags(%r12),_TIF_ISOLATE_BP
 .Lmcck_stack:
 	lg	%r15,__LC_MCCK_STACK
-.Lmcck_skip:
 	la	%r11,STACK_FRAME_OVERHEAD(%r15)
 	stctg	%c1,%c1,__PT_CR1(%r11)
 	lctlg	%c1,%c1,__LC_KERNEL_ASCE
@@ -592,20 +612,50 @@ ENTRY(mcck_int_handler)
 	jno	0f
 	BPEXIT	__TI_flags(%r12),_TIF_ISOLATE_BP
 	stpt	__LC_EXIT_TIMER
-0:	lmg	%r11,%r15,__PT_R11(%r11)
-	b	__LC_RETURN_MCCK_LPSWE
+0:	ALTERNATIVE "", __stringify(lghi %r12,__LC_LAST_BREAK_SAVE_AREA),193
+	LBEAR	0(%r12)
+	lmg	%r11,%r15,__PT_R11(%r11)
+	LPSWEY	__LC_RETURN_MCCK_PSW,__LC_RETURN_MCCK_LPSWE
 
 .Lmcck_panic:
-	lg	%r15,__LC_NODAT_STACK
-	j	.Lmcck_skip
+	/*
+	 * Iterate over all possible CPU addresses in the range 0..0xffff
+	 * and stop each CPU using signal processor. Use compare and swap
+	 * to allow just one CPU-stopper and prevent concurrent CPUs from
+	 * stopping each other while leaving the others running.
+	 */
+	lhi	%r5,0
+	lhi	%r6,1
+	larl	%r7,.Lstop_lock
+	cs	%r5,%r6,0(%r7)		# single CPU-stopper only
+	jnz	4f
+	larl	%r7,.Lthis_cpu
+	stap	0(%r7)			# this CPU address
+	lh	%r4,0(%r7)
+	nilh	%r4,0
+	lhi	%r0,1
+	sll	%r0,16			# CPU counter
+	lhi	%r3,0			# next CPU address
+0:	cr	%r3,%r4
+	je	2f
+1:	sigp	%r1,%r3,SIGP_STOP	# stop next CPU
+	brc	SIGP_CC_BUSY,1b
+2:	ahi	%r3,1
+	brct	%r0,0b
+3:	sigp	%r1,%r4,SIGP_STOP	# stop this CPU
+	brc	SIGP_CC_BUSY,3b
+4:	j	4b
 ENDPROC(mcck_int_handler)
 
-#
-# PSW restart interrupt handler
-#
 ENTRY(restart_int_handler)
-	ALTERNATIVE "", ".insn s,0xb2800000,_LPP_OFFSET", 40
+	ALTERNATIVE "", "lpp _LPP_OFFSET", 40
 	stg	%r15,__LC_SAVE_AREA_RESTART
+	TSTMSK	__LC_RESTART_FLAGS,RESTART_FLAG_CTLREGS,4
+	jz	0f
+	la	%r15,4095
+	lctlg	%c0,%c15,__LC_CREGS_SAVE_AREA-4095(%r15)
+0:	larl	%r15,.Lstosm_tmp
+	stosm	0(%r15),0x04			# turn dat on, keep irqs off
 	lg	%r15,__LC_RESTART_STACK
 	xc	STACK_FRAME_OVERHEAD(__PT_SIZE,%r15),STACK_FRAME_OVERHEAD(%r15)
 	stmg	%r0,%r14,STACK_FRAME_OVERHEAD+__PT_R0(%r15)
@@ -614,7 +664,7 @@ ENTRY(restart_int_handler)
 	xc	0(STACK_FRAME_OVERHEAD,%r15),0(%r15)
 	lg	%r1,__LC_RESTART_FN		# load fn, parm & source cpu
 	lg	%r2,__LC_RESTART_DATA
-	lg	%r3,__LC_RESTART_SOURCE
+	lgf	%r3,__LC_RESTART_SOURCE
 	ltgr	%r3,%r3				# test source cpu address
 	jm	1f				# negative -> skip source stop
 0:	sigp	%r4,%r3,SIGP_SENSE		# sigp sense to source cpu
@@ -648,23 +698,11 @@ ENTRY(stack_overflow)
 ENDPROC(stack_overflow)
 #endif
 
-#if IS_ENABLED(CONFIG_KVM)
-.Lcleanup_sie_mcck:
-	larl	%r13,.Lsie_entry
-	slgr	%r9,%r13
-	larl	%r13,.Lsie_skip
-	clgr	%r9,%r13
-	jh	.Lcleanup_sie_int
-	oi	__LC_CPU_FLAGS+7, _CIF_MCCK_GUEST
-.Lcleanup_sie_int:
-	BPENTER	__SF_SIE_FLAGS(%r15),(_TIF_ISOLATE_BP|_TIF_ISOLATE_BP_GUEST)
-	lg	%r9,__SF_SIE_CONTROL(%r15)	# get control block pointer
-	ni	__SIE_PROG0C+3(%r9),0xfe	# no longer in SIE
-	lctlg	%c1,%c1,__LC_KERNEL_ASCE
-	larl	%r9,sie_exit			# skip forward to sie_exit
-	BR_EX	%r14,%r13
-
-#endif
+	.section .data, "aw"
+		.align	4
+.Lstop_lock:	.long	0
+.Lthis_cpu:	.short	0
+.Lstosm_tmp:	.byte	0
 	.section .rodata, "a"
 #define SYSCALL(esame,emu)	.quad __s390x_ ## esame
 	.globl	sys_call_table

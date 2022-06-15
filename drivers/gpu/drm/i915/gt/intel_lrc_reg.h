@@ -1,6 +1,5 @@
+/* SPDX-License-Identifier: MIT */
 /*
- * SPDX-License-Identifier: MIT
- *
  * Copyright © 2014-2018 Intel Corporation
  */
 
@@ -40,7 +39,7 @@
 
 #define ASSIGN_CTX_PML4(ppgtt, reg_state) do { \
 	u32 *reg_state__ = (reg_state); \
-	const u64 addr__ = px_dma(ppgtt->pd); \
+	const u64 addr__ = px_dma((ppgtt)->pd); \
 	(reg_state__)[CTX_PDP0_UDW] = upper_32_bits(addr__); \
 	(reg_state__)[CTX_PDP0_LDW] = lower_32_bits(addr__); \
 } while (0)
@@ -53,21 +52,6 @@
 
 #define GEN8_EXECLISTS_STATUS_BUF 0x370
 #define GEN11_EXECLISTS_STATUS_BUF2 0x3c0
-
-/* Execlists regs */
-#define RING_ELSP(base)				_MMIO((base) + 0x230)
-#define RING_EXECLIST_STATUS_LO(base)		_MMIO((base) + 0x234)
-#define RING_EXECLIST_STATUS_HI(base)		_MMIO((base) + 0x234 + 4)
-#define RING_CONTEXT_CONTROL(base)		_MMIO((base) + 0x244)
-#define	  CTX_CTRL_ENGINE_CTX_RESTORE_INHIBIT	REG_BIT(0)
-#define   CTX_CTRL_RS_CTX_ENABLE		REG_BIT(1)
-#define	  CTX_CTRL_ENGINE_CTX_SAVE_INHIBIT	REG_BIT(2)
-#define	  CTX_CTRL_INHIBIT_SYN_CTX_SWITCH	REG_BIT(3)
-#define	  GEN12_CTX_CTRL_OAR_CONTEXT_ENABLE	REG_BIT(8)
-#define RING_CONTEXT_STATUS_PTR(base)		_MMIO((base) + 0x3a0)
-#define RING_EXECLIST_SQ_CONTENTS(base)		_MMIO((base) + 0x510)
-#define RING_EXECLIST_CONTROL(base)		_MMIO((base) + 0x550)
-#define	  EL_CTRL_LOAD				REG_BIT(0)
 
 /*
  * The docs specify that the write pointer wraps around after 5h, "After status
@@ -88,9 +72,10 @@
 #define GEN11_CSB_WRITE_PTR_MASK	(GEN11_CSB_PTR_MASK << 0)
 
 #define MAX_CONTEXT_HW_ID	(1 << 21) /* exclusive */
-#define MAX_GUC_CONTEXT_HW_ID	(1 << 20) /* exclusive */
 #define GEN11_MAX_CONTEXT_HW_ID	(1 << 11) /* exclusive */
 /* in Gen12 ID 0x7FF is reserved to indicate idle */
 #define GEN12_MAX_CONTEXT_HW_ID	(GEN11_MAX_CONTEXT_HW_ID - 1)
+/* in Xe_HP ID 0xFFFF is reserved to indicate "invalid context" */
+#define XEHP_MAX_CONTEXT_HW_ID	0xFFFF
 
 #endif /* _INTEL_LRC_REG_H_ */

@@ -18,8 +18,17 @@
  * PACA flags in paca->irq_happened.
  *
  * This bits are set when interrupts occur while soft-disabled
- * and allow a proper replay. Additionally, PACA_IRQ_HARD_DIS
- * is set whenever we manually hard disable.
+ * and allow a proper replay.
+ *
+ * The PACA_IRQ_HARD_DIS is set whenever we hard disable. It is almost
+ * always in synch with the MSR[EE] state, except:
+ * - A window in interrupt entry, where hardware disables MSR[EE] and that
+ *   must be "reconciled" with the soft mask state.
+ * - NMI interrupts that hit in awkward places, until they fix the state.
+ * - When local irqs are being enabled and state is being fixed up.
+ * - When returning from an interrupt there are some windows where this
+ *   can become out of synch, but gets fixed before the RFI or before
+ *   executing the next user instruction (see arch/powerpc/kernel/interrupt.c).
  */
 #define PACA_IRQ_HARD_DIS	0x01
 #define PACA_IRQ_DBELL		0x02
@@ -52,7 +61,7 @@
 
 static inline void __hard_irq_enable(void)
 {
-	if (IS_ENABLED(CONFIG_BOOKE) || IS_ENABLED(CONFIG_40x))
+	if (IS_ENABLED(CONFIG_BOOKE_OR_40x))
 		wrtee(MSR_EE);
 	else if (IS_ENABLED(CONFIG_PPC_8xx))
 		wrtspr(SPRN_EIE);
@@ -64,7 +73,7 @@ static inline void __hard_irq_enable(void)
 
 static inline void __hard_irq_disable(void)
 {
-	if (IS_ENABLED(CONFIG_BOOKE) || IS_ENABLED(CONFIG_40x))
+	if (IS_ENABLED(CONFIG_BOOKE_OR_40x))
 		wrtee(0);
 	else if (IS_ENABLED(CONFIG_PPC_8xx))
 		wrtspr(SPRN_EID);
@@ -76,7 +85,7 @@ static inline void __hard_irq_disable(void)
 
 static inline void __hard_EE_RI_disable(void)
 {
-	if (IS_ENABLED(CONFIG_BOOKE) || IS_ENABLED(CONFIG_40x))
+	if (IS_ENABLED(CONFIG_BOOKE_OR_40x))
 		wrtee(0);
 	else if (IS_ENABLED(CONFIG_PPC_8xx))
 		wrtspr(SPRN_NRI);
@@ -88,7 +97,7 @@ static inline void __hard_EE_RI_disable(void)
 
 static inline void __hard_RI_enable(void)
 {
-	if (IS_ENABLED(CONFIG_BOOKE) || IS_ENABLED(CONFIG_40x))
+	if (IS_ENABLED(CONFIG_BOOKE_OR_40x))
 		return;
 
 	if (IS_ENABLED(CONFIG_PPC_8xx))
@@ -215,6 +224,42 @@ static inline bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
+static inline void set_pmi_irq_pending(void)
+{
+	/*
+	 * Invoked from PMU callback functions to set PMI bit in the paca.
+	 * This has to be called with irq's disabled (via hard_irq_disable()).
+	 */
+	if (IS_ENABLED(CONFIG_PPC_IRQ_SOFT_MASK_DEBUG))
+		WARN_ON_ONCE(mfmsr() & MSR_EE);
+
+	get_paca()->irq_happened |= PACA_IRQ_PMI;
+}
+
+static inline void clear_pmi_irq_pending(void)
+{
+	/*
+	 * Invoked from PMU callback functions to clear the pending PMI bit
+	 * in the paca.
+	 */
+	if (IS_ENABLED(CONFIG_PPC_IRQ_SOFT_MASK_DEBUG))
+		WARN_ON_ONCE(mfmsr() & MSR_EE);
+
+	get_paca()->irq_happened &= ~PACA_IRQ_PMI;
+}
+
+static inline bool pmi_irq_pending(void)
+{
+	/*
+	 * Invoked from PMU callback functions to check if there is a pending
+	 * PMI bit in the paca.
+	 */
+	if (get_paca()->irq_happened & PACA_IRQ_PMI)
+		return true;
+
+	return false;
+}
+
 #ifdef CONFIG_PPC_BOOK3S
 /*
  * To support disabling and enabling of irq with PMI, set of
@@ -297,18 +342,57 @@ static inline bool lazy_irq_pending_nocheck(void)
 	return __lazy_irq_pending(local_paca->irq_happened);
 }
 
+bool power_pmu_wants_prompt_pmi(void);
+
 /*
- * This is called by asynchronous interrupts to conditionally
- * re-enable hard interrupts after having cleared the source
- * of the interrupt. They are kept disabled if there is a different
- * soft-masked interrupt pending that requires hard masking.
+ * This is called by asynchronous interrupts to check whether to
+ * conditionally re-enable hard interrupts after having cleared
+ * the source of the interrupt. They are kept disabled if there
+ * is a different soft-masked interrupt pending that requires hard
+ * masking.
  */
-static inline void may_hard_irq_enable(void)
+static inline bool should_hard_irq_enable(void)
 {
-	if (!(get_paca()->irq_happened & PACA_IRQ_MUST_HARD_MASK)) {
-		get_paca()->irq_happened &= ~PACA_IRQ_HARD_DIS;
-		__hard_irq_enable();
-	}
+#ifdef CONFIG_PPC_IRQ_SOFT_MASK_DEBUG
+	WARN_ON(irq_soft_mask_return() == IRQS_ENABLED);
+	WARN_ON(mfmsr() & MSR_EE);
+#endif
+#ifdef CONFIG_PERF_EVENTS
+	/*
+	 * If the PMU is not running, there is not much reason to enable
+	 * MSR[EE] in irq handlers because any interrupts would just be
+	 * soft-masked.
+	 *
+	 * TODO: Add test for 64e
+	 */
+	if (IS_ENABLED(CONFIG_PPC_BOOK3S_64) && !power_pmu_wants_prompt_pmi())
+		return false;
+
+	if (get_paca()->irq_happened & PACA_IRQ_MUST_HARD_MASK)
+		return false;
+
+	return true;
+#else
+	return false;
+#endif
+}
+
+/*
+ * Do the hard enabling, only call this if should_hard_irq_enable is true.
+ */
+static inline void do_hard_irq_enable(void)
+{
+#ifdef CONFIG_PPC_IRQ_SOFT_MASK_DEBUG
+	WARN_ON(irq_soft_mask_return() == IRQS_ENABLED);
+	WARN_ON(get_paca()->irq_happened & PACA_IRQ_MUST_HARD_MASK);
+	WARN_ON(mfmsr() & MSR_EE);
+#endif
+	/*
+	 * This allows PMI interrupts (and watchdog soft-NMIs) through.
+	 * There is no other reason to enable this way.
+	 */
+	get_paca()->irq_happened &= ~PACA_IRQ_HARD_DIS;
+	__hard_irq_enable();
 }
 
 static inline bool arch_irq_disabled_regs(struct pt_regs *regs)
@@ -389,7 +473,19 @@ static inline bool arch_irq_disabled_regs(struct pt_regs *regs)
 	return !(regs->msr & MSR_EE);
 }
 
-static inline void may_hard_irq_enable(void) { }
+static __always_inline bool should_hard_irq_enable(void)
+{
+	return false;
+}
+
+static inline void do_hard_irq_enable(void)
+{
+	BUILD_BUG();
+}
+
+static inline void clear_pmi_irq_pending(void) { }
+static inline void set_pmi_irq_pending(void) { }
+static inline bool pmi_irq_pending(void) { return false; }
 
 static inline void irq_soft_mask_regs_set_state(struct pt_regs *regs, unsigned long val)
 {

@@ -14,7 +14,6 @@
 #define PGDIR_MASK		(~(PGDIR_SIZE-1))
 
 #define USER_PTRS_PER_PGD	(PAGE_OFFSET/PGDIR_SIZE)
-#define FIRST_USER_ADDRESS	0UL
 
 /*
  * C-SKY is two-level paging structure:
@@ -31,6 +30,7 @@
 #define pgd_ERROR(e) \
 	pr_err("%s:%d: bad pgd %08lx.\n", __FILE__, __LINE__, pgd_val(e))
 
+#define pmd_pfn(pmd)	(pmd_phys(pmd) >> PAGE_SHIFT)
 #define pmd_page(pmd)	(pfn_to_page(pmd_phys(pmd) >> PAGE_SHIFT))
 #define pte_clear(mm, addr, ptep)	set_pte((ptep), \
 	(((unsigned int) addr >= PAGE_OFFSET) ? __pte(_PAGE_GLOBAL) : __pte(0)))

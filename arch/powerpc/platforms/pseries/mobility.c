@@ -26,6 +26,7 @@
 #include <asm/machdep.h>
 #include <asm/rtas.h>
 #include "pseries.h"
+#include "vas.h"	/* vas_migration_handler() */
 #include "../../kernel/cacheinfo.h"
 
 static struct kobject *mobility_kobj;
@@ -63,6 +64,27 @@ static int mobility_rtas_call(int token, char *buf, s32 scope)
 
 static int delete_dt_node(struct device_node *dn)
 {
+	struct device_node *pdn;
+	bool is_platfac;
+
+	pdn = of_get_parent(dn);
+	is_platfac = of_node_is_type(dn, "ibm,platform-facilities") ||
+		     of_node_is_type(pdn, "ibm,platform-facilities");
+	of_node_put(pdn);
+
+	/*
+	 * The drivers that bind to nodes in the platform-facilities
+	 * hierarchy don't support node removal, and the removal directive
+	 * from firmware is always followed by an add of an equivalent
+	 * node. The capability (e.g. RNG, encryption, compression)
+	 * represented by the node is never interrupted by the migration.
+	 * So ignore changes to this part of the tree.
+	 */
+	if (is_platfac) {
+		pr_notice("ignoring remove operation for %pOFfp\n", dn);
+		return 0;
+	}
+
 	pr_debug("removing node %pOFfp\n", dn);
 	dlpar_detach_node(dn);
 	return 0;
@@ -222,6 +244,19 @@ static int add_dt_node(struct device_node *parent_dn, __be32 drc_index)
 	if (!dn)
 		return -ENOENT;
 
+	/*
+	 * Since delete_dt_node() ignores this node type, this is the
+	 * necessary counterpart. We also know that a platform-facilities
+	 * node returned from dlpar_configure_connector() has children
+	 * attached, and dlpar_attach_node() only adds the parent, leaking
+	 * the children. So ignore these on the add side for now.
+	 */
+	if (of_node_is_type(dn, "ibm,platform-facilities")) {
+		pr_notice("ignoring add operation for %pOF\n", dn);
+		dlpar_free_cc_nodes(dn);
+		return 0;
+	}
+
 	rc = dlpar_attach_node(dn, parent_dn);
 	if (rc)
 		dlpar_free_cc_nodes(dn);
@@ -231,7 +266,7 @@ static int add_dt_node(struct device_node *parent_dn, __be32 drc_index)
 	return rc;
 }
 
-int pseries_devicetree_update(s32 scope)
+static int pseries_devicetree_update(s32 scope)
 {
 	char *rtas_buf;
 	__be32 *data;
@@ -417,11 +452,15 @@ static void prod_others(void)
 
 static u16 clamp_slb_size(void)
 {
+#ifdef CONFIG_PPC_64S_HASH_MMU
 	u16 prev = mmu_slb_size;
 
 	slb_set_size(SLB_MIN_SIZE);
 
 	return prev;
+#else
+	return 0;
+#endif
 }
 
 static int do_suspend(void)
@@ -452,12 +491,28 @@ static int do_suspend(void)
 	return ret;
 }
 
+/**
+ * struct pseries_suspend_info - State shared between CPUs for join/suspend.
+ * @counter: Threads are to increment this upon resuming from suspend
+ *           or if an error is received from H_JOIN. The thread which performs
+ *           the first increment (i.e. sets it to 1) is responsible for
+ *           waking the other threads.
+ * @done: False if join/suspend is in progress. True if the operation is
+ *        complete (successful or not).
+ */
+struct pseries_suspend_info {
+	atomic_t counter;
+	bool done;
+};
+
 static int do_join(void *arg)
 {
-	atomic_t *counter = arg;
+	struct pseries_suspend_info *info = arg;
+	atomic_t *counter = &info->counter;
 	long hvrc;
 	int ret;
 
+retry:
 	/* Must ensure MSR.EE off for H_JOIN. */
 	hard_irq_disable();
 	hvrc = plpar_hcall_norets(H_JOIN);
@@ -473,8 +528,20 @@ static int do_join(void *arg)
 	case H_SUCCESS:
 		/*
 		 * The suspend is complete and this cpu has received a
-		 * prod.
+		 * prod, or we've received a stray prod from unrelated
+		 * code (e.g. paravirt spinlocks) and we need to join
+		 * again.
+		 *
+		 * This barrier orders the return from H_JOIN above vs
+		 * the load of info->done. It pairs with the barrier
+		 * in the wakeup/prod path below.
 		 */
+		smp_mb();
+		if (READ_ONCE(info->done) == false) {
+			pr_info_ratelimited("premature return from H_JOIN on CPU %i, retrying",
+					    smp_processor_id());
+			goto retry;
+		}
 		ret = 0;
 		break;
 	case H_BAD_MODE:
@@ -488,6 +555,13 @@ static int do_join(void *arg)
 
 	if (atomic_inc_return(counter) == 1) {
 		pr_info("CPU %u waking all threads\n", smp_processor_id());
+		WRITE_ONCE(info->done, true);
+		/*
+		 * This barrier orders the store to info->done vs subsequent
+		 * H_PRODs to wake the other CPUs. It pairs with the barrier
+		 * in the H_SUCCESS case above.
+		 */
+		smp_mb();
 		prod_others();
 	}
 	/*
@@ -535,11 +609,16 @@ static int pseries_suspend(u64 handle)
 	int ret;
 
 	while (true) {
-		atomic_t counter = ATOMIC_INIT(0);
+		struct pseries_suspend_info info;
 		unsigned long vasi_state;
 		int vasi_err;
 
-		ret = stop_machine(do_join, &counter, cpu_online_mask);
+		info = (struct pseries_suspend_info) {
+			.counter = ATOMIC_INIT(0),
+			.done = false,
+		};
+
+		ret = stop_machine(do_join, &info, cpu_online_mask);
 		if (ret == 0)
 			break;
 		/*
@@ -591,11 +670,15 @@ static int pseries_migrate_partition(u64 handle)
 	if (ret)
 		return ret;
 
+	vas_migration_handler(VAS_SUSPEND);
+
 	ret = pseries_suspend(handle);
 	if (ret == 0)
 		post_mobility_fixup();
 	else
 		pseries_cancel_migration(handle, ret);
+
+	vas_migration_handler(VAS_RESUME);
 
 	return ret;
 }

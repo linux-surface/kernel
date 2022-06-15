@@ -42,6 +42,8 @@ struct adreno_rev {
 	uint8_t  patchid;
 };
 
+#define ANY_ID 0xff
+
 #define ADRENO_REV(core, major, minor, patchid) \
 	((struct adreno_rev){ core, major, minor, patchid })
 
@@ -55,7 +57,7 @@ struct adreno_reglist {
 	u32 value;
 };
 
-extern const struct adreno_reglist a630_hwcg[], a640_hwcg[], a650_hwcg[];
+extern const struct adreno_reglist a630_hwcg[], a640_hwcg[], a650_hwcg[], a660_hwcg[];
 
 struct adreno_info {
 	struct adreno_rev rev;
@@ -78,6 +80,7 @@ struct adreno_gpu {
 	const struct adreno_info *info;
 	uint32_t gmem;  /* actual gmem size */
 	uint32_t revn;  /* numeric revision name */
+	uint16_t speedbin;
 	const struct adreno_gpu_funcs *funcs;
 
 	/* interesting register offsets to dump: */
@@ -141,6 +144,8 @@ struct adreno_platform_config {
 	__ret;                                             \
 })
 
+bool adreno_cmp_rev(struct adreno_rev rev1, struct adreno_rev rev2);
+
 static inline bool adreno_is_a2xx(struct adreno_gpu *gpu)
 {
 	return (gpu->revn < 300);
@@ -197,6 +202,11 @@ static inline int adreno_is_a430(struct adreno_gpu *gpu)
        return gpu->revn == 430;
 }
 
+static inline int adreno_is_a506(struct adreno_gpu *gpu)
+{
+	return gpu->revn == 506;
+}
+
 static inline int adreno_is_a508(struct adreno_gpu *gpu)
 {
 	return gpu->revn == 508;
@@ -237,9 +247,9 @@ static inline int adreno_is_a630(struct adreno_gpu *gpu)
        return gpu->revn == 630;
 }
 
-static inline int adreno_is_a640(struct adreno_gpu *gpu)
+static inline int adreno_is_a640_family(struct adreno_gpu *gpu)
 {
-       return gpu->revn == 640;
+	return (gpu->revn == 640) || (gpu->revn == 680);
 }
 
 static inline int adreno_is_a650(struct adreno_gpu *gpu)
@@ -247,7 +257,33 @@ static inline int adreno_is_a650(struct adreno_gpu *gpu)
        return gpu->revn == 650;
 }
 
-int adreno_get_param(struct msm_gpu *gpu, uint32_t param, uint64_t *value);
+static inline int adreno_is_7c3(struct adreno_gpu *gpu)
+{
+	/* The order of args is important here to handle ANY_ID correctly */
+       return adreno_cmp_rev(ADRENO_REV(6, 3, 5, ANY_ID), gpu->rev);
+}
+
+static inline int adreno_is_a660(struct adreno_gpu *gpu)
+{
+       return gpu->revn == 660;
+}
+
+static inline int adreno_is_a660_family(struct adreno_gpu *gpu)
+{
+       return adreno_is_a660(gpu) || adreno_is_7c3(gpu);
+}
+
+/* check for a650, a660, or any derivatives */
+static inline int adreno_is_a650_family(struct adreno_gpu *gpu)
+{
+       return gpu->revn == 650 || gpu->revn == 620 ||
+	       adreno_is_a660_family(gpu);
+}
+
+int adreno_get_param(struct msm_gpu *gpu, struct msm_file_private *ctx,
+		     uint32_t param, uint64_t *value);
+int adreno_set_param(struct msm_gpu *gpu, struct msm_file_private *ctx,
+		     uint32_t param, uint64_t value);
 const struct firmware *adreno_request_fw(struct adreno_gpu *adreno_gpu,
 		const char *fwname);
 struct drm_gem_object *adreno_fw_create_bo(struct msm_gpu *gpu,
@@ -279,6 +315,8 @@ void adreno_gpu_state_destroy(struct msm_gpu_state *state);
 
 int adreno_gpu_state_get(struct msm_gpu *gpu, struct msm_gpu_state *state);
 int adreno_gpu_state_put(struct msm_gpu_state *state);
+void adreno_show_object(struct drm_printer *p, void **ptr, int len,
+		bool *encoded);
 
 /*
  * Common helper function to initialize the default address space for arm-smmu
@@ -289,6 +327,8 @@ adreno_iommu_create_address_space(struct msm_gpu *gpu,
 		struct platform_device *pdev);
 
 void adreno_set_llc_attributes(struct iommu_domain *iommu);
+
+int adreno_read_speedbin(struct device *dev, u32 *speedbin);
 
 /*
  * For a5xx and a6xx targets load the zap shader that is used to pull the GPU

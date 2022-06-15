@@ -17,7 +17,7 @@
 #define FTR_DESC_NAME_LEN	20
 #define FTR_DESC_FIELD_LEN	10
 #define FTR_ALIAS_NAME_LEN	30
-#define FTR_ALIAS_OPTION_LEN	80
+#define FTR_ALIAS_OPTION_LEN	116
 
 struct ftr_set_desc {
 	char 				name[FTR_DESC_NAME_LEN];
@@ -25,14 +25,26 @@ struct ftr_set_desc {
 	struct {
 		char			name[FTR_DESC_FIELD_LEN];
 		u8			shift;
+		bool			(*filter)(u64 val);
 	} 				fields[];
 };
+
+static bool __init mmfr1_vh_filter(u64 val)
+{
+	/*
+	 * If we ever reach this point while running VHE, we're
+	 * guaranteed to be on one of these funky, VHE-stuck CPUs. If
+	 * the user was trying to force nVHE on us, proceed with
+	 * attitude adjustment.
+	 */
+	return !(is_kernel_in_hyp_mode() && val == 0);
+}
 
 static const struct ftr_set_desc mmfr1 __initconst = {
 	.name		= "id_aa64mmfr1",
 	.override	= &id_aa64mmfr1_override,
 	.fields		= {
-	        { "vh", ID_AA64MMFR1_VHE_SHIFT },
+		{ "vh", ID_AA64MMFR1_VHE_SHIFT, mmfr1_vh_filter },
 		{}
 	},
 };
@@ -42,6 +54,7 @@ static const struct ftr_set_desc pfr1 __initconst = {
 	.override	= &id_aa64pfr1_override,
 	.fields		= {
 	        { "bt", ID_AA64PFR1_BT_SHIFT },
+		{ "mte", ID_AA64PFR1_MTE_SHIFT},
 		{}
 	},
 };
@@ -54,6 +67,16 @@ static const struct ftr_set_desc isar1 __initconst = {
 	        { "gpa", ID_AA64ISAR1_GPA_SHIFT },
 	        { "api", ID_AA64ISAR1_API_SHIFT },
 	        { "apa", ID_AA64ISAR1_APA_SHIFT },
+		{}
+	},
+};
+
+static const struct ftr_set_desc isar2 __initconst = {
+	.name		= "id_aa64isar2",
+	.override	= &id_aa64isar2_override,
+	.fields		= {
+	        { "gpa3", ID_AA64ISAR2_GPA3_SHIFT },
+	        { "apa3", ID_AA64ISAR2_APA3_SHIFT },
 		{}
 	},
 };
@@ -75,6 +98,7 @@ static const struct ftr_set_desc * const regs[] __initconst = {
 	&mmfr1,
 	&pfr1,
 	&isar1,
+	&isar2,
 	&kaslr,
 };
 
@@ -87,7 +111,9 @@ static const struct {
 	{ "arm64.nobti",		"id_aa64pfr1.bt=0" },
 	{ "arm64.nopauth",
 	  "id_aa64isar1.gpi=0 id_aa64isar1.gpa=0 "
-	  "id_aa64isar1.api=0 id_aa64isar1.apa=0"	   },
+	  "id_aa64isar1.api=0 id_aa64isar1.apa=0 "
+	  "id_aa64isar2.gpa3=0 id_aa64isar2.apa3=0"	   },
+	{ "arm64.nomte",		"id_aa64pfr1.mte=0" },
 	{ "nokaslr",			"kaslr.disabled=1" },
 };
 
@@ -123,6 +149,18 @@ static void __init match_options(const char *cmdline)
 
 			if (find_field(cmdline, regs[i], f, &v))
 				continue;
+
+			/*
+			 * If an override gets filtered out, advertise
+			 * it by setting the value to 0xf, but
+			 * clearing the mask... Yes, this is fragile.
+			 */
+			if (regs[i]->fields[f].filter &&
+			    !regs[i]->fields[f].filter(v)) {
+				regs[i]->override->val  |= mask;
+				regs[i]->override->mask &= ~mask;
+				continue;
+			}
 
 			regs[i]->override->val  &= ~mask;
 			regs[i]->override->val  |= (v << shift) & mask;
@@ -213,7 +251,8 @@ asmlinkage void __init init_feature_override(void)
 
 	for (i = 0; i < ARRAY_SIZE(regs); i++) {
 		if (regs[i]->override)
-			__flush_dcache_area(regs[i]->override,
+			dcache_clean_inval_poc((unsigned long)regs[i]->override,
+					    (unsigned long)regs[i]->override +
 					    sizeof(*regs[i]->override));
 	}
 }

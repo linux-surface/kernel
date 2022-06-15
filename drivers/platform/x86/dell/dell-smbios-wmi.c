@@ -69,9 +69,10 @@ static int run_smbios_call(struct wmi_device *wdev)
 		if (obj->type == ACPI_TYPE_INTEGER)
 			dev_dbg(&wdev->dev, "SMBIOS call failed: %llu\n",
 				obj->integer.value);
+		kfree(output.pointer);
 		return -EIO;
 	}
-	memcpy(&priv->buf->std, obj->buffer.pointer, obj->buffer.length);
+	memcpy(input.pointer, obj->buffer.pointer, obj->buffer.length);
 	dev_dbg(&wdev->dev, "result: [%08x,%08x,%08x,%08x]\n",
 		priv->buf->std.output[0], priv->buf->std.output[1],
 		priv->buf->std.output[2], priv->buf->std.output[3]);
@@ -205,7 +206,7 @@ fail_register:
 	return ret;
 }
 
-static int dell_smbios_wmi_remove(struct wmi_device *wdev)
+static void dell_smbios_wmi_remove(struct wmi_device *wdev)
 {
 	struct wmi_smbios_priv *priv = dev_get_drvdata(&wdev->dev);
 	int count;
@@ -218,7 +219,6 @@ static int dell_smbios_wmi_remove(struct wmi_device *wdev)
 	count = get_order(priv->req_buf_size);
 	free_pages((unsigned long)priv->buf, count);
 	mutex_unlock(&call_mutex);
-	return 0;
 }
 
 static const struct wmi_device_id dell_smbios_wmi_id_table[] = {
@@ -271,7 +271,8 @@ int init_dell_smbios_wmi(void)
 
 void exit_dell_smbios_wmi(void)
 {
-	wmi_driver_unregister(&dell_smbios_wmi_driver);
+	if (wmi_supported)
+		wmi_driver_unregister(&dell_smbios_wmi_driver);
 }
 
 MODULE_DEVICE_TABLE(wmi, dell_smbios_wmi_id_table);

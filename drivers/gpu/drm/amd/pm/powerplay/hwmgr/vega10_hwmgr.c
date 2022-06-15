@@ -54,6 +54,9 @@
 #include "smuio/smuio_9_0_offset.h"
 #include "smuio/smuio_9_0_sh_mask.h"
 
+#define smnPCIE_LC_SPEED_CNTL			0x11140290
+#define smnPCIE_LC_LINK_WIDTH_CNTL		0x11140288
+
 #define HBM_MEMORY_CHANNEL_WIDTH    128
 
 static const uint32_t channel_number[] = {1, 2, 0, 4, 0, 8, 0, 16, 2};
@@ -443,8 +446,7 @@ static void vega10_init_dpm_defaults(struct pp_hwmgr *hwmgr)
 	if (PP_CAP(PHM_PlatformCaps_VCEDPM))
 		data->smu_features[GNLD_DPM_VCE].supported = true;
 
-	if (!data->registry_data.pcie_dpm_key_disabled)
-		data->smu_features[GNLD_DPM_LINK].supported = true;
+	data->smu_features[GNLD_DPM_LINK].supported = true;
 
 	if (!data->registry_data.dcefclk_dpm_key_disabled)
 		data->smu_features[GNLD_DPM_DCEFCLK].supported = true;
@@ -542,7 +544,7 @@ static int vega10_get_socclk_for_voltage_evv(struct pp_hwmgr *hwmgr,
 
 #define ATOM_VIRTUAL_VOLTAGE_ID0             0xff01
 /**
- * Get Leakage VDDC based on leakage ID.
+ * vega10_get_evv_voltages - Get Leakage VDDC based on leakage ID.
  *
  * @hwmgr:  the address of the powerplay hardware manager.
  * return:  always 0.
@@ -598,7 +600,7 @@ static int vega10_get_evv_voltages(struct pp_hwmgr *hwmgr)
 }
 
 /**
- * Change virtual leakage voltage to actual value.
+ * vega10_patch_with_vdd_leakage - Change virtual leakage voltage to actual value.
  *
  * @hwmgr:         the address of the powerplay hardware manager.
  * @voltage:       pointer to changing voltage
@@ -624,7 +626,7 @@ static void vega10_patch_with_vdd_leakage(struct pp_hwmgr *hwmgr,
 }
 
 /**
- * Patch voltage lookup table by EVV leakages.
+ * vega10_patch_lookup_table_with_leakage - Patch voltage lookup table by EVV leakages.
  *
  * @hwmgr:         the address of the powerplay hardware manager.
  * @lookup_table:  pointer to voltage lookup table
@@ -1001,7 +1003,7 @@ static int vega10_setup_asic_task(struct pp_hwmgr *hwmgr)
 }
 
 /**
- * Remove repeated voltage values and create table with unique values.
+ * vega10_trim_voltage_table - Remove repeated voltage values and create table with unique values.
  *
  * @hwmgr:      the address of the powerplay hardware manager.
  * @vol_table:  the pointer to changing voltage table
@@ -1150,7 +1152,7 @@ static void vega10_trim_voltage_table_to_fit_state_table(
 }
 
 /**
- * Create Voltage Tables.
+ * vega10_construct_voltage_tables - Create Voltage Tables.
  *
  * @hwmgr:  the address of the powerplay hardware manager.
  * return:  always 0
@@ -1544,6 +1546,13 @@ static int vega10_override_pcie_parameters(struct pp_hwmgr *hwmgr)
 			pp_table->PcieLaneCount[i] = pcie_width;
 	}
 
+	if (data->registry_data.pcie_dpm_key_disabled) {
+		for (i = 0; i < NUM_LINK_LEVELS; i++) {
+			pp_table->PcieGenSpeed[i] = pcie_gen;
+			pp_table->PcieLaneCount[i] = pcie_width;
+		}
+	}
+
 	return 0;
 }
 
@@ -1586,7 +1595,8 @@ static int vega10_populate_smc_link_levels(struct pp_hwmgr *hwmgr)
 }
 
 /**
- * Populates single SMC GFXSCLK structure using the provided engine clock
+ * vega10_populate_single_gfx_level - Populates single SMC GFXSCLK structure
+ *                                    using the provided engine clock
  *
  * @hwmgr:      the address of the hardware manager
  * @gfx_clock:  the GFX clock to use to populate the structure.
@@ -1651,7 +1661,8 @@ static int vega10_populate_single_gfx_level(struct pp_hwmgr *hwmgr,
 }
 
 /**
- * Populates single SMC SOCCLK structure using the provided clock.
+ * vega10_populate_single_soc_level - Populates single SMC SOCCLK structure
+ *                                    using the provided clock.
  *
  * @hwmgr:     the address of the hardware manager.
  * @soc_clock: the SOC clock to use to populate the structure.
@@ -1701,7 +1712,8 @@ static int vega10_populate_single_soc_level(struct pp_hwmgr *hwmgr,
 }
 
 /**
- * Populates all SMC SCLK levels' structure based on the trimmed allowed dpm engine clock states
+ * vega10_populate_all_graphic_levels - Populates all SMC SCLK levels' structure
+ *                                      based on the trimmed allowed dpm engine clock states
  *
  * @hwmgr:      the address of the hardware manager
  */
@@ -1850,7 +1862,8 @@ static int vega10_populate_single_memory_level(struct pp_hwmgr *hwmgr,
 }
 
 /**
- * Populates all SMC MCLK levels' structure based on the trimmed allowed dpm memory clock states.
+ * vega10_populate_all_memory_levels - Populates all SMC MCLK levels' structure
+ *                                     based on the trimmed allowed dpm memory clock states.
  *
  * @hwmgr:  the address of the hardware manager.
  * return:   PP_Result_OK on success.
@@ -2528,7 +2541,7 @@ static void vega10_check_dpm_table_updated(struct pp_hwmgr *hwmgr)
 }
 
 /**
- * Initializes the SMC table and uploads it
+ * vega10_init_smc_table - Initializes the SMC table and uploads it
  *
  * @hwmgr:  the address of the powerplay hardware manager.
  * return:  always 0
@@ -2910,7 +2923,7 @@ static int vega10_stop_dpm(struct pp_hwmgr *hwmgr, uint32_t bitmap)
 }
 
 /**
- * Tell SMC to enabled the supported DPMs.
+ * vega10_start_dpm - Tell SMC to enabled the supported DPMs.
  *
  * @hwmgr:   the address of the powerplay hardware manager.
  * @bitmap:  bitmap for the features to enabled.
@@ -2964,6 +2977,14 @@ static int vega10_start_dpm(struct pp_hwmgr *hwmgr, uint32_t bitmap)
 					return -1);
 			data->smu_features[GNLD_ACDC].enabled = true;
 		}
+	}
+
+	if (data->registry_data.pcie_dpm_key_disabled) {
+		PP_ASSERT_WITH_CODE(!vega10_enable_smc_features(hwmgr,
+				false, data->smu_features[GNLD_DPM_LINK].smu_feature_bitmap),
+		"Attempt to Disable Link DPM feature Failed!", return -EINVAL);
+		data->smu_features[GNLD_DPM_LINK].enabled = false;
+		data->smu_features[GNLD_DPM_LINK].supported = false;
 	}
 
 	return 0;
@@ -3074,7 +3095,7 @@ static int vega10_get_pp_table_entry_callback_func(struct pp_hwmgr *hwmgr,
 		void *pp_table, uint32_t classification_flag)
 {
 	ATOM_Vega10_GFXCLK_Dependency_Record_V2 *patom_record_V2;
-	struct vega10_power_state *vega10_power_state =
+	struct vega10_power_state *vega10_ps =
 			cast_phw_vega10_power_state(&(power_state->hardware));
 	struct vega10_performance_level *performance_level;
 	ATOM_Vega10_State *state_entry = (ATOM_Vega10_State *)state;
@@ -3124,17 +3145,17 @@ static int vega10_get_pp_table_entry_callback_func(struct pp_hwmgr *hwmgr,
 	power_state->temperatures.min = 0;
 	power_state->temperatures.max = 0;
 
-	performance_level = &(vega10_power_state->performance_levels
-			[vega10_power_state->performance_level_count++]);
+	performance_level = &(vega10_ps->performance_levels
+			[vega10_ps->performance_level_count++]);
 
 	PP_ASSERT_WITH_CODE(
-			(vega10_power_state->performance_level_count <
+			(vega10_ps->performance_level_count <
 					NUM_GFXCLK_DPM_LEVELS),
 			"Performance levels exceeds SMC limit!",
 			return -1);
 
 	PP_ASSERT_WITH_CODE(
-			(vega10_power_state->performance_level_count <=
+			(vega10_ps->performance_level_count <=
 					hwmgr->platform_descriptor.
 					hardwareActivityPerformanceLevels),
 			"Performance levels exceeds Driver limit!",
@@ -3148,8 +3169,8 @@ static int vega10_get_pp_table_entry_callback_func(struct pp_hwmgr *hwmgr,
 	performance_level->mem_clock = mclk_dep_table->entries
 			[state_entry->ucMemClockIndexLow].ulMemClk;
 
-	performance_level = &(vega10_power_state->performance_levels
-				[vega10_power_state->performance_level_count++]);
+	performance_level = &(vega10_ps->performance_levels
+				[vega10_ps->performance_level_count++]);
 	performance_level->soc_clock = socclk_dep_table->entries
 				[state_entry->ucSocClockIndexHigh].ulClk;
 	if (gfxclk_dep_table->ucRevId == 0) {
@@ -3180,11 +3201,11 @@ static int vega10_get_pp_table_entry(struct pp_hwmgr *hwmgr,
 		unsigned long entry_index, struct pp_power_state *state)
 {
 	int result;
-	struct vega10_power_state *ps;
+	struct vega10_power_state *vega10_ps;
 
 	state->hardware.magic = PhwVega10_Magic;
 
-	ps = cast_phw_vega10_power_state(&state->hardware);
+	vega10_ps = cast_phw_vega10_power_state(&state->hardware);
 
 	result = vega10_get_powerplay_table_entry(hwmgr, entry_index, state,
 			vega10_get_pp_table_entry_callback_func);
@@ -3197,10 +3218,10 @@ static int vega10_get_pp_table_entry(struct pp_hwmgr *hwmgr,
 	 */
 	/* set DC compatible flag if this state supports DC */
 	if (!state->validation.disallowOnDC)
-		ps->dc_compatible = true;
+		vega10_ps->dc_compatible = true;
 
-	ps->uvd_clks.vclk = state->uvd_clocks.VCLK;
-	ps->uvd_clks.dclk = state->uvd_clocks.DCLK;
+	vega10_ps->uvd_clks.vclk = state->uvd_clocks.VCLK;
+	vega10_ps->uvd_clks.dclk = state->uvd_clocks.DCLK;
 
 	return 0;
 }
@@ -3938,7 +3959,7 @@ static int vega10_read_sensor(struct pp_hwmgr *hwmgr, int idx,
 			*size = 8;
 		break;
 	default:
-		ret = -EINVAL;
+		ret = -EOPNOTSUPP;
 		break;
 	}
 
@@ -4178,7 +4199,7 @@ static void vega10_set_fan_control_mode(struct pp_hwmgr *hwmgr, uint32_t mode)
 
 	switch (mode) {
 	case AMD_FAN_CTRL_NONE:
-		vega10_fan_ctrl_set_fan_speed_percent(hwmgr, 100);
+		vega10_fan_ctrl_set_fan_speed_pwm(hwmgr, 255);
 		break;
 	case AMD_FAN_CTRL_MANUAL:
 		if (PP_CAP(PHM_PlatformCaps_MicrocodeFanControl))
@@ -4527,18 +4548,20 @@ static int vega10_get_ppfeature_status(struct pp_hwmgr *hwmgr, char *buf)
 	int ret = 0;
 	int size = 0;
 
+	phm_get_sysfs_buf(&buf, &size);
+
 	ret = vega10_get_enabled_smc_features(hwmgr, &features_enabled);
 	PP_ASSERT_WITH_CODE(!ret,
 			"[EnableAllSmuFeatures] Failed to get enabled smc features!",
 			return ret);
 
-	size += sprintf(buf + size, "Current ppfeatures: 0x%016llx\n", features_enabled);
-	size += sprintf(buf + size, "%-19s %-22s %s\n",
+	size += sysfs_emit_at(buf, size, "Current ppfeatures: 0x%016llx\n", features_enabled);
+	size += sysfs_emit_at(buf, size, "%-19s %-22s %s\n",
 				output_title[0],
 				output_title[1],
 				output_title[2]);
 	for (i = 0; i < GNLD_FEATURES_MAX; i++) {
-		size += sprintf(buf + size, "%-19s 0x%016llx %6s\n",
+		size += sysfs_emit_at(buf, size, "%-19s 0x%016llx %6s\n",
 					ppfeature_name[i],
 					1ULL << i,
 					(features_enabled & (1ULL << i)) ? "Y" : "N");
@@ -4584,6 +4607,24 @@ static int vega10_set_ppfeature_status(struct pp_hwmgr *hwmgr, uint64_t new_ppfe
 	return 0;
 }
 
+static int vega10_get_current_pcie_link_width_level(struct pp_hwmgr *hwmgr)
+{
+	struct amdgpu_device *adev = hwmgr->adev;
+
+	return (RREG32_PCIE(smnPCIE_LC_LINK_WIDTH_CNTL) &
+		PCIE_LC_LINK_WIDTH_CNTL__LC_LINK_WIDTH_RD_MASK)
+		>> PCIE_LC_LINK_WIDTH_CNTL__LC_LINK_WIDTH_RD__SHIFT;
+}
+
+static int vega10_get_current_pcie_link_speed_level(struct pp_hwmgr *hwmgr)
+{
+	struct amdgpu_device *adev = hwmgr->adev;
+
+	return (RREG32_PCIE(smnPCIE_LC_SPEED_CNTL) &
+		PSWUSP0_PCIE_LC_SPEED_CNTL__LC_CURRENT_DATA_RATE_MASK)
+		>> PSWUSP0_PCIE_LC_SPEED_CNTL__LC_CURRENT_DATA_RATE__SHIFT;
+}
+
 static int vega10_print_clock_levels(struct pp_hwmgr *hwmgr,
 		enum pp_clock_type type, char *buf)
 {
@@ -4592,8 +4633,9 @@ static int vega10_print_clock_levels(struct pp_hwmgr *hwmgr,
 	struct vega10_single_dpm_table *mclk_table = &(data->dpm_table.mem_table);
 	struct vega10_single_dpm_table *soc_table = &(data->dpm_table.soc_table);
 	struct vega10_single_dpm_table *dcef_table = &(data->dpm_table.dcef_table);
-	struct vega10_pcie_table *pcie_table = &(data->dpm_table.pcie_table);
 	struct vega10_odn_clock_voltage_dependency_table *podn_vdd_dep = NULL;
+	uint32_t gen_speed, lane_width, current_gen_speed, current_lane_width;
+	PPTable_t *pptable = &(data->smc_state_table.pp_table);
 
 	int i, now, size = 0, count = 0;
 
@@ -4650,18 +4692,34 @@ static int vega10_print_clock_levels(struct pp_hwmgr *hwmgr,
 					"*" : "");
 		break;
 	case PP_PCIE:
-		smum_send_msg_to_smc(hwmgr, PPSMC_MSG_GetCurrentLinkIndex, &now);
+		current_gen_speed =
+			vega10_get_current_pcie_link_speed_level(hwmgr);
+		current_lane_width =
+			vega10_get_current_pcie_link_width_level(hwmgr);
+		for (i = 0; i < NUM_LINK_LEVELS; i++) {
+			gen_speed = pptable->PcieGenSpeed[i];
+			lane_width = pptable->PcieLaneCount[i];
 
-		for (i = 0; i < pcie_table->count; i++)
-			size += sprintf(buf + size, "%d: %s %s\n", i,
-					(pcie_table->pcie_gen[i] == 0) ? "2.5GT/s, x1" :
-					(pcie_table->pcie_gen[i] == 1) ? "5.0GT/s, x16" :
-					(pcie_table->pcie_gen[i] == 2) ? "8.0GT/s, x16" : "",
-					(i == now) ? "*" : "");
+			size += sprintf(buf + size, "%d: %s %s %s\n", i,
+					(gen_speed == 0) ? "2.5GT/s," :
+					(gen_speed == 1) ? "5.0GT/s," :
+					(gen_speed == 2) ? "8.0GT/s," :
+					(gen_speed == 3) ? "16.0GT/s," : "",
+					(lane_width == 1) ? "x1" :
+					(lane_width == 2) ? "x2" :
+					(lane_width == 3) ? "x4" :
+					(lane_width == 4) ? "x8" :
+					(lane_width == 5) ? "x12" :
+					(lane_width == 6) ? "x16" : "",
+					(current_gen_speed == gen_speed) &&
+					(current_lane_width == lane_width) ?
+					"*" : "");
+		}
 		break;
+
 	case OD_SCLK:
 		if (hwmgr->od_enabled) {
-			size = sprintf(buf, "%s:\n", "OD_SCLK");
+			size += sprintf(buf + size, "%s:\n", "OD_SCLK");
 			podn_vdd_dep = &data->odn_dpm_table.vdd_dep_on_sclk;
 			for (i = 0; i < podn_vdd_dep->count; i++)
 				size += sprintf(buf + size, "%d: %10uMhz %10umV\n",
@@ -4671,7 +4729,7 @@ static int vega10_print_clock_levels(struct pp_hwmgr *hwmgr,
 		break;
 	case OD_MCLK:
 		if (hwmgr->od_enabled) {
-			size = sprintf(buf, "%s:\n", "OD_MCLK");
+			size += sprintf(buf + size, "%s:\n", "OD_MCLK");
 			podn_vdd_dep = &data->odn_dpm_table.vdd_dep_on_mclk;
 			for (i = 0; i < podn_vdd_dep->count; i++)
 				size += sprintf(buf + size, "%d: %10uMhz %10umV\n",
@@ -4681,7 +4739,7 @@ static int vega10_print_clock_levels(struct pp_hwmgr *hwmgr,
 		break;
 	case OD_RANGE:
 		if (hwmgr->od_enabled) {
-			size = sprintf(buf, "%s:\n", "OD_RANGE");
+			size += sprintf(buf + size, "%s:\n", "OD_RANGE");
 			size += sprintf(buf + size, "SCLK: %7uMHz %10uMHz\n",
 				data->golden_dpm_table.gfx_table.dpm_levels[0].value/100,
 				hwmgr->platform_descriptor.overdriveLimit.engineClock/100);
@@ -4765,33 +4823,41 @@ static int vega10_check_states_equal(struct pp_hwmgr *hwmgr,
 				const struct pp_hw_power_state *pstate1,
 			const struct pp_hw_power_state *pstate2, bool *equal)
 {
-	const struct vega10_power_state *psa;
-	const struct vega10_power_state *psb;
+	const struct vega10_power_state *vega10_psa;
+	const struct vega10_power_state *vega10_psb;
 	int i;
 
 	if (pstate1 == NULL || pstate2 == NULL || equal == NULL)
 		return -EINVAL;
 
-	psa = cast_const_phw_vega10_power_state(pstate1);
-	psb = cast_const_phw_vega10_power_state(pstate2);
-	/* If the two states don't even have the same number of performance levels they cannot be the same state. */
-	if (psa->performance_level_count != psb->performance_level_count) {
+	vega10_psa = cast_const_phw_vega10_power_state(pstate1);
+	vega10_psb = cast_const_phw_vega10_power_state(pstate2);
+
+	/* If the two states don't even have the same number of performance levels
+	 * they cannot be the same state.
+	 */
+	if (vega10_psa->performance_level_count != vega10_psb->performance_level_count) {
 		*equal = false;
 		return 0;
 	}
 
-	for (i = 0; i < psa->performance_level_count; i++) {
-		if (!vega10_are_power_levels_equal(&(psa->performance_levels[i]), &(psb->performance_levels[i]))) {
-			/* If we have found even one performance level pair that is different the states are different. */
+	for (i = 0; i < vega10_psa->performance_level_count; i++) {
+		if (!vega10_are_power_levels_equal(&(vega10_psa->performance_levels[i]),
+						   &(vega10_psb->performance_levels[i]))) {
+			/* If we have found even one performance level pair
+			 * that is different the states are different.
+			 */
 			*equal = false;
 			return 0;
 		}
 	}
 
 	/* If all performance levels are the same try to use the UVD clocks to break the tie.*/
-	*equal = ((psa->uvd_clks.vclk == psb->uvd_clks.vclk) && (psa->uvd_clks.dclk == psb->uvd_clks.dclk));
-	*equal &= ((psa->vce_clks.evclk == psb->vce_clks.evclk) && (psa->vce_clks.ecclk == psb->vce_clks.ecclk));
-	*equal &= (psa->sclk_threshold == psb->sclk_threshold);
+	*equal = ((vega10_psa->uvd_clks.vclk == vega10_psb->uvd_clks.vclk) &&
+		  (vega10_psa->uvd_clks.dclk == vega10_psb->uvd_clks.dclk));
+	*equal &= ((vega10_psa->vce_clks.evclk == vega10_psb->vce_clks.evclk) &&
+		   (vega10_psa->vce_clks.ecclk == vega10_psb->vce_clks.ecclk));
+	*equal &= (vega10_psa->sclk_threshold == vega10_psb->sclk_threshold);
 
 	return 0;
 }
@@ -5039,13 +5105,6 @@ static int vega10_get_power_profile_mode(struct pp_hwmgr *hwmgr, char *buf)
 						{70, 90, 0, 0,},
 						{30, 60, 0, 6,},
 						};
-	static const char *profile_name[7] = {"BOOTUP_DEFAULT",
-					"3D_FULL_SCREEN",
-					"POWER_SAVING",
-					"VIDEO",
-					"VR",
-					"COMPUTE",
-					"CUSTOM"};
 	static const char *title[6] = {"NUM",
 			"MODE_NAME",
 			"BUSY_SET_POINT",
@@ -5056,19 +5115,29 @@ static int vega10_get_power_profile_mode(struct pp_hwmgr *hwmgr, char *buf)
 	if (!buf)
 		return -EINVAL;
 
-	size += sprintf(buf + size, "%s %16s %s %s %s %s\n",title[0],
+	phm_get_sysfs_buf(&buf, &size);
+
+	size += sysfs_emit_at(buf, size, "%s %16s %s %s %s %s\n",title[0],
 			title[1], title[2], title[3], title[4], title[5]);
 
 	for (i = 0; i < PP_SMC_POWER_PROFILE_CUSTOM; i++)
-		size += sprintf(buf + size, "%3d %14s%s: %14d %3d %10d %14d\n",
-			i, profile_name[i], (i == hwmgr->power_profile_mode) ? "*" : " ",
+		size += sysfs_emit_at(buf, size, "%3d %14s%s: %14d %3d %10d %14d\n",
+			i, amdgpu_pp_profile_name[i], (i == hwmgr->power_profile_mode) ? "*" : " ",
 			profile_mode_setting[i][0], profile_mode_setting[i][1],
 			profile_mode_setting[i][2], profile_mode_setting[i][3]);
-	size += sprintf(buf + size, "%3d %14s%s: %14d %3d %10d %14d\n", i,
-			profile_name[i], (i == hwmgr->power_profile_mode) ? "*" : " ",
+
+	size += sysfs_emit_at(buf, size, "%3d %14s%s: %14d %3d %10d %14d\n", i,
+			amdgpu_pp_profile_name[i], (i == hwmgr->power_profile_mode) ? "*" : " ",
 			data->custom_profile_mode[0], data->custom_profile_mode[1],
 			data->custom_profile_mode[2], data->custom_profile_mode[3]);
 	return size;
+}
+
+static bool vega10_get_power_profile_mode_quirks(struct pp_hwmgr *hwmgr)
+{
+	struct amdgpu_device *adev = hwmgr->adev;
+
+	return (adev->pdev->device == 0x6860);
 }
 
 static int vega10_set_power_profile_mode(struct pp_hwmgr *hwmgr, long *input, uint32_t size)
@@ -5107,9 +5176,15 @@ static int vega10_set_power_profile_mode(struct pp_hwmgr *hwmgr, long *input, ui
 	}
 
 out:
-	smum_send_msg_to_smc_with_parameter(hwmgr, PPSMC_MSG_SetWorkloadMask,
+	if (vega10_get_power_profile_mode_quirks(hwmgr))
+		smum_send_msg_to_smc_with_parameter(hwmgr, PPSMC_MSG_SetWorkloadMask,
 						1 << power_profile_mode,
 						NULL);
+	else
+		smum_send_msg_to_smc_with_parameter(hwmgr, PPSMC_MSG_SetWorkloadMask,
+						(!power_profile_mode) ? 0 : 1 << (power_profile_mode - 1),
+						NULL);
+
 	hwmgr->power_profile_mode = power_profile_mode;
 
 	return 0;
@@ -5377,19 +5452,19 @@ static int vega10_get_performance_level(struct pp_hwmgr *hwmgr, const struct pp_
 				PHM_PerformanceLevelDesignation designation, uint32_t index,
 				PHM_PerformanceLevel *level)
 {
-	const struct vega10_power_state *ps;
+	const struct vega10_power_state *vega10_ps;
 	uint32_t i;
 
 	if (level == NULL || hwmgr == NULL || state == NULL)
 		return -EINVAL;
 
-	ps = cast_const_phw_vega10_power_state(state);
+	vega10_ps = cast_const_phw_vega10_power_state(state);
 
-	i = index > ps->performance_level_count - 1 ?
-			ps->performance_level_count - 1 : index;
+	i = index > vega10_ps->performance_level_count - 1 ?
+			vega10_ps->performance_level_count - 1 : index;
 
-	level->coreClock = ps->performance_levels[i].gfx_clock;
-	level->memory_clock = ps->performance_levels[i].mem_clock;
+	level->coreClock = vega10_ps->performance_levels[i].gfx_clock;
+	level->memory_clock = vega10_ps->performance_levels[i].mem_clock;
 
 	return 0;
 }
@@ -5467,8 +5542,8 @@ static const struct pp_hwmgr_func vega10_hwmgr_funcs = {
 	.force_dpm_level = vega10_dpm_force_dpm_level,
 	.stop_thermal_controller = vega10_thermal_stop_thermal_controller,
 	.get_fan_speed_info = vega10_fan_ctrl_get_fan_speed_info,
-	.get_fan_speed_percent = vega10_fan_ctrl_get_fan_speed_percent,
-	.set_fan_speed_percent = vega10_fan_ctrl_set_fan_speed_percent,
+	.get_fan_speed_pwm = vega10_fan_ctrl_get_fan_speed_pwm,
+	.set_fan_speed_pwm = vega10_fan_ctrl_set_fan_speed_pwm,
 	.reset_fan_speed_to_default =
 			vega10_fan_ctrl_reset_fan_speed_to_default,
 	.get_fan_speed_rpm = vega10_fan_ctrl_get_fan_speed_rpm,

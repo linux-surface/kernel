@@ -670,7 +670,7 @@ static int bcm_enet_set_mac_address(struct net_device *dev, void *p)
 	u32 val;
 
 	priv = netdev_priv(dev);
-	memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
+	eth_hw_addr_set(dev, addr->sa_data);
 
 	/* use perfect match register 0 to store my mac address */
 	val = (dev->dev_addr[2] << 24) | (dev->dev_addr[3] << 16) |
@@ -1497,8 +1497,11 @@ static int bcm_enet_set_link_ksettings(struct net_device *dev,
 	}
 }
 
-static void bcm_enet_get_ringparam(struct net_device *dev,
-				   struct ethtool_ringparam *ering)
+static void
+bcm_enet_get_ringparam(struct net_device *dev,
+		       struct ethtool_ringparam *ering,
+		       struct kernel_ethtool_ringparam *kernel_ering,
+		       struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 
@@ -1512,7 +1515,9 @@ static void bcm_enet_get_ringparam(struct net_device *dev,
 }
 
 static int bcm_enet_set_ringparam(struct net_device *dev,
-				  struct ethtool_ringparam *ering)
+				  struct ethtool_ringparam *ering,
+				  struct kernel_ethtool_ringparam *kernel_ering,
+				  struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 	int was_running;
@@ -1699,7 +1704,7 @@ static const struct net_device_ops bcm_enet_ops = {
 	.ndo_start_xmit		= bcm_enet_start_xmit,
 	.ndo_set_mac_address	= bcm_enet_set_mac_address,
 	.ndo_set_rx_mode	= bcm_enet_set_multicast_list,
-	.ndo_do_ioctl		= bcm_enet_ioctl,
+	.ndo_eth_ioctl		= bcm_enet_ioctl,
 	.ndo_change_mtu		= bcm_enet_change_mtu,
 };
 
@@ -1711,17 +1716,17 @@ static int bcm_enet_probe(struct platform_device *pdev)
 	struct bcm_enet_priv *priv;
 	struct net_device *dev;
 	struct bcm63xx_enet_platform_data *pd;
-	struct resource *res_irq, *res_irq_rx, *res_irq_tx;
+	int irq, irq_rx, irq_tx;
 	struct mii_bus *bus;
 	int i, ret;
 
 	if (!bcm_enet_shared_base[0])
 		return -EPROBE_DEFER;
 
-	res_irq = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	res_irq_rx = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
-	res_irq_tx = platform_get_resource(pdev, IORESOURCE_IRQ, 2);
-	if (!res_irq || !res_irq_rx || !res_irq_tx)
+	irq = platform_get_irq(pdev, 0);
+	irq_rx = platform_get_irq(pdev, 1);
+	irq_tx = platform_get_irq(pdev, 2);
+	if (irq < 0 || irq_rx < 0 || irq_tx < 0)
 		return -ENODEV;
 
 	dev = alloc_etherdev(sizeof(*priv));
@@ -1743,9 +1748,9 @@ static int bcm_enet_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	dev->irq = priv->irq = res_irq->start;
-	priv->irq_rx = res_irq_rx->start;
-	priv->irq_tx = res_irq_tx->start;
+	dev->irq = priv->irq = irq;
+	priv->irq_rx = irq_rx;
+	priv->irq_tx = irq_tx;
 
 	priv->mac_clk = devm_clk_get(&pdev->dev, "enet");
 	if (IS_ERR(priv->mac_clk)) {
@@ -1762,7 +1767,7 @@ static int bcm_enet_probe(struct platform_device *pdev)
 
 	pd = dev_get_platdata(&pdev->dev);
 	if (pd) {
-		memcpy(dev->dev_addr, pd->mac_addr, ETH_ALEN);
+		eth_hw_addr_set(dev, pd->mac_addr);
 		priv->has_phy = pd->has_phy;
 		priv->phy_id = pd->phy_id;
 		priv->has_phy_interrupt = pd->has_phy_interrupt;
@@ -2446,7 +2451,7 @@ static const struct net_device_ops bcm_enetsw_ops = {
 	.ndo_stop		= bcm_enetsw_stop,
 	.ndo_start_xmit		= bcm_enet_start_xmit,
 	.ndo_change_mtu		= bcm_enet_change_mtu,
-	.ndo_do_ioctl		= bcm_enetsw_ioctl,
+	.ndo_eth_ioctl		= bcm_enetsw_ioctl,
 };
 
 
@@ -2579,8 +2584,11 @@ static void bcm_enetsw_get_ethtool_stats(struct net_device *netdev,
 	}
 }
 
-static void bcm_enetsw_get_ringparam(struct net_device *dev,
-				     struct ethtool_ringparam *ering)
+static void
+bcm_enetsw_get_ringparam(struct net_device *dev,
+			 struct ethtool_ringparam *ering,
+			 struct kernel_ethtool_ringparam *kernel_ering,
+			 struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 
@@ -2595,8 +2603,11 @@ static void bcm_enetsw_get_ringparam(struct net_device *dev,
 	ering->tx_pending = priv->tx_ring_size;
 }
 
-static int bcm_enetsw_set_ringparam(struct net_device *dev,
-				    struct ethtool_ringparam *ering)
+static int
+bcm_enetsw_set_ringparam(struct net_device *dev,
+			 struct ethtool_ringparam *ering,
+			 struct kernel_ethtool_ringparam *kernel_ering,
+			 struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 	int was_running;
@@ -2649,7 +2660,6 @@ static int bcm_enetsw_probe(struct platform_device *pdev)
 	if (!res_mem || irq_rx < 0)
 		return -ENODEV;
 
-	ret = 0;
 	dev = alloc_etherdev(sizeof(*priv));
 	if (!dev)
 		return -ENOMEM;
@@ -2666,7 +2676,7 @@ static int bcm_enetsw_probe(struct platform_device *pdev)
 
 	pd = dev_get_platdata(&pdev->dev);
 	if (pd) {
-		memcpy(dev->dev_addr, pd->mac_addr, ETH_ALEN);
+		eth_hw_addr_set(dev, pd->mac_addr);
 		memcpy(priv->used_ports, pd->used_ports,
 		       sizeof(pd->used_ports));
 		priv->num_ports = pd->num_ports;

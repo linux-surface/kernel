@@ -364,9 +364,9 @@ int nand_ecc_sw_hamming_calculate(struct nand_device *nand,
 {
 	struct nand_ecc_sw_hamming_conf *engine_conf = nand->ecc.ctx.priv;
 	unsigned int step_size = nand->ecc.ctx.conf.step_size;
+	bool sm_order = engine_conf ? engine_conf->sm_order : false;
 
-	return ecc_sw_hamming_calculate(buf, step_size, code,
-					engine_conf->sm_order);
+	return ecc_sw_hamming_calculate(buf, step_size, code, sm_order);
 }
 EXPORT_SYMBOL(nand_ecc_sw_hamming_calculate);
 
@@ -457,9 +457,10 @@ int nand_ecc_sw_hamming_correct(struct nand_device *nand, unsigned char *buf,
 {
 	struct nand_ecc_sw_hamming_conf *engine_conf = nand->ecc.ctx.priv;
 	unsigned int step_size = nand->ecc.ctx.conf.step_size;
+	bool sm_order = engine_conf ? engine_conf->sm_order : false;
 
 	return ecc_sw_hamming_correct(buf, read_ecc, calc_ecc, step_size,
-				      engine_conf->sm_order);
+				      sm_order);
 }
 EXPORT_SYMBOL(nand_ecc_sw_hamming_correct);
 
@@ -504,7 +505,6 @@ int nand_ecc_sw_hamming_init_ctx(struct nand_device *nand)
 		goto free_engine_conf;
 
 	engine_conf->code_size = 3;
-	engine_conf->nsteps = mtd->writesize / conf->step_size;
 	engine_conf->calc_buf = kzalloc(mtd->oobsize, GFP_KERNEL);
 	engine_conf->code_buf = kzalloc(mtd->oobsize, GFP_KERNEL);
 	if (!engine_conf->calc_buf || !engine_conf->code_buf) {
@@ -513,7 +513,8 @@ int nand_ecc_sw_hamming_init_ctx(struct nand_device *nand)
 	}
 
 	nand->ecc.ctx.priv = engine_conf;
-	nand->ecc.ctx.total = engine_conf->nsteps * engine_conf->code_size;
+	nand->ecc.ctx.nsteps = mtd->writesize / conf->step_size;
+	nand->ecc.ctx.total = nand->ecc.ctx.nsteps * engine_conf->code_size;
 
 	return 0;
 
@@ -548,7 +549,7 @@ static int nand_ecc_sw_hamming_prepare_io_req(struct nand_device *nand,
 	struct mtd_info *mtd = nanddev_to_mtd(nand);
 	int eccsize = nand->ecc.ctx.conf.step_size;
 	int eccbytes = engine_conf->code_size;
-	int eccsteps = engine_conf->nsteps;
+	int eccsteps = nand->ecc.ctx.nsteps;
 	int total = nand->ecc.ctx.total;
 	u8 *ecccalc = engine_conf->calc_buf;
 	const u8 *data;
@@ -586,7 +587,7 @@ static int nand_ecc_sw_hamming_finish_io_req(struct nand_device *nand,
 	int eccsize = nand->ecc.ctx.conf.step_size;
 	int total = nand->ecc.ctx.total;
 	int eccbytes = engine_conf->code_size;
-	int eccsteps = engine_conf->nsteps;
+	int eccsteps = nand->ecc.ctx.nsteps;
 	u8 *ecccalc = engine_conf->calc_buf;
 	u8 *ecccode = engine_conf->code_buf;
 	unsigned int max_bitflips = 0;
@@ -618,7 +619,7 @@ static int nand_ecc_sw_hamming_finish_io_req(struct nand_device *nand,
 		nand_ecc_sw_hamming_calculate(nand, data, &ecccalc[i]);
 
 	/* Finish a page read: compare and correct */
-	for (eccsteps = engine_conf->nsteps, i = 0, data = req->databuf.in;
+	for (eccsteps = nand->ecc.ctx.nsteps, i = 0, data = req->databuf.in;
 	     eccsteps;
 	     eccsteps--, i += eccbytes, data += eccsize) {
 		int stat =  nand_ecc_sw_hamming_correct(nand, data,

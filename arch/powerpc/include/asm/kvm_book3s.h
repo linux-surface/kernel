@@ -210,12 +210,12 @@ extern void kvmppc_free_pgtable_radix(struct kvm *kvm, pgd_t *pgd,
 				      unsigned int lpid);
 extern int kvmppc_radix_init(void);
 extern void kvmppc_radix_exit(void);
-extern int kvm_unmap_radix(struct kvm *kvm, struct kvm_memory_slot *memslot,
-			unsigned long gfn);
-extern int kvm_age_radix(struct kvm *kvm, struct kvm_memory_slot *memslot,
-			unsigned long gfn);
-extern int kvm_test_age_radix(struct kvm *kvm, struct kvm_memory_slot *memslot,
-			unsigned long gfn);
+extern void kvm_unmap_radix(struct kvm *kvm, struct kvm_memory_slot *memslot,
+			    unsigned long gfn);
+extern bool kvm_age_radix(struct kvm *kvm, struct kvm_memory_slot *memslot,
+			  unsigned long gfn);
+extern bool kvm_test_age_radix(struct kvm *kvm, struct kvm_memory_slot *memslot,
+			       unsigned long gfn);
 extern long kvmppc_hv_get_dirty_log_radix(struct kvm *kvm,
 			struct kvm_memory_slot *memslot, unsigned long *map);
 extern void kvmppc_radix_flush_memslot(struct kvm *kvm,
@@ -258,6 +258,8 @@ extern long kvmppc_hv_get_dirty_log_hpt(struct kvm *kvm,
 extern void kvmppc_harvest_vpa_dirty(struct kvmppc_vpa *vpa,
 			struct kvm_memory_slot *memslot,
 			unsigned long *map);
+extern unsigned long kvmppc_filter_lpcr_hv(struct kvm *kvm,
+			unsigned long lpcr);
 extern void kvmppc_update_lpcr(struct kvm *kvm, unsigned long lpcr,
 			unsigned long mask);
 extern void kvmppc_set_fscr(struct kvm_vcpu *vcpu, u64 fscr);
@@ -305,6 +307,9 @@ void kvmhv_set_ptbl_entry(unsigned int lpid, u64 dw0, u64 dw1);
 void kvmhv_release_all_nested(struct kvm *kvm);
 long kvmhv_enter_nested_guest(struct kvm_vcpu *vcpu);
 long kvmhv_do_nested_tlbie(struct kvm_vcpu *vcpu);
+long do_h_rpt_invalidate_pat(struct kvm_vcpu *vcpu, unsigned long lpid,
+			     unsigned long type, unsigned long pg_sizes,
+			     unsigned long start, unsigned long end);
 int kvmhv_run_single_vcpu(struct kvm_vcpu *vcpu,
 			  u64 time_limit, unsigned long lpcr);
 void kvmhv_save_hv_regs(struct kvm_vcpu *vcpu, struct hv_guest_state *hr);
@@ -401,6 +406,12 @@ static inline ulong kvmppc_get_fault_dar(struct kvm_vcpu *vcpu)
 	return vcpu->arch.fault_dar;
 }
 
+/* Expiry time of vcpu DEC relative to host TB */
+static inline u64 kvmppc_dec_expires_host_tb(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.dec_expires - vcpu->arch.vcore->tb_offset;
+}
+
 static inline bool is_kvmppc_resume_guest(int r)
 {
 	return (r == RESUME_GUEST || r == RESUME_GUEST_NV);
@@ -429,7 +440,7 @@ extern int kvmppc_h_logical_ci_store(struct kvm_vcpu *vcpu);
 #define SPLIT_HACK_OFFS			0xfb000000
 
 /*
- * This packs a VCPU ID from the [0..KVM_MAX_VCPU_ID) space down to the
+ * This packs a VCPU ID from the [0..KVM_MAX_VCPU_IDS) space down to the
  * [0..KVM_MAX_VCPUS) space, using knowledge of the guest's core stride
  * (but not its actual threading mode, which is not available) to avoid
  * collisions.

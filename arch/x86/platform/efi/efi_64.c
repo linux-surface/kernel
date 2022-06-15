@@ -33,7 +33,7 @@
 #include <linux/reboot.h>
 #include <linux/slab.h>
 #include <linux/ucs2_string.h>
-#include <linux/mem_encrypt.h>
+#include <linux/cc_platform.h>
 #include <linux/sched/task.h>
 
 #include <asm/setup.h>
@@ -47,7 +47,7 @@
 #include <asm/realmode.h>
 #include <asm/time.h>
 #include <asm/pgalloc.h>
-#include <asm/sev-es.h>
+#include <asm/sev.h>
 
 /*
  * We allocate runtime services regions top-down, starting from -4G, i.e.
@@ -195,7 +195,7 @@ int __init efi_setup_page_tables(unsigned long pa_memmap, unsigned num_pages)
 	}
 
 	/*
-	 * Certain firmware versions are way too sentimential and still believe
+	 * Certain firmware versions are way too sentimental and still believe
 	 * they are exclusive and unquestionable owners of the first physical page,
 	 * even though they explicitly mark it as EFI_CONVENTIONAL_MEMORY
 	 * (but then write-access it later during SetVirtualAddressMap()).
@@ -284,7 +284,8 @@ static void __init __map_region(efi_memory_desc_t *md, u64 va)
 	if (!(md->attribute & EFI_MEMORY_WB))
 		flags |= _PAGE_PCD;
 
-	if (sev_active() && md->type != EFI_MEMORY_MAPPED_IO)
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT) &&
+	    md->type != EFI_MEMORY_MAPPED_IO)
 		flags |= _PAGE_ENC;
 
 	pfn = md->phys_addr >> PAGE_SHIFT;
@@ -390,7 +391,7 @@ static int __init efi_update_mem_attr(struct mm_struct *mm, efi_memory_desc_t *m
 	if (!(md->attribute & EFI_MEMORY_RO))
 		pf |= _PAGE_RW;
 
-	if (sev_active())
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
 		pf |= _PAGE_ENC;
 
 	return efi_update_mappings(md, pf);
@@ -438,7 +439,7 @@ void __init efi_runtime_update_mappings(void)
 			(md->type != EFI_RUNTIME_SERVICES_CODE))
 			pf |= _PAGE_RW;
 
-		if (sev_active())
+		if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
 			pf |= _PAGE_ENC;
 
 		efi_update_mappings(md, pf);
@@ -457,7 +458,7 @@ void __init efi_dump_pagetable(void)
  * in a kernel thread and user context. Preemption needs to remain disabled
  * while the EFI-mm is borrowed. mmgrab()/mmdrop() is not used because the mm
  * can not change under us.
- * It should be ensured that there are no concurent calls to this function.
+ * It should be ensured that there are no concurrent calls to this function.
  */
 void efi_enter_mm(void)
 {

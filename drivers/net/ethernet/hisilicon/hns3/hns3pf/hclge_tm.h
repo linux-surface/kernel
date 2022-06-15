@@ -6,6 +6,12 @@
 
 #include <linux/types.h>
 
+#include "hnae3.h"
+
+struct hclge_dev;
+struct hclge_vport;
+enum hclge_opcode_type;
+
 /* MAC Pause */
 #define HCLGE_TX_MAC_PAUSE_EN_MSK	BIT(0)
 #define HCLGE_RX_MAC_PAUSE_EN_MSK	BIT(1)
@@ -199,14 +205,14 @@ struct hclge_tm_nodes_cmd {
 	__le16 queue_num;
 };
 
-struct hclge_pri_shaper_para {
+struct hclge_tm_shaper_para {
+	u32 rate;
 	u8 ir_b;
 	u8 ir_u;
 	u8 ir_s;
 	u8 bs_b;
 	u8 bs_s;
 	u8 flag;
-	u32 rate;
 };
 
 #define hclge_tm_set_field(dest, string, val) \
@@ -228,8 +234,8 @@ int hclge_tm_dwrr_cfg(struct hclge_dev *hdev);
 int hclge_tm_init_hw(struct hclge_dev *hdev, bool init);
 int hclge_mac_pause_en_cfg(struct hclge_dev *hdev, bool tx, bool rx);
 int hclge_pause_addr_cfg(struct hclge_dev *hdev, const u8 *mac_addr);
-int hclge_pfc_rx_stats_get(struct hclge_dev *hdev, u64 *stats);
-int hclge_pfc_tx_stats_get(struct hclge_dev *hdev, u64 *stats);
+void hclge_pfc_rx_stats_get(struct hclge_dev *hdev, u64 *stats);
+void hclge_pfc_tx_stats_get(struct hclge_dev *hdev, u64 *stats);
 int hclge_tm_qs_shaper_cfg(struct hclge_vport *vport, int max_tx_rate);
 int hclge_tm_get_qset_num(struct hclge_dev *hdev, u16 *qset_num);
 int hclge_tm_get_pri_num(struct hclge_dev *hdev, u8 *pri_num);
@@ -237,9 +243,22 @@ int hclge_tm_get_qset_map_pri(struct hclge_dev *hdev, u16 qset_id, u8 *priority,
 			      u8 *link_vld);
 int hclge_tm_get_qset_sch_mode(struct hclge_dev *hdev, u16 qset_id, u8 *mode);
 int hclge_tm_get_qset_weight(struct hclge_dev *hdev, u16 qset_id, u8 *weight);
+int hclge_tm_get_qset_shaper(struct hclge_dev *hdev, u16 qset_id,
+			     struct hclge_tm_shaper_para *para);
 int hclge_tm_get_pri_sch_mode(struct hclge_dev *hdev, u8 pri_id, u8 *mode);
 int hclge_tm_get_pri_weight(struct hclge_dev *hdev, u8 pri_id, u8 *weight);
 int hclge_tm_get_pri_shaper(struct hclge_dev *hdev, u8 pri_id,
 			    enum hclge_opcode_type cmd,
-			    struct hclge_pri_shaper_para *para);
+			    struct hclge_tm_shaper_para *para);
+int hclge_tm_get_q_to_qs_map(struct hclge_dev *hdev, u16 q_id, u16 *qset_id);
+int hclge_tm_get_q_to_tc(struct hclge_dev *hdev, u16 q_id, u8 *tc_id);
+int hclge_tm_get_pg_to_pri_map(struct hclge_dev *hdev, u8 pg_id,
+			       u8 *pri_bit_map);
+int hclge_tm_get_pg_weight(struct hclge_dev *hdev, u8 pg_id, u8 *weight);
+int hclge_tm_get_pg_sch_mode(struct hclge_dev *hdev, u8 pg_id, u8 *mode);
+int hclge_tm_get_pg_shaper(struct hclge_dev *hdev, u8 pg_id,
+			   enum hclge_opcode_type cmd,
+			   struct hclge_tm_shaper_para *para);
+int hclge_tm_get_port_shaper(struct hclge_dev *hdev,
+			     struct hclge_tm_shaper_para *para);
 #endif

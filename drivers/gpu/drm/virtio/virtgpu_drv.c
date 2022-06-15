@@ -27,10 +27,12 @@
  */
 
 #include <linux/module.h>
-#include <linux/console.h>
 #include <linux/pci.h>
+#include <linux/poll.h>
+#include <linux/wait.h>
 
 #include <drm/drm.h>
+#include <drm/drm_aperture.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_file.h>
@@ -50,13 +52,16 @@ static int virtio_gpu_pci_quirk(struct drm_device *dev, struct virtio_device *vd
 	const char *pname = dev_name(&pdev->dev);
 	bool vga = (pdev->class >> 8) == PCI_CLASS_DISPLAY_VGA;
 	char unique[20];
+	int ret;
 
 	DRM_INFO("pci: %s detected at %s\n",
 		 vga ? "virtio-vga" : "virtio-gpu-pci",
 		 pname);
-	if (vga)
-		drm_fb_helper_remove_conflicting_pci_framebuffers(pdev,
-								  "virtiodrmfb");
+	if (vga) {
+		ret = drm_aperture_remove_conflicting_pci_framebuffers(pdev, &driver);
+		if (ret)
+			return ret;
+	}
 
 	/*
 	 * Normally the drm_dev_set_unique() call is done by core DRM.
@@ -98,7 +103,7 @@ static int virtio_gpu_probe(struct virtio_device *vdev)
 	struct drm_device *dev;
 	int ret;
 
-	if (vgacon_text_force() && virtio_gpu_modeset == -1)
+	if (drm_firmware_drivers_only() && virtio_gpu_modeset == -1)
 		return -EINVAL;
 
 	if (virtio_gpu_modeset == 0)
@@ -121,11 +126,13 @@ static int virtio_gpu_probe(struct virtio_device *vdev)
 
 	ret = drm_dev_register(dev, 0);
 	if (ret)
-		goto err_free;
+		goto err_deinit;
 
 	drm_fbdev_generic_setup(vdev->priv, 32);
 	return 0;
 
+err_deinit:
+	virtio_gpu_deinit(dev);
 err_free:
 	drm_dev_put(dev);
 	return ret;
@@ -166,6 +173,7 @@ static unsigned int features[] = {
 	VIRTIO_GPU_F_EDID,
 	VIRTIO_GPU_F_RESOURCE_UUID,
 	VIRTIO_GPU_F_RESOURCE_BLOB,
+	VIRTIO_GPU_F_CONTEXT_INIT,
 };
 static struct virtio_driver virtio_gpu_driver = {
 	.feature_table = features,

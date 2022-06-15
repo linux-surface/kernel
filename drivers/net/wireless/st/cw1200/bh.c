@@ -42,9 +42,6 @@ enum cw1200_bh_pm_state {
 	CW1200_BH_RESUME,
 };
 
-typedef int (*cw1200_wsm_handler)(struct cw1200_common *priv,
-	u8 *data, size_t size);
-
 static void cw1200_bh_work(struct work_struct *work)
 {
 	struct cw1200_common *priv =
@@ -87,8 +84,6 @@ void cw1200_unregister_bh(struct cw1200_common *priv)
 {
 	atomic_inc(&priv->bh_term);
 	wake_up(&priv->bh_wq);
-
-	flush_workqueue(priv->bh_workqueue);
 
 	destroy_workqueue(priv->bh_workqueue);
 	priv->bh_workqueue = NULL;

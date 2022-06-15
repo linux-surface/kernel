@@ -8,8 +8,7 @@
 #include <linux/device.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of.h>
-#include <linux/of_gpio.h>
+#include <linux/mod_devicetable.h>
 #include <linux/slab.h>
 #include <linux/sysfs.h>
 
@@ -326,8 +325,6 @@ static int ads124s_probe(struct spi_device *spi)
 		dev_info(&spi->dev, "Reset GPIO not defined\n");
 
 	ads124s_priv->chip_info = &ads124s_chip_info_tbl[spi_id->driver_data];
-
-	spi_set_drvdata(spi, indio_dev);
 
 	ads124s_priv->spi = spi;
 

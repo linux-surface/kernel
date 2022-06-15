@@ -1018,7 +1018,7 @@ static long go_to_sleep(const struct entry *req)
 		cond_timedwait(&printstate.cond, &printstate.mutex, &future);
 		if (time_has_passed(&future))
 			break;
-	};
+	}
 
 	if (printstate_has_new_req_arrived(req))
 		delay = -1;
@@ -1538,7 +1538,7 @@ static void tracing_loop(void)
 				mutex_lock(&print_mtx);
 				check_signals();
 				write_or_die(fd_stdout, queue_full_warning,
-					     sizeof(queue_full_warning));
+					     strlen(queue_full_warning));
 				mutex_unlock(&print_mtx);
 			}
 			modified--;
@@ -1941,7 +1941,7 @@ static void scan_arguments(int argc, char *argv[])
 			if (value < 0) {
 				warnx("TIME must be >= 0\n");
 				show_usage();
-				;
+				exit(0);
 			}
 			trace_enable = true;
 			use_random_sleep = true;

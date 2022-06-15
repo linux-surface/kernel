@@ -214,7 +214,7 @@
 	BPF_EXIT_INSN(),
 	},
 	.result = REJECT,
-	.errstr = "R1 type=inv expected=ctx",
+	.errstr = "R1 type=scalar expected=ctx",
 	.prog_type = BPF_PROG_TYPE_SCHED_CLS,
 },
 {
@@ -420,6 +420,8 @@
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_7, 0),
 	BPF_EXIT_INSN(),
 	},
+	.errstr_unpriv = "R7 invalid mem access 'scalar'",
+	.result_unpriv = REJECT,
 	.result = ACCEPT,
 	.retval = 0,
 },
@@ -497,11 +499,24 @@
 	.result = ACCEPT,
 },
 {
-	"unpriv: adding of fp",
+	"unpriv: adding of fp, reg",
 	.insns = {
 	BPF_MOV64_IMM(BPF_REG_0, 0),
 	BPF_MOV64_IMM(BPF_REG_1, 0),
 	BPF_ALU64_REG(BPF_ADD, BPF_REG_1, BPF_REG_10),
+	BPF_STX_MEM(BPF_DW, BPF_REG_1, BPF_REG_0, -8),
+	BPF_EXIT_INSN(),
+	},
+	.errstr_unpriv = "R1 stack pointer arithmetic goes out of range",
+	.result_unpriv = REJECT,
+	.result = ACCEPT,
+},
+{
+	"unpriv: adding of fp, imm",
+	.insns = {
+	BPF_MOV64_IMM(BPF_REG_0, 0),
+	BPF_MOV64_REG(BPF_REG_1, BPF_REG_10),
+	BPF_ALU64_IMM(BPF_ADD, BPF_REG_1, 0),
 	BPF_STX_MEM(BPF_DW, BPF_REG_1, BPF_REG_0, -8),
 	BPF_EXIT_INSN(),
 	},

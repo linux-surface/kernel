@@ -25,7 +25,8 @@ ip_default_ttl - INTEGER
 ip_no_pmtu_disc - INTEGER
 	Disable Path MTU Discovery. If enabled in mode 1 and a
 	fragmentation-required ICMP is received, the PMTU to this
-	destination will be set to min_pmtu (see below). You will need
+	destination will be set to the smallest of the old MTU to
+	this destination and min_pmtu (see below). You will need
 	to raise min_pmtu to the smallest interface MTU on your system
 	manually if you want to avoid locally generated fragments.
 
@@ -49,7 +50,8 @@ ip_no_pmtu_disc - INTEGER
 	Default: FALSE
 
 min_pmtu - INTEGER
-	default 552 - minimum discovered Path MTU
+	default 552 - minimum Path MTU. Unless this is changed mannually,
+	each cached pmtu will never be lower than this setting.
 
 ip_forward_use_pmtu - BOOLEAN
 	By default we don't trust protocol path MTUs while forwarding
@@ -99,6 +101,35 @@ fib_multipath_hash_policy - INTEGER
 	- 0 - Layer 3
 	- 1 - Layer 4
 	- 2 - Layer 3 or inner Layer 3 if present
+	- 3 - Custom multipath hash. Fields used for multipath hash calculation
+	  are determined by fib_multipath_hash_fields sysctl
+
+fib_multipath_hash_fields - UNSIGNED INTEGER
+	When fib_multipath_hash_policy is set to 3 (custom multipath hash), the
+	fields used for multipath hash calculation are determined by this
+	sysctl.
+
+	This value is a bitmask which enables various fields for multipath hash
+	calculation.
+
+	Possible fields are:
+
+	====== ============================
+	0x0001 Source IP address
+	0x0002 Destination IP address
+	0x0004 IP protocol
+	0x0008 Unused (Flow Label)
+	0x0010 Source port
+	0x0020 Destination port
+	0x0040 Inner source IP address
+	0x0080 Inner destination IP address
+	0x0100 Inner IP protocol
+	0x0200 Inner Flow Label
+	0x0400 Inner source port
+	0x0800 Inner destination port
+	====== ============================
+
+	Default: 0x0007 (source IP, destination IP and IP protocol)
 
 fib_sync_mem - UNSIGNED INTEGER
 	Amount of dirty memory from fib entries that can be backlogged before
@@ -235,6 +266,13 @@ ipfrag_max_dist - INTEGER
 	likelihood of incorrectly reassembling IP fragments that originate
 	from different IP datagrams, which could result in data corruption.
 	Default: 64
+
+bc_forwarding - INTEGER
+	bc_forwarding enables the feature described in rfc1812#section-5.3.5.2
+	and rfc2644. It allows the router to forward directed broadcast.
+	To enable this feature, the 'all' entry and the input interface entry
+	should be set to 1.
+	Default: 0
 
 INET peer storage
 =================
@@ -732,6 +770,31 @@ tcp_syncookies - INTEGER
 	network connections you can set this knob to 2 to enable
 	unconditionally generation of syncookies.
 
+tcp_migrate_req - BOOLEAN
+	The incoming connection is tied to a specific listening socket when
+	the initial SYN packet is received during the three-way handshake.
+	When a listener is closed, in-flight request sockets during the
+	handshake and established sockets in the accept queue are aborted.
+
+	If the listener has SO_REUSEPORT enabled, other listeners on the
+	same port should have been able to accept such connections. This
+	option makes it possible to migrate such child sockets to another
+	listener after close() or shutdown().
+
+	The BPF_SK_REUSEPORT_SELECT_OR_MIGRATE type of eBPF program should
+	usually be used to define the policy to pick an alive listener.
+	Otherwise, the kernel will randomly pick an alive listener only if
+	this option is enabled.
+
+	Note that migration between listeners with different settings may
+	crash applications. Let's say migration happens from listener A to
+	B, and only B has TCP_SAVE_SYN enabled. B cannot read SYN data from
+	the requests migrated from A. To avoid such a situation, cancel
+	migration by returning SK_DROP in the type of eBPF program, or
+	disable this option.
+
+	Default: 0
+
 tcp_fastopen - INTEGER
 	Enable TCP Fast Open (RFC7413) to send and accept data in the opening
 	SYN packet.
@@ -772,7 +835,7 @@ tcp_fastopen_blackhole_timeout_sec - INTEGER
 	initial value when the blackhole issue goes away.
 	0 to disable the blackhole detection.
 
-	By default, it is set to 1hr.
+	By default, it is set to 0 (feature is disabled).
 
 tcp_fastopen_key - list of comma separated 32-digit hexadecimal INTEGERs
 	The list consists of a primary key and an optional backup key. The
@@ -821,6 +884,29 @@ tcp_min_tso_segs - INTEGER
 	if available window is too small.
 
 	Default: 2
+
+tcp_tso_rtt_log - INTEGER
+	Adjustment of TSO packet sizes based on min_rtt
+
+	Starting from linux-5.18, TCP autosizing can be tweaked
+	for flows having small RTT.
+
+	Old autosizing was splitting the pacing budget to send 1024 TSO
+	per second.
+
+	tso_packet_size = sk->sk_pacing_rate / 1024;
+
+	With the new mechanism, we increase this TSO sizing using:
+
+	distance = min_rtt_usec / (2^tcp_tso_rtt_log)
+	tso_packet_size += gso_max_size >> distance;
+
+	This means that flows between very close hosts can use bigger
+	TSO packets, reducing their cpu costs.
+
+	If you want to use the old autosizing, set this sysctl to 0.
+
+	Default: 9  (2^9 = 512 usec)
 
 tcp_pacing_ss_ratio - INTEGER
 	sk->sk_pacing_rate is set by TCP stack using a ratio applied
@@ -935,14 +1021,6 @@ tcp_challenge_ack_limit - INTEGER
 	in RFC 5961 (Improving TCP's Robustness to Blind In-Window Attacks)
 	Default: 1000
 
-tcp_rx_skb_cache - BOOLEAN
-	Controls a per TCP socket cache of one skb, that might help
-	performance of some workloads. This might be dangerous
-	on systems with a lot of TCP sockets, since it increases
-	memory usage.
-
-	Default: 0 (disabled)
-
 UDP variables
 =============
 
@@ -958,13 +1036,11 @@ udp_l3mdev_accept - BOOLEAN
 udp_mem - vector of 3 INTEGERs: min, pressure, max
 	Number of pages allowed for queueing by all UDP sockets.
 
-	min: Below this number of pages UDP is not bothered about its
-	memory appetite. When amount of memory allocated by UDP exceeds
-	this number, UDP starts to moderate memory usage.
+	min: Number of pages allowed for queueing by all UDP sockets.
 
 	pressure: This value was introduced to follow format of tcp_mem.
 
-	max: Number of pages allowed for queueing by all UDP sockets.
+	max: This value was introduced to follow format of tcp_mem.
 
 	Default is calculated at boot time from amount of available memory.
 
@@ -1073,7 +1149,9 @@ ip_local_reserved_ports - list of comma separated ranges
 
 	although this is redundant. However such a setting is useful
 	if later the port range is changed to a value that will
-	include the reserved ports.
+	include the reserved ports. Also keep in mind, that overlapping
+	of these ranges may affect probability of selecting ephemeral
+	ports which are right after block of reserved ports.
 
 	Default: Empty
 
@@ -1142,6 +1220,12 @@ icmp_echo_ignore_all - BOOLEAN
 	requests sent to it.
 
 	Default: 0
+
+icmp_echo_enable_probe - BOOLEAN
+        If set to one, then the kernel will respond to RFC 8335 PROBE
+        requests sent to it.
+
+        Default: 0
 
 icmp_echo_ignore_broadcasts - BOOLEAN
 	If set non-zero, then the kernel will ignore all ICMP ECHO and
@@ -1557,6 +1641,15 @@ arp_accept - BOOLEAN
 	gratuitous arp frame, the arp table will be updated regardless
 	if this setting is on or off.
 
+arp_evict_nocarrier - BOOLEAN
+	Clears the ARP cache on NOCARRIER events. This option is important for
+	wireless devices where the ARP cache should not be cleared when roaming
+	between access points on the same network. In most cases this should
+	remain as the default (1).
+
+	- 1 - (default): Clear the ARP cache on NOCARRIER events
+	- 0 - Do not clear ARP cache on NOCARRIER events
+
 mcast_solicit - INTEGER
 	The maximum number of multicast probes in INCOMPLETE state,
 	when the associated hardware address is unknown.  Defaults
@@ -1735,6 +1828,35 @@ fib_multipath_hash_policy - INTEGER
 	- 0 - Layer 3 (source and destination addresses plus flow label)
 	- 1 - Layer 4 (standard 5-tuple)
 	- 2 - Layer 3 or inner Layer 3 if present
+	- 3 - Custom multipath hash. Fields used for multipath hash calculation
+	  are determined by fib_multipath_hash_fields sysctl
+
+fib_multipath_hash_fields - UNSIGNED INTEGER
+	When fib_multipath_hash_policy is set to 3 (custom multipath hash), the
+	fields used for multipath hash calculation are determined by this
+	sysctl.
+
+	This value is a bitmask which enables various fields for multipath hash
+	calculation.
+
+	Possible fields are:
+
+	====== ============================
+	0x0001 Source IP address
+	0x0002 Destination IP address
+	0x0004 IP protocol
+	0x0008 Flow Label
+	0x0010 Source port
+	0x0020 Destination port
+	0x0040 Inner source IP address
+	0x0080 Inner destination IP address
+	0x0100 Inner IP protocol
+	0x0200 Inner Flow Label
+	0x0400 Inner source port
+	0x0800 Inner destination port
+	====== ============================
+
+	Default: 0x0007 (source IP, destination IP and IP protocol)
 
 anycast_src_echo_reply - BOOLEAN
 	Controls the use of anycast addresses as source addresses for ICMPv6
@@ -1835,6 +1957,23 @@ fib_notify_on_flag_change - INTEGER
         - 1 - Emit notifications.
         - 2 - Emit notifications only for RTM_F_OFFLOAD_FAILED flag change.
 
+ioam6_id - INTEGER
+        Define the IOAM id of this node. Uses only 24 bits out of 32 in total.
+
+        Min: 0
+        Max: 0xFFFFFF
+
+        Default: 0xFFFFFF
+
+ioam6_id_wide - LONG INTEGER
+        Define the wide IOAM id of this node. Uses only 56 bits out of 64 in
+        total. Can be different from ioam6_id.
+
+        Min: 0
+        Max: 0xFFFFFFFFFFFFFF
+
+        Default: 0xFFFFFFFFFFFFFF
+
 IPv6 Fragmentation:
 
 ip6frag_high_thresh - INTEGER
@@ -1848,21 +1987,6 @@ ip6frag_low_thresh - INTEGER
 
 ip6frag_time - INTEGER
 	Time in seconds to keep an IPv6 fragment in memory.
-
-IPv6 Segment Routing:
-
-seg6_flowlabel - INTEGER
-	Controls the behaviour of computing the flowlabel of outer
-	IPv6 header in case of SR T.encaps
-
-	 == =======================================================
-	 -1  set flowlabel to zero.
-	  0  copy flowlabel from Inner packet in case of Inner IPv6
-	     (Set flowlabel to 0 in case IPv4/L2)
-	  1  Compute the flowlabel using seg6_make_flowlabel()
-	 == =======================================================
-
-	Default is 0.
 
 ``conf/default/*``:
 	Change the interface-specific default settings.
@@ -2255,6 +2379,15 @@ ndisc_tclass - INTEGER
 	to leave cleared).
 
 	* 0 - (default)
+
+ndisc_evict_nocarrier - BOOLEAN
+	Clears the neighbor discovery table on NOCARRIER events. This option is
+	important for wireless devices where the neighbor discovery cache should
+	not be cleared when roaming between access points on the same network.
+	In most cases this should remain as the default (1).
+
+	- 1 - (default): Clear neighbor discover cache on NOCARRIER events.
+	- 0 - Do not clear neighbor discovery cache on NOCARRIER events.
 
 mldv1_unsolicited_report_interval - INTEGER
 	The interval in milliseconds in which the next unsolicited
@@ -2755,6 +2888,18 @@ encap_port - INTEGER
 	listening to and the local UDP tunneling sock on the client also
 	must be started. On the server, it would get the encap_port from
 	the incoming packet's source port.
+
+	Default: 0
+
+plpmtud_probe_interval - INTEGER
+        The time interval (in milliseconds) for the PLPMTUD probe timer,
+        which is configured to expire after this period to receive an
+        acknowledgment to a probe packet. This is also the time interval
+        between the probes for the current pmtu when the probe search
+        is done.
+
+        PLPMTUD will be disabled when 0 is set, and other values for it
+        must be >= 5000.
 
 	Default: 0
 

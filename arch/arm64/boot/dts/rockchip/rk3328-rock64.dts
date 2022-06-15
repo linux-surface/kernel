@@ -10,6 +10,11 @@
 	model = "Pine64 Rock64";
 	compatible = "pine64,rock64", "rockchip,rk3328";
 
+	aliases {
+		mmc0 = &sdmmc;
+		mmc1 = &emmc;
+	};
+
 	chosen {
 		stdout-path = "serial2:1500000n8";
 	};
@@ -340,7 +345,7 @@
 &spi0 {
 	status = "okay";
 
-	spiflash@0 {
+	flash@0 {
 		compatible = "jedec,spi-nor";
 		reg = <0>;
 
@@ -372,6 +377,11 @@
 };
 
 &usb20_otg {
+	dr_mode = "host";
+	status = "okay";
+};
+
+&usbdrd3 {
 	dr_mode = "host";
 	status = "okay";
 };

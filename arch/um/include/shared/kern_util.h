@@ -33,7 +33,6 @@ extern int handle_page_fault(unsigned long address, unsigned long ip,
 			     int is_write, int is_user, int *code_out);
 
 extern unsigned int do_IRQ(int irq, struct uml_pt_regs *regs);
-extern int smp_sigio_handler(void);
 extern void initial_thread_cb(void (*proc)(void *), void *arg);
 extern int is_syscall(unsigned long addr);
 
@@ -54,13 +53,11 @@ extern void do_uml_exitcalls(void);
 extern int __cant_sleep(void);
 extern int get_current_pid(void);
 extern int copy_from_user_proc(void *to, void *from, int size);
-extern int cpu(void);
 extern char *uml_strdup(const char *string);
 
 extern unsigned long to_irq_stack(unsigned long *mask_out);
 extern unsigned long from_irq_stack(int nested);
 
-extern void syscall_trace(struct uml_pt_regs *regs, int entryexit);
 extern int singlestepping(void *t);
 
 extern void segv_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs);

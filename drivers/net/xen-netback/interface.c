@@ -494,6 +494,9 @@ static const struct net_device_ops xenvif_netdev_ops = {
 struct xenvif *xenvif_alloc(struct device *parent, domid_t domid,
 			    unsigned int handle)
 {
+	static const u8 dummy_addr[ETH_ALEN] = {
+		0xfe, 0xff, 0xff, 0xff, 0xff, 0xff,
+	};
 	int err;
 	struct net_device *dev;
 	struct xenvif *vif;
@@ -551,8 +554,7 @@ struct xenvif *xenvif_alloc(struct device *parent, domid_t domid,
 	 * stolen by an Ethernet bridge for STP purposes.
 	 * (FE:FF:FF:FF:FF:FF)
 	 */
-	eth_broadcast_addr(dev->dev_addr);
-	dev->dev_addr[0] &= ~0x01;
+	eth_hw_addr_set(dev, dummy_addr);
 
 	netif_carrier_off(dev);
 
@@ -684,6 +686,7 @@ static void xenvif_disconnect_queue(struct xenvif_queue *queue)
 {
 	if (queue->task) {
 		kthread_stop(queue->task);
+		put_task_struct(queue->task);
 		queue->task = NULL;
 	}
 
@@ -745,6 +748,11 @@ int xenvif_connect_data(struct xenvif_queue *queue,
 	if (IS_ERR(task))
 		goto kthread_err;
 	queue->task = task;
+	/*
+	 * Take a reference to the task in order to prevent it from being freed
+	 * if the thread function returns before kthread_stop is called.
+	 */
+	get_task_struct(task);
 
 	task = kthread_run(xenvif_dealloc_kthread, queue,
 			   "%s-dealloc", queue->name);

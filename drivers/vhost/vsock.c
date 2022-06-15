@@ -31,7 +31,8 @@
 
 enum {
 	VHOST_VSOCK_FEATURES = VHOST_FEATURES |
-			       (1ULL << VIRTIO_F_ACCESS_PLATFORM)
+			       (1ULL << VIRTIO_F_ACCESS_PLATFORM) |
+			       (1ULL << VIRTIO_VSOCK_F_SEQPACKET)
 };
 
 enum {
@@ -56,6 +57,7 @@ struct vhost_vsock {
 	atomic_t queued_replies;
 
 	u32 guest_cid;
+	bool seqpacket_allow;
 };
 
 static u32 vhost_transport_get_local_cid(void)
@@ -112,6 +114,7 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		size_t nbytes;
 		size_t iov_len, payload_len;
 		int head;
+		u32 flags_to_restore = 0;
 
 		spin_lock_bh(&vsock->send_pkt_list_lock);
 		if (list_empty(&vsock->send_pkt_list)) {
@@ -168,8 +171,30 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		/* If the packet is greater than the space available in the
 		 * buffer, we split it using multiple buffers.
 		 */
-		if (payload_len > iov_len - sizeof(pkt->hdr))
+		if (payload_len > iov_len - sizeof(pkt->hdr)) {
 			payload_len = iov_len - sizeof(pkt->hdr);
+
+			/* As we are copying pieces of large packet's buffer to
+			 * small rx buffers, headers of packets in rx queue are
+			 * created dynamically and are initialized with header
+			 * of current packet(except length). But in case of
+			 * SOCK_SEQPACKET, we also must clear message delimeter
+			 * bit (VIRTIO_VSOCK_SEQ_EOM) and MSG_EOR bit
+			 * (VIRTIO_VSOCK_SEQ_EOR) if set. Otherwise,
+			 * there will be sequence of packets with these
+			 * bits set. After initialized header will be copied to
+			 * rx buffer, these required bits will be restored.
+			 */
+			if (le32_to_cpu(pkt->hdr.flags) & VIRTIO_VSOCK_SEQ_EOM) {
+				pkt->hdr.flags &= ~cpu_to_le32(VIRTIO_VSOCK_SEQ_EOM);
+				flags_to_restore |= VIRTIO_VSOCK_SEQ_EOM;
+
+				if (le32_to_cpu(pkt->hdr.flags) & VIRTIO_VSOCK_SEQ_EOR) {
+					pkt->hdr.flags &= ~cpu_to_le32(VIRTIO_VSOCK_SEQ_EOR);
+					flags_to_restore |= VIRTIO_VSOCK_SEQ_EOR;
+				}
+			}
+		}
 
 		/* Set the correct length in the header */
 		pkt->hdr.len = cpu_to_le32(payload_len);
@@ -204,6 +229,8 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		 * to send it with the next available buffer.
 		 */
 		if (pkt->off < pkt->len) {
+			pkt->hdr.flags |= cpu_to_le32(flags_to_restore);
+
 			/* We are queueing the same virtio_vsock_pkt to handle
 			 * the remaining bytes, and we want to deliver it
 			 * to monitoring devices in the next iteration.
@@ -354,8 +381,7 @@ vhost_vsock_alloc_pkt(struct vhost_virtqueue *vq,
 		return NULL;
 	}
 
-	if (le16_to_cpu(pkt->hdr.type) == VIRTIO_VSOCK_TYPE_STREAM)
-		pkt->len = le32_to_cpu(pkt->hdr.len);
+	pkt->len = le32_to_cpu(pkt->hdr.len);
 
 	/* No payload */
 	if (!pkt->len)
@@ -398,6 +424,8 @@ static bool vhost_vsock_more_replies(struct vhost_vsock *vsock)
 	return val < vq->num;
 }
 
+static bool vhost_transport_seqpacket_allow(u32 remote_cid);
+
 static struct virtio_transport vhost_transport = {
 	.transport = {
 		.module                   = THIS_MODULE,
@@ -424,6 +452,11 @@ static struct virtio_transport vhost_transport = {
 		.stream_is_active         = virtio_transport_stream_is_active,
 		.stream_allow             = virtio_transport_stream_allow,
 
+		.seqpacket_dequeue        = virtio_transport_seqpacket_dequeue,
+		.seqpacket_enqueue        = virtio_transport_seqpacket_enqueue,
+		.seqpacket_allow          = vhost_transport_seqpacket_allow,
+		.seqpacket_has_data       = virtio_transport_seqpacket_has_data,
+
 		.notify_poll_in           = virtio_transport_notify_poll_in,
 		.notify_poll_out          = virtio_transport_notify_poll_out,
 		.notify_recv_init         = virtio_transport_notify_recv_init,
@@ -440,6 +473,22 @@ static struct virtio_transport vhost_transport = {
 
 	.send_pkt = vhost_transport_send_pkt,
 };
+
+static bool vhost_transport_seqpacket_allow(u32 remote_cid)
+{
+	struct vhost_vsock *vsock;
+	bool seqpacket_allow = false;
+
+	rcu_read_lock();
+	vsock = vhost_vsock_get(remote_cid);
+
+	if (vsock)
+		seqpacket_allow = vsock->seqpacket_allow;
+
+	rcu_read_unlock();
+
+	return seqpacket_allow;
+}
 
 static void vhost_vsock_handle_tx_kick(struct vhost_work *work)
 {
@@ -462,8 +511,6 @@ static void vhost_vsock_handle_tx_kick(struct vhost_work *work)
 
 	vhost_disable_notify(&vsock->dev, vq);
 	do {
-		u32 len;
-
 		if (!vhost_vsock_more_replies(vsock)) {
 			/* Stop tx until the device processes already
 			 * pending replies.  Leave tx virtqueue
@@ -491,7 +538,7 @@ static void vhost_vsock_handle_tx_kick(struct vhost_work *work)
 			continue;
 		}
 
-		len = pkt->len;
+		total_len += sizeof(pkt->hdr) + pkt->len;
 
 		/* Deliver to monitoring devices all received packets */
 		virtio_transport_deliver_tap_pkt(pkt);
@@ -504,9 +551,7 @@ static void vhost_vsock_handle_tx_kick(struct vhost_work *work)
 		else
 			virtio_transport_free_pkt(pkt);
 
-		len += sizeof(pkt->hdr);
-		vhost_add_used(vq, head, len);
-		total_len += len;
+		vhost_add_used(vq, head, 0);
 		added = true;
 	} while(likely(!vhost_exceeds_weight(vq, ++pkts, total_len)));
 
@@ -584,16 +629,18 @@ err:
 	return ret;
 }
 
-static int vhost_vsock_stop(struct vhost_vsock *vsock)
+static int vhost_vsock_stop(struct vhost_vsock *vsock, bool check_owner)
 {
 	size_t i;
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&vsock->dev.mutex);
 
-	ret = vhost_dev_check_owner(&vsock->dev);
-	if (ret)
-		goto err;
+	if (check_owner) {
+		ret = vhost_dev_check_owner(&vsock->dev);
+		if (ret)
+			goto err;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(vsock->vqs); i++) {
 		struct vhost_virtqueue *vq = &vsock->vqs[i];
@@ -663,7 +710,7 @@ static void vhost_vsock_flush(struct vhost_vsock *vsock)
 	for (i = 0; i < ARRAY_SIZE(vsock->vqs); i++)
 		if (vsock->vqs[i].handle_kick)
 			vhost_poll_flush(&vsock->vqs[i].poll);
-	vhost_work_flush(&vsock->dev, &vsock->send_pkt_work);
+	vhost_work_dev_flush(&vsock->dev);
 }
 
 static void vhost_vsock_reset_orphans(struct sock *sk)
@@ -689,7 +736,7 @@ static void vhost_vsock_reset_orphans(struct sock *sk)
 	vsk->peer_shutdown = SHUTDOWN_MASK;
 	sk->sk_state = SS_UNCONNECTED;
 	sk->sk_err = ECONNRESET;
-	sk->sk_error_report(sk);
+	sk_error_report(sk);
 }
 
 static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
@@ -706,9 +753,15 @@ static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
 
 	/* Iterating over all connections for all CIDs to find orphans is
 	 * inefficient.  Room for improvement here. */
-	vsock_for_each_connected_socket(vhost_vsock_reset_orphans);
+	vsock_for_each_connected_socket(&vhost_transport.transport,
+					vhost_vsock_reset_orphans);
 
-	vhost_vsock_stop(vsock);
+	/* Don't check the owner, because we are in the release path, so we
+	 * need to stop the vsock device in any case.
+	 * vhost_vsock_stop() can not fail in this case, so we don't need to
+	 * check the return code.
+	 */
+	vhost_vsock_stop(vsock, false);
 	vhost_vsock_flush(vsock);
 	vhost_dev_stop(&vsock->dev);
 
@@ -785,6 +838,9 @@ static int vhost_vsock_set_features(struct vhost_vsock *vsock, u64 features)
 			goto err;
 	}
 
+	if (features & (1ULL << VIRTIO_VSOCK_F_SEQPACKET))
+		vsock->seqpacket_allow = true;
+
 	for (i = 0; i < ARRAY_SIZE(vsock->vqs); i++) {
 		vq = &vsock->vqs[i];
 		mutex_lock(&vq->mutex);
@@ -820,7 +876,7 @@ static long vhost_vsock_dev_ioctl(struct file *f, unsigned int ioctl,
 		if (start)
 			return vhost_vsock_start(vsock);
 		else
-			return vhost_vsock_stop(vsock);
+			return vhost_vsock_stop(vsock, true);
 	case VHOST_GET_FEATURES:
 		features = VHOST_VSOCK_FEATURES;
 		if (copy_to_user(argp, &features, sizeof(features)))

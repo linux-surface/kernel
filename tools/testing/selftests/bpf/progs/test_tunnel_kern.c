@@ -26,8 +26,6 @@
 		bpf_trace_printk(fmt, sizeof(fmt), __LINE__, ret); \
 	} while (0)
 
-int _version SEC("version") = 1;
-
 struct geneve_opt {
 	__be16	opt_class;
 	__u8	type;
@@ -396,7 +394,7 @@ int _ip6vxlan_get_tunnel(struct __sk_buff *skb)
 SEC("geneve_set_tunnel")
 int _geneve_set_tunnel(struct __sk_buff *skb)
 {
-	int ret, ret2;
+	int ret;
 	struct bpf_tunnel_key key;
 	struct geneve_opt gopt;
 
@@ -508,10 +506,8 @@ int _ip6geneve_get_tunnel(struct __sk_buff *skb)
 	}
 
 	ret = bpf_skb_get_tunnel_opt(skb, &gopt, sizeof(gopt));
-	if (ret < 0) {
-		ERROR(ret);
-		return TC_ACT_SHOT;
-	}
+	if (ret < 0)
+		gopt.opt_class = 0;
 
 	bpf_trace_printk(fmt, sizeof(fmt),
 			key.tunnel_id, key.remote_ipv4, gopt.opt_class);

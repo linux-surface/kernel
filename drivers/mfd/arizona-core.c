@@ -845,19 +845,6 @@ static int arizona_of_get_core_pdata(struct arizona *arizona)
 
 	return 0;
 }
-
-const struct of_device_id arizona_of_match[] = {
-	{ .compatible = "wlf,wm5102", .data = (void *)WM5102 },
-	{ .compatible = "wlf,wm5110", .data = (void *)WM5110 },
-	{ .compatible = "wlf,wm8280", .data = (void *)WM8280 },
-	{ .compatible = "wlf,wm8997", .data = (void *)WM8997 },
-	{ .compatible = "wlf,wm8998", .data = (void *)WM8998 },
-	{ .compatible = "wlf,wm1814", .data = (void *)WM1814 },
-	{ .compatible = "wlf,wm1831", .data = (void *)WM1831 },
-	{ .compatible = "cirrus,cs47l24", .data = (void *)CS47L24 },
-	{},
-};
-EXPORT_SYMBOL_GPL(arizona_of_match);
 #else
 static inline int arizona_of_get_core_pdata(struct arizona *arizona)
 {
@@ -881,11 +868,6 @@ static const char * const wm5102_supplies[] = {
 static const struct mfd_cell wm5102_devs[] = {
 	{ .name = "arizona-micsupp" },
 	{ .name = "arizona-gpio" },
-	{
-		.name = "arizona-extcon",
-		.parent_supplies = wm5102_supplies,
-		.num_parent_supplies = 1, /* We only need MICVDD */
-	},
 	{ .name = "arizona-haptics" },
 	{ .name = "arizona-pwm" },
 	{
@@ -898,11 +880,6 @@ static const struct mfd_cell wm5102_devs[] = {
 static const struct mfd_cell wm5110_devs[] = {
 	{ .name = "arizona-micsupp" },
 	{ .name = "arizona-gpio" },
-	{
-		.name = "arizona-extcon",
-		.parent_supplies = wm5102_supplies,
-		.num_parent_supplies = 1, /* We only need MICVDD */
-	},
 	{ .name = "arizona-haptics" },
 	{ .name = "arizona-pwm" },
 	{
@@ -939,11 +916,6 @@ static const char * const wm8997_supplies[] = {
 static const struct mfd_cell wm8997_devs[] = {
 	{ .name = "arizona-micsupp" },
 	{ .name = "arizona-gpio" },
-	{
-		.name = "arizona-extcon",
-		.parent_supplies = wm8997_supplies,
-		.num_parent_supplies = 1, /* We only need MICVDD */
-	},
 	{ .name = "arizona-haptics" },
 	{ .name = "arizona-pwm" },
 	{
@@ -956,11 +928,6 @@ static const struct mfd_cell wm8997_devs[] = {
 static const struct mfd_cell wm8998_devs[] = {
 	{ .name = "arizona-micsupp" },
 	{ .name = "arizona-gpio" },
-	{
-		.name = "arizona-extcon",
-		.parent_supplies = wm5102_supplies,
-		.num_parent_supplies = 1, /* We only need MICVDD */
-	},
 	{ .name = "arizona-haptics" },
 	{ .name = "arizona-pwm" },
 	{
@@ -1467,3 +1434,5 @@ int arizona_dev_exit(struct arizona *arizona)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(arizona_dev_exit);
+
+MODULE_LICENSE("GPL v2");

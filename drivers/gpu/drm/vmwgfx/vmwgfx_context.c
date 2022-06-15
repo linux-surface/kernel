@@ -60,8 +60,6 @@ static int vmw_dx_context_unbind(struct vmw_resource *res,
 				 struct ttm_validate_buffer *val_buf);
 static int vmw_dx_context_destroy(struct vmw_resource *res);
 
-static uint64_t vmw_user_context_size;
-
 static const struct vmw_user_resource_conv user_context_conv = {
 	.object_type = VMW_RES_CONTEXT,
 	.base_obj_to_res = vmw_user_context_base_to_res,
@@ -112,7 +110,7 @@ static const struct vmw_res_func vmw_dx_context_func = {
 	.unbind = vmw_dx_context_unbind
 };
 
-/**
+/*
  * Context management:
  */
 
@@ -185,7 +183,7 @@ static int vmw_gb_context_init(struct vmw_private *dev_priv,
 		container_of(res, struct vmw_user_context, res);
 
 	res->backup_size = (dx ? sizeof(SVGADXContextMobFormat) :
-			    SVGA3D_CONTEXT_DATA_SIZE);
+				 sizeof(SVGAGBContextData));
 	ret = vmw_resource_init(dev_priv, res, true,
 				res_free,
 				dx ? &vmw_dx_context_func :
@@ -259,7 +257,7 @@ static int vmw_context_init(struct vmw_private *dev_priv,
 		goto out_early;
 	}
 
-	if (unlikely(res->id >= SVGA3D_MAX_CONTEXT_IDS)) {
+	if (unlikely(res->id >= SVGA3D_HB_MAX_CONTEXT_IDS)) {
 		DRM_ERROR("Out of hw context ids.\n");
 		vmw_resource_unreference(&res);
 		return -ENOMEM;
@@ -346,7 +344,7 @@ static int vmw_gb_context_bind(struct vmw_resource *res,
 	} *cmd;
 	struct ttm_buffer_object *bo = val_buf->bo;
 
-	BUG_ON(bo->mem.mem_type != VMW_PL_MOB);
+	BUG_ON(bo->resource->mem_type != VMW_PL_MOB);
 
 	cmd = VMW_CMD_RESERVE(dev_priv, sizeof(*cmd));
 	if (unlikely(cmd == NULL))
@@ -355,7 +353,7 @@ static int vmw_gb_context_bind(struct vmw_resource *res,
 	cmd->header.id = SVGA_3D_CMD_BIND_GB_CONTEXT;
 	cmd->header.size = sizeof(cmd->body);
 	cmd->body.cid = res->id;
-	cmd->body.mobid = bo->mem.start;
+	cmd->body.mobid = bo->resource->start;
 	cmd->body.validContents = res->backup_dirty;
 	res->backup_dirty = false;
 	vmw_cmd_commit(dev_priv, sizeof(*cmd));
@@ -385,7 +383,7 @@ static int vmw_gb_context_unbind(struct vmw_resource *res,
 	uint8_t *cmd;
 
 
-	BUG_ON(bo->mem.mem_type != VMW_PL_MOB);
+	BUG_ON(bo->resource->mem_type != VMW_PL_MOB);
 
 	mutex_lock(&dev_priv->binding_mutex);
 	vmw_binding_state_scrub(uctx->cbs);
@@ -513,7 +511,7 @@ static int vmw_dx_context_bind(struct vmw_resource *res,
 	} *cmd;
 	struct ttm_buffer_object *bo = val_buf->bo;
 
-	BUG_ON(bo->mem.mem_type != VMW_PL_MOB);
+	BUG_ON(bo->resource->mem_type != VMW_PL_MOB);
 
 	cmd = VMW_CMD_RESERVE(dev_priv, sizeof(*cmd));
 	if (unlikely(cmd == NULL))
@@ -522,7 +520,7 @@ static int vmw_dx_context_bind(struct vmw_resource *res,
 	cmd->header.id = SVGA_3D_CMD_DX_BIND_CONTEXT;
 	cmd->header.size = sizeof(cmd->body);
 	cmd->body.cid = res->id;
-	cmd->body.mobid = bo->mem.start;
+	cmd->body.mobid = bo->resource->start;
 	cmd->body.validContents = res->backup_dirty;
 	res->backup_dirty = false;
 	vmw_cmd_commit(dev_priv, sizeof(*cmd));
@@ -594,7 +592,7 @@ static int vmw_dx_context_unbind(struct vmw_resource *res,
 	uint8_t *cmd;
 
 
-	BUG_ON(bo->mem.mem_type != VMW_PL_MOB);
+	BUG_ON(bo->resource->mem_type != VMW_PL_MOB);
 
 	mutex_lock(&dev_priv->binding_mutex);
 	vmw_dx_context_scrub_cotables(res, readback);
@@ -672,7 +670,7 @@ static int vmw_dx_context_destroy(struct vmw_resource *res)
 	return 0;
 }
 
-/**
+/*
  * User-space context management:
  */
 
@@ -686,7 +684,6 @@ static void vmw_user_context_free(struct vmw_resource *res)
 {
 	struct vmw_user_context *ctx =
 	    container_of(res, struct vmw_user_context, res);
-	struct vmw_private *dev_priv = res->dev_priv;
 
 	if (ctx->cbs)
 		vmw_binding_state_free(ctx->cbs);
@@ -694,11 +691,9 @@ static void vmw_user_context_free(struct vmw_resource *res)
 	(void) vmw_context_bind_dx_query(res, NULL);
 
 	ttm_base_object_kfree(ctx, base);
-	ttm_mem_global_free(vmw_mem_glob(dev_priv),
-			    vmw_user_context_size);
 }
 
-/**
+/*
  * This function is called when user space has no more references on the
  * base object. It releases the base-object's reference on the resource object.
  */
@@ -720,7 +715,7 @@ int vmw_context_destroy_ioctl(struct drm_device *dev, void *data,
 	struct drm_vmw_context_arg *arg = (struct drm_vmw_context_arg *)data;
 	struct ttm_object_file *tfile = vmw_fpriv(file_priv)->tfile;
 
-	return ttm_ref_object_base_unref(tfile, arg->cid, TTM_REF_USAGE);
+	return ttm_ref_object_base_unref(tfile, arg->cid);
 }
 
 static int vmw_context_define(struct drm_device *dev, void *data,
@@ -732,10 +727,6 @@ static int vmw_context_define(struct drm_device *dev, void *data,
 	struct vmw_resource *tmp;
 	struct drm_vmw_context_arg *arg = (struct drm_vmw_context_arg *)data;
 	struct ttm_object_file *tfile = vmw_fpriv(file_priv)->tfile;
-	struct ttm_operation_ctx ttm_opt_ctx = {
-		.interruptible = true,
-		.no_wait_gpu = false
-	};
 	int ret;
 
 	if (!has_sm4_context(dev_priv) && dx) {
@@ -743,31 +734,10 @@ static int vmw_context_define(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
-	if (unlikely(vmw_user_context_size == 0))
-		vmw_user_context_size = ttm_round_pot(sizeof(*ctx)) +
-		  ((dev_priv->has_mob) ? vmw_cmdbuf_res_man_size() : 0) +
-		  + VMW_IDA_ACC_SIZE + TTM_OBJ_EXTRA_SIZE;
-
-	ret = ttm_read_lock(&dev_priv->reservation_sem, true);
-	if (unlikely(ret != 0))
-		return ret;
-
-	ret = ttm_mem_global_alloc(vmw_mem_glob(dev_priv),
-				   vmw_user_context_size,
-				   &ttm_opt_ctx);
-	if (unlikely(ret != 0)) {
-		if (ret != -ERESTARTSYS)
-			DRM_ERROR("Out of graphics memory for context"
-				  " creation.\n");
-		goto out_unlock;
-	}
-
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (unlikely(!ctx)) {
-		ttm_mem_global_free(vmw_mem_glob(dev_priv),
-				    vmw_user_context_size);
 		ret = -ENOMEM;
-		goto out_unlock;
+		goto out_ret;
 	}
 
 	res = &ctx->res;
@@ -780,11 +750,11 @@ static int vmw_context_define(struct drm_device *dev, void *data,
 
 	ret = vmw_context_init(dev_priv, res, vmw_user_context_free, dx);
 	if (unlikely(ret != 0))
-		goto out_unlock;
+		goto out_ret;
 
 	tmp = vmw_resource_reference(&ctx->res);
 	ret = ttm_base_object_init(tfile, &ctx->base, false, VMW_RES_CONTEXT,
-				   &vmw_user_context_base_release, NULL);
+				   &vmw_user_context_base_release);
 
 	if (unlikely(ret != 0)) {
 		vmw_resource_unreference(&tmp);
@@ -794,8 +764,7 @@ static int vmw_context_define(struct drm_device *dev, void *data,
 	arg->cid = ctx->base.handle;
 out_err:
 	vmw_resource_unreference(&res);
-out_unlock:
-	ttm_read_unlock(&dev_priv->reservation_sem);
+out_ret:
 	return ret;
 }
 

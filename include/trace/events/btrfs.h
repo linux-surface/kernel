@@ -53,6 +53,7 @@ struct btrfs_space_info;
 		{ BTRFS_TREE_RELOC_OBJECTID,	"TREE_RELOC"	},	\
 		{ BTRFS_UUID_TREE_OBJECTID,	"UUID_TREE"	},	\
 		{ BTRFS_FREE_SPACE_TREE_OBJECTID, "FREE_SPACE_TREE" },	\
+		{ BTRFS_BLOCK_GROUP_TREE_OBJECTID, "BLOCK_GROUP_TREE" },\
 		{ BTRFS_DATA_RELOC_TREE_OBJECTID, "DATA_RELOC_TREE" })
 
 #define show_root_type(obj)						\
@@ -94,13 +95,13 @@ struct btrfs_space_info;
 	EM( FLUSH_DELAYED_ITEMS,	"FLUSH_DELAYED_ITEMS")		\
 	EM( FLUSH_DELALLOC,		"FLUSH_DELALLOC")		\
 	EM( FLUSH_DELALLOC_WAIT,	"FLUSH_DELALLOC_WAIT")		\
+	EM( FLUSH_DELALLOC_FULL,	"FLUSH_DELALLOC_FULL")		\
 	EM( FLUSH_DELAYED_REFS_NR,	"FLUSH_DELAYED_REFS_NR")	\
 	EM( FLUSH_DELAYED_REFS,		"FLUSH_ELAYED_REFS")		\
 	EM( ALLOC_CHUNK,		"ALLOC_CHUNK")			\
 	EM( ALLOC_CHUNK_FORCE,		"ALLOC_CHUNK_FORCE")		\
 	EM( RUN_DELAYED_IPUTS,		"RUN_DELAYED_IPUTS")		\
-	EM( COMMIT_TRANS,		"COMMIT_TRANS")			\
-	EMe(FORCE_COMMIT_TRANS,		"FORCE_COMMIT_TRANS")
+	EMe(COMMIT_TRANS,		"COMMIT_TRANS")
 
 /*
  * First define the enums in the above macros to be exported to userspace via
@@ -182,18 +183,18 @@ FLUSH_STATES
 
 TRACE_EVENT(btrfs_transaction_commit,
 
-	TP_PROTO(const struct btrfs_root *root),
+	TP_PROTO(const struct btrfs_fs_info *fs_info),
 
-	TP_ARGS(root),
+	TP_ARGS(fs_info),
 
 	TP_STRUCT__entry_btrfs(
 		__field(	u64,  generation		)
 		__field(	u64,  root_objectid		)
 	),
 
-	TP_fast_assign_btrfs(root->fs_info,
-		__entry->generation	= root->fs_info->generation;
-		__entry->root_objectid	= root->root_key.objectid;
+	TP_fast_assign_btrfs(fs_info,
+		__entry->generation	= fs_info->generation;
+		__entry->root_objectid	= BTRFS_ROOT_TREE_OBJECTID;
 	),
 
 	TP_printk_btrfs("root=%llu(%s) gen=%llu",
@@ -654,34 +655,30 @@ DEFINE_EVENT(btrfs__writepage, __extent_writepage,
 
 TRACE_EVENT(btrfs_writepage_end_io_hook,
 
-	TP_PROTO(const struct page *page, u64 start, u64 end, int uptodate),
+	TP_PROTO(const struct btrfs_inode *inode, u64 start, u64 end,
+		 int uptodate),
 
-	TP_ARGS(page, start, end, uptodate),
+	TP_ARGS(inode, start, end, uptodate),
 
 	TP_STRUCT__entry_btrfs(
 		__field(	u64,	 ino		)
-		__field(	unsigned long, index	)
 		__field(	u64,	 start		)
 		__field(	u64,	 end		)
 		__field(	int,	 uptodate	)
 		__field(	u64,    root_objectid	)
 	),
 
-	TP_fast_assign_btrfs(btrfs_sb(page->mapping->host->i_sb),
-		__entry->ino	= btrfs_ino(BTRFS_I(page->mapping->host));
-		__entry->index	= page->index;
+	TP_fast_assign_btrfs(inode->root->fs_info,
+		__entry->ino	= btrfs_ino(inode);
 		__entry->start	= start;
 		__entry->end	= end;
 		__entry->uptodate = uptodate;
-		__entry->root_objectid	=
-			 BTRFS_I(page->mapping->host)->root->root_key.objectid;
+		__entry->root_objectid = inode->root->root_key.objectid;
 	),
 
-	TP_printk_btrfs("root=%llu(%s) ino=%llu page_index=%lu start=%llu "
-		  "end=%llu uptodate=%d",
+	TP_printk_btrfs("root=%llu(%s) ino=%llu start=%llu end=%llu uptodate=%d",
 		  show_root_type(__entry->root_objectid),
-		  __entry->ino, __entry->index,
-		  __entry->start,
+		  __entry->ino, __entry->start,
 		  __entry->end, __entry->uptodate)
 );
 
@@ -1097,7 +1094,7 @@ TRACE_EVENT(btrfs_trigger_flush,
 		__entry->flags	= flags;
 		__entry->bytes	= bytes;
 		__entry->flush	= flush;
-		__assign_str(reason, reason)
+		__assign_str(reason, reason);
 	),
 
 	TP_printk_btrfs("%s: flush=%d(%s) flags=%llu(%s) bytes=%llu",
@@ -1903,6 +1900,18 @@ DEFINE_EVENT(btrfs__block_group, btrfs_add_unused_block_group,
 	TP_ARGS(bg_cache)
 );
 
+DEFINE_EVENT(btrfs__block_group, btrfs_add_reclaim_block_group,
+	TP_PROTO(const struct btrfs_block_group *bg_cache),
+
+	TP_ARGS(bg_cache)
+);
+
+DEFINE_EVENT(btrfs__block_group, btrfs_reclaim_block_group,
+	TP_PROTO(const struct btrfs_block_group *bg_cache),
+
+	TP_ARGS(bg_cache)
+);
+
 DEFINE_EVENT(btrfs__block_group, btrfs_skip_unused_block_group,
 	TP_PROTO(const struct btrfs_block_group *bg_cache),
 
@@ -2030,7 +2039,7 @@ TRACE_EVENT(btrfs_convert_extent_bit,
 );
 
 DECLARE_EVENT_CLASS(btrfs_dump_space_info,
-	TP_PROTO(const struct btrfs_fs_info *fs_info,
+	TP_PROTO(struct btrfs_fs_info *fs_info,
 		 const struct btrfs_space_info *sinfo),
 
 	TP_ARGS(fs_info, sinfo),
@@ -2050,6 +2059,8 @@ DECLARE_EVENT_CLASS(btrfs_dump_space_info,
 		__field(	u64,	delayed_refs_reserved	)
 		__field(	u64,	delayed_reserved	)
 		__field(	u64,	free_chunk_space	)
+		__field(	u64,	delalloc_bytes		)
+		__field(	u64,	ordered_bytes		)
 	),
 
 	TP_fast_assign_btrfs(fs_info,
@@ -2067,6 +2078,8 @@ DECLARE_EVENT_CLASS(btrfs_dump_space_info,
 		__entry->delayed_refs_reserved	=	fs_info->delayed_refs_rsv.reserved;
 		__entry->delayed_reserved	=	fs_info->delayed_block_rsv.reserved;
 		__entry->free_chunk_space	=	atomic64_read(&fs_info->free_chunk_space);
+		__entry->delalloc_bytes		=	percpu_counter_sum_positive(&fs_info->delalloc_bytes);
+		__entry->ordered_bytes		=	percpu_counter_sum_positive(&fs_info->ordered_bytes);
 	),
 
 	TP_printk_btrfs("flags=%s total_bytes=%llu bytes_used=%llu "
@@ -2074,7 +2087,8 @@ DECLARE_EVENT_CLASS(btrfs_dump_space_info,
 			"bytes_may_use=%llu bytes_readonly=%llu "
 			"reclaim_size=%llu clamp=%d global_reserved=%llu "
 			"trans_reserved=%llu delayed_refs_reserved=%llu "
-			"delayed_reserved=%llu chunk_free_space=%llu",
+			"delayed_reserved=%llu chunk_free_space=%llu "
+			"delalloc_bytes=%llu ordered_bytes=%llu",
 			__print_flags(__entry->flags, "|", BTRFS_GROUP_FLAGS),
 			__entry->total_bytes, __entry->bytes_used,
 			__entry->bytes_pinned, __entry->bytes_reserved,
@@ -2082,11 +2096,18 @@ DECLARE_EVENT_CLASS(btrfs_dump_space_info,
 			__entry->reclaim_size, __entry->clamp,
 			__entry->global_reserved, __entry->trans_reserved,
 			__entry->delayed_refs_reserved,
-			__entry->delayed_reserved, __entry->free_chunk_space)
+			__entry->delayed_reserved, __entry->free_chunk_space,
+			__entry->delalloc_bytes, __entry->ordered_bytes)
 );
 
 DEFINE_EVENT(btrfs_dump_space_info, btrfs_done_preemptive_reclaim,
-	TP_PROTO(const struct btrfs_fs_info *fs_info,
+	TP_PROTO(struct btrfs_fs_info *fs_info,
+		 const struct btrfs_space_info *sinfo),
+	TP_ARGS(fs_info, sinfo)
+);
+
+DEFINE_EVENT(btrfs_dump_space_info, btrfs_fail_all_tickets,
+	TP_PROTO(struct btrfs_fs_info *fs_info,
 		 const struct btrfs_space_info *sinfo),
 	TP_ARGS(fs_info, sinfo)
 );

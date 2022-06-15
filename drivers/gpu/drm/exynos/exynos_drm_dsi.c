@@ -13,7 +13,6 @@
 #include <linux/gpio/consumer.h>
 #include <linux/irq.h>
 #include <linux/of_device.h>
-#include <linux/of_gpio.h>
 #include <linux/of_graph.h>
 #include <linux/phy/phy.h>
 #include <linux/regulator/consumer.h>
@@ -259,13 +258,14 @@ struct exynos_dsi {
 	struct list_head bridge_chain;
 	struct drm_bridge *out_bridge;
 	struct device *dev;
+	struct drm_display_mode mode;
 
 	void __iomem *reg_base;
 	struct phy *phy;
 	struct clk **clks;
 	struct regulator_bulk_data supplies[2];
 	int irq;
-	int te_gpio;
+	struct gpio_desc *te_gpio;
 
 	u32 pll_clk_rate;
 	u32 burst_clk_rate;
@@ -809,15 +809,15 @@ static int exynos_dsi_init_link(struct exynos_dsi *dsi)
 			reg |= DSIM_AUTO_MODE;
 		if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HSE)
 			reg |= DSIM_HSE_MODE;
-		if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HFP))
+		if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_NO_HFP))
 			reg |= DSIM_HFP_MODE;
-		if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HBP))
+		if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_NO_HBP))
 			reg |= DSIM_HBP_MODE;
-		if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_HSA))
+		if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_NO_HSA))
 			reg |= DSIM_HSA_MODE;
 	}
 
-	if (!(dsi->mode_flags & MIPI_DSI_MODE_EOT_PACKET))
+	if (!(dsi->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET))
 		reg |= DSIM_EOT_DISABLE;
 
 	switch (dsi->format) {
@@ -882,7 +882,7 @@ static int exynos_dsi_init_link(struct exynos_dsi *dsi)
 
 static void exynos_dsi_set_display_mode(struct exynos_dsi *dsi)
 {
-	struct drm_display_mode *m = &dsi->encoder.crtc->state->adjusted_mode;
+	struct drm_display_mode *m = &dsi->mode;
 	unsigned int num_bits_resol = dsi->driver_data->num_bits_resol;
 	u32 reg;
 
@@ -1298,14 +1298,14 @@ static void exynos_dsi_enable_irq(struct exynos_dsi *dsi)
 {
 	enable_irq(dsi->irq);
 
-	if (gpio_is_valid(dsi->te_gpio))
-		enable_irq(gpio_to_irq(dsi->te_gpio));
+	if (dsi->te_gpio)
+		enable_irq(gpiod_to_irq(dsi->te_gpio));
 }
 
 static void exynos_dsi_disable_irq(struct exynos_dsi *dsi)
 {
-	if (gpio_is_valid(dsi->te_gpio))
-		disable_irq(gpio_to_irq(dsi->te_gpio));
+	if (dsi->te_gpio)
+		disable_irq(gpiod_to_irq(dsi->te_gpio));
 
 	disable_irq(dsi->irq);
 }
@@ -1335,43 +1335,33 @@ static int exynos_dsi_register_te_irq(struct exynos_dsi *dsi,
 	int ret;
 	int te_gpio_irq;
 
-	dsi->te_gpio = of_get_named_gpio(panel->of_node, "te-gpios", 0);
-	if (dsi->te_gpio == -ENOENT)
+	dsi->te_gpio = gpiod_get_optional(panel, "te", GPIOD_IN);
+	if (!dsi->te_gpio) {
 		return 0;
-
-	if (!gpio_is_valid(dsi->te_gpio)) {
-		ret = dsi->te_gpio;
-		dev_err(dsi->dev, "cannot get te-gpios, %d\n", ret);
-		goto out;
+	} else if (IS_ERR(dsi->te_gpio)) {
+		dev_err(dsi->dev, "gpio request failed with %ld\n",
+				PTR_ERR(dsi->te_gpio));
+		return PTR_ERR(dsi->te_gpio);
 	}
 
-	ret = gpio_request(dsi->te_gpio, "te_gpio");
-	if (ret) {
-		dev_err(dsi->dev, "gpio request failed with %d\n", ret);
-		goto out;
-	}
-
-	te_gpio_irq = gpio_to_irq(dsi->te_gpio);
-	irq_set_status_flags(te_gpio_irq, IRQ_NOAUTOEN);
+	te_gpio_irq = gpiod_to_irq(dsi->te_gpio);
 
 	ret = request_threaded_irq(te_gpio_irq, exynos_dsi_te_irq_handler, NULL,
-					IRQF_TRIGGER_RISING, "TE", dsi);
+				   IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN, "TE", dsi);
 	if (ret) {
 		dev_err(dsi->dev, "request interrupt failed with %d\n", ret);
-		gpio_free(dsi->te_gpio);
-		goto out;
+		gpiod_put(dsi->te_gpio);
+		return ret;
 	}
 
-out:
-	return ret;
+	return 0;
 }
 
 static void exynos_dsi_unregister_te_irq(struct exynos_dsi *dsi)
 {
-	if (gpio_is_valid(dsi->te_gpio)) {
-		free_irq(gpio_to_irq(dsi->te_gpio), dsi);
-		gpio_free(dsi->te_gpio);
-		dsi->te_gpio = -ENOENT;
+	if (dsi->te_gpio) {
+		free_irq(gpiod_to_irq(dsi->te_gpio), dsi);
+		gpiod_put(dsi->te_gpio);
 	}
 }
 
@@ -1384,7 +1374,12 @@ static void exynos_dsi_enable(struct drm_encoder *encoder)
 	if (dsi->state & DSIM_STATE_ENABLED)
 		return;
 
-	pm_runtime_get_sync(dsi->dev);
+	ret = pm_runtime_resume_and_get(dsi->dev);
+	if (ret < 0) {
+		dev_err(dsi->dev, "failed to enable DSI device.\n");
+		return;
+	}
+
 	dsi->state |= DSIM_STATE_ENABLED;
 
 	if (dsi->panel) {
@@ -1454,6 +1449,15 @@ static void exynos_dsi_disable(struct drm_encoder *encoder)
 	pm_runtime_put_sync(dsi->dev);
 }
 
+static void exynos_dsi_mode_set(struct drm_encoder *encoder,
+				struct drm_display_mode *mode,
+				struct drm_display_mode *adjusted_mode)
+{
+	struct exynos_dsi *dsi = encoder_to_dsi(encoder);
+
+	drm_mode_copy(&dsi->mode, adjusted_mode);
+}
+
 static enum drm_connector_status
 exynos_dsi_detect(struct drm_connector *connector, bool force)
 {
@@ -1521,6 +1525,7 @@ static int exynos_dsi_create_connector(struct drm_encoder *encoder)
 static const struct drm_encoder_helper_funcs exynos_dsi_encoder_helper_funcs = {
 	.enable = exynos_dsi_enable,
 	.disable = exynos_dsi_disable,
+	.mode_set = exynos_dsi_mode_set,
 };
 
 MODULE_DEVICE_TABLE(of, exynos_dsi_of_match);
@@ -1734,16 +1739,12 @@ static const struct component_ops exynos_dsi_component_ops = {
 static int exynos_dsi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct resource *res;
 	struct exynos_dsi *dsi;
 	int ret, i;
 
 	dsi = devm_kzalloc(dev, sizeof(*dsi), GFP_KERNEL);
 	if (!dsi)
 		return -ENOMEM;
-
-	/* To be checked as invalid one */
-	dsi->te_gpio = -ENOENT;
 
 	init_completion(&dsi->completed);
 	spin_lock_init(&dsi->transfer_lock);
@@ -1785,12 +1786,9 @@ static int exynos_dsi_probe(struct platform_device *pdev)
 		}
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	dsi->reg_base = devm_ioremap_resource(dev, res);
-	if (IS_ERR(dsi->reg_base)) {
-		dev_err(dev, "failed to remap io region\n");
+	dsi->reg_base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(dsi->reg_base))
 		return PTR_ERR(dsi->reg_base);
-	}
 
 	dsi->phy = devm_phy_get(dev, "dsim");
 	if (IS_ERR(dsi->phy)) {
@@ -1802,9 +1800,9 @@ static int exynos_dsi_probe(struct platform_device *pdev)
 	if (dsi->irq < 0)
 		return dsi->irq;
 
-	irq_set_status_flags(dsi->irq, IRQ_NOAUTOEN);
 	ret = devm_request_threaded_irq(dev, dsi->irq, NULL,
-					exynos_dsi_irq, IRQF_ONESHOT,
+					exynos_dsi_irq,
+					IRQF_ONESHOT | IRQF_NO_AUTOEN,
 					dev_name(dev), dsi);
 	if (ret) {
 		dev_err(dev, "failed to request dsi irq\n");

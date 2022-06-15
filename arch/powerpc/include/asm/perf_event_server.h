@@ -43,7 +43,7 @@ struct power_pmu {
 				u64 alt[]);
 	void		(*get_mem_data_src)(union perf_mem_data_src *dsrc,
 				u32 flags, struct pt_regs *regs);
-	void		(*get_mem_weight)(u64 *weight);
+	void		(*get_mem_weight)(u64 *weight, u64 type);
 	unsigned long	group_constraint_mask;
 	unsigned long	group_constraint_val;
 	u64             (*bhrb_filter_map)(u64 branch_sample_type);
@@ -67,6 +67,12 @@ struct power_pmu {
 	 * the pmu supports extended perf regs capability
 	 */
 	int		capabilities;
+	/*
+	 * Function to check event code for values which are
+	 * reserved. Function takes struct perf_event as input,
+	 * since event code could be spread in attr.config*
+	 */
+	int		(*check_attr_config)(struct perf_event *ev);
 };
 
 /*
@@ -92,7 +98,7 @@ struct power_pmu {
 #define PPMU_LIMITED_PMC_REQD	2	/* have to put this on a limited PMC */
 #define PPMU_ONLY_COUNT_RUN	4	/* only counting in run state */
 
-extern int register_power_pmu(struct power_pmu *);
+int __init register_power_pmu(struct power_pmu *pmu);
 
 struct pt_regs;
 extern unsigned long perf_misc_flags(struct pt_regs *regs);

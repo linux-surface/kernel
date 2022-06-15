@@ -49,8 +49,6 @@ struct he_stat {
 	u64			period_us;
 	u64			period_guest_sys;
 	u64			period_guest_us;
-	u64			weight;
-	u64			ins_lat;
 	u32			nr_events;
 };
 
@@ -108,6 +106,9 @@ struct hist_entry {
 	s32			socket;
 	s32			cpu;
 	u64			code_page_size;
+	u64			weight;
+	u64			ins_lat;
+	u64			p_stage_cyc;
 	u8			cpumode;
 	u8			depth;
 
@@ -234,6 +235,8 @@ enum sort_type {
 	SORT_CODE_PAGE_SIZE,
 	SORT_LOCAL_INS_LAT,
 	SORT_GLOBAL_INS_LAT,
+	SORT_LOCAL_PIPELINE_STAGE_CYC,
+	SORT_GLOBAL_PIPELINE_STAGE_CYC,
 
 	/* branch stack specific sort keys */
 	__SORT_BRANCH_STACK,
@@ -248,6 +251,8 @@ enum sort_type {
 	SORT_SRCLINE_FROM,
 	SORT_SRCLINE_TO,
 	SORT_SYM_IPC,
+	SORT_ADDR_FROM,
+	SORT_ADDR_TO,
 
 	/* memory mode specific sort keys */
 	__SORT_MEMORY_MODE,
@@ -300,7 +305,7 @@ void reset_output_field(void);
 void sort__setup_elide(FILE *fp);
 void perf_hpp__set_elide(int idx, bool elide);
 
-const char *sort_help(const char *prefix);
+char *sort_help(const char *prefix);
 
 int report_parse_ignore_callees_opt(const struct option *opt, const char *arg, int unset);
 

@@ -208,8 +208,6 @@ static void pxa_init_debugfs(struct pxa_udc *udc)
 	struct dentry *root;
 
 	root = debugfs_create_dir(udc->gadget.name, usb_debug_root);
-	udc->debugfs_root = root;
-
 	debugfs_create_file("udcstate", 0400, root, udc, &state_dbg_fops);
 	debugfs_create_file("queues", 0400, root, udc, &queues_dbg_fops);
 	debugfs_create_file("epstate", 0400, root, udc, &eps_dbg_fops);
@@ -217,7 +215,7 @@ static void pxa_init_debugfs(struct pxa_udc *udc)
 
 static void pxa_cleanup_debugfs(struct pxa_udc *udc)
 {
-	debugfs_remove_recursive(udc->debugfs_root);
+	debugfs_remove(debugfs_lookup(udc->gadget.name, usb_debug_root));
 }
 
 #else
@@ -1161,7 +1159,7 @@ static int pxa_ep_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 {
 	struct pxa_ep		*ep;
 	struct udc_usb_ep	*udc_usb_ep;
-	struct pxa27x_request	*req;
+	struct pxa27x_request	*req = NULL, *iter;
 	unsigned long		flags;
 	int			rc = -EINVAL;
 
@@ -1175,11 +1173,12 @@ static int pxa_ep_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 	spin_lock_irqsave(&ep->lock, flags);
 
 	/* make sure it's actually queued on this endpoint */
-	list_for_each_entry(req, &ep->queue, queue) {
-		if (&req->req == _req) {
-			rc = 0;
-			break;
-		}
+	list_for_each_entry(iter, &ep->queue, queue) {
+		if (&iter->req != _req)
+			continue;
+		req = iter;
+		rc = 0;
+		break;
 	}
 
 	spin_unlock_irqrestore(&ep->lock, flags);
@@ -1730,7 +1729,7 @@ static void udc_enable(struct pxa_udc *udc)
 }
 
 /**
- * pxa27x_start - Register gadget driver
+ * pxa27x_udc_start - Register gadget driver
  * @g: gadget
  * @driver: gadget driver
  *

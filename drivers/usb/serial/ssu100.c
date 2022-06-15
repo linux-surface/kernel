@@ -231,21 +231,7 @@ static void ssu100_set_termios(struct tty_struct *tty,
 			urb_value |= SERIAL_EVEN_PARITY;
 	}
 
-	switch (cflag & CSIZE) {
-	case CS5:
-		urb_value |= UART_LCR_WLEN5;
-		break;
-	case CS6:
-		urb_value |= UART_LCR_WLEN6;
-		break;
-	case CS7:
-		urb_value |= UART_LCR_WLEN7;
-		break;
-	default:
-	case CS8:
-		urb_value |= UART_LCR_WLEN8;
-		break;
-	}
+	urb_value |= UART_LCR_WLEN(tty_get_char_size(cflag));
 
 	baud = tty_get_baud_rate(tty);
 	if (!baud)
@@ -329,21 +315,6 @@ static int ssu100_open(struct tty_struct *tty, struct usb_serial_port *port)
 		ssu100_set_termios(tty, port, &tty->termios);
 
 	return usb_serial_generic_open(tty, port);
-}
-
-static int get_serial_info(struct tty_struct *tty,
-			   struct serial_struct *ss)
-{
-	struct usb_serial_port *port = tty->driver_data;
-
-	ss->line		= port->minor;
-	ss->port		= 0;
-	ss->irq			= 0;
-	ss->xmit_fifo_size	= port->bulk_out_size;
-	ss->baud_base		= 9600;
-	ss->close_delay		= 5*HZ;
-	ss->closing_wait	= 30*HZ;
-	return 0;
 }
 
 static int ssu100_attach(struct usb_serial *serial)
@@ -545,7 +516,6 @@ static struct usb_serial_driver ssu100_device = {
 	.tiocmset            = ssu100_tiocmset,
 	.tiocmiwait          = usb_serial_generic_tiocmiwait,
 	.get_icount	     = usb_serial_generic_get_icount,
-	.get_serial          = get_serial_info,
 	.set_termios         = ssu100_set_termios,
 };
 

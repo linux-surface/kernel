@@ -9,6 +9,7 @@
 #include <linux/sysfs.h>
 #include "coresight-etm4x.h"
 #include "coresight-priv.h"
+#include "coresight-syscfg.h"
 
 static int etm4_set_mode_exclude(struct etmv4_drvdata *drvdata, bool exclude)
 {
@@ -269,6 +270,8 @@ static ssize_t reset_store(struct device *dev,
 
 	spin_unlock(&drvdata->spinlock);
 
+	cscfg_csdev_reset_feats(to_coresight_device(dev));
+
 	return size;
 }
 static DEVICE_ATTR_WO(reset);
@@ -364,8 +367,12 @@ static ssize_t mode_store(struct device *dev,
 	mode = ETM_MODE_QELEM(config->mode);
 	/* start by clearing QE bits */
 	config->cfg &= ~(BIT(13) | BIT(14));
-	/* if supported, Q elements with instruction counts are enabled */
-	if ((mode & BIT(0)) && (drvdata->q_support & BIT(0)))
+	/*
+	 * if supported, Q elements with instruction counts are enabled.
+	 * Always set the low bit for any requested mode. Valid combos are
+	 * 0b00, 0b01 and 0b11.
+	 */
+	if (mode && drvdata->q_support)
 		config->cfg |= BIT(13);
 	/*
 	 * if supported, Q elements with and without instruction
@@ -2108,7 +2115,16 @@ static ssize_t vmid_val_show(struct device *dev,
 	struct etmv4_drvdata *drvdata = dev_get_drvdata(dev->parent);
 	struct etmv4_config *config = &drvdata->config;
 
+	/*
+	 * Don't use virtual contextID tracing if coming from a PID namespace.
+	 * See comment in ctxid_pid_store().
+	 */
+	if (!task_is_in_init_pid_ns(current))
+		return -EINVAL;
+
+	spin_lock(&drvdata->spinlock);
 	val = (unsigned long)config->vmid_val[config->vmid_idx];
+	spin_unlock(&drvdata->spinlock);
 	return scnprintf(buf, PAGE_SIZE, "%#lx\n", val);
 }
 
@@ -2119,6 +2135,13 @@ static ssize_t vmid_val_store(struct device *dev,
 	unsigned long val;
 	struct etmv4_drvdata *drvdata = dev_get_drvdata(dev->parent);
 	struct etmv4_config *config = &drvdata->config;
+
+	/*
+	 * Don't use virtual contextID tracing if coming from a PID namespace.
+	 * See comment in ctxid_pid_store().
+	 */
+	if (!task_is_in_init_pid_ns(current))
+		return -EINVAL;
 
 	/*
 	 * only implemented when vmid tracing is enabled, i.e. at least one
@@ -2143,6 +2166,13 @@ static ssize_t vmid_masks_show(struct device *dev,
 	struct etmv4_drvdata *drvdata = dev_get_drvdata(dev->parent);
 	struct etmv4_config *config = &drvdata->config;
 
+	/*
+	 * Don't use virtual contextID tracing if coming from a PID namespace.
+	 * See comment in ctxid_pid_store().
+	 */
+	if (!task_is_in_init_pid_ns(current))
+		return -EINVAL;
+
 	spin_lock(&drvdata->spinlock);
 	val1 = config->vmid_mask0;
 	val2 = config->vmid_mask1;
@@ -2159,6 +2189,13 @@ static ssize_t vmid_masks_store(struct device *dev,
 	struct etmv4_drvdata *drvdata = dev_get_drvdata(dev->parent);
 	struct etmv4_config *config = &drvdata->config;
 	int nr_inputs;
+
+	/*
+	 * Don't use virtual contextID tracing if coming from a PID namespace.
+	 * See comment in ctxid_pid_store().
+	 */
+	if (!task_is_in_init_pid_ns(current))
+		return -EINVAL;
 
 	/*
 	 * only implemented when vmid tracing is enabled, i.e. at least one
@@ -2374,12 +2411,20 @@ static inline bool
 etm4x_register_implemented(struct etmv4_drvdata *drvdata, u32 offset)
 {
 	switch (offset) {
-	ETM4x_SYSREG_LIST_CASES
+	ETM_COMMON_SYSREG_LIST_CASES
 		/*
-		 * Registers accessible via system instructions are always
-		 * implemented.
+		 * Common registers to ETE & ETM4x accessible via system
+		 * instructions are always implemented.
 		 */
 		return true;
+
+	ETM4x_ONLY_SYSREG_LIST_CASES
+		/*
+		 * We only support etm4x and ete. So if the device is not
+		 * ETE, it must be ETMv4x.
+		 */
+		return !etm4x_is_ete(drvdata);
+
 	ETM4x_MMAP_LIST_CASES
 		/*
 		 * Registers accessible only via memory-mapped registers
@@ -2389,8 +2434,13 @@ etm4x_register_implemented(struct etmv4_drvdata *drvdata, u32 offset)
 		 * coresight_register() and the csdev is not initialized
 		 * until that is done. So rely on the drvdata->base to
 		 * detect if we have a memory mapped access.
+		 * Also ETE doesn't implement memory mapped access, thus
+		 * it is sufficient to check that we are using mmio.
 		 */
 		return !!drvdata->base;
+
+	ETE_ONLY_SYSREG_LIST_CASES
+		return etm4x_is_ete(drvdata);
 	}
 
 	return false;

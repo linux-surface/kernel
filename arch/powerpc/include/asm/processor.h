@@ -144,15 +144,12 @@ struct thread_struct {
 #endif
 #ifdef CONFIG_PPC32
 	void		*pgdir;		/* root of page-table tree */
-	unsigned long	ksp_limit;	/* if ksp <= ksp_limit stack overflow */
 #ifdef CONFIG_PPC_RTAS
 	unsigned long	rtas_sp;	/* stack pointer for when in RTAS */
-#endif
 #endif
 #if defined(CONFIG_PPC_BOOK3S_32) && defined(CONFIG_PPC_KUAP)
 	unsigned long	kuap;		/* opened segments for user access */
 #endif
-#ifdef CONFIG_VMAP_STACK
 	unsigned long	srr0;
 	unsigned long	srr1;
 	unsigned long	dar;
@@ -160,7 +157,11 @@ struct thread_struct {
 #ifdef CONFIG_PPC_BOOK3S_32
 	unsigned long	r0, r3, r4, r5, r6, r8, r9, r11;
 	unsigned long	lr, ctr;
+	unsigned long	sr0;
 #endif
+#endif /* CONFIG_PPC32 */
+#if defined(CONFIG_BOOKE_OR_40x) && defined(CONFIG_PPC_KUAP)
+	unsigned long	pid;	/* value written in PID reg. at interrupt exit */
 #endif
 	/* Debug Registers */
 	struct debug_reg debug;
@@ -194,8 +195,10 @@ struct thread_struct {
 	int		used_vsr;	/* set if process has used VSX */
 #endif /* CONFIG_VSX */
 #ifdef CONFIG_SPE
-	unsigned long	evr[32];	/* upper 32-bits of SPE regs */
-	u64		acc;		/* Accumulator */
+	struct_group(spe,
+		unsigned long	evr[32];	/* upper 32-bits of SPE regs */
+		u64		acc;		/* Accumulator */
+	);
 	unsigned long	spefscr;	/* SPE & eFP status */
 	unsigned long	spefscr_last;	/* SPEFSCR value on last prctl
 					   call or trap return */
@@ -279,13 +282,28 @@ struct thread_struct {
 #define SPEFSCR_INIT
 #endif
 
-#ifdef CONFIG_PPC32
+#ifdef CONFIG_PPC_BOOK3S_32
+#define SR0_INIT	.sr0 = IS_ENABLED(CONFIG_PPC_KUEP) ? SR_NX : 0,
+#else
+#define SR0_INIT
+#endif
+
+#if defined(CONFIG_PPC_BOOK3S_32) && defined(CONFIG_PPC_KUAP)
 #define INIT_THREAD { \
 	.ksp = INIT_SP, \
-	.ksp_limit = INIT_SP_LIMIT, \
+	.pgdir = swapper_pg_dir, \
+	.kuap = ~0UL, /* KUAP_NONE */ \
+	.fpexc_mode = MSR_FE0 | MSR_FE1, \
+	SPEFSCR_INIT \
+	SR0_INIT \
+}
+#elif defined(CONFIG_PPC32)
+#define INIT_THREAD { \
+	.ksp = INIT_SP, \
 	.pgdir = swapper_pg_dir, \
 	.fpexc_mode = MSR_FE0 | MSR_FE1, \
 	SPEFSCR_INIT \
+	SR0_INIT \
 }
 #else
 #define INIT_THREAD  { \
@@ -296,7 +314,7 @@ struct thread_struct {
 
 #define task_pt_regs(tsk)	((tsk)->thread.regs)
 
-unsigned long get_wchan(struct task_struct *p);
+unsigned long __get_wchan(struct task_struct *p);
 
 #define KSTK_EIP(tsk)  ((tsk)->thread.regs? (tsk)->thread.regs->nip: 0)
 #define KSTK_ESP(tsk)  ((tsk)->thread.regs? (tsk)->thread.regs->gpr[1]: 0)
@@ -343,17 +361,6 @@ static inline unsigned long __pack_fe01(unsigned int fpmode)
 
 #define spin_end()	HMT_medium()
 
-#define spin_until_cond(cond)					\
-do {								\
-	if (unlikely(!(cond))) {				\
-		spin_begin();					\
-		do {						\
-			spin_cpu_relax();			\
-		} while (!(cond));				\
-		spin_end();					\
-	}							\
-} while (0)
-
 #endif
 
 /* Check that a certain kernel stack pointer is valid in task_struct p */
@@ -393,6 +400,7 @@ extern unsigned long isa300_idle_stop_mayloss(unsigned long psscr_val);
 extern unsigned long isa206_idle_insn_mayloss(unsigned long type);
 #ifdef CONFIG_PPC_970_NAP
 extern void power4_idle_nap(void);
+void power4_idle_nap_return(void);
 #endif
 
 extern unsigned long cpuidle_disable;
@@ -403,6 +411,8 @@ extern int powersave_nap;	/* set if nap mode can be used in idle loop */
 extern void power7_idle_type(unsigned long type);
 extern void arch300_idle_type(unsigned long stop_psscr_val,
 			      unsigned long stop_psscr_mask);
+void pnv_power9_force_smt4_catch(void);
+void pnv_power9_force_smt4_release(void);
 
 extern int fix_alignment(struct pt_regs *);
 
@@ -416,6 +426,14 @@ extern int fix_alignment(struct pt_regs *);
  */
 #define NET_IP_ALIGN	0
 #endif
+
+int do_mathemu(struct pt_regs *regs);
+
+/* VMX copying */
+int enter_vmx_usercopy(void);
+int exit_vmx_usercopy(void);
+int enter_vmx_ops(void);
+void *exit_vmx_ops(void *dest);
 
 #endif /* __KERNEL__ */
 #endif /* __ASSEMBLY__ */

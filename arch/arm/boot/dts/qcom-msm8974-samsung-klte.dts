@@ -315,6 +315,10 @@
 	};
 
 	/delete-node/ vreg-boost;
+
+	adsp-pil {
+		cx-supply = <&pma8084_s2>;
+	};
 };
 
 &soc {
@@ -322,9 +326,29 @@
 		status = "okay";
 	};
 
+	/* blsp2_uart8 */
+	serial@f995e000 {
+		status = "okay";
+
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&blsp2_uart8_pins_active>;
+		pinctrl-1 = <&blsp2_uart8_pins_sleep>;
+
+		bluetooth {
+			compatible = "brcm,bcm43540-bt";
+			max-speed = <3000000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&bt_pins>;
+			device-wakeup-gpios = <&msmgpio 91 GPIO_ACTIVE_HIGH>;
+			shutdown-gpios = <&gpio_expander 9 GPIO_ACTIVE_HIGH>;
+			interrupt-parent = <&msmgpio>;
+			interrupts = <75 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "host-wakeup";
+		};
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
-		input-name = "gpio-keys";
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&gpio_keys_pin_a>;
@@ -356,6 +380,35 @@
 	};
 
 	pinctrl@fd510000 {
+		blsp2_uart8_pins_active: blsp2-uart8-pins-active {
+			pins = "gpio45", "gpio46", "gpio47", "gpio48";
+			function = "blsp_uart8";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		blsp2_uart8_pins_sleep: blsp2-uart8-pins-sleep {
+			pins = "gpio45", "gpio46", "gpio47", "gpio48";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+
+		bt_pins: bt-pins {
+			hostwake {
+				pins = "gpio75";
+				function = "gpio";
+				drive-strength = <16>;
+				input-enable;
+			};
+
+			devwake {
+				pins = "gpio91";
+				function = "gpio";
+				drive-strength = <2>;
+			};
+		};
+
 		sdhc1_pin_a: sdhc1-pin-active {
 			clk {
 				pins = "sdc1_clk";
@@ -717,7 +770,7 @@
 			maxim,rcomp = /bits/ 8 <0x56>;
 
 			interrupt-parent = <&pma8084_gpios>;
-			interrupts = <21 IRQ_TYPE_EDGE_FALLING>;
+			interrupts = <21 IRQ_TYPE_LEVEL_LOW>;
 
 			pinctrl-names = "default";
 			pinctrl-0 = <&fuelgauge_pin>;
@@ -780,6 +833,13 @@
 
 			vddio-supply = <&pma8084_l12>;
 		};
+	};
+
+	remoteproc@fc880000 {
+		cx-supply = <&pma8084_s2>;
+		mss-supply = <&pma8084_s6>;
+		mx-supply = <&pma8084_s1>;
+		pll-supply = <&pma8084_l12>;
 	};
 };
 

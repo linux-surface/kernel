@@ -71,12 +71,12 @@
 #include <asm/swiotlb.h>
 #include <asm/svm.h>
 #include <asm/dtl.h>
+#include <asm/hvconsole.h>
 
 #include "pseries.h"
-#include "../../../../drivers/pci/pci.h"
 
 DEFINE_STATIC_KEY_FALSE(shared_processor);
-EXPORT_SYMBOL_GPL(shared_processor);
+EXPORT_SYMBOL(shared_processor);
 
 int CMO_PrPSP = -1;
 int CMO_SecPSP = -1;
@@ -85,6 +85,7 @@ EXPORT_SYMBOL(CMO_PageSize);
 
 int fwnmi_active;  /* TRUE if an FWNMI handler is present */
 int ibm_nmi_interlock_token;
+u32 pseries_security_flavor;
 
 static void pSeries_show_cpuinfo(struct seq_file *m)
 {
@@ -111,7 +112,7 @@ static void __init fwnmi_init(void)
 	u8 *mce_data_buf;
 	unsigned int i;
 	int nr_cpus = num_possible_cpus();
-#ifdef CONFIG_PPC_BOOK3S_64
+#ifdef CONFIG_PPC_64S_HASH_MMU
 	struct slb_entry *slb_ptr;
 	size_t size;
 #endif
@@ -151,7 +152,7 @@ static void __init fwnmi_init(void)
 						(RTAS_ERROR_LOG_MAX * i);
 	}
 
-#ifdef CONFIG_PPC_BOOK3S_64
+#ifdef CONFIG_PPC_64S_HASH_MMU
 	if (!radix_enabled()) {
 		/* Allocate per cpu area to save old slb contents during MCE */
 		size = sizeof(struct slb_entry) * mmu_slb_size * nr_cpus;
@@ -352,6 +353,14 @@ static void pseries_lpar_idle(void)
 	pseries_idle_epilog();
 }
 
+static bool pseries_reloc_on_exception_enabled;
+
+bool pseries_reloc_on_exception(void)
+{
+	return pseries_reloc_on_exception_enabled;
+}
+EXPORT_SYMBOL_GPL(pseries_reloc_on_exception);
+
 /*
  * Enable relocation on during exceptions. This has partition wide scope and
  * may take a while to complete, if it takes longer than one second we will
@@ -376,6 +385,7 @@ bool pseries_enable_reloc_on_exc(void)
 					" on exceptions: %ld\n", rc);
 				return false;
 			}
+			pseries_reloc_on_exception_enabled = true;
 			return true;
 		}
 
@@ -403,7 +413,9 @@ void pseries_disable_reloc_on_exc(void)
 			break;
 		mdelay(get_longbusy_msecs(rc));
 	}
-	if (rc != H_SUCCESS)
+	if (rc == H_SUCCESS)
+		pseries_reloc_on_exception_enabled = false;
+	else
 		pr_warn("Warning: Failed to disable relocation on exceptions: %ld\n",
 			rc);
 }
@@ -446,7 +458,7 @@ void pseries_big_endian_exceptions(void)
 		panic("Could not enable big endian exceptions");
 }
 
-void pseries_little_endian_exceptions(void)
+void __init pseries_little_endian_exceptions(void)
 {
 	long rc;
 
@@ -484,6 +496,8 @@ static void __init pSeries_discover_phbs(void)
 
 		/* create pci_dn's for DT nodes under this PHB */
 		pci_devs_phb_init_dynamic(phb);
+
+		pseries_msi_allocate_domains(phb);
 	}
 
 	of_node_put(root);
@@ -534,12 +548,28 @@ static void init_cpu_char_feature_flags(struct h_cpu_char_result *result)
 	/*
 	 * The features below are enabled by default, so we instead look to see
 	 * if firmware has *disabled* them, and clear them if so.
+	 * H_CPU_BEHAV_FAVOUR_SECURITY_H could be set only if
+	 * H_CPU_BEHAV_FAVOUR_SECURITY is.
 	 */
-	if (!(result->behaviour & H_CPU_BEHAV_FAVOUR_SECURITY))
+	if (!(result->behaviour & H_CPU_BEHAV_FAVOUR_SECURITY)) {
 		security_ftr_clear(SEC_FTR_FAVOUR_SECURITY);
+		pseries_security_flavor = 0;
+	} else if (result->behaviour & H_CPU_BEHAV_FAVOUR_SECURITY_H)
+		pseries_security_flavor = 1;
+	else
+		pseries_security_flavor = 2;
 
 	if (!(result->behaviour & H_CPU_BEHAV_L1D_FLUSH_PR))
 		security_ftr_clear(SEC_FTR_L1D_FLUSH_PR);
+
+	if (result->behaviour & H_CPU_BEHAV_NO_L1D_FLUSH_ENTRY)
+		security_ftr_clear(SEC_FTR_L1D_FLUSH_ENTRY);
+
+	if (result->behaviour & H_CPU_BEHAV_NO_L1D_FLUSH_UACCESS)
+		security_ftr_clear(SEC_FTR_L1D_FLUSH_UACCESS);
+
+	if (result->behaviour & H_CPU_BEHAV_NO_STF_BARRIER)
+		security_ftr_clear(SEC_FTR_STF_BARRIER);
 
 	if (!(result->behaviour & H_CPU_BEHAV_BNDS_CHK_SPEC_BAR))
 		security_ftr_clear(SEC_FTR_BNDS_CHK_SPEC_BAR);
@@ -730,7 +760,7 @@ static void pseries_pci_fixup_iov_resources(struct pci_dev *pdev)
 	const int *indexes;
 	struct device_node *dn = pci_device_to_OF_node(pdev);
 
-	if (!pdev->is_physfn || pci_dev_is_added(pdev))
+	if (!pdev->is_physfn)
 		return;
 	/*Firmware must support open sriov otherwise dont configure*/
 	indexes = of_get_property(dn, "ibm,open-sriov-vf-bar-info", NULL);
@@ -782,7 +812,9 @@ static void __init pSeries_setup_arch(void)
 	fwnmi_init();
 
 	pseries_setup_security_mitigations();
+#ifdef CONFIG_PPC_64S_HASH_MMU
 	pseries_lpar_read_hblkrm_characteristics();
+#endif
 
 	/* By default, only probe PCI (can be overridden by rtas_pci) */
 	pci_add_flags(PCI_PROBE_ONLY);
@@ -886,7 +918,7 @@ void pSeries_coalesce_init(void)
  * fw_cmo_feature_init - FW_FEATURE_CMO is not stored in ibm,hypertas-functions,
  * handle that here. (Stolen from parse_system_parameter_string)
  */
-static void pSeries_cmo_feature_init(void)
+static void __init pSeries_cmo_feature_init(void)
 {
 	char *ptr, *key, *value, *end;
 	int call_status;
@@ -1065,11 +1097,12 @@ define_machine(pseries) {
 	.system_reset_exception = pSeries_system_reset_exception,
 	.machine_check_early	= pseries_machine_check_realmode,
 	.machine_check_exception = pSeries_machine_check_exception,
+	.machine_check_log_err	= pSeries_machine_check_log_err,
 #ifdef CONFIG_KEXEC_CORE
 	.machine_kexec          = pSeries_machine_kexec,
 	.kexec_cpu_down         = pseries_kexec_cpu_down,
 #endif
-#ifdef CONFIG_MEMORY_HOTPLUG_SPARSE
+#ifdef CONFIG_MEMORY_HOTPLUG
 	.memory_block_size	= pseries_memory_block_size,
 #endif
 };

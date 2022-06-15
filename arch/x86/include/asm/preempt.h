@@ -44,7 +44,7 @@ static __always_inline void preempt_count_set(int pc)
 #define init_task_preempt_count(p) do { } while (0)
 
 #define init_idle_preempt_count(p, cpu) do { \
-	per_cpu(__preempt_count, (cpu)) = PREEMPT_ENABLED; \
+	per_cpu(__preempt_count, (cpu)) = PREEMPT_DISABLED; \
 } while (0)
 
 /*
@@ -108,16 +108,18 @@ static __always_inline bool should_resched(int preempt_offset)
 extern asmlinkage void preempt_schedule(void);
 extern asmlinkage void preempt_schedule_thunk(void);
 
-#define __preempt_schedule_func preempt_schedule_thunk
+#define preempt_schedule_dynamic_enabled	preempt_schedule_thunk
+#define preempt_schedule_dynamic_disabled	NULL
 
 extern asmlinkage void preempt_schedule_notrace(void);
 extern asmlinkage void preempt_schedule_notrace_thunk(void);
 
-#define __preempt_schedule_notrace_func preempt_schedule_notrace_thunk
+#define preempt_schedule_notrace_dynamic_enabled	preempt_schedule_notrace_thunk
+#define preempt_schedule_notrace_dynamic_disabled	NULL
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
-DECLARE_STATIC_CALL(preempt_schedule, __preempt_schedule_func);
+DECLARE_STATIC_CALL(preempt_schedule, preempt_schedule_dynamic_enabled);
 
 #define __preempt_schedule() \
 do { \
@@ -125,7 +127,7 @@ do { \
 	asm volatile ("call " STATIC_CALL_TRAMP_STR(preempt_schedule) : ASM_CALL_CONSTRAINT); \
 } while (0)
 
-DECLARE_STATIC_CALL(preempt_schedule_notrace, __preempt_schedule_notrace_func);
+DECLARE_STATIC_CALL(preempt_schedule_notrace, preempt_schedule_notrace_dynamic_enabled);
 
 #define __preempt_schedule_notrace() \
 do { \

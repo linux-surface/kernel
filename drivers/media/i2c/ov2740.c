@@ -51,7 +51,7 @@
 #define OV2740_REG_MWB_R_GAIN		0x500a
 #define OV2740_REG_MWB_G_GAIN		0x500c
 #define OV2740_REG_MWB_B_GAIN		0x500e
-#define OV2740_DGTL_GAIN_MIN		0
+#define OV2740_DGTL_GAIN_MIN		1024
 #define OV2740_DGTL_GAIN_MAX		4095
 #define OV2740_DGTL_GAIN_STEP		1
 #define OV2740_DGTL_GAIN_DEFAULT	1024
@@ -60,6 +60,12 @@
 #define OV2740_REG_TEST_PATTERN		0x5040
 #define OV2740_TEST_PATTERN_ENABLE	BIT(7)
 #define OV2740_TEST_PATTERN_BAR_SHIFT	2
+
+/* Group Access */
+#define OV2740_REG_GROUP_ACCESS		0x3208
+#define OV2740_GROUP_HOLD_START		0x0
+#define OV2740_GROUP_HOLD_END		0x10
+#define OV2740_GROUP_HOLD_LAUNCH	0xa0
 
 /* ISP CTRL00 */
 #define OV2740_REG_ISP_CTRL00		0x5000
@@ -339,6 +345,9 @@ struct ov2740 {
 
 	/* NVM data inforamtion */
 	struct nvm_data *nvm;
+
+	/* True if the device has been identified */
+	bool identified;
 };
 
 static inline struct ov2740 *to_ov2740(struct v4l2_subdev *subdev)
@@ -434,9 +443,38 @@ static int ov2740_write_reg_list(struct ov2740 *ov2740,
 	return 0;
 }
 
+static int ov2740_identify_module(struct ov2740 *ov2740)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&ov2740->sd);
+	int ret;
+	u32 val;
+
+	if (ov2740->identified)
+		return 0;
+
+	ret = ov2740_read_reg(ov2740, OV2740_REG_CHIP_ID, 3, &val);
+	if (ret)
+		return ret;
+
+	if (val != OV2740_CHIP_ID) {
+		dev_err(&client->dev, "chip id mismatch: %x!=%x",
+			OV2740_CHIP_ID, val);
+		return -ENXIO;
+	}
+
+	ov2740->identified = true;
+
+	return 0;
+}
+
 static int ov2740_update_digital_gain(struct ov2740 *ov2740, u32 d_gain)
 {
 	int ret = 0;
+
+	ret = ov2740_write_reg(ov2740, OV2740_REG_GROUP_ACCESS, 1,
+			       OV2740_GROUP_HOLD_START);
+	if (ret)
+		return ret;
 
 	ret = ov2740_write_reg(ov2740, OV2740_REG_MWB_R_GAIN, 2, d_gain);
 	if (ret)
@@ -446,7 +484,18 @@ static int ov2740_update_digital_gain(struct ov2740 *ov2740, u32 d_gain)
 	if (ret)
 		return ret;
 
-	return ov2740_write_reg(ov2740, OV2740_REG_MWB_B_GAIN, 2, d_gain);
+	ret = ov2740_write_reg(ov2740, OV2740_REG_MWB_B_GAIN, 2, d_gain);
+	if (ret)
+		return ret;
+
+	ret = ov2740_write_reg(ov2740, OV2740_REG_GROUP_ACCESS, 1,
+			       OV2740_GROUP_HOLD_END);
+	if (ret)
+		return ret;
+
+	ret = ov2740_write_reg(ov2740, OV2740_REG_GROUP_ACCESS, 1,
+			       OV2740_GROUP_HOLD_LAUNCH);
+	return ret;
 }
 
 static int ov2740_test_pattern(struct ov2740 *ov2740, u32 pattern)
@@ -702,6 +751,10 @@ static int ov2740_start_streaming(struct ov2740 *ov2740)
 	int link_freq_index;
 	int ret = 0;
 
+	ret = ov2740_identify_module(ov2740);
+	if (ret)
+		return ret;
+
 	ov2740_load_otp_data(nvm);
 
 	link_freq_index = ov2740->cur_mode->link_freq_index;
@@ -751,9 +804,8 @@ static int ov2740_set_stream(struct v4l2_subdev *sd, int enable)
 
 	mutex_lock(&ov2740->mutex);
 	if (enable) {
-		ret = pm_runtime_get_sync(&client->dev);
+		ret = pm_runtime_resume_and_get(&client->dev);
 		if (ret < 0) {
-			pm_runtime_put_noidle(&client->dev);
 			mutex_unlock(&ov2740->mutex);
 			return ret;
 		}
@@ -811,7 +863,7 @@ exit:
 }
 
 static int ov2740_set_format(struct v4l2_subdev *sd,
-			     struct v4l2_subdev_pad_config *cfg,
+			     struct v4l2_subdev_state *sd_state,
 			     struct v4l2_subdev_format *fmt)
 {
 	struct ov2740 *ov2740 = to_ov2740(sd);
@@ -826,7 +878,7 @@ static int ov2740_set_format(struct v4l2_subdev *sd,
 	mutex_lock(&ov2740->mutex);
 	ov2740_update_pad_format(mode, &fmt->format);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
-		*v4l2_subdev_get_try_format(sd, cfg, fmt->pad) = fmt->format;
+		*v4l2_subdev_get_try_format(sd, sd_state, fmt->pad) = fmt->format;
 	} else {
 		ov2740->cur_mode = mode;
 		__v4l2_ctrl_s_ctrl(ov2740->link_freq, mode->link_freq_index);
@@ -851,14 +903,15 @@ static int ov2740_set_format(struct v4l2_subdev *sd,
 }
 
 static int ov2740_get_format(struct v4l2_subdev *sd,
-			     struct v4l2_subdev_pad_config *cfg,
+			     struct v4l2_subdev_state *sd_state,
 			     struct v4l2_subdev_format *fmt)
 {
 	struct ov2740 *ov2740 = to_ov2740(sd);
 
 	mutex_lock(&ov2740->mutex);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
-		fmt->format = *v4l2_subdev_get_try_format(&ov2740->sd, cfg,
+		fmt->format = *v4l2_subdev_get_try_format(&ov2740->sd,
+							  sd_state,
 							  fmt->pad);
 	else
 		ov2740_update_pad_format(ov2740->cur_mode, &fmt->format);
@@ -869,7 +922,7 @@ static int ov2740_get_format(struct v4l2_subdev *sd,
 }
 
 static int ov2740_enum_mbus_code(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_mbus_code_enum *code)
 {
 	if (code->index > 0)
@@ -881,7 +934,7 @@ static int ov2740_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int ov2740_enum_frame_size(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
+				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_frame_size_enum *fse)
 {
 	if (fse->index >= ARRAY_SIZE(supported_modes))
@@ -904,7 +957,7 @@ static int ov2740_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 	mutex_lock(&ov2740->mutex);
 	ov2740_update_pad_format(&supported_modes[0],
-				 v4l2_subdev_get_try_format(sd, fh->pad, 0));
+				 v4l2_subdev_get_try_format(sd, fh->state, 0));
 	mutex_unlock(&ov2740->mutex);
 
 	return 0;
@@ -933,25 +986,6 @@ static const struct media_entity_operations ov2740_subdev_entity_ops = {
 static const struct v4l2_subdev_internal_ops ov2740_internal_ops = {
 	.open = ov2740_open,
 };
-
-static int ov2740_identify_module(struct ov2740 *ov2740)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(&ov2740->sd);
-	int ret;
-	u32 val;
-
-	ret = ov2740_read_reg(ov2740, OV2740_REG_CHIP_ID, 3, &val);
-	if (ret)
-		return ret;
-
-	if (val != OV2740_CHIP_ID) {
-		dev_err(&client->dev, "chip id mismatch: %x!=%x",
-			OV2740_CHIP_ID, val);
-		return -ENXIO;
-	}
-
-	return 0;
-}
 
 static int ov2740_check_hwcfg(struct device *dev)
 {
@@ -1049,9 +1083,8 @@ static int ov2740_nvmem_read(void *priv, unsigned int off, void *val,
 		goto exit;
 	}
 
-	ret = pm_runtime_get_sync(dev);
+	ret = pm_runtime_resume_and_get(dev);
 	if (ret < 0) {
-		pm_runtime_put_noidle(dev);
 		goto exit;
 	}
 
@@ -1116,6 +1149,7 @@ static int ov2740_probe(struct i2c_client *client)
 {
 	struct ov2740 *ov2740;
 	int ret = 0;
+	bool full_power;
 
 	ret = ov2740_check_hwcfg(&client->dev);
 	if (ret) {
@@ -1129,10 +1163,13 @@ static int ov2740_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	v4l2_i2c_subdev_init(&ov2740->sd, client, &ov2740_subdev_ops);
-	ret = ov2740_identify_module(ov2740);
-	if (ret) {
-		dev_err(&client->dev, "failed to find sensor: %d", ret);
-		return ret;
+	full_power = acpi_dev_state_d0(&client->dev);
+	if (full_power) {
+		ret = ov2740_identify_module(ov2740);
+		if (ret) {
+			dev_err(&client->dev, "failed to find sensor: %d", ret);
+			return ret;
+		}
 	}
 
 	mutex_init(&ov2740->mutex);
@@ -1154,7 +1191,7 @@ static int ov2740_probe(struct i2c_client *client)
 		goto probe_error_v4l2_ctrl_handler_free;
 	}
 
-	ret = v4l2_async_register_subdev_sensor_common(&ov2740->sd);
+	ret = v4l2_async_register_subdev_sensor(&ov2740->sd);
 	if (ret < 0) {
 		dev_err(&client->dev, "failed to register V4L2 subdev: %d",
 			ret);
@@ -1165,11 +1202,9 @@ static int ov2740_probe(struct i2c_client *client)
 	if (ret)
 		dev_warn(&client->dev, "register nvmem failed, ret %d\n", ret);
 
-	/*
-	 * Device is already turned on by i2c-core with ACPI domain PM.
-	 * Enable runtime PM and turn off the device.
-	 */
-	pm_runtime_set_active(&client->dev);
+	/* Set the device's state to active if it's in D0 state. */
+	if (full_power)
+		pm_runtime_set_active(&client->dev);
 	pm_runtime_enable(&client->dev);
 	pm_runtime_idle(&client->dev);
 
@@ -1204,6 +1239,7 @@ static struct i2c_driver ov2740_i2c_driver = {
 	},
 	.probe_new = ov2740_probe,
 	.remove = ov2740_remove,
+	.flags = I2C_DRV_ACPI_WAIVE_D0_PROBE,
 };
 
 module_i2c_driver(ov2740_i2c_driver);

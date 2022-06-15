@@ -24,6 +24,7 @@
 #include <linux/kernel.h>
 
 #include "i915_drv.h"
+#include "i915_irq.h"
 #include "intel_display_types.h"
 #include "intel_hotplug.h"
 
@@ -213,12 +214,6 @@ intel_hpd_irq_storm_switch_to_polling(struct drm_i915_private *dev_priv)
 	}
 }
 
-static void intel_hpd_irq_setup(struct drm_i915_private *i915)
-{
-	if (i915->display_irqs_enabled && i915->display.hpd_irq_setup)
-		i915->display.hpd_irq_setup(i915);
-}
-
 static void intel_hpd_irq_storm_reenable_work(struct work_struct *work)
 {
 	struct drm_i915_private *dev_priv =
@@ -281,13 +276,13 @@ intel_encoder_hotplug(struct intel_encoder *encoder,
 		ret = true;
 
 	if (ret) {
-		DRM_DEBUG_KMS("[CONNECTOR:%d:%s] status updated from %s to %s (epoch counter %llu->%llu)\n",
-			      connector->base.base.id,
-			      connector->base.name,
-			      drm_get_connector_status_name(old_status),
-			      drm_get_connector_status_name(connector->base.status),
-			      old_epoch_counter,
-			      connector->base.epoch_counter);
+		drm_dbg_kms(dev, "[CONNECTOR:%d:%s] status updated from %s to %s (epoch counter %llu->%llu)\n",
+			    connector->base.base.id,
+			    connector->base.name,
+			    drm_get_connector_status_name(old_status),
+			    drm_get_connector_status_name(connector->base.status),
+			    old_epoch_counter,
+			    connector->base.epoch_counter);
 		return INTEL_HOTPLUG_CHANGED;
 	}
 	return INTEL_HOTPLUG_UNCHANGED;
@@ -595,6 +590,9 @@ void intel_hpd_init(struct drm_i915_private *dev_priv)
 {
 	int i;
 
+	if (!HAS_DISPLAY(dev_priv))
+		return;
+
 	for_each_hpd_pin(i) {
 		dev_priv->hotplug.stats[i].count = 0;
 		dev_priv->hotplug.stats[i].state = HPD_ENABLED;
@@ -670,6 +668,9 @@ static void i915_hpd_poll_init_work(struct work_struct *work)
  */
 void intel_hpd_poll_enable(struct drm_i915_private *dev_priv)
 {
+	if (!HAS_DISPLAY(dev_priv))
+		return;
+
 	WRITE_ONCE(dev_priv->hotplug.poll_enabled, true);
 
 	/*
@@ -702,6 +703,9 @@ void intel_hpd_poll_enable(struct drm_i915_private *dev_priv)
  */
 void intel_hpd_poll_disable(struct drm_i915_private *dev_priv)
 {
+	if (!HAS_DISPLAY(dev_priv))
+		return;
+
 	WRITE_ONCE(dev_priv->hotplug.poll_enabled, false);
 	schedule_work(&dev_priv->hotplug.poll_init_work);
 }
@@ -718,6 +722,9 @@ void intel_hpd_init_work(struct drm_i915_private *dev_priv)
 
 void intel_hpd_cancel_work(struct drm_i915_private *dev_priv)
 {
+	if (!HAS_DISPLAY(dev_priv))
+		return;
+
 	spin_lock_irq(&dev_priv->irq_lock);
 
 	dev_priv->hotplug.long_port_mask = 0;

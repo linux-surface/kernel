@@ -870,7 +870,7 @@ static void do_abort_syn_rcv(struct sock *child, struct sock *parent)
 		 * created only after 3 way handshake is done.
 		 */
 		sock_orphan(child);
-		percpu_counter_inc((child)->sk_prot->orphan_count);
+		INC_ORPHAN_COUNT(child);
 		chtls_release_resources(child);
 		chtls_conn_done(child);
 	} else {
@@ -2134,7 +2134,7 @@ static void chtls_abort_req_rss(struct sock *sk, struct sk_buff *skb)
 		sk->sk_err = ETIMEDOUT;
 
 		if (!sock_flag(sk, SOCK_DEAD))
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 
 		if (sk->sk_state == TCP_SYN_RECV && !abort_syn_rcv(sk, skb))
 			return;

@@ -19,6 +19,7 @@ struct fscrypt_mode fscrypt_modes[] = {
 		.friendly_name = "AES-256-XTS",
 		.cipher_str = "xts(aes)",
 		.keysize = 64,
+		.security_strength = 32,
 		.ivsize = 16,
 		.blk_crypto_mode = BLK_ENCRYPTION_MODE_AES_256_XTS,
 	},
@@ -26,12 +27,14 @@ struct fscrypt_mode fscrypt_modes[] = {
 		.friendly_name = "AES-256-CTS-CBC",
 		.cipher_str = "cts(cbc(aes))",
 		.keysize = 32,
+		.security_strength = 32,
 		.ivsize = 16,
 	},
 	[FSCRYPT_MODE_AES_128_CBC] = {
 		.friendly_name = "AES-128-CBC-ESSIV",
 		.cipher_str = "essiv(cbc(aes),sha256)",
 		.keysize = 16,
+		.security_strength = 16,
 		.ivsize = 16,
 		.blk_crypto_mode = BLK_ENCRYPTION_MODE_AES_128_CBC_ESSIV,
 	},
@@ -39,12 +42,14 @@ struct fscrypt_mode fscrypt_modes[] = {
 		.friendly_name = "AES-128-CTS-CBC",
 		.cipher_str = "cts(cbc(aes))",
 		.keysize = 16,
+		.security_strength = 16,
 		.ivsize = 16,
 	},
 	[FSCRYPT_MODE_ADIANTUM] = {
 		.friendly_name = "Adiantum",
 		.cipher_str = "adiantum(xchacha12,aes)",
 		.keysize = 32,
+		.security_strength = 32,
 		.ivsize = 32,
 		.blk_crypto_mode = BLK_ENCRYPTION_MODE_ADIANTUM,
 	},
@@ -117,8 +122,9 @@ err_free_tfm:
 
 /*
  * Prepare the crypto transform object or blk-crypto key in @prep_key, given the
- * raw key, encryption mode, and flag indicating which encryption implementation
- * (fs-layer or blk-crypto) will be used.
+ * raw key, encryption mode (@ci->ci_mode), flag indicating which encryption
+ * implementation (fs-layer or blk-crypto) will be used (@ci->ci_inlinecrypt),
+ * and IV generation method (@ci->ci_policy.flags).
  */
 int fscrypt_prepare_key(struct fscrypt_prepared_key *prep_key,
 			const u8 *raw_key, const struct fscrypt_info *ci)
@@ -210,15 +216,40 @@ out_unlock:
 	return err;
 }
 
+/*
+ * Derive a SipHash key from the given fscrypt master key and the given
+ * application-specific information string.
+ *
+ * Note that the KDF produces a byte array, but the SipHash APIs expect the key
+ * as a pair of 64-bit words.  Therefore, on big endian CPUs we have to do an
+ * endianness swap in order to get the same results as on little endian CPUs.
+ */
+static int fscrypt_derive_siphash_key(const struct fscrypt_master_key *mk,
+				      u8 context, const u8 *info,
+				      unsigned int infolen, siphash_key_t *key)
+{
+	int err;
+
+	err = fscrypt_hkdf_expand(&mk->mk_secret.hkdf, context, info, infolen,
+				  (u8 *)key, sizeof(*key));
+	if (err)
+		return err;
+
+	BUILD_BUG_ON(sizeof(*key) != 16);
+	BUILD_BUG_ON(ARRAY_SIZE(key->key) != 2);
+	le64_to_cpus(&key->key[0]);
+	le64_to_cpus(&key->key[1]);
+	return 0;
+}
+
 int fscrypt_derive_dirhash_key(struct fscrypt_info *ci,
 			       const struct fscrypt_master_key *mk)
 {
 	int err;
 
-	err = fscrypt_hkdf_expand(&mk->mk_secret.hkdf, HKDF_CONTEXT_DIRHASH_KEY,
-				  ci->ci_nonce, FSCRYPT_FILE_NONCE_SIZE,
-				  (u8 *)&ci->ci_dirhash_key,
-				  sizeof(ci->ci_dirhash_key));
+	err = fscrypt_derive_siphash_key(mk, HKDF_CONTEXT_DIRHASH_KEY,
+					 ci->ci_nonce, FSCRYPT_FILE_NONCE_SIZE,
+					 &ci->ci_dirhash_key);
 	if (err)
 		return err;
 	ci->ci_dirhash_key_initialized = true;
@@ -253,10 +284,9 @@ static int fscrypt_setup_iv_ino_lblk_32_key(struct fscrypt_info *ci,
 		if (mk->mk_ino_hash_key_initialized)
 			goto unlock;
 
-		err = fscrypt_hkdf_expand(&mk->mk_secret.hkdf,
-					  HKDF_CONTEXT_INODE_HASH_KEY, NULL, 0,
-					  (u8 *)&mk->mk_ino_hash_key,
-					  sizeof(mk->mk_ino_hash_key));
+		err = fscrypt_derive_siphash_key(mk,
+						 HKDF_CONTEXT_INODE_HASH_KEY,
+						 NULL, 0, &mk->mk_ino_hash_key);
 		if (err)
 			goto unlock;
 		/* pairs with smp_load_acquire() above */
@@ -334,6 +364,45 @@ static int fscrypt_setup_v2_file_key(struct fscrypt_info *ci,
 }
 
 /*
+ * Check whether the size of the given master key (@mk) is appropriate for the
+ * encryption settings which a particular file will use (@ci).
+ *
+ * If the file uses a v1 encryption policy, then the master key must be at least
+ * as long as the derived key, as this is a requirement of the v1 KDF.
+ *
+ * Otherwise, the KDF can accept any size key, so we enforce a slightly looser
+ * requirement: we require that the size of the master key be at least the
+ * maximum security strength of any algorithm whose key will be derived from it
+ * (but in practice we only need to consider @ci->ci_mode, since any other
+ * possible subkeys such as DIRHASH and INODE_HASH will never increase the
+ * required key size over @ci->ci_mode).  This allows AES-256-XTS keys to be
+ * derived from a 256-bit master key, which is cryptographically sufficient,
+ * rather than requiring a 512-bit master key which is unnecessarily long.  (We
+ * still allow 512-bit master keys if the user chooses to use them, though.)
+ */
+static bool fscrypt_valid_master_key_size(const struct fscrypt_master_key *mk,
+					  const struct fscrypt_info *ci)
+{
+	unsigned int min_keysize;
+
+	if (ci->ci_policy.version == FSCRYPT_POLICY_V1)
+		min_keysize = ci->ci_mode->keysize;
+	else
+		min_keysize = ci->ci_mode->security_strength;
+
+	if (mk->mk_secret.size < min_keysize) {
+		fscrypt_warn(NULL,
+			     "key with %s %*phN is too short (got %u bytes, need %u+ bytes)",
+			     master_key_spec_type(&mk->mk_spec),
+			     master_key_spec_len(&mk->mk_spec),
+			     (u8 *)&mk->mk_spec.u,
+			     mk->mk_secret.size, min_keysize);
+		return false;
+	}
+	return true;
+}
+
+/*
  * Find the master key, then set up the inode's actual encryption key.
  *
  * If the master key is found in the filesystem-level keyring, then the
@@ -398,18 +467,7 @@ static int setup_file_encryption_key(struct fscrypt_info *ci,
 		goto out_release_key;
 	}
 
-	/*
-	 * Require that the master key be at least as long as the derived key.
-	 * Otherwise, the derived key cannot possibly contain as much entropy as
-	 * that required by the encryption mode it will be used for.  For v1
-	 * policies it's also required for the KDF to work at all.
-	 */
-	if (mk->mk_secret.size < ci->ci_mode->keysize) {
-		fscrypt_warn(NULL,
-			     "key with %s %*phN is too short (got %u bytes, need %u+ bytes)",
-			     master_key_spec_type(&mk_spec),
-			     master_key_spec_len(&mk_spec), (u8 *)&mk_spec.u,
-			     mk->mk_secret.size, ci->ci_mode->keysize);
+	if (!fscrypt_valid_master_key_size(mk, ci)) {
 		err = -ENOKEY;
 		goto out_release_key;
 	}

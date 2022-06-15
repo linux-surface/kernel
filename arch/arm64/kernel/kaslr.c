@@ -72,7 +72,9 @@ u64 __init kaslr_early_init(void)
 	 * we end up running with module randomization disabled.
 	 */
 	module_alloc_base = (u64)_etext - MODULES_VSIZE;
-	__flush_dcache_area(&module_alloc_base, sizeof(module_alloc_base));
+	dcache_clean_inval_poc((unsigned long)&module_alloc_base,
+			    (unsigned long)&module_alloc_base +
+				    sizeof(module_alloc_base));
 
 	/*
 	 * Try to map the FDT early. If this fails, we simply bail,
@@ -128,15 +130,17 @@ u64 __init kaslr_early_init(void)
 	/* use the top 16 bits to randomize the linear region */
 	memstart_offset_seed = seed >> 48;
 
-	if (IS_ENABLED(CONFIG_KASAN_GENERIC) ||
-	    IS_ENABLED(CONFIG_KASAN_SW_TAGS))
+	if (!IS_ENABLED(CONFIG_KASAN_VMALLOC) &&
+	    (IS_ENABLED(CONFIG_KASAN_GENERIC) ||
+	     IS_ENABLED(CONFIG_KASAN_SW_TAGS)))
 		/*
-		 * KASAN does not expect the module region to intersect the
-		 * vmalloc region, since shadow memory is allocated for each
-		 * module at load time, whereas the vmalloc region is shadowed
-		 * by KASAN zero pages. So keep modules out of the vmalloc
-		 * region if KASAN is enabled, and put the kernel well within
-		 * 4 GB of the module region.
+		 * KASAN without KASAN_VMALLOC does not expect the module region
+		 * to intersect the vmalloc region, since shadow memory is
+		 * allocated for each module at load time, whereas the vmalloc
+		 * region is shadowed by KASAN zero pages. So keep modules
+		 * out of the vmalloc region if KASAN is enabled without
+		 * KASAN_VMALLOC, and put the kernel well within 4 GB of the
+		 * module region.
 		 */
 		return offset % SZ_2G;
 
@@ -158,7 +162,9 @@ u64 __init kaslr_early_init(void)
 		 * a PAGE_SIZE multiple in the range [_etext - MODULES_VSIZE,
 		 * _stext) . This guarantees that the resulting region still
 		 * covers [_stext, _etext], and that all relative branches can
-		 * be resolved without veneers.
+		 * be resolved without veneers unless this region is exhausted
+		 * and we fall back to a larger 2GB window in module_alloc()
+		 * when ARM64_MODULE_PLTS is enabled.
 		 */
 		module_range = MODULES_VSIZE - (u64)(_etext - _stext);
 		module_alloc_base = (u64)_etext + offset - MODULES_VSIZE;
@@ -168,8 +174,12 @@ u64 __init kaslr_early_init(void)
 	module_alloc_base += (module_range * (seed & ((1 << 21) - 1))) >> 21;
 	module_alloc_base &= PAGE_MASK;
 
-	__flush_dcache_area(&module_alloc_base, sizeof(module_alloc_base));
-	__flush_dcache_area(&memstart_offset_seed, sizeof(memstart_offset_seed));
+	dcache_clean_inval_poc((unsigned long)&module_alloc_base,
+			    (unsigned long)&module_alloc_base +
+				    sizeof(module_alloc_base));
+	dcache_clean_inval_poc((unsigned long)&memstart_offset_seed,
+			    (unsigned long)&memstart_offset_seed +
+				    sizeof(memstart_offset_seed));
 
 	return offset;
 }

@@ -137,7 +137,7 @@ static int ccw_uevent(struct device *dev, struct kobj_uevent_env *env)
 
 static void io_subchannel_irq(struct subchannel *);
 static int io_subchannel_probe(struct subchannel *);
-static int io_subchannel_remove(struct subchannel *);
+static void io_subchannel_remove(struct subchannel *);
 static void io_subchannel_shutdown(struct subchannel *);
 static int io_subchannel_sch_event(struct subchannel *, int);
 static int io_subchannel_chp_event(struct subchannel *, struct chp_link *,
@@ -838,14 +838,6 @@ static void io_subchannel_register(struct ccw_device *cdev)
 		adjust_init_count = 0;
 		goto out;
 	}
-	/*
-	 * Now we know this subchannel will stay, we can throw
-	 * our delayed uevent.
-	 */
-	if (dev_get_uevent_suppress(&sch->dev)) {
-		dev_set_uevent_suppress(&sch->dev, 0);
-		kobject_uevent(&sch->dev.kobj, KOBJ_ADD);
-	}
 	/* make it known to the system */
 	ret = device_add(&cdev->dev);
 	if (ret) {
@@ -865,19 +857,6 @@ out:
 out_err:
 	if (adjust_init_count && atomic_dec_and_test(&ccw_device_init_count))
 		wake_up(&ccw_device_init_wq);
-}
-
-static void ccw_device_call_sch_unregister(struct ccw_device *cdev)
-{
-	struct subchannel *sch;
-
-	/* Get subchannel reference for local processing. */
-	if (!get_device(cdev->dev.parent))
-		return;
-	sch = to_subchannel(cdev->dev.parent);
-	css_sch_device_unregister(sch);
-	/* Release subchannel reference for local processing. */
-	put_device(&sch->dev);
 }
 
 /*
@@ -1049,15 +1028,9 @@ static int io_subchannel_probe(struct subchannel *sch)
 				      "0.%x.%04x (rc=%d)\n",
 				      sch->schid.ssid, sch->schid.sch_no, rc);
 		/*
-		 * The console subchannel already has an associated ccw_device.
-		 * Throw the delayed uevent for the subchannel, register
-		 * the ccw_device and exit.
-		 */
-		if (dev_get_uevent_suppress(&sch->dev)) {
-			/* should always be the case for the console */
-			dev_set_uevent_suppress(&sch->dev, 0);
-			kobject_uevent(&sch->dev.kobj, KOBJ_ADD);
-		}
+		* The console subchannel already has an associated ccw_device.
+		* Register it and exit.
+		*/
 		cdev = sch_get_cdev(sch);
 		rc = device_add(&cdev->dev);
 		if (rc) {
@@ -1101,7 +1074,7 @@ out_schedule:
 	return 0;
 }
 
-static int io_subchannel_remove(struct subchannel *sch)
+static void io_subchannel_remove(struct subchannel *sch)
 {
 	struct io_subchannel_private *io_priv = to_io_private(sch);
 	struct ccw_device *cdev;
@@ -1120,7 +1093,6 @@ out_free:
 			  io_priv->dma_area, io_priv->dma_area_dma);
 	kfree(io_priv);
 	sysfs_remove_group(&sch->dev.kobj, &io_subchannel_attr_group);
-	return 0;
 }
 
 static void io_subchannel_verify(struct subchannel *sch)
@@ -1208,7 +1180,7 @@ static int io_subchannel_chp_event(struct subchannel *sch,
 			else
 				path_event[chpid] = PE_NONE;
 		}
-		if (cdev)
+		if (cdev && cdev->drv && cdev->drv->path_event)
 			cdev->drv->path_event(cdev, path_event);
 		break;
 	}
@@ -1336,6 +1308,7 @@ static int purge_fn(struct device *dev, void *data)
 {
 	struct ccw_device *cdev = to_ccwdev(dev);
 	struct ccw_dev_id *id = &cdev->private->dev_id;
+	struct subchannel *sch = to_subchannel(cdev->dev.parent);
 
 	spin_lock_irq(cdev->ccwlock);
 	if (is_blacklisted(id->ssid, id->devno) &&
@@ -1344,6 +1317,7 @@ static int purge_fn(struct device *dev, void *data)
 		CIO_MSG_EVENT(3, "ccw: purging 0.%x.%04x\n", id->ssid,
 			      id->devno);
 		ccw_device_sched_todo(cdev, CDEV_TODO_UNREG);
+		css_sched_sch_todo(sch, SCH_TODO_UNREG);
 		atomic_set(&cdev->private->onoff, 0);
 	}
 	spin_unlock_irq(cdev->ccwlock);
@@ -1532,8 +1506,7 @@ static int io_subchannel_sch_event(struct subchannel *sch, int process)
 	switch (action) {
 	case IO_SCH_ORPH_UNREG:
 	case IO_SCH_UNREG:
-		if (!cdev)
-			css_sch_device_unregister(sch);
+		css_sch_device_unregister(sch);
 		break;
 	case IO_SCH_ORPH_ATTACH:
 	case IO_SCH_UNREG_ATTACH:
@@ -1743,7 +1716,7 @@ ccw_device_probe (struct device *dev)
 	return 0;
 }
 
-static int ccw_device_remove(struct device *dev)
+static void ccw_device_remove(struct device *dev)
 {
 	struct ccw_device *cdev = to_ccwdev(dev);
 	struct ccw_driver *cdrv = cdev->drv;
@@ -1777,8 +1750,6 @@ static int ccw_device_remove(struct device *dev)
 	spin_unlock_irq(cdev->ccwlock);
 	io_subchannel_quiesce(sch);
 	__disable_cmf(cdev);
-
-	return 0;
 }
 
 static void ccw_device_shutdown(struct device *dev)
@@ -1861,10 +1832,10 @@ static void ccw_device_todo(struct work_struct *work)
 			css_schedule_eval(sch->schid);
 		fallthrough;
 	case CDEV_TODO_UNREG:
-		if (sch_is_pseudo_sch(sch))
-			ccw_device_unregister(cdev);
-		else
-			ccw_device_call_sch_unregister(cdev);
+		spin_lock_irq(sch->lock);
+		sch_set_cdev(sch, NULL);
+		spin_unlock_irq(sch->lock);
+		ccw_device_unregister(cdev);
 		break;
 	default:
 		break;

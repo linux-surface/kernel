@@ -1,6 +1,5 @@
+// SPDX-License-Identifier: MIT
 /*
- * SPDX-License-Identifier: MIT
- *
  * Copyright © 2019 Intel Corporation
  */
 
@@ -24,8 +23,11 @@ static void dbg_poison_ce(struct intel_context *ce)
 
 	if (ce->state) {
 		struct drm_i915_gem_object *obj = ce->state->obj;
-		int type = i915_coherent_map_type(ce->engine->i915);
+		int type = i915_coherent_map_type(ce->engine->i915, obj, true);
 		void *map;
+
+		if (!i915_gem_object_trylock(obj, NULL))
+			return;
 
 		map = i915_gem_object_pin_map(obj, type);
 		if (!IS_ERR(map)) {
@@ -33,6 +35,7 @@ static void dbg_poison_ce(struct intel_context *ce)
 			i915_gem_object_flush_map(obj);
 			i915_gem_object_unpin_map(obj);
 		}
+		i915_gem_object_unlock(obj);
 	}
 }
 
@@ -76,39 +79,6 @@ static int __engine_unpark(struct intel_wakeref *wf)
 	intel_engine_unpark_heartbeat(engine);
 	return 0;
 }
-
-#if IS_ENABLED(CONFIG_LOCKDEP)
-
-static unsigned long __timeline_mark_lock(struct intel_context *ce)
-{
-	unsigned long flags;
-
-	local_irq_save(flags);
-	mutex_acquire(&ce->timeline->mutex.dep_map, 2, 0, _THIS_IP_);
-
-	return flags;
-}
-
-static void __timeline_mark_unlock(struct intel_context *ce,
-				   unsigned long flags)
-{
-	mutex_release(&ce->timeline->mutex.dep_map, _THIS_IP_);
-	local_irq_restore(flags);
-}
-
-#else
-
-static unsigned long __timeline_mark_lock(struct intel_context *ce)
-{
-	return 0;
-}
-
-static void __timeline_mark_unlock(struct intel_context *ce,
-				   unsigned long flags)
-{
-}
-
-#endif /* !IS_ENABLED(CONFIG_LOCKDEP) */
 
 static void duration(struct dma_fence *fence, struct dma_fence_cb *cb)
 {
@@ -156,8 +126,20 @@ static bool switch_to_kernel_context(struct intel_engine_cs *engine)
 {
 	struct intel_context *ce = engine->kernel_context;
 	struct i915_request *rq;
-	unsigned long flags;
 	bool result = true;
+
+	/*
+	 * This is execlist specific behaviour intended to ensure the GPU is
+	 * idle by switching to a known 'safe' context. With GuC submission, the
+	 * same idle guarantee is achieved by other means (disabling
+	 * scheduling). Further, switching to a 'safe' context has no effect
+	 * with GuC submission as the scheduler can just switch back again.
+	 *
+	 * FIXME: Move this backend scheduler specific behaviour into the
+	 * scheduler backend.
+	 */
+	if (intel_engine_uses_guc(engine))
+		return true;
 
 	/* GPU is pointing to the void, as good as in the kernel context. */
 	if (intel_gt_is_wedged(engine->gt))
@@ -198,7 +180,7 @@ static bool switch_to_kernel_context(struct intel_engine_cs *engine)
 	 * engine->wakeref.count, we may see the request completion and retire
 	 * it causing an underflow of the engine->wakeref.
 	 */
-	flags = __timeline_mark_lock(ce);
+	set_bit(CONTEXT_IS_PARKING, &ce->flags);
 	GEM_BUG_ON(atomic_read(&ce->timeline->active_count) < 0);
 
 	rq = __i915_request_create(ce, GFP_NOWAIT);
@@ -230,7 +212,7 @@ static bool switch_to_kernel_context(struct intel_engine_cs *engine)
 
 	result = false;
 out_unlock:
-	__timeline_mark_unlock(ce, flags);
+	clear_bit(CONTEXT_IS_PARKING, &ce->flags);
 	return result;
 }
 
@@ -272,12 +254,10 @@ static int __engine_park(struct intel_wakeref *wf)
 	intel_breadcrumbs_park(engine->breadcrumbs);
 
 	/* Must be reset upon idling, or we may miss the busy wakeup. */
-	GEM_BUG_ON(engine->execlists.queue_priority_hint != INT_MIN);
+	GEM_BUG_ON(engine->sched_engine->queue_priority_hint != INT_MIN);
 
 	if (engine->park)
 		engine->park(engine);
-
-	engine->execlists.no_priolist = false;
 
 	/* While gt calls i915_vma_parked(), we have to break the lock cycle */
 	intel_gt_pm_put_async(engine->gt);
@@ -295,6 +275,29 @@ void intel_engine_init__pm(struct intel_engine_cs *engine)
 
 	intel_wakeref_init(&engine->wakeref, rpm, &wf_ops);
 	intel_engine_init_heartbeat(engine);
+}
+
+/**
+ * intel_engine_reset_pinned_contexts - Reset the pinned contexts of
+ * an engine.
+ * @engine: The engine whose pinned contexts we want to reset.
+ *
+ * Typically the pinned context LMEM images lose or get their content
+ * corrupted on suspend. This function resets their images.
+ */
+void intel_engine_reset_pinned_contexts(struct intel_engine_cs *engine)
+{
+	struct intel_context *ce;
+
+	list_for_each_entry(ce, &engine->pinned_contexts_list,
+			    pinned_contexts_link) {
+		/* kernel context gets reset at __engine_unpark() */
+		if (ce == engine->kernel_context)
+			continue;
+
+		dbg_poison_ce(ce);
+		ce->ops->reset(ce);
+	}
 }
 
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)

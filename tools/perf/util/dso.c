@@ -14,6 +14,7 @@
 #ifdef HAVE_LIBBPF_SUPPORT
 #include <bpf/libbpf.h>
 #include "bpf-event.h"
+#include "bpf-utils.h"
 #endif
 #include "compress.h"
 #include "env.h"
@@ -507,8 +508,19 @@ static int __open_dso(struct dso *dso, struct machine *machine)
 					    root_dir, name, PATH_MAX))
 		goto out;
 
-	if (!is_regular_file(name))
-		goto out;
+	if (!is_regular_file(name)) {
+		char *new_name;
+
+		if (errno != ENOENT || dso->nsinfo == NULL)
+			goto out;
+
+		new_name = filename_with_chroot(dso->nsinfo->pid, name);
+		if (!new_name)
+			goto out;
+
+		free(name);
+		name = new_name;
+	}
 
 	if (dso__needs_decompress(dso)) {
 		char newpath[KMOD_DECOMP_LEN];
@@ -1154,8 +1166,10 @@ struct map *dso__new_map(const char *name)
 	struct map *map = NULL;
 	struct dso *dso = dso__new(name);
 
-	if (dso)
+	if (dso) {
 		map = map__new2(0, dso);
+		dso__put(dso);
+	}
 
 	return map;
 }
@@ -1347,6 +1361,16 @@ void dso__set_build_id(struct dso *dso, struct build_id *bid)
 
 bool dso__build_id_equal(const struct dso *dso, struct build_id *bid)
 {
+	if (dso->bid.size > bid->size && dso->bid.size == BUILD_ID_SIZE) {
+		/*
+		 * For the backward compatibility, it allows a build-id has
+		 * trailing zeros.
+		 */
+		return !memcmp(dso->bid.data, bid->data, bid->size) &&
+			!memchr_inv(&dso->bid.data[bid->size], 0,
+				    dso->bid.size - bid->size);
+	}
+
 	return dso->bid.size == bid->size &&
 	       memcmp(dso->bid.data, bid->data, dso->bid.size) == 0;
 }

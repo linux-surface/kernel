@@ -5,6 +5,7 @@
 #include <asm/vmx.h>
 
 #include "lapic.h"
+#include "x86.h"
 
 extern bool __read_mostly enable_vpid;
 extern bool __read_mostly flexpriority_enabled;
@@ -12,7 +13,6 @@ extern bool __read_mostly enable_ept;
 extern bool __read_mostly enable_unrestricted_guest;
 extern bool __read_mostly enable_ept_ad_bits;
 extern bool __read_mostly enable_pml;
-extern bool __read_mostly enable_apicv;
 extern int __read_mostly pt_mode;
 
 #define PT_MODE_SYSTEM		0
@@ -54,7 +54,6 @@ struct nested_vmx_msrs {
 
 struct vmcs_config {
 	int size;
-	int order;
 	u32 basic_cap;
 	u32 revision_id;
 	u32 pin_based_exec_ctrl;
@@ -90,8 +89,7 @@ static inline bool cpu_has_vmx_preemption_timer(void)
 
 static inline bool cpu_has_vmx_posted_intr(void)
 {
-	return IS_ENABLED(CONFIG_X86_LOCAL_APIC) &&
-		vmcs_config.pin_based_exec_ctrl & PIN_BASED_POSTED_INTR;
+	return vmcs_config.pin_based_exec_ctrl & PIN_BASED_POSTED_INTR;
 }
 
 static inline bool cpu_has_load_ia32_efer(void)
@@ -314,6 +312,15 @@ static inline bool cpu_has_vmx_ept_1g_page(void)
 	return vmx_capability.ept & VMX_EPT_1GB_PAGE_BIT;
 }
 
+static inline int ept_caps_to_lpage_level(u32 ept_caps)
+{
+	if (ept_caps & VMX_EPT_1GB_PAGE_BIT)
+		return PG_LEVEL_1G;
+	if (ept_caps & VMX_EPT_2MB_PAGE_BIT)
+		return PG_LEVEL_2M;
+	return PG_LEVEL_4K;
+}
+
 static inline bool cpu_has_vmx_ept_ad_bits(void)
 {
 	return vmx_capability.ept & VMX_EPT_AD_BIT;
@@ -382,6 +389,9 @@ static inline u64 vmx_get_perf_capabilities(void)
 {
 	u64 perf_cap = 0;
 
+	if (!enable_pmu)
+		return perf_cap;
+
 	if (boot_cpu_has(X86_FEATURE_PDCM))
 		rdmsrl(MSR_IA32_PERF_CAPABILITIES, perf_cap);
 
@@ -397,6 +407,9 @@ static inline u64 vmx_get_perf_capabilities(void)
 static inline u64 vmx_supported_debugctl(void)
 {
 	u64 debugctl = 0;
+
+	if (boot_cpu_has(X86_FEATURE_BUS_LOCK_DETECT))
+		debugctl |= DEBUGCTLMSR_BUS_LOCK_DETECT;
 
 	if (vmx_get_perf_capabilities() & PMU_CAP_LBR_FMT)
 		debugctl |= DEBUGCTLMSR_LBR_MASK;

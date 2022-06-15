@@ -88,6 +88,7 @@ Code  Seq#    Include File                                           Comments
                                                                      <http://infiniband.sourceforge.net/>
 0x20  all    drivers/cdrom/cm206.h
 0x22  all    scsi/sg.h
+0x3E  00-0F  linux/counter.h                                         <mailto:linux-iio@vger.kernel.org>
 '!'   00-1F  uapi/linux/seccomp.h
 '#'   00-3F                                                          IEEE 1394 Subsystem
                                                                      Block for the entire subsystem
@@ -104,6 +105,7 @@ Code  Seq#    Include File                                           Comments
 '8'   all                                                            SNP8023 advanced NIC card
                                                                      <mailto:mcr@solidum.com>
 ';'   64-7F  linux/vfio.h
+'='   00-3f  uapi/linux/ptp_clock.h                                  <mailto:richardcochran@gmail.com>
 '@'   00-0F  linux/radeonfb.h                                        conflict!
 '@'   00-0F  drivers/video/aty/aty128fb.c                            conflict!
 'A'   00-1F  linux/apm_bios.h                                        conflict!
@@ -113,6 +115,7 @@ Code  Seq#    Include File                                           Comments
 'B'   00-1F  linux/cciss_ioctl.h                                     conflict!
 'B'   00-0F  include/linux/pmu.h                                     conflict!
 'B'   C0-FF  advanced bbus                                           <mailto:maassen@uni-freiburg.de>
+'B'   00-0F  xen/xenbus_dev.h                                        conflict!
 'C'   all    linux/soundcard.h                                       conflict!
 'C'   01-2F  linux/capi.h                                            conflict!
 'C'   F0-FF  drivers/net/wan/cosa.h                                  conflict!
@@ -132,6 +135,7 @@ Code  Seq#    Include File                                           Comments
 'F'   80-8F  linux/arcfb.h                                           conflict!
 'F'   DD     video/sstfb.h                                           conflict!
 'G'   00-3F  drivers/misc/sgi-gru/grulib.h                           conflict!
+'G'   00-0F  xen/gntalloc.h, xen/gntdev.h                            conflict!
 'H'   00-7F  linux/hiddev.h                                          conflict!
 'H'   00-0F  linux/hidraw.h                                          conflict!
 'H'   01     linux/mei.h                                             conflict!
@@ -160,7 +164,6 @@ Code  Seq#    Include File                                           Comments
 'K'   all    linux/kd.h
 'L'   00-1F  linux/loop.h                                            conflict!
 'L'   10-1F  drivers/scsi/mpt3sas/mpt3sas_ctl.h                      conflict!
-'L'   20-2F  linux/lightnvm.h
 'L'   E0-FF  linux/ppdd.h                                            encrypted disk device driver
                                                                      <http://linux01.gwdg.de/~alatham/ppdd.html>
 'M'   all    linux/soundcard.h                                       conflict!
@@ -175,6 +178,7 @@ Code  Seq#    Include File                                           Comments
 'P'   60-6F  sound/sscape_ioctl.h                                    conflict!
 'P'   00-0F  drivers/usb/class/usblp.c                               conflict!
 'P'   01-09  drivers/misc/pci_endpoint_test.c                        conflict!
+'P'   00-0F  xen/privcmd.h                                           conflict!
 'Q'   all    linux/soundcard.h
 'R'   00-1F  linux/random.h                                          conflict!
 'R'   01     linux/rfkill.h                                          conflict!
@@ -209,7 +213,6 @@ Code  Seq#    Include File                                           Comments
              linux/fs.h,
 'X'   all    fs/ocfs2/ocfs_fs.h                                      conflict!
 'X'   01     linux/pktcdvd.h                                         conflict!
-'Y'   all    linux/cyclades.h
 'Z'   14-15  drivers/message/fusion/mptctl.h
 '['   00-3F  linux/usb/tmc.h                                         USB Test and Measurement Devices
                                                                      <mailto:gregkh@linuxfoundation.org>
@@ -245,6 +248,7 @@ Code  Seq#    Include File                                           Comments
 'i'   00-3F  linux/i2o-dev.h                                         conflict!
 'i'   0B-1F  linux/ipmi.h                                            conflict!
 'i'   80-8F  linux/i8k.h
+'i'   90-9F  `linux/iio/*.h`                                         IIO
 'j'   00-3F  linux/joystick.h
 'k'   00-0F  linux/spi/spidev.h                                      conflict!
 'k'   00-05  video/kyro.h                                            conflict!
@@ -252,7 +256,7 @@ Code  Seq#    Include File                                           Comments
 'l'   00-3F  linux/tcfs_fs.h                                         transparent cryptographic file system
                                                                      <http://web.archive.org/web/%2A/http://mikonos.dia.unisa.it/tcfs>
 'l'   40-7F  linux/udf_fs_i.h                                        in development:
-                                                                     <http://sourceforge.net/projects/linux-udf/>
+                                                                     <https://github.com/pali/udftools>
 'm'   00-09  linux/mmtimer.h                                         conflict!
 'm'   all    linux/mtio.h                                            conflict!
 'm'   all    linux/soundcard.h                                       conflict!
@@ -300,6 +304,7 @@ Code  Seq#    Include File                                           Comments
 'z'   10-4F  drivers/s390/crypto/zcrypt_api.h                        conflict!
 '|'   00-7F  linux/media.h
 0x80  00-1F  linux/fb.h
+0x81  00-1F  linux/vduse.h
 0x89  00-06  arch/x86/include/asm/sockios.h
 0x89  0B-DF  linux/sockios.h
 0x89  E0-EF  linux/sockios.h                                         SIOCPROTOPRIVATE range
@@ -325,7 +330,9 @@ Code  Seq#    Include File                                           Comments
 0xA3  90-9F  linux/dtlk.h
 0xA4  00-1F  uapi/linux/tee.h                                        Generic TEE subsystem
 0xA4  00-1F  uapi/asm/sgx.h                                          <mailto:linux-sgx@vger.kernel.org>
-0xA5  01     linux/surface_aggregator/cdev.h                         Microsoft Surface Platform System Aggregator
+0xA5  01-05  linux/surface_aggregator/cdev.h                         Microsoft Surface Platform System Aggregator
+                                                                     <mailto:luzmaximilian@gmail.com>
+0xA5  20-2F  linux/surface_aggregator/dtx.h                          Microsoft Surface DTX driver
                                                                      <mailto:luzmaximilian@gmail.com>
 0xAA  00-3F  linux/uapi/linux/userfaultfd.h
 0xAB  00-1F  linux/nbd.h
@@ -347,6 +354,7 @@ Code  Seq#    Include File                                           Comments
 0xB5  00-0F  uapi/linux/rpmsg.h                                      <mailto:linux-remoteproc@vger.kernel.org>
 0xB6  all    linux/fpga-dfl.h
 0xB7  all    uapi/linux/remoteproc_cdev.h                            <mailto:linux-remoteproc@vger.kernel.org>
+0xB7  all    uapi/linux/nsfs.h                                       <mailto:Andrei Vagin <avagin@openvz.org>>
 0xC0  00-0F  linux/usb/iowarrior.h
 0xCA  00-0F  uapi/misc/cxl.h
 0xCA  10-2F  uapi/misc/ocxl.h
@@ -362,10 +370,13 @@ Code  Seq#    Include File                                           Comments
                                                                      <mailto:aherrman@de.ibm.com>
 0xE5  00-3F  linux/fuse.h
 0xEC  00-01  drivers/platform/chrome/cros_ec_dev.h                   ChromeOS EC driver
+0xEE  00-09  uapi/linux/pfrut.h                                      Platform Firmware Runtime Update and Telemetry
 0xF3  00-3F  drivers/usb/misc/sisusbvga/sisusb.h                     sisfb (in development)
                                                                      <mailto:thomas@winischhofer.net>
 0xF6  all                                                            LTTng Linux Trace Toolkit Next Generation
                                                                      <mailto:mathieu.desnoyers@efficios.com>
+0xF8  all    arch/x86/include/uapi/asm/amd_hsmp.h                    AMD HSMP EPYC system management interface driver
+                                                                     <mailto:nchatrad@amd.com>
 0xFD  all    linux/dm-ioctl.h
 0xFE  all    linux/isst_if.h
 ====  =====  ======================================================= ================================================================

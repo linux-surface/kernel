@@ -21,6 +21,7 @@
 #include <linux/namei.h>
 #include <linux/pagemap.h>
 #include <linux/poll.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 
 #include <asm/prom.h>
@@ -236,10 +237,7 @@ spufs_mkdir(struct inode *dir, struct dentry *dentry, unsigned int flags,
 	if (!inode)
 		return -ENOSPC;
 
-	if (dir->i_mode & S_ISGID) {
-		inode->i_gid = dir->i_gid;
-		inode->i_mode &= S_ISGID;
-	}
+	inode_init_owner(&init_user_ns, inode, dir, mode | S_IFDIR);
 	ctx = alloc_spu_context(SPUFS_I(dir)->i_gang); /* XXX gang */
 	SPUFS_I(inode)->i_ctx = ctx;
 	if (!ctx) {
@@ -470,10 +468,7 @@ spufs_mkgang(struct inode *dir, struct dentry *dentry, umode_t mode)
 		goto out;
 
 	ret = 0;
-	if (dir->i_mode & S_ISGID) {
-		inode->i_gid = dir->i_gid;
-		inode->i_mode &= S_ISGID;
-	}
+	inode_init_owner(&init_user_ns, inode, dir, mode | S_IFDIR);
 	gang = alloc_spu_gang();
 	SPUFS_I(inode)->i_ctx = NULL;
 	SPUFS_I(inode)->i_gang = gang;
@@ -653,7 +648,7 @@ static void spufs_exit_isolated_loader(void)
 			get_order(isolated_loader_size));
 }
 
-static void
+static void __init
 spufs_init_isolated_loader(void)
 {
 	struct device_node *dn;

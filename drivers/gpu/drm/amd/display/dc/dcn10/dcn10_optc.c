@@ -288,7 +288,7 @@ void optc1_program_timing(
 	if (optc1_is_two_pixels_per_containter(&patched_crtc_timing) || optc1->opp_count == 2)
 		h_div = H_TIMING_DIV_BY2;
 
-	if (REG(OPTC_DATA_FORMAT_CONTROL)) {
+	if (REG(OPTC_DATA_FORMAT_CONTROL) && optc1->tg_mask->OPTC_DATA_FORMAT != 0) {
 		uint32_t data_fmt = 0;
 
 		if (patched_crtc_timing.pixel_encoding == PIXEL_ENCODING_YCBCR422)
@@ -860,7 +860,7 @@ void optc1_set_static_screen_control(
 			OTG_STATIC_SCREEN_FRAME_COUNT, num_frames);
 }
 
-void optc1_setup_manual_trigger(struct timing_generator *optc)
+static void optc1_setup_manual_trigger(struct timing_generator *optc)
 {
 	struct optc *optc1 = DCN10TG_FROM_TG(optc);
 
@@ -878,7 +878,7 @@ void optc1_setup_manual_trigger(struct timing_generator *optc)
 			OTG_TRIGA_CLEAR, 1);
 }
 
-void optc1_program_manual_trigger(struct timing_generator *optc)
+static void optc1_program_manual_trigger(struct timing_generator *optc)
 {
 	struct optc *optc1 = DCN10TG_FROM_TG(optc);
 
@@ -950,6 +950,17 @@ void optc1_set_drr(
 		REG_SET(OTG_V_TOTAL_MAX, 0,
 			OTG_V_TOTAL_MAX, 0);
 	}
+}
+
+void optc1_set_vtotal_min_max(struct timing_generator *optc, int vtotal_min, int vtotal_max)
+{
+	struct optc *optc1 = DCN10TG_FROM_TG(optc);
+
+	REG_SET(OTG_V_TOTAL_MAX, 0,
+		OTG_V_TOTAL_MAX, vtotal_max);
+
+	REG_SET(OTG_V_TOTAL_MIN, 0,
+		OTG_V_TOTAL_MIN, vtotal_min);
 }
 
 static void optc1_set_test_pattern(
@@ -1361,6 +1372,12 @@ void optc1_read_otg_state(struct optc *optc1,
 
 	REG_GET(OPTC_INPUT_GLOBAL_CONTROL,
 			OPTC_UNDERFLOW_OCCURRED_STATUS, &s->underflow_occurred_status);
+
+	REG_GET(OTG_VERTICAL_INTERRUPT2_CONTROL,
+			OTG_VERTICAL_INTERRUPT2_INT_ENABLE, &s->vertical_interrupt2_en);
+
+	REG_GET(OTG_VERTICAL_INTERRUPT2_POSITION,
+			OTG_VERTICAL_INTERRUPT2_LINE_START, &s->vertical_interrupt2_line);
 }
 
 bool optc1_get_otg_active_size(struct timing_generator *optc,
@@ -1527,6 +1544,7 @@ static const struct timing_generator_funcs dcn10_tg_funcs = {
 		.unlock = optc1_unlock,
 		.enable_optc_clock = optc1_enable_optc_clock,
 		.set_drr = optc1_set_drr,
+		.get_last_used_drr_vtotal = NULL,
 		.set_static_screen_control = optc1_set_static_screen_control,
 		.set_test_pattern = optc1_set_test_pattern,
 		.program_stereo = optc1_program_stereo,

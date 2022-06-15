@@ -50,7 +50,7 @@ static int holly_exclude_device(struct pci_controller *hose, u_char bus,
 		return PCIBIOS_SUCCESSFUL;
 }
 
-static void holly_remap_bridge(void)
+static void __init holly_remap_bridge(void)
 {
 	u32 lut_val, lut_addr;
 	int i;
@@ -251,8 +251,8 @@ static int ppc750_machine_check_exception(struct pt_regs *regs)
 	/* Are we prepared to handle this fault */
 	if ((entry = search_exception_tables(regs->nip)) != NULL) {
 		tsi108_clear_pci_cfg_error();
-		regs->msr |= MSR_RI;
-		regs->nip = extable_fixup(entry);
+		regs_set_recoverable(regs);
+		regs_set_return_ip(regs, extable_fixup(entry));
 		return 1;
 	}
 	return 0;

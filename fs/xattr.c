@@ -186,12 +186,12 @@ EXPORT_SYMBOL(__vfs_setxattr);
  *  __vfs_setxattr_noperm - perform setxattr operation without performing
  *  permission checks.
  *
- *  @mnt_userns - user namespace of the mount the inode was found from
- *  @dentry - object to perform setxattr on
- *  @name - xattr name to set
- *  @value - value to set @name to
- *  @size - size of @value
- *  @flags - flags to pass into filesystem operations
+ *  @mnt_userns: user namespace of the mount the inode was found from
+ *  @dentry: object to perform setxattr on
+ *  @name: xattr name to set
+ *  @value: value to set @name to
+ *  @size: size of @value
+ *  @flags: flags to pass into filesystem operations
  *
  *  returns the result of the internal setxattr or setsecurity operations.
  *
@@ -242,6 +242,7 @@ int __vfs_setxattr_noperm(struct user_namespace *mnt_userns,
  * __vfs_setxattr_locked - set an extended attribute while holding the inode
  * lock
  *
+ *  @mnt_userns: user namespace of the mount of the target inode
  *  @dentry: object to perform setxattr on
  *  @name: xattr name to set
  *  @value: value to set @name to
@@ -473,6 +474,7 @@ EXPORT_SYMBOL(__vfs_removexattr);
  * __vfs_removexattr_locked - set an extended attribute while holding the inode
  * lock
  *
+ *  @mnt_userns: user namespace of the mount of the target inode
  *  @dentry: object to perform setxattr on
  *  @name: name of xattr to remove
  *  @delegated_inode: on return, will contain an inode pointer that
@@ -567,7 +569,8 @@ setxattr(struct user_namespace *mnt_userns, struct dentry *d,
 		}
 		if ((strcmp(kname, XATTR_NAME_POSIX_ACL_ACCESS) == 0) ||
 		    (strcmp(kname, XATTR_NAME_POSIX_ACL_DEFAULT) == 0))
-			posix_acl_fix_xattr_from_user(mnt_userns, kvalue, size);
+			posix_acl_fix_xattr_from_user(mnt_userns, d_inode(d),
+						      kvalue, size);
 	}
 
 	error = vfs_setxattr(mnt_userns, d, kname, kvalue, size, flags);
@@ -665,7 +668,8 @@ getxattr(struct user_namespace *mnt_userns, struct dentry *d,
 	if (error > 0) {
 		if ((strcmp(kname, XATTR_NAME_POSIX_ACL_ACCESS) == 0) ||
 		    (strcmp(kname, XATTR_NAME_POSIX_ACL_DEFAULT) == 0))
-			posix_acl_fix_xattr_to_user(mnt_userns, kvalue, error);
+			posix_acl_fix_xattr_to_user(mnt_userns, d_inode(d),
+						    kvalue, error);
 		if (size && copy_to_user(value, kvalue, error))
 			error = -EFAULT;
 	} else if (error == -ERANGE && size >= XATTR_SIZE_MAX) {

@@ -4,7 +4,6 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 
-#define NULL 0
 #define INLINE __always_inline
 
 #define skb_shorter(skb, len) ((void *)(long)(skb)->data + (len) > (void *)(long)skb->data_end)
@@ -26,7 +25,7 @@ out:
 	return ip;
 }
 
-SEC("classifier/cls")
+SEC("tc")
 int main_prog(struct __sk_buff *skb)
 {
 	struct iphdr *ip = NULL;

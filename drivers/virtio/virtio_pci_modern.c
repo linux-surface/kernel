@@ -192,7 +192,7 @@ static struct virtqueue *setup_vq(struct virtio_pci_device *vp_dev,
 
 	struct virtio_pci_modern_device *mdev = &vp_dev->mdev;
 	struct virtqueue *vq;
-	u16 num, off;
+	u16 num;
 	int err;
 
 	if (index >= vp_modern_get_num_queues(mdev))
@@ -207,9 +207,6 @@ static struct virtqueue *setup_vq(struct virtio_pci_device *vp_dev,
 		dev_warn(&vp_dev->pci_dev->dev, "bad queue size %u", num);
 		return ERR_PTR(-EINVAL);
 	}
-
-	/* get offset of notification word for this vq */
-	off = vp_modern_get_queue_notify_off(mdev, index);
 
 	info->msix_vector = msix_vec;
 
@@ -227,27 +224,7 @@ static struct virtqueue *setup_vq(struct virtio_pci_device *vp_dev,
 				virtqueue_get_avail_addr(vq),
 				virtqueue_get_used_addr(vq));
 
-	if (mdev->notify_base) {
-		/* offset should not wrap */
-		if ((u64)off * mdev->notify_offset_multiplier + 2
-		    > mdev->notify_len) {
-			dev_warn(&mdev->pci_dev->dev,
-				 "bad notification offset %u (x %u) "
-				 "for queue %u > %zd",
-				 off, mdev->notify_offset_multiplier,
-				 index, mdev->notify_len);
-			err = -EINVAL;
-			goto err_map_notify;
-		}
-		vq->priv = (void __force *)mdev->notify_base +
-			off * mdev->notify_offset_multiplier;
-	} else {
-		vq->priv = (void __force *)vp_modern_map_capability(mdev,
-							  mdev->notify_map_cap, 2, 2,
-							  off * mdev->notify_offset_multiplier, 2,
-							  NULL);
-	}
-
+	vq->priv = (void __force *)vp_modern_map_vq_notify(mdev, index, NULL);
 	if (!vq->priv) {
 		err = -ENOMEM;
 		goto err_map_notify;
@@ -316,7 +293,7 @@ static int virtio_pci_find_shm_cap(struct pci_dev *dev, u8 required_id,
 
 	for (pos = pci_find_capability(dev, PCI_CAP_ID_VNDR); pos > 0;
 	     pos = pci_find_next_capability(dev, pos, PCI_CAP_ID_VNDR)) {
-		u8 type, cap_len, id;
+		u8 type, cap_len, id, res_bar;
 		u32 tmp32;
 		u64 res_offset, res_length;
 
@@ -338,9 +315,14 @@ static int virtio_pci_find_shm_cap(struct pci_dev *dev, u8 required_id,
 		if (id != required_id)
 			continue;
 
-		/* Type, and ID match, looks good */
 		pci_read_config_byte(dev, pos + offsetof(struct virtio_pci_cap,
-							 bar), bar);
+							 bar), &res_bar);
+		if (res_bar >= PCI_STD_NUM_BARS)
+			continue;
+
+		/* Type and ID match, and the BAR value isn't reserved.
+		 * Looks good.
+		 */
 
 		/* Read the lower 32bit of length and offset */
 		pci_read_config_dword(dev, pos + offsetof(struct virtio_pci_cap,
@@ -360,6 +342,7 @@ static int virtio_pci_find_shm_cap(struct pci_dev *dev, u8 required_id,
 						     length_hi), &tmp32);
 		res_length |= ((u64)tmp32) << 32;
 
+		*bar = res_bar;
 		*offset = res_offset;
 		*len = res_length;
 

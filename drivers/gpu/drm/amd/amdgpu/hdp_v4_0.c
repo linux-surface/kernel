@@ -49,6 +49,9 @@ static void hdp_v4_0_flush_hdp(struct amdgpu_device *adev,
 static void hdp_v4_0_invalidate_hdp(struct amdgpu_device *adev,
 				    struct amdgpu_ring *ring)
 {
+	if (adev->ip_versions[HDP_HWIP][0] == IP_VERSION(4, 4, 0))
+		return;
+
 	if (!ring || !ring->funcs->emit_wreg)
 		WREG32_SOC15_NO_KIQ(HDP, 0, mmHDP_READ_CACHE_INVALIDATE, 1);
 	else
@@ -56,12 +59,31 @@ static void hdp_v4_0_invalidate_hdp(struct amdgpu_device *adev,
 			HDP, 0, mmHDP_READ_CACHE_INVALIDATE), 1);
 }
 
+static void hdp_v4_0_query_ras_error_count(struct amdgpu_device *adev,
+					   void *ras_error_status)
+{
+	struct ras_err_data *err_data = (struct ras_err_data *)ras_error_status;
+
+	err_data->ue_count = 0;
+	err_data->ce_count = 0;
+
+	if (!amdgpu_ras_is_supported(adev, AMDGPU_RAS_BLOCK__HDP))
+		return;
+
+	/* HDP SRAM errors are uncorrectable ones (i.e. fatal errors) */
+	err_data->ue_count += RREG32_SOC15(HDP, 0, mmHDP_EDC_CNT);
+};
+
 static void hdp_v4_0_reset_ras_error_count(struct amdgpu_device *adev)
 {
 	if (!amdgpu_ras_is_supported(adev, AMDGPU_RAS_BLOCK__HDP))
 		return;
-	/*read back hdp ras counter to reset it to 0 */
-	RREG32_SOC15(HDP, 0, mmHDP_EDC_CNT);
+
+	if (adev->ip_versions[HDP_HWIP][0] >= IP_VERSION(4, 4, 0))
+		WREG32_SOC15(HDP, 0, mmHDP_EDC_CNT, 0);
+	else
+		/*read back hdp ras counter to reset it to 0 */
+		RREG32_SOC15(HDP, 0, mmHDP_EDC_CNT);
 }
 
 static void hdp_v4_0_update_clock_gating(struct amdgpu_device *adev,
@@ -69,9 +91,10 @@ static void hdp_v4_0_update_clock_gating(struct amdgpu_device *adev,
 {
 	uint32_t def, data;
 
-	if (adev->asic_type == CHIP_VEGA10 ||
-	    adev->asic_type == CHIP_VEGA12 ||
-	    adev->asic_type == CHIP_RAVEN) {
+	if (adev->ip_versions[HDP_HWIP][0] == IP_VERSION(4, 0, 0) ||
+	    adev->ip_versions[HDP_HWIP][0] == IP_VERSION(4, 0, 1) ||
+	    adev->ip_versions[HDP_HWIP][0] == IP_VERSION(4, 1, 1) ||
+	    adev->ip_versions[HDP_HWIP][0] == IP_VERSION(4, 1, 0)) {
 		def = data = RREG32(SOC15_REG_OFFSET(HDP, 0, mmHDP_MEM_POWER_LS));
 
 		if (enable && (adev->cg_flags & AMD_CG_SUPPORT_HDP_LS))
@@ -113,8 +136,8 @@ static void hdp_v4_0_get_clockgating_state(struct amdgpu_device *adev,
 
 static void hdp_v4_0_init_registers(struct amdgpu_device *adev)
 {
-	switch (adev->asic_type) {
-	case CHIP_ARCTURUS:
+	switch (adev->ip_versions[HDP_HWIP][0]) {
+	case IP_VERSION(4, 2, 1):
 		WREG32_FIELD15(HDP, 0, HDP_MMHUB_CNTL, HDP_MMHUB_GCC, 1);
 		break;
 	default:
@@ -123,14 +146,32 @@ static void hdp_v4_0_init_registers(struct amdgpu_device *adev)
 
 	WREG32_FIELD15(HDP, 0, HDP_MISC_CNTL, FLUSH_INVALIDATE_CACHE, 1);
 
+	if (adev->ip_versions[HDP_HWIP][0] == IP_VERSION(4, 4, 0))
+		WREG32_FIELD15(HDP, 0, HDP_MISC_CNTL, READ_BUFFER_WATERMARK, 2);
+
 	WREG32_SOC15(HDP, 0, mmHDP_NONSURFACE_BASE, (adev->gmc.vram_start >> 8));
 	WREG32_SOC15(HDP, 0, mmHDP_NONSURFACE_BASE_HI, (adev->gmc.vram_start >> 40));
 }
 
+struct amdgpu_ras_block_hw_ops hdp_v4_0_ras_hw_ops = {
+	.query_ras_error_count = hdp_v4_0_query_ras_error_count,
+	.reset_ras_error_count = hdp_v4_0_reset_ras_error_count,
+};
+
+struct amdgpu_hdp_ras hdp_v4_0_ras = {
+	.ras_block = {
+		.ras_comm = {
+			.name = "hdp",
+			.block = AMDGPU_RAS_BLOCK__HDP,
+			.type = AMDGPU_RAS_ERROR__MULTI_UNCORRECTABLE,
+		},
+		.hw_ops = &hdp_v4_0_ras_hw_ops,
+	},
+};
+
 const struct amdgpu_hdp_funcs hdp_v4_0_funcs = {
 	.flush_hdp = hdp_v4_0_flush_hdp,
 	.invalidate_hdp = hdp_v4_0_invalidate_hdp,
-	.reset_ras_error_count = hdp_v4_0_reset_ras_error_count,
 	.update_clock_gating = hdp_v4_0_update_clock_gating,
 	.get_clock_gating_state = hdp_v4_0_get_clockgating_state,
 	.init_registers = hdp_v4_0_init_registers,

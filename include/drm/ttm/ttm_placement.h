@@ -35,6 +35,17 @@
 
 /*
  * Memory regions for data placement.
+ *
+ * Buffers placed in TTM_PL_SYSTEM are considered under TTMs control and can
+ * be swapped out whenever TTMs thinks it is a good idea.
+ * In cases where drivers would like to use TTM_PL_SYSTEM as a valid
+ * placement they need to be able to handle the issues that arise due to the
+ * above manually.
+ *
+ * For BO's which reside in system memory but for which the accelerator
+ * requires direct access (i.e. their usage needs to be synchronized
+ * between the CPU and accelerator via fences) a new, driver private
+ * placement that can handle such scenarios is a good idea.
  */
 
 #define TTM_PL_SYSTEM           0
@@ -47,14 +58,18 @@
  * top of the memory area, instead of the bottom.
  */
 
-#define TTM_PL_FLAG_CONTIGUOUS  (1 << 19)
-#define TTM_PL_FLAG_TOPDOWN     (1 << 22)
+#define TTM_PL_FLAG_CONTIGUOUS  (1 << 0)
+#define TTM_PL_FLAG_TOPDOWN     (1 << 1)
+
+/* For multihop handling */
+#define TTM_PL_FLAG_TEMPORARY   (1 << 2)
 
 /**
  * struct ttm_place
  *
  * @fpfn:	first valid page frame number to put the object
  * @lpfn:	last valid page frame number to put the object
+ * @mem_type:	One of TTM_PL_* where the resource should be allocated from.
  * @flags:	memory domain and caching flags for the object
  *
  * Structure indicating a possible place to put an object.

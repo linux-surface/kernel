@@ -844,7 +844,7 @@ qla2xxx_get_flt_info(scsi_qla_host_t *vha, uint32_t flt_addr)
 				ha->flt_region_nvram = start;
 			break;
 		case FLT_REG_IMG_PRI_27XX:
-			if (IS_QLA27XX(ha) && !IS_QLA28XX(ha))
+			if (IS_QLA27XX(ha) || IS_QLA28XX(ha))
 				ha->flt_region_img_status_pri = start;
 			break;
 		case FLT_REG_IMG_SEC_27XX:
@@ -1356,7 +1356,7 @@ next:
 		    flash_data_addr(ha, faddr), le32_to_cpu(*dwptr));
 		if (ret) {
 			ql_dbg(ql_dbg_user, vha, 0x7006,
-			    "Failed slopw write %x (%x)\n", faddr, *dwptr);
+			    "Failed slow write %x (%x)\n", faddr, *dwptr);
 			break;
 		}
 	}
@@ -2621,10 +2621,11 @@ qla24xx_read_optrom_data(struct scsi_qla_host *vha, void *buf,
 }
 
 static int
-qla28xx_extract_sfub_and_verify(struct scsi_qla_host *vha, uint32_t *buf,
+qla28xx_extract_sfub_and_verify(struct scsi_qla_host *vha, __le32 *buf,
     uint32_t len, uint32_t buf_size_without_sfub, uint8_t *sfub_buf)
 {
-	uint32_t *p, check_sum = 0;
+	uint32_t check_sum = 0;
+	__le32 *p;
 	int i;
 
 	p = buf + buf_size_without_sfub;
@@ -2790,8 +2791,8 @@ qla28xx_write_flash_data(scsi_qla_host_t *vha, uint32_t *dwptr, uint32_t faddr,
 			goto done;
 		}
 
-		rval = qla28xx_extract_sfub_and_verify(vha, dwptr, dwords,
-			buf_size_without_sfub, (uint8_t *)sfub);
+		rval = qla28xx_extract_sfub_and_verify(vha, (__le32 *)dwptr,
+			dwords, buf_size_without_sfub, (uint8_t *)sfub);
 
 		if (rval != QLA_SUCCESS)
 			goto done;
@@ -2935,7 +2936,6 @@ qla28xx_write_flash_data(scsi_qla_host_t *vha, uint32_t *dwptr, uint32_t faddr,
 		liter += dburst - 1;
 		faddr += dburst - 1;
 		dwptr += dburst - 1;
-		continue;
 	}
 
 write_protect:

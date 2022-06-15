@@ -66,7 +66,7 @@
 #define MAX_IV_SIZE			16
 #define TLS_MAX_REC_SEQ_SIZE		8
 
-/* For AES-CCM, the full 16-bytes of IV is made of '4' fields of given sizes.
+/* For CCM mode, the full 16-bytes of IV is made of '4' fields of given sizes.
  *
  * IV[16] = b0[1] || implicit nonce[4] || explicit nonce[8] || length[3]
  *
@@ -74,13 +74,12 @@
  * Hence b0 contains (3 - 1) = 2.
  */
 #define TLS_AES_CCM_IV_B0_BYTE		2
+#define TLS_SM4_CCM_IV_B0_BYTE		2
 
 #define __TLS_INC_STATS(net, field)				\
 	__SNMP_INC_STATS((net)->mib.tls_statistics, field)
 #define TLS_INC_STATS(net, field)				\
 	SNMP_INC_STATS((net)->mib.tls_statistics, field)
-#define __TLS_DEC_STATS(net, field)				\
-	__SNMP_DEC_STATS((net)->mib.tls_statistics, field)
 #define TLS_DEC_STATS(net, field)				\
 	SNMP_DEC_STATS((net)->mib.tls_statistics, field)
 
@@ -193,7 +192,11 @@ struct tls_offload_context_tx {
 	(sizeof(struct tls_offload_context_tx) + TLS_DRIVER_STATE_SIZE_TX)
 
 enum tls_context_flags {
-	TLS_RX_SYNC_RUNNING = 0,
+	/* tls_device_down was called after the netdev went down, device state
+	 * was released, and kTLS works in software, even though rx_conf is
+	 * still TLS_HW (needed for transition).
+	 */
+	TLS_RX_DEV_DEGRADED = 0,
 	/* Unlike RX where resync is driven entirely by the core in TX only
 	 * the driver knows when things went out of sync, so we need the flag
 	 * to be atomic.
@@ -218,6 +221,8 @@ union tls_crypto_context {
 		struct tls12_crypto_info_aes_gcm_128 aes_gcm_128;
 		struct tls12_crypto_info_aes_gcm_256 aes_gcm_256;
 		struct tls12_crypto_info_chacha20_poly1305 chacha20_poly1305;
+		struct tls12_crypto_info_sm4_gcm sm4_gcm;
+		struct tls12_crypto_info_sm4_ccm sm4_ccm;
 	};
 };
 
@@ -266,6 +271,7 @@ struct tls_context {
 
 	/* cache cold stuff */
 	struct proto *sk_proto;
+	struct sock *sk;
 
 	void (*sk_destruct)(struct sock *sk);
 
@@ -355,6 +361,7 @@ int tls_sk_query(struct sock *sk, int optname, char __user *optval,
 		int __user *optlen);
 int tls_sk_attach(struct sock *sk, int optname, char __user *optval,
 		  unsigned int optlen);
+void tls_err_abort(struct sock *sk, int err);
 
 int tls_set_sw_offload(struct sock *sk, struct tls_context *ctx, int tx);
 void tls_sw_strparser_arm(struct sock *sk, struct tls_context *ctx);
@@ -372,7 +379,7 @@ void tls_sw_release_resources_rx(struct sock *sk);
 void tls_sw_free_ctx_rx(struct tls_context *tls_ctx);
 int tls_sw_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		   int nonblock, int flags, int *addr_len);
-bool tls_sw_stream_read(const struct sock *sk);
+bool tls_sw_sock_is_readable(struct sock *sk);
 ssize_t tls_sw_splice_read(struct socket *sock, loff_t *ppos,
 			   struct pipe_inode_info *pipe,
 			   size_t len, unsigned int flags);
@@ -448,6 +455,9 @@ static inline u16 tls_user_config(struct tls_context *ctx, bool tx)
 struct sk_buff *
 tls_validate_xmit_skb(struct sock *sk, struct net_device *dev,
 		      struct sk_buff *skb);
+struct sk_buff *
+tls_validate_xmit_skb_sw(struct sock *sk, struct net_device *dev,
+			 struct sk_buff *skb);
 
 static inline bool tls_is_sk_tx_device_offloaded(struct sock *sk)
 {
@@ -458,12 +468,6 @@ static inline bool tls_is_sk_tx_device_offloaded(struct sock *sk)
 #else
 	return false;
 #endif
-}
-
-static inline void tls_err_abort(struct sock *sk, int err)
-{
-	sk->sk_err = err;
-	sk->sk_error_report(sk);
 }
 
 static inline bool tls_bigint_increment(unsigned char *seq, int len)
@@ -506,7 +510,7 @@ static inline void tls_advance_record_sn(struct sock *sk,
 					 struct cipher_context *ctx)
 {
 	if (tls_bigint_increment(ctx->rec_seq, prot->rec_seq_size))
-		tls_err_abort(sk, EBADMSG);
+		tls_err_abort(sk, -EBADMSG);
 
 	if (prot->version != TLS_1_3_VERSION &&
 	    prot->cipher_type != TLS_CIPHER_CHACHA20_POLY1305)
@@ -622,7 +626,6 @@ tls_offload_ctx_rx(const struct tls_context *tls_ctx)
 	return (struct tls_offload_context_rx *)tls_ctx->priv_ctx_rx;
 }
 
-#if IS_ENABLED(CONFIG_TLS_DEVICE)
 static inline void *__tls_driver_ctx(struct tls_context *tls_ctx,
 				     enum tls_offload_ctx_dir direction)
 {
@@ -637,7 +640,6 @@ tls_driver_ctx(const struct sock *sk, enum tls_offload_ctx_dir direction)
 {
 	return __tls_driver_ctx(tls_get_ctx(sk), direction);
 }
-#endif
 
 #define RESYNC_REQ BIT(0)
 #define RESYNC_REQ_ASYNC BIT(1)

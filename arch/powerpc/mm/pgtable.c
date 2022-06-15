@@ -28,6 +28,14 @@
 #include <asm/hugetlb.h>
 #include <asm/pte-walk.h>
 
+#ifdef CONFIG_PPC64
+#define PGD_ALIGN (sizeof(pgd_t) * MAX_PTRS_PER_PGD)
+#else
+#define PGD_ALIGN PAGE_SIZE
+#endif
+
+pgd_t swapper_pg_dir[MAX_PTRS_PER_PGD] __section(".bss..page_aligned") __aligned(PGD_ALIGN);
+
 static inline int is_exec_fault(void)
 {
 	return current->thread.regs && TRAP(current->thread.regs) == 0x400;
@@ -73,9 +81,6 @@ static struct page *maybe_pte_to_page(pte_t pte)
 
 static pte_t set_pte_filter_hash(pte_t pte)
 {
-	if (radix_enabled())
-		return pte;
-
 	pte = __pte(pte_val(pte) & ~_PAGE_HPTEFLAGS);
 	if (pte_looks_normal(pte) && !(cpu_has_feature(CPU_FTR_COHERENT_ICACHE) ||
 				       cpu_has_feature(CPU_FTR_NOEXECUTE))) {
@@ -103,6 +108,9 @@ static pte_t set_pte_filter_hash(pte_t pte) { return pte; }
 static inline pte_t set_pte_filter(pte_t pte)
 {
 	struct page *pg;
+
+	if (radix_enabled())
+		return pte;
 
 	if (mmu_has_feature(MMU_FTR_HPTE_TABLE))
 		return set_pte_filter_hash(pte);
@@ -135,6 +143,9 @@ static pte_t set_access_flags_filter(pte_t pte, struct vm_area_struct *vma,
 				     int dirty)
 {
 	struct page *pg;
+
+	if (IS_ENABLED(CONFIG_PPC_BOOK3S_64))
+		return pte;
 
 	if (mmu_has_feature(MMU_FTR_HPTE_TABLE))
 		return pte;
@@ -193,6 +204,15 @@ void set_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep,
 
 	/* Perform the setting of the PTE */
 	__set_pte_at(mm, addr, ptep, pte, 0);
+}
+
+void unmap_kernel_page(unsigned long va)
+{
+	pmd_t *pmdp = pmd_off_k(va);
+	pte_t *ptep = pte_offset_kernel(pmdp, va);
+
+	pte_clear(&init_mm, va, ptep);
+	flush_tlb_kernel_range(va, va + PAGE_SIZE);
 }
 
 /*
@@ -263,7 +283,7 @@ void set_huge_pte_at(struct mm_struct *mm, unsigned long addr, pte_t *ptep, pte_
 {
 	pmd_t *pmd = pmd_off(mm, addr);
 	pte_basic_t val;
-	pte_basic_t *entry = &ptep->pte;
+	pte_basic_t *entry = (pte_basic_t *)ptep;
 	int num, i;
 
 	/*

@@ -74,6 +74,23 @@ MODULE_PARM_DESC (msg_level, "Override default message level");
 
 /*-------------------------------------------------------------------------*/
 
+static const char * const usbnet_event_names[] = {
+	[EVENT_TX_HALT]		   = "EVENT_TX_HALT",
+	[EVENT_RX_HALT]		   = "EVENT_RX_HALT",
+	[EVENT_RX_MEMORY]	   = "EVENT_RX_MEMORY",
+	[EVENT_STS_SPLIT]	   = "EVENT_STS_SPLIT",
+	[EVENT_LINK_RESET]	   = "EVENT_LINK_RESET",
+	[EVENT_RX_PAUSED]	   = "EVENT_RX_PAUSED",
+	[EVENT_DEV_ASLEEP]	   = "EVENT_DEV_ASLEEP",
+	[EVENT_DEV_OPEN]	   = "EVENT_DEV_OPEN",
+	[EVENT_DEVICE_REPORT_IDLE] = "EVENT_DEVICE_REPORT_IDLE",
+	[EVENT_NO_RUNTIME_PM]	   = "EVENT_NO_RUNTIME_PM",
+	[EVENT_RX_KILL]		   = "EVENT_RX_KILL",
+	[EVENT_LINK_CHANGE]	   = "EVENT_LINK_CHANGE",
+	[EVENT_SET_RX_MODE]	   = "EVENT_SET_RX_MODE",
+	[EVENT_NO_IP_ALIGN]	   = "EVENT_NO_IP_ALIGN",
+};
+
 /* handles CDC Ethernet and many other network "bulk data" interfaces */
 int usbnet_get_endpoints(struct usbnet *dev, struct usb_interface *intf)
 {
@@ -148,12 +165,13 @@ EXPORT_SYMBOL_GPL(usbnet_get_endpoints);
 
 int usbnet_get_ethernet_addr(struct usbnet *dev, int iMACAddress)
 {
+	u8		addr[ETH_ALEN];
 	int 		tmp = -1, ret;
 	unsigned char	buf [13];
 
 	ret = usb_string(dev->udev, iMACAddress, buf, sizeof buf);
 	if (ret == 12)
-		tmp = hex2bin(dev->net->dev_addr, buf, 6);
+		tmp = hex2bin(addr, buf, 6);
 	if (tmp < 0) {
 		dev_dbg(&dev->udev->dev,
 			"bad MAC string %d fetch, %d\n", iMACAddress, tmp);
@@ -161,6 +179,7 @@ int usbnet_get_ethernet_addr(struct usbnet *dev, int iMACAddress)
 			ret = -EINVAL;
 		return ret;
 	}
+	eth_hw_addr_set(dev->net, addr);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(usbnet_get_ethernet_addr);
@@ -452,9 +471,9 @@ void usbnet_defer_kevent (struct usbnet *dev, int work)
 {
 	set_bit (work, &dev->flags);
 	if (!schedule_work (&dev->kevent))
-		netdev_dbg(dev->net, "kevent %d may have been dropped\n", work);
+		netdev_dbg(dev->net, "kevent %s may have been dropped\n", usbnet_event_names[work]);
 	else
-		netdev_dbg(dev->net, "kevent %d scheduled\n", work);
+		netdev_dbg(dev->net, "kevent %s scheduled\n", usbnet_event_names[work]);
 }
 EXPORT_SYMBOL_GPL(usbnet_defer_kevent);
 
@@ -944,7 +963,10 @@ EXPORT_SYMBOL_GPL(usbnet_open);
  * they'll probably want to use this base set.
  */
 
-int usbnet_get_link_ksettings(struct net_device *net,
+/* These methods are written on the assumption that the device
+ * uses MII
+ */
+int usbnet_get_link_ksettings_mii(struct net_device *net,
 			      struct ethtool_link_ksettings *cmd)
 {
 	struct usbnet *dev = netdev_priv(net);
@@ -956,9 +978,30 @@ int usbnet_get_link_ksettings(struct net_device *net,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(usbnet_get_link_ksettings);
+EXPORT_SYMBOL_GPL(usbnet_get_link_ksettings_mii);
 
-int usbnet_set_link_ksettings(struct net_device *net,
+int usbnet_get_link_ksettings_internal(struct net_device *net,
+					struct ethtool_link_ksettings *cmd)
+{
+	struct usbnet *dev = netdev_priv(net);
+
+	/* the assumption that speed is equal on tx and rx
+	 * is deeply engrained into the networking layer.
+	 * For wireless stuff it is not true.
+	 * We assume that rx_speed matters more.
+	 */
+	if (dev->rx_speed != SPEED_UNSET)
+		cmd->base.speed = dev->rx_speed / 1000000;
+	else if (dev->tx_speed != SPEED_UNSET)
+		cmd->base.speed = dev->tx_speed / 1000000;
+	else
+		cmd->base.speed = SPEED_UNKNOWN;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(usbnet_get_link_ksettings_internal);
+
+int usbnet_set_link_ksettings_mii(struct net_device *net,
 			      const struct ethtool_link_ksettings *cmd)
 {
 	struct usbnet *dev = netdev_priv(net);
@@ -978,7 +1021,7 @@ int usbnet_set_link_ksettings(struct net_device *net,
 
 	return retval;
 }
-EXPORT_SYMBOL_GPL(usbnet_set_link_ksettings);
+EXPORT_SYMBOL_GPL(usbnet_set_link_ksettings_mii);
 
 u32 usbnet_get_link (struct net_device *net)
 {
@@ -1043,8 +1086,8 @@ static const struct ethtool_ops usbnet_ethtool_ops = {
 	.get_msglevel		= usbnet_get_msglevel,
 	.set_msglevel		= usbnet_set_msglevel,
 	.get_ts_info		= ethtool_op_get_ts_info,
-	.get_link_ksettings	= usbnet_get_link_ksettings,
-	.set_link_ksettings	= usbnet_set_link_ksettings,
+	.get_link_ksettings	= usbnet_get_link_ksettings_mii,
+	.set_link_ksettings	= usbnet_set_link_ksettings_mii,
 };
 
 /*-------------------------------------------------------------------------*/
@@ -1573,15 +1616,15 @@ void usbnet_disconnect (struct usb_interface *intf)
 		   xdev->bus->bus_name, xdev->devpath,
 		   dev->driver_info->description);
 
+	if (dev->driver_info->unbind)
+		dev->driver_info->unbind(dev, intf);
+
 	net = dev->net;
 	unregister_netdev (net);
 
 	cancel_work_sync(&dev->kevent);
 
 	usb_scuttle_anchored_urbs(&dev->deferred);
-
-	if (dev->driver_info->unbind)
-		dev->driver_info->unbind (dev, intf);
 
 	usb_kill_urb(dev->interrupt);
 	usb_free_urb(dev->interrupt);
@@ -1661,6 +1704,8 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	dev->intf = udev;
 	dev->driver_info = info;
 	dev->driver_name = name;
+	dev->rx_speed = SPEED_UNSET;
+	dev->tx_speed = SPEED_UNSET;
 
 	net->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
 	if (!net->tstats)
@@ -1682,8 +1727,8 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	dev->interrupt_count = 0;
 
 	dev->net = net;
-	strcpy (net->name, "usb%d");
-	memcpy (net->dev_addr, node_id, sizeof node_id);
+	strscpy(net->name, "usb%d", sizeof(net->name));
+	eth_hw_addr_set(net, node_id);
 
 	/* rx and tx sides can use different message sizes;
 	 * bind() should set rx_urb_size in that case.
@@ -1709,13 +1754,13 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 		if ((dev->driver_info->flags & FLAG_ETHER) != 0 &&
 		    ((dev->driver_info->flags & FLAG_POINTTOPOINT) == 0 ||
 		     (net->dev_addr [0] & 0x02) == 0))
-			strcpy (net->name, "eth%d");
+			strscpy(net->name, "eth%d", sizeof(net->name));
 		/* WLAN devices should always be named "wlan%d" */
 		if ((dev->driver_info->flags & FLAG_WLAN) != 0)
-			strcpy(net->name, "wlan%d");
+			strscpy(net->name, "wlan%d", sizeof(net->name));
 		/* WWAN devices should always be named "wwan%d" */
 		if ((dev->driver_info->flags & FLAG_WWAN) != 0)
-			strcpy(net->name, "wwan%d");
+			strscpy(net->name, "wwan%d", sizeof(net->name));
 
 		/* devices that cannot do ARP */
 		if ((dev->driver_info->flags & FLAG_NOARP) != 0)
@@ -1745,6 +1790,11 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	if (!dev->rx_urb_size)
 		dev->rx_urb_size = dev->hard_mtu;
 	dev->maxpacket = usb_maxpacket (dev->udev, dev->out, 1);
+	if (dev->maxpacket == 0) {
+		/* that is a broken device */
+		status = -ENODEV;
+		goto out4;
+	}
 
 	/* let userspace know we have a random address */
 	if (ether_addr_equal(net->dev_addr, node_id))

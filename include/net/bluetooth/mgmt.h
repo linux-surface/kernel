@@ -202,7 +202,7 @@ struct mgmt_cp_load_link_keys {
 struct mgmt_ltk_info {
 	struct mgmt_addr_info addr;
 	__u8	type;
-	__u8	master;
+	__u8	initiator;
 	__u8	enc_size;
 	__le16	ediv;
 	__le64	rand;
@@ -578,6 +578,7 @@ struct mgmt_rp_add_advertising {
 #define MGMT_ADV_PARAM_TIMEOUT		BIT(13)
 #define MGMT_ADV_PARAM_INTERVALS	BIT(14)
 #define MGMT_ADV_PARAM_TX_POWER		BIT(15)
+#define MGMT_ADV_PARAM_SCAN_RSP		BIT(16)
 
 #define MGMT_ADV_FLAG_SEC_MASK	(MGMT_ADV_FLAG_SEC_1M | MGMT_ADV_FLAG_SEC_2M | \
 				 MGMT_ADV_FLAG_SEC_CODED)
@@ -695,7 +696,7 @@ struct mgmt_cp_set_blocked_keys {
 #define MGMT_READ_CONTROLLER_CAP_SIZE	0
 struct mgmt_rp_read_controller_cap {
 	__le16   cap_len;
-	__u8     cap[0];
+	__u8     cap[];
 } __packed;
 
 #define MGMT_OP_READ_EXP_FEATURES_INFO	0x0049
@@ -935,9 +936,11 @@ struct mgmt_ev_auth_failed {
 	__u8	status;
 } __packed;
 
-#define MGMT_DEV_FOUND_CONFIRM_NAME    0x01
-#define MGMT_DEV_FOUND_LEGACY_PAIRING  0x02
-#define MGMT_DEV_FOUND_NOT_CONNECTABLE 0x04
+#define MGMT_DEV_FOUND_CONFIRM_NAME		0x01
+#define MGMT_DEV_FOUND_LEGACY_PAIRING		0x02
+#define MGMT_DEV_FOUND_NOT_CONNECTABLE		0x04
+#define MGMT_DEV_FOUND_INITIATED_CONN		0x08
+#define MGMT_DEV_FOUND_NAME_REQUEST_FAILED	0x10
 
 #define MGMT_EV_DEVICE_FOUND		0x0012
 struct mgmt_ev_device_found {
@@ -1101,3 +1104,19 @@ struct mgmt_ev_controller_resume {
 #define MGMT_WAKE_REASON_NON_BT_WAKE		0x0
 #define MGMT_WAKE_REASON_UNEXPECTED		0x1
 #define MGMT_WAKE_REASON_REMOTE_WAKE		0x2
+
+#define MGMT_EV_ADV_MONITOR_DEVICE_FOUND	0x002f
+struct mgmt_ev_adv_monitor_device_found {
+	__le16 monitor_handle;
+	struct mgmt_addr_info addr;
+	__s8   rssi;
+	__le32 flags;
+	__le16 eir_len;
+	__u8   eir[];
+} __packed;
+
+#define MGMT_EV_ADV_MONITOR_DEVICE_LOST		0x0030
+struct mgmt_ev_adv_monitor_device_lost {
+	__le16 monitor_handle;
+	struct mgmt_addr_info addr;
+} __packed;

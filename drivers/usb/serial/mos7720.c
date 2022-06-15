@@ -945,27 +945,20 @@ static int mos7720_open(struct tty_struct *tty, struct usb_serial_port *port)
  *	this function is called by the tty driver when it wants to know how many
  *	bytes of data we currently have outstanding in the port (data that has
  *	been written, but hasn't made it out the port yet)
- *	If successful, we return the number of bytes left to be written in the
- *	system,
- *	Otherwise we return a negative error number.
  */
-static int mos7720_chars_in_buffer(struct tty_struct *tty)
+static unsigned int mos7720_chars_in_buffer(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
+	struct moschip_port *mos7720_port = usb_get_serial_port_data(port);
 	int i;
-	int chars = 0;
-	struct moschip_port *mos7720_port;
-
-	mos7720_port = usb_get_serial_port_data(port);
-	if (mos7720_port == NULL)
-		return 0;
+	unsigned int chars = 0;
 
 	for (i = 0; i < NUM_URBS; ++i) {
 		if (mos7720_port->write_urb_pool[i] &&
 		    mos7720_port->write_urb_pool[i]->status == -EINPROGRESS)
 			chars += URB_TRANSFER_BUFFER_SIZE;
 	}
-	dev_dbg(&port->dev, "%s - returns %d\n", __func__, chars);
+	dev_dbg(&port->dev, "%s - returns %u\n", __func__, chars);
 	return chars;
 }
 
@@ -1030,19 +1023,13 @@ static void mos7720_break(struct tty_struct *tty, int break_state)
  * mos7720_write_room
  *	this function is called by the tty driver when it wants to know how many
  *	bytes of data we can accept for a specific port.
- *	If successful, we return the amount of room that we have for this port
- *	Otherwise we return a negative error number.
  */
-static int mos7720_write_room(struct tty_struct *tty)
+static unsigned int mos7720_write_room(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
-	struct moschip_port *mos7720_port;
-	int room = 0;
+	struct moschip_port *mos7720_port = usb_get_serial_port_data(port);
+	unsigned int room = 0;
 	int i;
-
-	mos7720_port = usb_get_serial_port_data(port);
-	if (mos7720_port == NULL)
-		return -ENODEV;
 
 	/* FIXME: Locking */
 	for (i = 0; i < NUM_URBS; ++i) {
@@ -1051,7 +1038,7 @@ static int mos7720_write_room(struct tty_struct *tty)
 			room += URB_TRANSFER_BUFFER_SIZE;
 	}
 
-	dev_dbg(&port->dev, "%s - returns %d\n", __func__, room);
+	dev_dbg(&port->dev, "%s - returns %u\n", __func__, room);
 	return room;
 }
 
@@ -1393,30 +1380,12 @@ static void change_port_settings(struct tty_struct *tty,
 		return;
 	}
 
-	lData = UART_LCR_WLEN8;
 	lStop = 0x00;	/* 1 stop bit */
 	lParity = 0x00;	/* No parity */
 
 	cflag = tty->termios.c_cflag;
 
-	/* Change the number of bits */
-	switch (cflag & CSIZE) {
-	case CS5:
-		lData = UART_LCR_WLEN5;
-		break;
-
-	case CS6:
-		lData = UART_LCR_WLEN6;
-		break;
-
-	case CS7:
-		lData = UART_LCR_WLEN7;
-		break;
-	default:
-	case CS8:
-		lData = UART_LCR_WLEN8;
-		break;
-	}
+	lData = UART_LCR_WLEN(tty_get_char_size(cflag));
 
 	/* Change the Parity bit */
 	if (cflag & PARENB) {
@@ -1634,23 +1603,6 @@ static int mos7720_tiocmset(struct tty_struct *tty,
 	return 0;
 }
 
-static int get_serial_info(struct tty_struct *tty,
-			   struct serial_struct *ss)
-{
-	struct usb_serial_port *port = tty->driver_data;
-	struct moschip_port *mos7720_port = usb_get_serial_port_data(port);
-
-	ss->type		= PORT_16550A;
-	ss->line		= mos7720_port->port->minor;
-	ss->port		= mos7720_port->port->port_number;
-	ss->irq			= 0;
-	ss->xmit_fifo_size	= NUM_URBS * URB_TRANSFER_BUFFER_SIZE;
-	ss->baud_base		= 9600;
-	ss->close_delay		= 5*HZ;
-	ss->closing_wait	= 30*HZ;
-	return 0;
-}
-
 static int mos7720_ioctl(struct tty_struct *tty,
 			 unsigned int cmd, unsigned long arg)
 {
@@ -1790,7 +1742,6 @@ static struct usb_serial_driver moschip7720_2port_driver = {
 	.ioctl			= mos7720_ioctl,
 	.tiocmget		= mos7720_tiocmget,
 	.tiocmset		= mos7720_tiocmset,
-	.get_serial		= get_serial_info,
 	.set_termios		= mos7720_set_termios,
 	.write			= mos7720_write,
 	.write_room		= mos7720_write_room,

@@ -5,7 +5,6 @@
  *   Author(s):	Hartmut Penner <hp@de.ibm.com>
  *		Martin Schwidefsky <schwidefsky@de.ibm.com>
  *		Rob van der Heij <rvdhei@iae.nl>
- *		Heiko Carstens <heiko.carstens@de.ibm.com>
  *
  */
 
@@ -20,7 +19,6 @@ __HEAD
 ENTRY(startup_continue)
 	larl	%r1,tod_clock_base
 	mvc	0(16,%r1),__LC_BOOT_CLOCK
-	larl	%r13,.LPG1		# get base
 #
 # Setup stack
 #

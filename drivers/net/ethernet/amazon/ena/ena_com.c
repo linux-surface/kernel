@@ -863,7 +863,7 @@ static u32 ena_com_reg_bar_read32(struct ena_com_dev *ena_dev, u16 offset)
 
 	if (unlikely(i == timeout)) {
 		netdev_err(ena_dev->net_device,
-			   "Reading reg failed for timeout. expected: req id[%hu] offset[%hu] actual: req id[%hu] offset[%hu]\n",
+			   "Reading reg failed for timeout. expected: req id[%u] offset[%u] actual: req id[%u] offset[%u]\n",
 			   mmio_read->seq_num, offset, read_resp->req_id,
 			   read_resp->reg_off);
 		ret = ENA_MMIO_READ_TIMEOUT;
@@ -1971,6 +1971,7 @@ int ena_com_get_dev_attr_feat(struct ena_com_dev *ena_dev,
 	       sizeof(get_resp.u.dev_attr));
 
 	ena_dev->supported_features = get_resp.u.dev_attr.supported_features;
+	ena_dev->capabilities = get_resp.u.dev_attr.capabilities;
 
 	if (ena_dev->supported_features & BIT(ENA_ADMIN_MAX_QUEUES_EXT)) {
 		rc = ena_com_get_feature(ena_dev, &get_resp,
@@ -1979,7 +1980,8 @@ int ena_com_get_dev_attr_feat(struct ena_com_dev *ena_dev,
 		if (rc)
 			return rc;
 
-		if (get_resp.u.max_queue_ext.version != ENA_FEATURE_MAX_QUEUE_EXT_VER)
+		if (get_resp.u.max_queue_ext.version !=
+		    ENA_FEATURE_MAX_QUEUE_EXT_VER)
 			return -EINVAL;
 
 		memcpy(&get_feat_ctx->max_queue_ext, &get_resp.u.max_queue_ext,
@@ -2222,6 +2224,13 @@ int ena_com_get_eni_stats(struct ena_com_dev *ena_dev,
 	struct ena_com_stats_ctx ctx;
 	int ret;
 
+	if (!ena_com_get_cap(ena_dev, ENA_ADMIN_ENI_STATS)) {
+		netdev_err(ena_dev->net_device,
+			   "Capability %d isn't supported\n",
+			   ENA_ADMIN_ENI_STATS);
+		return -EOPNOTSUPP;
+	}
+
 	memset(&ctx, 0x0, sizeof(ctx));
 	ret = ena_get_dev_stats(ena_dev, &ctx, ENA_ADMIN_GET_STATS_TYPE_ENI);
 	if (likely(ret == 0))
@@ -2396,7 +2405,7 @@ int ena_com_fill_hash_function(struct ena_com_dev *ena_dev,
 		if (key) {
 			if (key_len != sizeof(hash_key->key)) {
 				netdev_err(ena_dev->net_device,
-					   "key len (%hu) doesn't equal the supported size (%zu)\n",
+					   "key len (%u) doesn't equal the supported size (%zu)\n",
 					   key_len, sizeof(hash_key->key));
 				return -EINVAL;
 			}

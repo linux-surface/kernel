@@ -778,9 +778,9 @@ static int exynos_adc_ts_init(struct exynos_adc *info)
 		return ret;
 	}
 
-	disable_irq(info->tsirq);
 	ret = request_threaded_irq(info->tsirq, NULL, exynos_ts_isr,
-				   IRQF_ONESHOT, "touchscreen", info);
+				   IRQF_ONESHOT | IRQF_NO_AUTOEN,
+				   "touchscreen", info);
 	if (ret)
 		input_unregister_device(info->input);
 
@@ -794,7 +794,7 @@ static int exynos_adc_probe(struct platform_device *pdev)
 	struct s3c2410_ts_mach_info *pdata = dev_get_platdata(&pdev->dev);
 	struct iio_dev *indio_dev = NULL;
 	bool has_ts = false;
-	int ret = -ENODEV;
+	int ret;
 	int irq;
 
 	indio_dev = devm_iio_device_alloc(&pdev->dev, sizeof(struct exynos_adc));
@@ -968,7 +968,6 @@ static int exynos_adc_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int exynos_adc_suspend(struct device *dev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
@@ -1001,11 +1000,9 @@ static int exynos_adc_resume(struct device *dev)
 
 	return 0;
 }
-#endif
 
-static SIMPLE_DEV_PM_OPS(exynos_adc_pm_ops,
-			exynos_adc_suspend,
-			exynos_adc_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(exynos_adc_pm_ops, exynos_adc_suspend,
+				exynos_adc_resume);
 
 static struct platform_driver exynos_adc_driver = {
 	.probe		= exynos_adc_probe,
@@ -1013,7 +1010,7 @@ static struct platform_driver exynos_adc_driver = {
 	.driver		= {
 		.name	= "exynos-adc",
 		.of_match_table = exynos_adc_match,
-		.pm	= &exynos_adc_pm_ops,
+		.pm	= pm_sleep_ptr(&exynos_adc_pm_ops),
 	},
 };
 

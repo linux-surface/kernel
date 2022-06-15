@@ -626,10 +626,6 @@ static int cpsw_hwtstamp_set(struct net_device *dev, struct ifreq *ifr)
 	if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
 		return -EFAULT;
 
-	/* reserved for future extensions */
-	if (cfg.flags)
-		return -EINVAL;
-
 	if (cfg.tx_type != HWTSTAMP_TX_OFF && cfg.tx_type != HWTSTAMP_TX_ON)
 		return -ERANGE;
 
@@ -710,20 +706,26 @@ int cpsw_ndo_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 	struct cpsw_priv *priv = netdev_priv(dev);
 	struct cpsw_common *cpsw = priv->cpsw;
 	int slave_no = cpsw_slave_index(cpsw, priv);
+	struct phy_device *phy;
 
 	if (!netif_running(dev))
 		return -EINVAL;
 
-	switch (cmd) {
-	case SIOCSHWTSTAMP:
-		return cpsw_hwtstamp_set(dev, req);
-	case SIOCGHWTSTAMP:
-		return cpsw_hwtstamp_get(dev, req);
+	phy = cpsw->slaves[slave_no].phy;
+
+	if (!phy_has_hwtstamp(phy)) {
+		switch (cmd) {
+		case SIOCSHWTSTAMP:
+			return cpsw_hwtstamp_set(dev, req);
+		case SIOCGHWTSTAMP:
+			return cpsw_hwtstamp_get(dev, req);
+		}
 	}
 
-	if (!cpsw->slaves[slave_no].phy)
-		return -EOPNOTSUPP;
-	return phy_mii_ioctl(cpsw->slaves[slave_no].phy, req, cmd);
+	if (phy)
+		return phy_mii_ioctl(phy, req, cmd);
+
+	return -EOPNOTSUPP;
 }
 
 int cpsw_ndo_set_tx_maxrate(struct net_device *ndev, int queue, u32 rate)
@@ -1120,7 +1122,7 @@ int cpsw_fill_rx_channels(struct cpsw_priv *priv)
 			xmeta->ndev = priv->ndev;
 			xmeta->ch = ch;
 
-			dma = page_pool_get_dma_addr(page) + CPSW_HEADROOM;
+			dma = page_pool_get_dma_addr(page) + CPSW_HEADROOM_NA;
 			ret = cpdma_chan_idle_submit_mapped(cpsw->rxv[ch].ch,
 							    page, dma,
 							    cpsw->rx_packet_max,
@@ -1144,7 +1146,7 @@ int cpsw_fill_rx_channels(struct cpsw_priv *priv)
 static struct page_pool *cpsw_create_page_pool(struct cpsw_common *cpsw,
 					       int size)
 {
-	struct page_pool_params pp_params;
+	struct page_pool_params pp_params = {};
 	struct page_pool *pool;
 
 	pp_params.order = 0;
@@ -1305,19 +1307,15 @@ int cpsw_xdp_tx_frame(struct cpsw_priv *priv, struct xdp_frame *xdpf,
 		ret = cpdma_chan_submit_mapped(txch, cpsw_xdpf_to_handle(xdpf),
 					       dma, xdpf->len, port);
 	} else {
-		if (sizeof(*xmeta) > xdpf->headroom) {
-			xdp_return_frame_rx_napi(xdpf);
+		if (sizeof(*xmeta) > xdpf->headroom)
 			return -EINVAL;
-		}
 
 		ret = cpdma_chan_submit(txch, cpsw_xdpf_to_handle(xdpf),
 					xdpf->data, xdpf->len, port);
 	}
 
-	if (ret) {
+	if (ret)
 		priv->ndev->stats.tx_dropped++;
-		xdp_return_frame_rx_napi(xdpf);
-	}
 
 	return ret;
 }
@@ -1332,13 +1330,9 @@ int cpsw_run_xdp(struct cpsw_priv *priv, int ch, struct xdp_buff *xdp,
 	struct bpf_prog *prog;
 	u32 act;
 
-	rcu_read_lock();
-
 	prog = READ_ONCE(priv->xdp_prog);
-	if (!prog) {
-		ret = CPSW_XDP_PASS;
-		goto out;
-	}
+	if (!prog)
+		return CPSW_XDP_PASS;
 
 	act = bpf_prog_run_xdp(prog, xdp);
 	/* XDP prog might have changed packet data and boundaries */
@@ -1353,7 +1347,8 @@ int cpsw_run_xdp(struct cpsw_priv *priv, int ch, struct xdp_buff *xdp,
 		if (unlikely(!xdpf))
 			goto drop;
 
-		cpsw_xdp_tx_frame(priv, xdpf, page, port);
+		if (cpsw_xdp_tx_frame(priv, xdpf, page, port))
+			xdp_return_frame_rx_napi(xdpf);
 		break;
 	case XDP_REDIRECT:
 		if (xdp_do_redirect(ndev, xdp, prog))
@@ -1367,7 +1362,7 @@ int cpsw_run_xdp(struct cpsw_priv *priv, int ch, struct xdp_buff *xdp,
 		xdp_do_flush_map();
 		break;
 	default:
-		bpf_warn_invalid_xdp_action(act);
+		bpf_warn_invalid_xdp_action(ndev, prog, act);
 		fallthrough;
 	case XDP_ABORTED:
 		trace_xdp_exception(ndev, prog, act);
@@ -1381,10 +1376,8 @@ int cpsw_run_xdp(struct cpsw_priv *priv, int ch, struct xdp_buff *xdp,
 	ndev->stats.rx_bytes += *len;
 	ndev->stats.rx_packets++;
 out:
-	rcu_read_unlock();
 	return ret;
 drop:
-	rcu_read_unlock();
 	page_pool_recycle_direct(cpsw->page_pool[ch], page);
 	return ret;
 }

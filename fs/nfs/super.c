@@ -116,16 +116,12 @@ static void unregister_nfs4_fs(void)
 #ifdef CONFIG_NFS_V4_2
 static void nfs_ssc_register_ops(void)
 {
-#ifdef CONFIG_NFSD_V4
 	nfs_ssc_register(&nfs_ssc_clnt_ops_tbl);
-#endif
 }
 
 static void nfs_ssc_unregister_ops(void)
 {
-#ifdef CONFIG_NFSD_V4
 	nfs_ssc_unregister(&nfs_ssc_clnt_ops_tbl);
-#endif
 }
 #endif /* CONFIG_NFS_V4_2 */
 
@@ -484,6 +480,8 @@ static void nfs_show_mount_options(struct seq_file *m, struct nfs_server *nfss,
 	if (clp->cl_nconnect > 0)
 		seq_printf(m, ",nconnect=%u", clp->cl_nconnect);
 	if (version == 4) {
+		if (clp->cl_max_connect > 1)
+			seq_printf(m, ",max_connect=%u", clp->cl_max_connect);
 		if (nfss->port != NFS_PORT)
 			seq_printf(m, ",port=%u", nfss->port);
 	} else
@@ -867,7 +865,7 @@ static int nfs_request_mount(struct fs_context *fc,
 	 * Now ask the mount server to map our export path
 	 * to a file handle.
 	 */
-	status = nfs_mount(&request);
+	status = nfs_mount(&request, ctx->timeo, ctx->retrans);
 	if (status != 0) {
 		dfprintk(MOUNT, "NFS: unable to mount server %s, error %d\n",
 				request.hostname, status);
@@ -1006,6 +1004,7 @@ int nfs_reconfigure(struct fs_context *fc)
 	struct nfs_fs_context *ctx = nfs_fc2context(fc);
 	struct super_block *sb = fc->root->d_sb;
 	struct nfs_server *nfss = sb->s_fs_info;
+	int ret;
 
 	sync_filesystem(sb);
 
@@ -1030,7 +1029,11 @@ int nfs_reconfigure(struct fs_context *fc)
 	}
 
 	/* compare new mount options with old ones */
-	return nfs_compare_remount_data(nfss, ctx);
+	ret = nfs_compare_remount_data(nfss, ctx);
+	if (ret)
+		return ret;
+
+	return nfs_probe_server(nfss, NFS_FH(d_inode(fc->root)));
 }
 EXPORT_SYMBOL_GPL(nfs_reconfigure);
 
@@ -1045,7 +1048,7 @@ static void nfs_fill_super(struct super_block *sb, struct nfs_fs_context *ctx)
 	sb->s_blocksize = 0;
 	sb->s_xattr = server->nfs_client->cl_nfs_mod->xattr;
 	sb->s_op = server->nfs_client->cl_nfs_mod->sops;
-	if (ctx && ctx->bsize)
+	if (ctx->bsize)
 		sb->s_blocksize = nfs_block_size(ctx->bsize, &sb->s_blocksize_bits);
 
 	if (server->nfs_client->rpc_ops->version != 2) {
@@ -1077,6 +1080,7 @@ static void nfs_fill_super(struct super_block *sb, struct nfs_fs_context *ctx)
 						 &sb->s_blocksize_bits);
 
 	nfs_super_set_maxbytes(sb, server->maxfilesize);
+	server->has_sec_mnt_opts = ctx->has_sec_mnt_opts;
 }
 
 static int nfs_compare_mount_options(const struct super_block *s, const struct nfs_server *b,
@@ -1193,46 +1197,49 @@ static int nfs_compare_super(struct super_block *sb, struct fs_context *fc)
 		return 0;
 	if (!nfs_compare_userns(old, server))
 		return 0;
+	if ((old->has_sec_mnt_opts || fc->security) &&
+			security_sb_mnt_opts_compat(sb, fc->security))
+		return 0;
 	return nfs_compare_mount_options(sb, server, fc);
 }
 
 #ifdef CONFIG_NFS_FSCACHE
-static void nfs_get_cache_cookie(struct super_block *sb,
-				 struct nfs_fs_context *ctx)
+static int nfs_get_cache_cookie(struct super_block *sb,
+				struct nfs_fs_context *ctx)
 {
 	struct nfs_server *nfss = NFS_SB(sb);
 	char *uniq = NULL;
 	int ulen = 0;
 
-	nfss->fscache_key = NULL;
 	nfss->fscache = NULL;
 
 	if (!ctx)
-		return;
+		return 0;
 
 	if (ctx->clone_data.sb) {
 		struct nfs_server *mnt_s = NFS_SB(ctx->clone_data.sb);
 		if (!(mnt_s->options & NFS_OPTION_FSCACHE))
-			return;
-		if (mnt_s->fscache_key) {
-			uniq = mnt_s->fscache_key->key.uniquifier;
-			ulen = mnt_s->fscache_key->key.uniq_len;
+			return 0;
+		if (mnt_s->fscache_uniq) {
+			uniq = mnt_s->fscache_uniq;
+			ulen = strlen(uniq);
 		}
 	} else {
 		if (!(ctx->options & NFS_OPTION_FSCACHE))
-			return;
+			return 0;
 		if (ctx->fscache_uniq) {
 			uniq = ctx->fscache_uniq;
 			ulen = strlen(ctx->fscache_uniq);
 		}
 	}
 
-	nfs_fscache_get_super_cookie(sb, uniq, ulen);
+	return nfs_fscache_get_super_cookie(sb, uniq, ulen);
 }
 #else
-static void nfs_get_cache_cookie(struct super_block *sb,
-				 struct nfs_fs_context *ctx)
+static int nfs_get_cache_cookie(struct super_block *sb,
+				struct nfs_fs_context *ctx)
 {
+	return 0;
 }
 #endif
 
@@ -1292,7 +1299,9 @@ int nfs_get_tree_common(struct fs_context *fc)
 			s->s_blocksize_bits = bsize;
 			s->s_blocksize = 1U << bsize;
 		}
-		nfs_get_cache_cookie(s, ctx);
+		error = nfs_get_cache_cookie(s, ctx);
+		if (error < 0)
+			goto error_splat_super;
 	}
 
 	error = nfs_get_root(s, fc);
@@ -1379,7 +1388,7 @@ static const struct kernel_param_ops param_ops_portnr = {
 	.set = param_set_portnr,
 	.get = param_get_uint,
 };
-#define param_check_portnr(name, p) __param_check(name, p, unsigned int);
+#define param_check_portnr(name, p) __param_check(name, p, unsigned int)
 
 module_param_named(callback_tcpport, nfs_callback_set_tcpport, portnr, 0644);
 module_param_named(callback_nr_threads, nfs_callback_nr_threads, ushort, 0644);

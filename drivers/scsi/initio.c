@@ -546,7 +546,6 @@ static int initio_reset_scsi(struct initio_host * host, int seconds)
 /**
  *	initio_init		-	set up an InitIO host adapter
  *	@host: InitIO host adapter
- *	@num_scbs: Number of SCBS
  *	@bios_addr: BIOS address
  *
  *	Set up the host adapter and devices according to the configuration
@@ -866,17 +865,16 @@ static void initio_unlink_busy_scb(struct initio_host * host, struct scsi_ctrl_b
 
 struct scsi_ctrl_blk *initio_find_busy_scb(struct initio_host * host, u16 tarlun)
 {
-	struct scsi_ctrl_blk *tmp, *prev;
+	struct scsi_ctrl_blk *tmp;
 	u16 scbp_tarlun;
 
 
-	prev = tmp = host->first_busy;
+	tmp = host->first_busy;
 	while (tmp != NULL) {
 		scbp_tarlun = (tmp->lun << 8) | (tmp->target);
 		if (scbp_tarlun == tarlun) {	/* Unlink this SCB              */
 			break;
 		}
-		prev = tmp;
 		tmp = tmp->next;
 	}
 #if DEBUG_QUEUE
@@ -1888,7 +1886,7 @@ static int int_initio_scsi_rst(struct initio_host * host)
 }
 
 /**
- *	int_initio_scsi_resel	-	Reselection occurred
+ *	int_initio_resel	-	Reselection occurred
  *	@host: InitIO host adapter
  *
  *	A SCSI reselection event has been signalled and the interrupt
@@ -2555,7 +2553,7 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
 				  SENSE_SIZE, DMA_FROM_DEVICE);
 	cblk->senseptr = (u32)dma_addr;
 	cblk->senselen = SENSE_SIZE;
-	cmnd->SCp.ptr = (char *)(unsigned long)dma_addr;
+	initio_priv(cmnd)->sense_dma_addr = dma_addr;
 	cblk->cdblen = cmnd->cmd_len;
 
 	/* Clear the returned status */
@@ -2579,7 +2577,7 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
 					  sizeof(struct sg_entry) * TOTAL_SG_ENTRY,
 					  DMA_BIDIRECTIONAL);
 		cblk->bufptr = (u32)dma_addr;
-		cmnd->SCp.dma_handle = dma_addr;
+		initio_priv(cmnd)->sglist_dma_addr = dma_addr;
 
 		cblk->sglen = nseg;
 
@@ -2602,22 +2600,17 @@ static void initio_build_scb(struct initio_host * host, struct scsi_ctrl_blk * c
 }
 
 /**
- *	i91u_queuecommand	-	Queue a new command if possible
+ *	i91u_queuecommand_lck	-	Queue a new command if possible
  *	@cmd: SCSI command block from the mid layer
- *	@done: Completion handler
  *
  *	Attempts to queue a new command with the host adapter. Will return
  *	zero if successful or indicate a host busy condition if not (which
  *	will cause the mid layer to call us again later with the command)
  */
-
-static int i91u_queuecommand_lck(struct scsi_cmnd *cmd,
-		void (*done)(struct scsi_cmnd *))
+static int i91u_queuecommand_lck(struct scsi_cmnd *cmd)
 {
 	struct initio_host *host = (struct initio_host *) cmd->device->host->hostdata;
 	struct scsi_ctrl_blk *cmnd;
-
-	cmd->scsi_done = done;
 
 	cmnd = initio_alloc_scb(host);
 	if (!cmnd)
@@ -2651,9 +2644,9 @@ static int i91u_bus_reset(struct scsi_cmnd * cmnd)
 }
 
 /**
- *	i91u_biospararm			-	return the "logical geometry
+ *	i91u_biosparam			-	return the "logical geometry
  *	@sdev: SCSI device
- *	@dev; Matching block device
+ *	@dev: Matching block device
  *	@capacity: Sector size of drive
  *	@info_array: Return space for BIOS geometry
  *
@@ -2711,16 +2704,17 @@ static int i91u_biosparam(struct scsi_device *sdev, struct block_device *dev,
 static void i91u_unmap_scb(struct pci_dev *pci_dev, struct scsi_cmnd *cmnd)
 {
 	/* auto sense buffer */
-	if (cmnd->SCp.ptr) {
+	if (initio_priv(cmnd)->sense_dma_addr) {
 		dma_unmap_single(&pci_dev->dev,
-				 (dma_addr_t)((unsigned long)cmnd->SCp.ptr),
+				 initio_priv(cmnd)->sense_dma_addr,
 				 SENSE_SIZE, DMA_FROM_DEVICE);
-		cmnd->SCp.ptr = NULL;
+		initio_priv(cmnd)->sense_dma_addr = 0;
 	}
 
 	/* request buffer */
 	if (scsi_sg_count(cmnd)) {
-		dma_unmap_single(&pci_dev->dev, cmnd->SCp.dma_handle,
+		dma_unmap_single(&pci_dev->dev,
+				 initio_priv(cmnd)->sglist_dma_addr,
 				 sizeof(struct sg_entry) * TOTAL_SG_ENTRY,
 				 DMA_BIDIRECTIONAL);
 
@@ -2728,10 +2722,8 @@ static void i91u_unmap_scb(struct pci_dev *pci_dev, struct scsi_cmnd *cmnd)
 	}
 }
 
-/**
+/*
  *	i91uSCBPost		-	SCSI callback
- *	@host: Pointer to host adapter control block.
- *	@cmnd: Pointer to SCSI control block.
  *
  *	This is callback routine be called when tulip finish one
  *	SCSI command.
@@ -2792,7 +2784,7 @@ static void i91uSCBPost(u8 * host_mem, u8 * cblk_mem)
 
 	cmnd->result = cblk->tastat | (cblk->hastat << 16);
 	i91u_unmap_scb(host->pci_dev, cmnd);
-	cmnd->scsi_done(cmnd);	/* Notify system DONE           */
+	scsi_done(cmnd);	/* Notify system DONE           */
 	initio_release_scb(host, cblk);	/* Release SCB for current channel */
 }
 
@@ -2805,6 +2797,7 @@ static struct scsi_host_template initio_template = {
 	.can_queue		= MAX_TARGETS * i91u_MAXQUEUE,
 	.this_id		= 1,
 	.sg_tablesize		= SG_ALL,
+	.cmd_size		= sizeof(struct initio_cmd_priv),
 };
 
 static int initio_probe_one(struct pci_dev *pdev,
@@ -2856,7 +2849,8 @@ static int initio_probe_one(struct pci_dev *pdev,
 
 	for (; num_scb >= MAX_TARGETS + 3; num_scb--) {
 		i = num_scb * sizeof(struct scsi_ctrl_blk);
-		if ((scb = kzalloc(i, GFP_DMA)) != NULL)
+		scb = kzalloc(i, GFP_KERNEL);
+		if (scb)
 			break;
 	}
 

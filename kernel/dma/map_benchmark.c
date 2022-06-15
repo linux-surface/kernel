@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2020 Hisilicon Limited.
+ * Copyright (C) 2020 HiSilicon Limited.
  */
 
 #define pr_fmt(fmt)	KBUILD_MODNAME ": " fmt
@@ -11,35 +11,13 @@
 #include <linux/dma-mapping.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
+#include <linux/map_benchmark.h>
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/timekeeping.h>
-
-#define DMA_MAP_BENCHMARK	_IOWR('d', 1, struct map_benchmark)
-#define DMA_MAP_MAX_THREADS	1024
-#define DMA_MAP_MAX_SECONDS	300
-#define DMA_MAP_MAX_TRANS_DELAY	(10 * NSEC_PER_MSEC)
-
-#define DMA_MAP_BIDIRECTIONAL	0
-#define DMA_MAP_TO_DEVICE	1
-#define DMA_MAP_FROM_DEVICE	2
-
-struct map_benchmark {
-	__u64 avg_map_100ns; /* average map latency in 100ns */
-	__u64 map_stddev; /* standard deviation of map latency */
-	__u64 avg_unmap_100ns; /* as above */
-	__u64 unmap_stddev;
-	__u32 threads; /* how many threads will do map/unmap in parallel */
-	__u32 seconds; /* how long the test will last */
-	__s32 node; /* which numa node this benchmark will run on */
-	__u32 dma_bits; /* DMA addressing capability */
-	__u32 dma_dir; /* DMA data direction */
-	__u32 dma_trans_ns; /* time for DMA transmission in ns */
-	__u8 expansion[80];	/* For future use */
-};
 
 struct map_benchmark_data {
 	struct map_benchmark bparam;
@@ -58,9 +36,11 @@ static int map_benchmark_thread(void *data)
 	void *buf;
 	dma_addr_t dma_addr;
 	struct map_benchmark_data *map = data;
+	int npages = map->bparam.granule;
+	u64 size = npages * PAGE_SIZE;
 	int ret = 0;
 
-	buf = (void *)__get_free_page(GFP_KERNEL);
+	buf = alloc_pages_exact(size, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -76,10 +56,10 @@ static int map_benchmark_thread(void *data)
 		 * 66 means evertything goes well! 66 is lucky.
 		 */
 		if (map->dir != DMA_FROM_DEVICE)
-			memset(buf, 0x66, PAGE_SIZE);
+			memset(buf, 0x66, size);
 
 		map_stime = ktime_get();
-		dma_addr = dma_map_single(map->dev, buf, PAGE_SIZE, map->dir);
+		dma_addr = dma_map_single(map->dev, buf, size, map->dir);
 		if (unlikely(dma_mapping_error(map->dev, dma_addr))) {
 			pr_err("dma_map_single failed on %s\n",
 				dev_name(map->dev));
@@ -93,7 +73,7 @@ static int map_benchmark_thread(void *data)
 		ndelay(map->bparam.dma_trans_ns);
 
 		unmap_stime = ktime_get();
-		dma_unmap_single(map->dev, dma_addr, PAGE_SIZE, map->dir);
+		dma_unmap_single(map->dev, dma_addr, size, map->dir);
 		unmap_etime = ktime_get();
 		unmap_delta = ktime_sub(unmap_etime, unmap_stime);
 
@@ -112,7 +92,7 @@ static int map_benchmark_thread(void *data)
 	}
 
 out:
-	free_page((unsigned long)buf);
+	free_pages_exact(buf, size);
 	return ret;
 }
 
@@ -203,7 +183,6 @@ static long map_benchmark_ioctl(struct file *file, unsigned int cmd,
 	struct map_benchmark_data *map = file->private_data;
 	void __user *argp = (void __user *)arg;
 	u64 old_dma_mask;
-
 	int ret;
 
 	if (copy_from_user(&map->bparam, argp, sizeof(map->bparam)))
@@ -231,6 +210,11 @@ static long map_benchmark_ioctl(struct file *file, unsigned int cmd,
 		if (map->bparam.node != NUMA_NO_NODE &&
 		    !node_possible(map->bparam.node)) {
 			pr_err("invalid numa node\n");
+			return -EINVAL;
+		}
+
+		if (map->bparam.granule < 1 || map->bparam.granule > 1024) {
+			pr_err("invalid granule size\n");
 			return -EINVAL;
 		}
 

@@ -9,7 +9,6 @@
 #include <linux/slab.h>
 #include <linux/i2c.h>
 #include <linux/log2.h>
-#include <linux/gpio.h>
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/v4l2-mediabus.h>
@@ -449,7 +448,7 @@ static int mt9m111_reset(struct mt9m111 *mt9m111)
 }
 
 static int mt9m111_set_selection(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_selection *sel)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -493,7 +492,7 @@ static int mt9m111_set_selection(struct v4l2_subdev *sd,
 }
 
 static int mt9m111_get_selection(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_selection *sel)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -518,7 +517,7 @@ static int mt9m111_get_selection(struct v4l2_subdev *sd,
 }
 
 static int mt9m111_get_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *mf = &format->format;
@@ -529,7 +528,7 @@ static int mt9m111_get_fmt(struct v4l2_subdev *sd,
 
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
-		mf = v4l2_subdev_get_try_format(sd, cfg, format->pad);
+		mf = v4l2_subdev_get_try_format(sd, sd_state, format->pad);
 		format->format = *mf;
 		return 0;
 #else
@@ -624,7 +623,7 @@ static int mt9m111_set_pixfmt(struct mt9m111 *mt9m111,
 }
 
 static int mt9m111_set_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *mf = &format->format;
@@ -678,7 +677,7 @@ static int mt9m111_set_fmt(struct v4l2_subdev *sd,
 	mf->xfer_func	= V4L2_XFER_FUNC_DEFAULT;
 
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
-		cfg->try_fmt = *mf;
+		sd_state->pads->try_fmt = *mf;
 		return 0;
 	}
 
@@ -1100,7 +1099,7 @@ static int mt9m111_s_frame_interval(struct v4l2_subdev *sd,
 }
 
 static int mt9m111_enum_mbus_code(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_mbus_code_enum *code)
 {
 	if (code->pad || code->index >= ARRAY_SIZE(mt9m111_colour_fmts))
@@ -1119,11 +1118,11 @@ static int mt9m111_s_stream(struct v4l2_subdev *sd, int enable)
 }
 
 static int mt9m111_init_cfg(struct v4l2_subdev *sd,
-			    struct v4l2_subdev_pad_config *cfg)
+			    struct v4l2_subdev_state *sd_state)
 {
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
 	struct v4l2_mbus_framefmt *format =
-		v4l2_subdev_get_try_format(sd, cfg, 0);
+		v4l2_subdev_get_try_format(sd, sd_state, 0);
 
 	format->width	= MT9M111_MAX_WIDTH;
 	format->height	= MT9M111_MAX_HEIGHT;
@@ -1143,14 +1142,16 @@ static int mt9m111_get_mbus_config(struct v4l2_subdev *sd,
 {
 	struct mt9m111 *mt9m111 = container_of(sd, struct mt9m111, subdev);
 
-	cfg->flags = V4L2_MBUS_MASTER |
-		V4L2_MBUS_HSYNC_ACTIVE_HIGH | V4L2_MBUS_VSYNC_ACTIVE_HIGH |
-		V4L2_MBUS_DATA_ACTIVE_HIGH;
-
-	cfg->flags |= mt9m111->pclk_sample ? V4L2_MBUS_PCLK_SAMPLE_RISING :
-		V4L2_MBUS_PCLK_SAMPLE_FALLING;
-
 	cfg->type = V4L2_MBUS_PARALLEL;
+
+	cfg->bus.parallel.flags = V4L2_MBUS_MASTER |
+				  V4L2_MBUS_HSYNC_ACTIVE_HIGH |
+				  V4L2_MBUS_VSYNC_ACTIVE_HIGH |
+				  V4L2_MBUS_DATA_ACTIVE_HIGH;
+
+	cfg->bus.parallel.flags |= mt9m111->pclk_sample ?
+				   V4L2_MBUS_PCLK_SAMPLE_RISING :
+				   V4L2_MBUS_PCLK_SAMPLE_FALLING;
 
 	return 0;
 }

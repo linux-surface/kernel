@@ -31,7 +31,7 @@ static int __init irq_affinity_setup(char *str)
 	cpulist_parse(str, irq_default_affinity);
 	/*
 	 * Set at least the boot cpu. We don't want to end up with
-	 * bugreports caused by random comandline masks
+	 * bugreports caused by random commandline masks
 	 */
 	cpumask_set_cpu(smp_processor_id(), irq_default_affinity);
 	return 1;
@@ -188,7 +188,7 @@ static ssize_t hwirq_show(struct kobject *kobj,
 
 	raw_spin_lock_irq(&desc->lock);
 	if (desc->irq_data.domain)
-		ret = sprintf(buf, "%d\n", (int)desc->irq_data.hwirq);
+		ret = sprintf(buf, "%lu\n", desc->irq_data.hwirq);
 	raw_spin_unlock_irq(&desc->lock);
 
 	return ret;
@@ -407,6 +407,7 @@ static struct irq_desc *alloc_desc(int irq, int node, unsigned int flags,
 	lockdep_set_class(&desc->lock, &irq_desc_lock_class);
 	mutex_init(&desc->request_mutex);
 	init_rcu_head(&desc->rcu);
+	init_waitqueue_head(&desc->wait_for_threads);
 
 	desc_set_defaults(irq, desc, node, affinity, owner);
 	irqd_set(&desc->irq_data, flags);
@@ -575,6 +576,7 @@ int __init early_irq_init(void)
 		raw_spin_lock_init(&desc[i].lock);
 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
 		mutex_init(&desc[i].request_mutex);
+		init_waitqueue_head(&desc[i].wait_for_threads);
 		desc_set_defaults(i, &desc[i], node, NULL, NULL);
 	}
 	return arch_early_irq_init();
@@ -632,106 +634,93 @@ void irq_init_desc(unsigned int irq)
 
 #endif /* !CONFIG_SPARSE_IRQ */
 
-/**
- * generic_handle_irq - Invoke the handler for a particular irq
- * @irq:	The irq number to handle
- *
- */
-int generic_handle_irq(unsigned int irq)
+int handle_irq_desc(struct irq_desc *desc)
 {
-	struct irq_desc *desc = irq_to_desc(irq);
 	struct irq_data *data;
 
 	if (!desc)
 		return -EINVAL;
 
 	data = irq_desc_get_irq_data(desc);
-	if (WARN_ON_ONCE(!in_irq() && handle_enforce_irqctx(data)))
+	if (WARN_ON_ONCE(!in_hardirq() && handle_enforce_irqctx(data)))
 		return -EPERM;
 
 	generic_handle_irq_desc(desc);
 	return 0;
 }
+
+/**
+ * generic_handle_irq - Invoke the handler for a particular irq
+ * @irq:	The irq number to handle
+ *
+ * Returns:	0 on success, or -EINVAL if conversion has failed
+ *
+ * 		This function must be called from an IRQ context with irq regs
+ * 		initialized.
+  */
+int generic_handle_irq(unsigned int irq)
+{
+	return handle_irq_desc(irq_to_desc(irq));
+}
 EXPORT_SYMBOL_GPL(generic_handle_irq);
 
-#ifdef CONFIG_HANDLE_DOMAIN_IRQ
 /**
- * __handle_domain_irq - Invoke the handler for a HW irq belonging to a domain
- * @domain:	The domain where to perform the lookup
- * @hwirq:	The HW irq number to convert to a logical one
- * @lookup:	Whether to perform the domain lookup or not
- * @regs:	Register file coming from the low-level handling code
+ * generic_handle_irq_safe - Invoke the handler for a particular irq from any
+ *			     context.
+ * @irq:	The irq number to handle
  *
- * Returns:	0 on success, or -EINVAL if conversion has failed
+ * Returns:	0 on success, a negative value on error.
+ *
+ * This function can be called from any context (IRQ or process context). It
+ * will report an error if not invoked from IRQ context and the irq has been
+ * marked to enforce IRQ-context only.
  */
-int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
-			bool lookup, struct pt_regs *regs)
+int generic_handle_irq_safe(unsigned int irq)
 {
-	struct pt_regs *old_regs = set_irq_regs(regs);
-	unsigned int irq = hwirq;
-	int ret = 0;
+	unsigned long flags;
+	int ret;
 
-	irq_enter();
-
-#ifdef CONFIG_IRQ_DOMAIN
-	if (lookup)
-		irq = irq_find_mapping(domain, hwirq);
-#endif
-
-	/*
-	 * Some hardware gives randomly wrong interrupts.  Rather
-	 * than crashing, do something sensible.
-	 */
-	if (unlikely(!irq || irq >= nr_irqs)) {
-		ack_bad_irq(irq);
-		ret = -EINVAL;
-	} else {
-		generic_handle_irq(irq);
-	}
-
-	irq_exit();
-	set_irq_regs(old_regs);
+	local_irq_save(flags);
+	ret = handle_irq_desc(irq_to_desc(irq));
+	local_irq_restore(flags);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(generic_handle_irq_safe);
 
 #ifdef CONFIG_IRQ_DOMAIN
 /**
- * handle_domain_nmi - Invoke the handler for a HW irq belonging to a domain
+ * generic_handle_domain_irq - Invoke the handler for a HW irq belonging
+ *                             to a domain.
  * @domain:	The domain where to perform the lookup
  * @hwirq:	The HW irq number to convert to a logical one
- * @regs:	Register file coming from the low-level handling code
- *
- *		This function must be called from an NMI context.
  *
  * Returns:	0 on success, or -EINVAL if conversion has failed
+ *
+ * 		This function must be called from an IRQ context with irq regs
+ * 		initialized.
  */
-int handle_domain_nmi(struct irq_domain *domain, unsigned int hwirq,
-		      struct pt_regs *regs)
+int generic_handle_domain_irq(struct irq_domain *domain, unsigned int hwirq)
 {
-	struct pt_regs *old_regs = set_irq_regs(regs);
-	unsigned int irq;
-	int ret = 0;
-
-	/*
-	 * NMI context needs to be setup earlier in order to deal with tracing.
-	 */
-	WARN_ON(!in_nmi());
-
-	irq = irq_find_mapping(domain, hwirq);
-
-	/*
-	 * ack_bad_irq is not NMI-safe, just report
-	 * an invalid interrupt.
-	 */
-	if (likely(irq))
-		generic_handle_irq(irq);
-	else
-		ret = -EINVAL;
-
-	set_irq_regs(old_regs);
-	return ret;
+	return handle_irq_desc(irq_resolve_mapping(domain, hwirq));
 }
-#endif
+EXPORT_SYMBOL_GPL(generic_handle_domain_irq);
+
+/**
+ * generic_handle_domain_nmi - Invoke the handler for a HW nmi belonging
+ *                             to a domain.
+ * @domain:	The domain where to perform the lookup
+ * @hwirq:	The HW irq number to convert to a logical one
+ *
+ * Returns:	0 on success, or -EINVAL if conversion has failed
+ *
+ * 		This function must be called from an NMI context with irq regs
+ * 		initialized.
+ **/
+int generic_handle_domain_nmi(struct irq_domain *domain, unsigned int hwirq)
+{
+	WARN_ON_ONCE(!in_nmi());
+	return handle_irq_desc(irq_resolve_mapping(domain, hwirq));
+}
 #endif
 
 /* Dynamic interrupt handling */

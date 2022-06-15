@@ -7,13 +7,10 @@
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/module.h>
-#include <linux/interrupt.h>
-#include <linux/irq.h>
+#include <linux/mod_devicetable.h>
 #include <linux/slab.h>
-#include <linux/delay.h>
 #include <linux/hid-sensor-hub.h>
 #include <linux/iio/iio.h>
-#include <linux/iio/sysfs.h>
 #include <linux/iio/buffer.h>
 #include "../common/hid-sensors/hid-sensor-trigger.h"
 
@@ -45,6 +42,11 @@ static const u32 incl_3d_addresses[INCLI_3D_CHANNEL_MAX] = {
 	HID_USAGE_SENSOR_ORIENT_TILT_X,
 	HID_USAGE_SENSOR_ORIENT_TILT_Y,
 	HID_USAGE_SENSOR_ORIENT_TILT_Z
+};
+
+static const u32 incl_3d_sensitivity_addresses[] = {
+	HID_USAGE_SENSOR_DATA_ORIENTATION,
+	HID_USAGE_SENSOR_ORIENT_TILT,
 };
 
 /* Channel definitions */
@@ -291,17 +293,6 @@ static int incl_3d_parse_report(struct platform_device *pdev,
 				&st->incl[CHANNEL_SCAN_INDEX_X],
 				&st->scale_pre_decml, &st->scale_post_decml);
 
-	/* Set Sensitivity field ids, when there is no individual modifier */
-	if (st->common_attributes.sensitivity.index < 0) {
-		sensor_hub_input_get_attribute_info(hsdev,
-			HID_FEATURE_REPORT, usage_id,
-			HID_USAGE_SENSOR_DATA_MOD_CHANGE_SENSITIVITY_ABS |
-			HID_USAGE_SENSOR_DATA_ORIENTATION,
-			&st->common_attributes.sensitivity);
-		dev_dbg(&pdev->dev, "Sensitivity index:report %d:%d\n",
-			st->common_attributes.sensitivity.index,
-			st->common_attributes.sensitivity.report_id);
-	}
 	return ret;
 }
 
@@ -327,14 +318,16 @@ static int hid_incl_3d_probe(struct platform_device *pdev)
 
 	ret = hid_sensor_parse_common_attributes(hsdev,
 				HID_USAGE_SENSOR_INCLINOMETER_3D,
-				&incl_state->common_attributes);
+				&incl_state->common_attributes,
+				incl_3d_sensitivity_addresses,
+				ARRAY_SIZE(incl_3d_sensitivity_addresses));
 	if (ret) {
 		dev_err(&pdev->dev, "failed to setup common attributes\n");
 		return ret;
 	}
 
-	indio_dev->channels = kmemdup(incl_3d_channels,
-				      sizeof(incl_3d_channels), GFP_KERNEL);
+	indio_dev->channels = devm_kmemdup(&pdev->dev, incl_3d_channels,
+					   sizeof(incl_3d_channels), GFP_KERNEL);
 	if (!indio_dev->channels) {
 		dev_err(&pdev->dev, "failed to duplicate channels\n");
 		return -ENOMEM;
@@ -346,7 +339,7 @@ static int hid_incl_3d_probe(struct platform_device *pdev)
 				   incl_state);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to setup attributes\n");
-		goto error_free_dev_mem;
+		return ret;
 	}
 
 	indio_dev->num_channels = ARRAY_SIZE(incl_3d_channels);
@@ -360,7 +353,7 @@ static int hid_incl_3d_probe(struct platform_device *pdev)
 					&incl_state->common_attributes);
 	if (ret) {
 		dev_err(&pdev->dev, "trigger setup failed\n");
-		goto error_free_dev_mem;
+		return ret;
 	}
 
 	ret = iio_device_register(indio_dev);
@@ -386,8 +379,6 @@ error_iio_unreg:
 	iio_device_unregister(indio_dev);
 error_remove_trigger:
 	hid_sensor_remove_trigger(indio_dev, &incl_state->common_attributes);
-error_free_dev_mem:
-	kfree(indio_dev->channels);
 	return ret;
 }
 
@@ -401,7 +392,6 @@ static int hid_incl_3d_remove(struct platform_device *pdev)
 	sensor_hub_remove_callback(hsdev, HID_USAGE_SENSOR_INCLINOMETER_3D);
 	iio_device_unregister(indio_dev);
 	hid_sensor_remove_trigger(indio_dev, &incl_state->common_attributes);
-	kfree(indio_dev->channels);
 
 	return 0;
 }
@@ -429,3 +419,4 @@ module_platform_driver(hid_incl_3d_platform_driver);
 MODULE_DESCRIPTION("HID Sensor Inclinometer 3D");
 MODULE_AUTHOR("Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS(IIO_HID);

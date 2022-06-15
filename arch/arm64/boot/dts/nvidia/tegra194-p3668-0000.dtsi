@@ -5,6 +5,10 @@
 	model = "NVIDIA Jetson Xavier NX (SD-card)";
 	compatible = "nvidia,p3668-0000", "nvidia,tegra194";
 
+	aliases {
+		mmc0 = "/bus@0/mmc@3400000";
+	};
+
 	bus@0 {
 		/* SDMMC1 (SD/MMC) */
 		mmc@3400000 {
@@ -16,7 +20,7 @@
 		};
 	};
 
-	vdd_3v3_sd: regulator@0 {
+	vdd_3v3_sd: regulator-vdd-3v3-sd {
 		compatible = "regulator-fixed";
 		regulator-name = "VDD_3V3_SD";
 		regulator-min-microvolt = <3300000>;

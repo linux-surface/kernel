@@ -20,11 +20,17 @@
 #include <linux/irq_work.h>
 #include <linux/workqueue.h>
 #include <linux/ctype.h>
+#include <linux/once_lite.h>
+
+#include "pid_list.h"
 
 #ifdef CONFIG_FTRACE_SYSCALLS
 #include <asm/unistd.h>		/* For NR_SYSCALLS	     */
 #include <asm/syscall.h>	/* some archs define it here */
 #endif
+
+#define TRACE_MODE_WRITE	0640
+#define TRACE_MODE_READ		0440
 
 enum trace_type {
 	__TRACE_FIRST_TYPE = 0,
@@ -44,7 +50,10 @@ enum trace_type {
 	TRACE_BLK,
 	TRACE_BPUTS,
 	TRACE_HWLAT,
+	TRACE_OSNOISE,
+	TRACE_TIMERLAT,
 	TRACE_RAW_DATA,
+	TRACE_FUNC_REPEATS,
 
 	__TRACE_LAST_TYPE,
 };
@@ -74,6 +83,9 @@ enum trace_type {
 #undef __dynamic_array
 #define __dynamic_array(type, item)	type	item[];
 
+#undef __rel_dynamic_array
+#define __rel_dynamic_array(type, item)	type	item[];
+
 #undef F_STRUCT
 #define F_STRUCT(args...)		args
 
@@ -98,16 +110,8 @@ enum trace_type {
 #include "trace_entries.h"
 
 /* Use this for memory failure errors */
-#define MEM_FAIL(condition, fmt, ...) ({			\
-	static bool __section(".data.once") __warned;		\
-	int __ret_warn_once = !!(condition);			\
-								\
-	if (unlikely(__ret_warn_once && !__warned)) {		\
-		__warned = true;				\
-		pr_err("ERROR: " fmt, ##__VA_ARGS__);		\
-	}							\
-	unlikely(__ret_warn_once);				\
-})
+#define MEM_FAIL(condition, fmt, ...)					\
+	DO_ONCE_LITE_IF(condition, pr_err, "ERROR: " fmt, ##__VA_ARGS__)
 
 /*
  * syscalls are special, and need special handling, this is why
@@ -128,6 +132,10 @@ struct syscall_trace_exit {
 struct kprobe_trace_entry_head {
 	struct trace_entry	ent;
 	unsigned long		ip;
+};
+
+struct eprobe_trace_entry_head {
+	struct trace_entry	ent;
 };
 
 struct kretprobe_trace_entry_head {
@@ -187,10 +195,14 @@ struct trace_options {
 	struct trace_option_dentry	*topts;
 };
 
-struct trace_pid_list {
-	int				pid_max;
-	unsigned long			*pids;
-};
+struct trace_pid_list *trace_pid_list_alloc(void);
+void trace_pid_list_free(struct trace_pid_list *pid_list);
+bool trace_pid_list_is_set(struct trace_pid_list *pid_list, unsigned int pid);
+int trace_pid_list_set(struct trace_pid_list *pid_list, unsigned int pid);
+int trace_pid_list_clear(struct trace_pid_list *pid_list, unsigned int pid);
+int trace_pid_list_first(struct trace_pid_list *pid_list, unsigned int *pid);
+int trace_pid_list_next(struct trace_pid_list *pid_list, unsigned int pid,
+			unsigned int *next);
 
 enum {
 	TRACE_PIDS		= BIT(0),
@@ -262,6 +274,17 @@ struct cond_snapshot {
 };
 
 /*
+ * struct trace_func_repeats - used to keep track of the consecutive
+ * (on the same CPU) calls of a single function.
+ */
+struct trace_func_repeats {
+	unsigned long	ip;
+	unsigned long	parent_ip;
+	unsigned long	count;
+	u64		ts_last_call;
+};
+
+/*
  * The trace array - an array of per-CPU trace arrays. This is the
  * highest level data structure that individual tracers deal with.
  * They have on/off state as well:
@@ -285,7 +308,8 @@ struct trace_array {
 	struct array_buffer	max_buffer;
 	bool			allocated_snapshot;
 #endif
-#if defined(CONFIG_TRACER_MAX_TRACE) || defined(CONFIG_HWLAT_TRACER)
+#if defined(CONFIG_TRACER_MAX_TRACE) || defined(CONFIG_HWLAT_TRACER) \
+	|| defined(CONFIG_OSNOISE_TRACER)
 	unsigned long		max_latency;
 #ifdef CONFIG_FSNOTIFY
 	struct dentry		*d_max_latency;
@@ -352,11 +376,12 @@ struct trace_array {
 	/* function tracing enabled */
 	int			function_enabled;
 #endif
-	int			time_stamp_abs_ref;
+	int			no_filter_buffering_ref;
 	struct list_head	hist_vars;
 #ifdef CONFIG_TRACER_SNAPSHOT
 	struct cond_snapshot	*cond_snapshot;
 #endif
+	struct trace_func_repeats	__percpu *last_func_repeats;
 };
 
 enum {
@@ -372,7 +397,8 @@ extern int tracing_check_open_get_tr(struct trace_array *tr);
 extern struct trace_array *trace_array_find(const char *instance);
 extern struct trace_array *trace_array_find_get(const char *instance);
 
-extern int tracing_set_time_stamp_abs(struct trace_array *tr, bool abs);
+extern u64 tracing_event_time_stamp(struct trace_buffer *buffer, struct ring_buffer_event *rbe);
+extern int tracing_set_filter_buffering(struct trace_array *tr, bool set);
 extern int tracing_set_clock(struct trace_array *tr, const char *clockstr);
 
 extern bool trace_clock_in_ns(struct trace_array *tr);
@@ -431,6 +457,8 @@ extern void __ftrace_bad_type(void);
 		IF_ASSIGN(var, ent, struct bprint_entry, TRACE_BPRINT);	\
 		IF_ASSIGN(var, ent, struct bputs_entry, TRACE_BPUTS);	\
 		IF_ASSIGN(var, ent, struct hwlat_entry, TRACE_HWLAT);	\
+		IF_ASSIGN(var, ent, struct osnoise_entry, TRACE_OSNOISE);\
+		IF_ASSIGN(var, ent, struct timerlat_entry, TRACE_TIMERLAT);\
 		IF_ASSIGN(var, ent, struct raw_data_entry, TRACE_RAW_DATA);\
 		IF_ASSIGN(var, ent, struct trace_mmiotrace_rw,		\
 			  TRACE_MMIO_RW);				\
@@ -441,6 +469,8 @@ extern void __ftrace_bad_type(void);
 			  TRACE_GRAPH_ENT);		\
 		IF_ASSIGN(var, ent, struct ftrace_graph_ret_entry,	\
 			  TRACE_GRAPH_RET);		\
+		IF_ASSIGN(var, ent, struct func_repeats_entry,		\
+			  TRACE_FUNC_REPEATS);				\
 		__ftrace_bad_type();					\
 	} while (0)
 
@@ -581,7 +611,10 @@ struct trace_entry *trace_find_next_entry(struct trace_iterator *iter,
 void trace_buffer_unlock_commit_nostack(struct trace_buffer *buffer,
 					struct ring_buffer_event *event);
 
+bool trace_is_tracepoint_string(const char *str);
 const char *trace_event_format(struct trace_iterator *iter, const char *fmt);
+void trace_check_vprintf(struct trace_iterator *iter, const char *fmt,
+			 va_list ap);
 
 int trace_empty(struct trace_iterator *iter);
 
@@ -656,15 +689,15 @@ void update_max_tr_single(struct trace_array *tr,
 			  struct task_struct *tsk, int cpu);
 #endif /* CONFIG_TRACER_MAX_TRACE */
 
-#if (defined(CONFIG_TRACER_MAX_TRACE) || defined(CONFIG_HWLAT_TRACER)) && \
-	defined(CONFIG_FSNOTIFY)
+#if (defined(CONFIG_TRACER_MAX_TRACE) || defined(CONFIG_HWLAT_TRACER) \
+	|| defined(CONFIG_OSNOISE_TRACER)) && defined(CONFIG_FSNOTIFY)
+#define LATENCY_FS_NOTIFY
+#endif
 
+#ifdef LATENCY_FS_NOTIFY
 void latency_fsnotify(struct trace_array *tr);
-
 #else
-
 static inline void latency_fsnotify(struct trace_array *tr) { }
-
 #endif
 
 #ifdef CONFIG_STACKTRACE
@@ -675,6 +708,10 @@ static inline void __trace_stack(struct trace_array *tr, unsigned int trace_ctx,
 {
 }
 #endif /* CONFIG_STACKTRACE */
+
+void trace_last_func_repeats(struct trace_array *tr,
+			     struct trace_func_repeats *last_info,
+			     unsigned int trace_ctx);
 
 extern u64 ftrace_now(int cpu);
 
@@ -855,7 +892,7 @@ static inline int ftrace_graph_addr(struct ftrace_graph_ent *trace)
 		 * is set, and called by an interrupt handler, we still
 		 * want to trace it.
 		 */
-		if (in_irq())
+		if (in_hardirq())
 			trace_recursion_set(TRACE_IRQ_BIT);
 		else
 			trace_recursion_clear(TRACE_IRQ_BIT);
@@ -1299,10 +1336,12 @@ __trace_event_discard_commit(struct trace_buffer *buffer,
 			     struct ring_buffer_event *event)
 {
 	if (this_cpu_read(trace_buffered_event) == event) {
-		/* Simply release the temp buffer */
+		/* Simply release the temp buffer and enable preemption */
 		this_cpu_dec(trace_buffered_event_cnt);
+		preempt_enable_notrace();
 		return;
 	}
+	/* ring_buffer_discard_commit() enables preemption */
 	ring_buffer_discard_commit(buffer, event);
 }
 
@@ -1329,21 +1368,33 @@ __event_trigger_test_discard(struct trace_event_file *file,
 	unsigned long eflags = file->flags;
 
 	if (eflags & EVENT_FILE_FL_TRIGGER_COND)
-		*tt = event_triggers_call(file, entry, event);
+		*tt = event_triggers_call(file, buffer, entry, event);
 
-	if (test_bit(EVENT_FILE_FL_SOFT_DISABLED_BIT, &file->flags) ||
-	    (unlikely(file->flags & EVENT_FILE_FL_FILTERED) &&
-	     !filter_match_preds(file->filter, entry))) {
-		__trace_event_discard_commit(buffer, event);
-		return true;
-	}
+	if (likely(!(file->flags & (EVENT_FILE_FL_SOFT_DISABLED |
+				    EVENT_FILE_FL_FILTERED |
+				    EVENT_FILE_FL_PID_FILTER))))
+		return false;
+
+	if (file->flags & EVENT_FILE_FL_SOFT_DISABLED)
+		goto discard;
+
+	if (file->flags & EVENT_FILE_FL_FILTERED &&
+	    !filter_match_preds(file->filter, entry))
+		goto discard;
+
+	if ((file->flags & EVENT_FILE_FL_PID_FILTER) &&
+	    trace_event_ignore_this_pid(file))
+		goto discard;
 
 	return false;
+ discard:
+	__trace_event_discard_commit(buffer, event);
+	return true;
 }
 
 /**
  * event_trigger_unlock_commit - handle triggers and finish event commit
- * @file: The file pointer assoctiated to the event
+ * @file: The file pointer associated with the event
  * @buffer: The ring buffer that the event is being written to
  * @event: The event meta data in the ring buffer
  * @entry: The event itself
@@ -1363,38 +1414,6 @@ event_trigger_unlock_commit(struct trace_event_file *file,
 
 	if (!__event_trigger_test_discard(file, buffer, event, entry, &tt))
 		trace_buffer_unlock_commit(file->tr, buffer, event, trace_ctx);
-
-	if (tt)
-		event_triggers_post_call(file, tt);
-}
-
-/**
- * event_trigger_unlock_commit_regs - handle triggers and finish event commit
- * @file: The file pointer assoctiated to the event
- * @buffer: The ring buffer that the event is being written to
- * @event: The event meta data in the ring buffer
- * @entry: The event itself
- * @trace_ctx: The tracing context flags.
- *
- * This is a helper function to handle triggers that require data
- * from the event itself. It also tests the event against filters and
- * if the event is soft disabled and should be discarded.
- *
- * Same as event_trigger_unlock_commit() but calls
- * trace_buffer_unlock_commit_regs() instead of trace_buffer_unlock_commit().
- */
-static inline void
-event_trigger_unlock_commit_regs(struct trace_event_file *file,
-				 struct trace_buffer *buffer,
-				 struct ring_buffer_event *event,
-				 void *entry, unsigned int trace_ctx,
-				 struct pt_regs *regs)
-{
-	enum event_trigger_type tt = ETT_NONE;
-
-	if (!__event_trigger_test_discard(file, buffer, event, entry, &tt))
-		trace_buffer_unlock_commit_regs(file->tr, buffer, event,
-						trace_ctx, regs);
 
 	if (tt)
 		event_triggers_post_call(file, tt);
@@ -1450,6 +1469,7 @@ struct filter_pred {
 static inline bool is_string_field(struct ftrace_event_field *field)
 {
 	return field->filter_type == FILTER_DYN_STRING ||
+	       field->filter_type == FILTER_RDYN_STRING ||
 	       field->filter_type == FILTER_STATIC_STRING ||
 	       field->filter_type == FILTER_PTR_STRING ||
 	       field->filter_type == FILTER_COMM;
@@ -1519,9 +1539,14 @@ static inline int register_trigger_hist_enable_disable_cmds(void) { return 0; }
 extern int register_trigger_cmds(void);
 extern void clear_event_triggers(struct trace_array *tr);
 
+enum {
+	EVENT_TRIGGER_FL_PROBE		= BIT(0),
+};
+
 struct event_trigger_data {
 	unsigned long			count;
 	int				ref;
+	int				flags;
 	struct event_trigger_ops	*ops;
 	struct event_command		*cmd_ops;
 	struct event_filter __rcu	*filter;
@@ -1552,15 +1577,13 @@ extern int event_enable_trigger_print(struct seq_file *m,
 				      struct event_trigger_data *data);
 extern void event_enable_trigger_free(struct event_trigger_ops *ops,
 				      struct event_trigger_data *data);
-extern int event_enable_trigger_func(struct event_command *cmd_ops,
-				     struct trace_event_file *file,
-				     char *glob, char *cmd, char *param);
+extern int event_enable_trigger_parse(struct event_command *cmd_ops,
+				      struct trace_event_file *file,
+				      char *glob, char *cmd, char *param);
 extern int event_enable_register_trigger(char *glob,
-					 struct event_trigger_ops *ops,
 					 struct event_trigger_data *data,
 					 struct trace_event_file *file);
 extern void event_enable_unregister_trigger(char *glob,
-					    struct event_trigger_ops *ops,
 					    struct event_trigger_data *test,
 					    struct trace_event_file *file);
 extern void trigger_data_free(struct event_trigger_data *data);
@@ -1586,6 +1609,30 @@ get_named_trigger_data(struct event_trigger_data *data);
 extern int register_event_command(struct event_command *cmd);
 extern int unregister_event_command(struct event_command *cmd);
 extern int register_trigger_hist_enable_disable_cmds(void);
+extern bool event_trigger_check_remove(const char *glob);
+extern bool event_trigger_empty_param(const char *param);
+extern int event_trigger_separate_filter(char *param_and_filter, char **param,
+					 char **filter, bool param_required);
+extern struct event_trigger_data *
+event_trigger_alloc(struct event_command *cmd_ops,
+		    char *cmd,
+		    char *param,
+		    void *private_data);
+extern int event_trigger_parse_num(char *trigger,
+				   struct event_trigger_data *trigger_data);
+extern int event_trigger_set_filter(struct event_command *cmd_ops,
+				    struct trace_event_file *file,
+				    char *param,
+				    struct event_trigger_data *trigger_data);
+extern void event_trigger_reset_filter(struct event_command *cmd_ops,
+				       struct event_trigger_data *trigger_data);
+extern int event_trigger_register(struct event_command *cmd_ops,
+				  struct trace_event_file *file,
+				  char *glob,
+				  char *cmd,
+				  char *trigger,
+				  struct event_trigger_data *trigger_data,
+				  int *n_registered);
 
 /**
  * struct event_trigger_ops - callbacks for trace event triggers
@@ -1593,10 +1640,20 @@ extern int register_trigger_hist_enable_disable_cmds(void);
  * The methods in this structure provide per-event trigger hooks for
  * various trigger operations.
  *
+ * The @init and @free methods are used during trigger setup and
+ * teardown, typically called from an event_command's @parse()
+ * function implementation.
+ *
+ * The @print method is used to print the trigger spec.
+ *
+ * The @trigger method is the function that actually implements the
+ * trigger and is called in the context of the triggering event
+ * whenever that event occurs.
+ *
  * All the methods below, except for @init() and @free(), must be
  * implemented.
  *
- * @func: The trigger 'probe' function called when the triggering
+ * @trigger: The trigger 'probe' function called when the triggering
  *	event occurs.  The data passed into this callback is the data
  *	that was supplied to the event_command @reg() function that
  *	registered the trigger (see struct event_command) along with
@@ -1625,9 +1682,10 @@ extern int register_trigger_hist_enable_disable_cmds(void);
  *	(see trace_event_triggers.c).
  */
 struct event_trigger_ops {
-	void			(*func)(struct event_trigger_data *data,
-					void *rec,
-					struct ring_buffer_event *rbe);
+	void			(*trigger)(struct event_trigger_data *data,
+					   struct trace_buffer *buffer,
+					   void *rec,
+					   struct ring_buffer_event *rbe);
 	int			(*init)(struct event_trigger_ops *ops,
 					struct event_trigger_data *data);
 	void			(*free)(struct event_trigger_ops *ops,
@@ -1676,7 +1734,7 @@ struct event_trigger_ops {
  * All the methods below, except for @set_filter() and @unreg_all(),
  * must be implemented.
  *
- * @func: The callback function responsible for parsing and
+ * @parse: The callback function responsible for parsing and
  *	registering the trigger written to the 'trigger' file by the
  *	user.  It allocates the trigger instance and registers it with
  *	the appropriate trace event.  It makes use of the other
@@ -1711,21 +1769,24 @@ struct event_trigger_ops {
  *
  * @get_trigger_ops: The callback function invoked to retrieve the
  *	event_trigger_ops implementation associated with the command.
+ *	This callback function allows a single event_command to
+ *	support multiple trigger implementations via different sets of
+ *	event_trigger_ops, depending on the value of the @param
+ *	string.
  */
 struct event_command {
 	struct list_head	list;
 	char			*name;
 	enum event_trigger_type	trigger_type;
 	int			flags;
-	int			(*func)(struct event_command *cmd_ops,
-					struct trace_event_file *file,
-					char *glob, char *cmd, char *params);
+	int			(*parse)(struct event_command *cmd_ops,
+					 struct trace_event_file *file,
+					 char *glob, char *cmd,
+					 char *param_and_filter);
 	int			(*reg)(char *glob,
-				       struct event_trigger_ops *ops,
 				       struct event_trigger_data *data,
 				       struct trace_event_file *file);
 	void			(*unreg)(char *glob,
-					 struct event_trigger_ops *ops,
 					 struct event_trigger_data *data,
 					 struct trace_event_file *file);
 	void			(*unreg_all)(struct trace_event_file *file);
@@ -1816,7 +1877,7 @@ extern ssize_t trace_parse_run_command(struct file *file,
 extern unsigned int err_pos(char *cmd, const char *str);
 extern void tracing_log_err(struct trace_array *tr,
 			    const char *loc, const char *cmd,
-			    const char **errs, u8 type, u8 pos);
+			    const char **errs, u8 type, u16 pos);
 
 /*
  * Normal trace_printk() and friends allocates special buffers
@@ -1906,14 +1967,7 @@ extern struct trace_iterator *tracepoint_print_iter;
  */
 static __always_inline void trace_iterator_reset(struct trace_iterator *iter)
 {
-	const size_t offset = offsetof(struct trace_iterator, seq);
-
-	/*
-	 * Keep gcc from complaining about overwriting more than just one
-	 * member in the structure.
-	 */
-	memset((char *)iter + offset, 0, sizeof(struct trace_iterator) - offset);
-
+	memset_startat(iter, 0, seq);
 	iter->pos = -1;
 }
 
@@ -1928,5 +1982,31 @@ static inline bool is_good_name(const char *name)
 	}
 	return true;
 }
+
+/* Convert certain expected symbols into '_' when generating event names */
+static inline void sanitize_event_name(char *name)
+{
+	while (*name++ != '\0')
+		if (*name == ':' || *name == '.')
+			*name = '_';
+}
+
+/*
+ * This is a generic way to read and write a u64 value from a file in tracefs.
+ *
+ * The value is stored on the variable pointed by *val. The value needs
+ * to be at least *min and at most *max. The write is protected by an
+ * existing *lock.
+ */
+struct trace_min_max_param {
+	struct mutex	*lock;
+	u64		*val;
+	u64		*min;
+	u64		*max;
+};
+
+#define U64_STR_SIZE		24	/* 20 digits max */
+
+extern const struct file_operations trace_min_max_fops;
 
 #endif /* _LINUX_KERNEL_TRACE_H */

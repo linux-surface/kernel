@@ -212,10 +212,6 @@ HashKey_8_k    = 16*21   # store XOR of HashKey^8 <<1 mod poly here (for Karatsu
 #define arg4 %rcx
 #define arg5 %r8
 #define arg6 %r9
-#define arg7 STACK_OFFSET+8*1(%r14)
-#define arg8 STACK_OFFSET+8*2(%r14)
-#define arg9 STACK_OFFSET+8*3(%r14)
-#define arg10 STACK_OFFSET+8*4(%r14)
 #define keysize 2*15*16(arg1)
 
 i = 0
@@ -237,9 +233,6 @@ define_reg j %j
 .noaltmacro
 .endm
 
-# need to push 4 registers into stack to maintain
-STACK_OFFSET = 8*4
-
 TMP1 =   16*0    # Temporary storage for AAD
 TMP2 =   16*1    # Temporary storage for AES State 2 (State 1 is stored in an XMM register)
 TMP3 =   16*2    # Temporary storage for AES State 3
@@ -256,25 +249,22 @@ VARIABLE_OFFSET = 16*8
 ################################
 
 .macro FUNC_SAVE
-        #the number of pushes must equal STACK_OFFSET
         push    %r12
         push    %r13
-        push    %r14
         push    %r15
 
-        mov     %rsp, %r14
-
-
+	push	%rbp
+	mov	%rsp, %rbp
 
         sub     $VARIABLE_OFFSET, %rsp
         and     $~63, %rsp                    # align rsp to 64 bytes
 .endm
 
 .macro FUNC_RESTORE
-        mov     %r14, %rsp
+        mov     %rbp, %rsp
+	pop	%rbp
 
         pop     %r15
-        pop     %r14
         pop     %r13
         pop     %r12
 .endm
@@ -294,7 +284,7 @@ VARIABLE_OFFSET = 16*8
 
 # combined for GCM encrypt and decrypt functions
 # clobbering all xmm registers
-# clobbering r10, r11, r12, r13, r14, r15
+# clobbering r10, r11, r12, r13, r15, rax
 .macro  GCM_ENC_DEC INITIAL_BLOCKS GHASH_8_ENCRYPT_8_PARALLEL GHASH_LAST_8 GHASH_MUL ENC_DEC REP
         vmovdqu AadHash(arg2), %xmm8
         vmovdqu  HashKey(arg2), %xmm13      # xmm13 = HashKey
@@ -996,7 +986,7 @@ _partial_block_done_\@:
 ## num_initial_blocks = b mod 4#
 ## encrypt the initial num_initial_blocks blocks and apply ghash on the ciphertext
 ## r10, r11, r12, rax are clobbered
-## arg1, arg3, arg4, r14 are used as a pointer only, not modified
+## arg1, arg2, arg3, arg4 are used as pointers only, not modified
 
 .macro INITIAL_BLOCKS_AVX REP num_initial_blocks T1 T2 T3 T4 T5 CTR XMM1 XMM2 XMM3 XMM4 XMM5 XMM6 XMM7 XMM8 T6 T_key ENC_DEC
 	i = (8-\num_initial_blocks)
@@ -1231,7 +1221,7 @@ _initial_blocks_done\@:
 
 # encrypt 8 blocks at a time
 # ghash the 8 previously encrypted ciphertext blocks
-# arg1, arg3, arg4 are used as pointers only, not modified
+# arg1, arg2, arg3, arg4 are used as pointers only, not modified
 # r11 is the data offset value
 .macro GHASH_8_ENCRYPT_8_PARALLEL_AVX REP T1 T2 T3 T4 T5 T6 CTR XMM1 XMM2 XMM3 XMM4 XMM5 XMM6 XMM7 XMM8 T7 loop_idx ENC_DEC
 
@@ -1777,7 +1767,7 @@ SYM_FUNC_START(aesni_gcm_init_avx_gen2)
         FUNC_SAVE
         INIT GHASH_MUL_AVX, PRECOMPUTE_AVX
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_init_avx_gen2)
 
 ###############################################################################
@@ -1798,15 +1788,15 @@ SYM_FUNC_START(aesni_gcm_enc_update_avx_gen2)
         # must be 192
         GCM_ENC_DEC INITIAL_BLOCKS_AVX, GHASH_8_ENCRYPT_8_PARALLEL_AVX, GHASH_LAST_8_AVX, GHASH_MUL_AVX, ENC, 11
         FUNC_RESTORE
-        ret
+        RET
 key_128_enc_update:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX, GHASH_8_ENCRYPT_8_PARALLEL_AVX, GHASH_LAST_8_AVX, GHASH_MUL_AVX, ENC, 9
         FUNC_RESTORE
-        ret
+        RET
 key_256_enc_update:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX, GHASH_8_ENCRYPT_8_PARALLEL_AVX, GHASH_LAST_8_AVX, GHASH_MUL_AVX, ENC, 13
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_enc_update_avx_gen2)
 
 ###############################################################################
@@ -1827,15 +1817,15 @@ SYM_FUNC_START(aesni_gcm_dec_update_avx_gen2)
         # must be 192
         GCM_ENC_DEC INITIAL_BLOCKS_AVX, GHASH_8_ENCRYPT_8_PARALLEL_AVX, GHASH_LAST_8_AVX, GHASH_MUL_AVX, DEC, 11
         FUNC_RESTORE
-        ret
+        RET
 key_128_dec_update:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX, GHASH_8_ENCRYPT_8_PARALLEL_AVX, GHASH_LAST_8_AVX, GHASH_MUL_AVX, DEC, 9
         FUNC_RESTORE
-        ret
+        RET
 key_256_dec_update:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX, GHASH_8_ENCRYPT_8_PARALLEL_AVX, GHASH_LAST_8_AVX, GHASH_MUL_AVX, DEC, 13
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_dec_update_avx_gen2)
 
 ###############################################################################
@@ -1856,15 +1846,15 @@ SYM_FUNC_START(aesni_gcm_finalize_avx_gen2)
         # must be 192
         GCM_COMPLETE GHASH_MUL_AVX, 11, arg3, arg4
         FUNC_RESTORE
-        ret
+        RET
 key_128_finalize:
         GCM_COMPLETE GHASH_MUL_AVX, 9, arg3, arg4
         FUNC_RESTORE
-        ret
+        RET
 key_256_finalize:
         GCM_COMPLETE GHASH_MUL_AVX, 13, arg3, arg4
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_finalize_avx_gen2)
 
 ###############################################################################
@@ -1944,7 +1934,7 @@ SYM_FUNC_END(aesni_gcm_finalize_avx_gen2)
 ## num_initial_blocks = b mod 4#
 ## encrypt the initial num_initial_blocks blocks and apply ghash on the ciphertext
 ## r10, r11, r12, rax are clobbered
-## arg1, arg3, arg4, r14 are used as a pointer only, not modified
+## arg1, arg2, arg3, arg4 are used as pointers only, not modified
 
 .macro INITIAL_BLOCKS_AVX2 REP num_initial_blocks T1 T2 T3 T4 T5 CTR XMM1 XMM2 XMM3 XMM4 XMM5 XMM6 XMM7 XMM8 T6 T_key ENC_DEC VER
 	i = (8-\num_initial_blocks)
@@ -2186,7 +2176,7 @@ _initial_blocks_done\@:
 
 # encrypt 8 blocks at a time
 # ghash the 8 previously encrypted ciphertext blocks
-# arg1, arg3, arg4 are used as pointers only, not modified
+# arg1, arg2, arg3, arg4 are used as pointers only, not modified
 # r11 is the data offset value
 .macro GHASH_8_ENCRYPT_8_PARALLEL_AVX2 REP T1 T2 T3 T4 T5 T6 CTR XMM1 XMM2 XMM3 XMM4 XMM5 XMM6 XMM7 XMM8 T7 loop_idx ENC_DEC
 
@@ -2745,7 +2735,7 @@ SYM_FUNC_START(aesni_gcm_init_avx_gen4)
         FUNC_SAVE
         INIT GHASH_MUL_AVX2, PRECOMPUTE_AVX2
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_init_avx_gen4)
 
 ###############################################################################
@@ -2766,15 +2756,15 @@ SYM_FUNC_START(aesni_gcm_enc_update_avx_gen4)
         # must be 192
         GCM_ENC_DEC INITIAL_BLOCKS_AVX2, GHASH_8_ENCRYPT_8_PARALLEL_AVX2, GHASH_LAST_8_AVX2, GHASH_MUL_AVX2, ENC, 11
         FUNC_RESTORE
-	ret
+	RET
 key_128_enc_update4:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX2, GHASH_8_ENCRYPT_8_PARALLEL_AVX2, GHASH_LAST_8_AVX2, GHASH_MUL_AVX2, ENC, 9
         FUNC_RESTORE
-	ret
+	RET
 key_256_enc_update4:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX2, GHASH_8_ENCRYPT_8_PARALLEL_AVX2, GHASH_LAST_8_AVX2, GHASH_MUL_AVX2, ENC, 13
         FUNC_RESTORE
-	ret
+	RET
 SYM_FUNC_END(aesni_gcm_enc_update_avx_gen4)
 
 ###############################################################################
@@ -2795,15 +2785,15 @@ SYM_FUNC_START(aesni_gcm_dec_update_avx_gen4)
         # must be 192
         GCM_ENC_DEC INITIAL_BLOCKS_AVX2, GHASH_8_ENCRYPT_8_PARALLEL_AVX2, GHASH_LAST_8_AVX2, GHASH_MUL_AVX2, DEC, 11
         FUNC_RESTORE
-        ret
+        RET
 key_128_dec_update4:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX2, GHASH_8_ENCRYPT_8_PARALLEL_AVX2, GHASH_LAST_8_AVX2, GHASH_MUL_AVX2, DEC, 9
         FUNC_RESTORE
-        ret
+        RET
 key_256_dec_update4:
         GCM_ENC_DEC INITIAL_BLOCKS_AVX2, GHASH_8_ENCRYPT_8_PARALLEL_AVX2, GHASH_LAST_8_AVX2, GHASH_MUL_AVX2, DEC, 13
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_dec_update_avx_gen4)
 
 ###############################################################################
@@ -2824,13 +2814,13 @@ SYM_FUNC_START(aesni_gcm_finalize_avx_gen4)
         # must be 192
         GCM_COMPLETE GHASH_MUL_AVX2, 11, arg3, arg4
         FUNC_RESTORE
-        ret
+        RET
 key_128_finalize4:
         GCM_COMPLETE GHASH_MUL_AVX2, 9, arg3, arg4
         FUNC_RESTORE
-        ret
+        RET
 key_256_finalize4:
         GCM_COMPLETE GHASH_MUL_AVX2, 13, arg3, arg4
         FUNC_RESTORE
-        ret
+        RET
 SYM_FUNC_END(aesni_gcm_finalize_avx_gen4)

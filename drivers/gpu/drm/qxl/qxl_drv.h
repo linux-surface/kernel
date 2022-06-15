@@ -30,7 +30,7 @@
  * Definitions taken from spice-protocol, plus kernel driver specific bits.
  */
 
-#include <linux/dma-buf-map.h>
+#include <linux/iosys-map.h>
 #include <linux/dma-fence.h>
 #include <linux/firmware.h>
 #include <linux/platform_device.h>
@@ -50,7 +50,7 @@
 
 #include "qxl_dev.h"
 
-struct dma_buf_map;
+struct iosys_map;
 
 #define DRIVER_AUTHOR		"Dave Airlie"
 
@@ -65,7 +65,6 @@ struct dma_buf_map;
 #define QXL_DEBUGFS_MAX_COMPONENTS		32
 
 extern int qxl_num_crtc;
-extern int qxl_max_ioctls;
 
 #define QXL_INTERRUPT_MASK (\
 	QXL_INTERRUPT_DISPLAY |\
@@ -81,7 +80,7 @@ struct qxl_bo {
 	/* Protected by tbo.reserved */
 	struct ttm_place		placements[3];
 	struct ttm_placement		placement;
-	struct dma_buf_map		map;
+	struct iosys_map		map;
 	void				*kptr;
 	unsigned int                    map_count;
 	int                             type;
@@ -125,7 +124,7 @@ struct qxl_output {
 #define drm_encoder_to_qxl_output(x) container_of(x, struct qxl_output, enc)
 
 struct qxl_mman {
-	struct ttm_bo_device		bdev;
+	struct ttm_device		bdev;
 };
 
 struct qxl_memslot {
@@ -214,6 +213,8 @@ struct qxl_device {
 	spinlock_t	release_lock;
 	struct idr	release_idr;
 	uint32_t	release_seqno;
+	atomic_t	release_count;
+	wait_queue_head_t release_event;
 	spinlock_t release_idr_lock;
 	struct mutex	async_io_mutex;
 	unsigned int last_sent_io_cmd;
@@ -259,9 +260,6 @@ struct qxl_device {
 
 int qxl_debugfs_fence_init(struct qxl_device *rdev);
 
-extern const struct drm_ioctl_desc qxl_ioctls[];
-extern int qxl_max_ioctl;
-
 int qxl_device_init(struct qxl_device *qdev, struct pci_dev *pdev);
 void qxl_device_fini(struct qxl_device *qdev);
 
@@ -290,12 +288,12 @@ qxl_bo_physical_address(struct qxl_device *qdev, struct qxl_bo *bo,
 			unsigned long offset)
 {
 	struct qxl_memslot *slot =
-		(bo->tbo.mem.mem_type == TTM_PL_VRAM)
+		(bo->tbo.resource->mem_type == TTM_PL_VRAM)
 		? &qdev->main_slot : &qdev->surfaces_slot;
 
-       /* TODO - need to hold one of the locks to read bo->tbo.mem.start */
+       /* TODO - need to hold one of the locks to read bo->tbo.resource->start */
 
-	return slot->high_bits | ((bo->tbo.mem.start << PAGE_SHIFT) + offset);
+	return slot->high_bits | ((bo->tbo.resource->start << PAGE_SHIFT) + offset);
 }
 
 /* qxl_display.c */
@@ -328,14 +326,11 @@ void qxl_bo_force_delete(struct qxl_device *qdev);
 int qxl_mode_dumb_create(struct drm_file *file_priv,
 			 struct drm_device *dev,
 			 struct drm_mode_create_dumb *args);
-int qxl_mode_dumb_mmap(struct drm_file *filp,
-		       struct drm_device *dev,
-		       uint32_t handle, uint64_t *offset_p);
 
 /* qxl ttm */
 int qxl_ttm_init(struct qxl_device *qdev);
 void qxl_ttm_fini(struct qxl_device *qdev);
-int qxl_ttm_io_mem_reserve(struct ttm_bo_device *bdev,
+int qxl_ttm_io_mem_reserve(struct ttm_device *bdev,
 			   struct ttm_resource *mem);
 
 /* qxl image */
@@ -432,15 +427,12 @@ struct sg_table *qxl_gem_prime_get_sg_table(struct drm_gem_object *obj);
 struct drm_gem_object *qxl_gem_prime_import_sg_table(
 	struct drm_device *dev, struct dma_buf_attachment *attach,
 	struct sg_table *sgt);
-int qxl_gem_prime_vmap(struct drm_gem_object *obj, struct dma_buf_map *map);
+int qxl_gem_prime_vmap(struct drm_gem_object *obj, struct iosys_map *map);
 void qxl_gem_prime_vunmap(struct drm_gem_object *obj,
-			  struct dma_buf_map *map);
-int qxl_gem_prime_mmap(struct drm_gem_object *obj,
-				struct vm_area_struct *vma);
+			  struct iosys_map *map);
 
 /* qxl_irq.c */
 int qxl_irq_init(struct qxl_device *qdev);
-irqreturn_t qxl_irq_handler(int irq, void *arg);
 
 void qxl_debugfs_add_files(struct qxl_device *qdev,
 			   struct drm_info_list *files,
@@ -460,5 +452,14 @@ int qxl_bo_check_id(struct qxl_device *qdev, struct qxl_bo *bo);
 struct qxl_drv_surface *
 qxl_surface_lookup(struct drm_device *dev, int surface_id);
 void qxl_surface_evict(struct qxl_device *qdev, struct qxl_bo *surf, bool freeing);
+
+/* qxl_ioctl.c */
+int qxl_alloc_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int qxl_map_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int qxl_execbuffer_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int qxl_update_area_ioctl(struct drm_device *dev, void *data, struct drm_file *file);
+int qxl_getparam_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int qxl_clientcap_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int qxl_alloc_surf_ioctl(struct drm_device *dev, void *data, struct drm_file *file);
 
 #endif

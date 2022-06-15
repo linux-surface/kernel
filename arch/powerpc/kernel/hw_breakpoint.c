@@ -22,7 +22,6 @@
 #include <asm/processor.h>
 #include <asm/sstep.h>
 #include <asm/debug.h>
-#include <asm/debugfs.h>
 #include <asm/hvcall.h>
 #include <asm/inst.h>
 #include <linux/uaccess.h>
@@ -486,7 +485,7 @@ void thread_change_pc(struct task_struct *tsk, struct pt_regs *regs)
 	return;
 
 reset:
-	regs->msr &= ~MSR_SE;
+	regs_set_return_msr(regs, regs->msr & ~MSR_SE);
 	for (i = 0; i < nr_wp_slots(); i++) {
 		info = counter_arch_bp(__this_cpu_read(bp_per_reg[i]));
 		__set_breakpoint(i, info);
@@ -524,7 +523,7 @@ static void larx_stcx_err(struct perf_event *bp, struct arch_hw_breakpoint *info
 
 static bool stepping_handler(struct pt_regs *regs, struct perf_event **bp,
 			     struct arch_hw_breakpoint **info, int *hit,
-			     struct ppc_inst instr)
+			     ppc_inst_t instr)
 {
 	int i;
 	int stepped;
@@ -537,7 +536,7 @@ static bool stepping_handler(struct pt_regs *regs, struct perf_event **bp,
 			current->thread.last_hit_ubp[i] = bp[i];
 			info[i] = NULL;
 		}
-		regs->msr |= MSR_SE;
+		regs_set_return_msr(regs, regs->msr | MSR_SE);
 		return false;
 	}
 
@@ -617,7 +616,7 @@ int hw_breakpoint_handler(struct die_args *args)
 	int hit[HBP_NUM_MAX] = {0};
 	int nr_hit = 0;
 	bool ptrace_bp = false;
-	struct ppc_inst instr = ppc_inst(0);
+	ppc_inst_t instr = ppc_inst(0);
 	int type = 0;
 	int size = 0;
 	unsigned long ea;

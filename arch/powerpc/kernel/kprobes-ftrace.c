@@ -26,7 +26,6 @@ void kprobe_ftrace_handler(unsigned long nip, unsigned long parent_nip,
 		return;
 
 	regs = ftrace_get_regs(fregs);
-	preempt_disable_notrace();
 	p = get_kprobe((kprobe_opcode_t *)nip);
 	if (unlikely(!p) || kprobe_disabled(p))
 		goto out;
@@ -39,7 +38,7 @@ void kprobe_ftrace_handler(unsigned long nip, unsigned long parent_nip,
 		 * On powerpc, NIP is *before* this instruction for the
 		 * pre handler
 		 */
-		regs->nip -= MCOUNT_INSN_SIZE;
+		regs_add_return_ip(regs, -MCOUNT_INSN_SIZE);
 
 		__this_cpu_write(current_kprobe, p);
 		kcb->kprobe_status = KPROBE_HIT_ACTIVE;
@@ -48,7 +47,7 @@ void kprobe_ftrace_handler(unsigned long nip, unsigned long parent_nip,
 			 * Emulate singlestep (and also recover regs->nip)
 			 * as if there is a nop
 			 */
-			regs->nip += MCOUNT_INSN_SIZE;
+			regs_add_return_ip(regs, MCOUNT_INSN_SIZE);
 			if (unlikely(p->post_handler)) {
 				kcb->kprobe_status = KPROBE_HIT_SSDONE;
 				p->post_handler(p, regs, 0);
@@ -61,7 +60,6 @@ void kprobe_ftrace_handler(unsigned long nip, unsigned long parent_nip,
 		__this_cpu_write(current_kprobe, NULL);
 	}
 out:
-	preempt_enable_notrace();
 	ftrace_test_recursion_unlock(bit);
 }
 NOKPROBE_SYMBOL(kprobe_ftrace_handler);

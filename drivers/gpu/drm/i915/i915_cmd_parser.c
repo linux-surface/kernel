@@ -25,11 +25,17 @@
  *
  */
 
-#include "gt/intel_engine.h"
-#include "gt/intel_gpu_commands.h"
+#include <drm/drm_cache.h>
 
+#include "gt/intel_engine.h"
+#include "gt/intel_engine_regs.h"
+#include "gt/intel_gpu_commands.h"
+#include "gt/intel_gt_regs.h"
+
+#include "i915_cmd_parser.h"
 #include "i915_drv.h"
 #include "i915_memcpy.h"
+#include "i915_reg.h"
 
 /**
  * DOC: batch buffer command parser
@@ -591,6 +597,10 @@ struct drm_i915_reg_descriptor {
 	{ .addr = _reg(idx) }, \
 	{ .addr = _reg ## _UDW(idx) }
 
+#define REG64_BASE_IDX(_reg, base, idx) \
+	{ .addr = _reg(base, idx) }, \
+	{ .addr = _reg ## _UDW(base, idx) }
+
 static const struct drm_i915_reg_descriptor gen7_render_regs[] = {
 	REG64(GPGPU_THREADS_DISPATCHED),
 	REG64(HS_INVOCATION_COUNT),
@@ -605,8 +615,8 @@ static const struct drm_i915_reg_descriptor gen7_render_regs[] = {
 	REG64(PS_INVOCATION_COUNT),
 	REG64(PS_DEPTH_COUNT),
 	REG64_IDX(RING_TIMESTAMP, RENDER_RING_BASE),
-	REG64(MI_PREDICATE_SRC0),
-	REG64(MI_PREDICATE_SRC1),
+	REG64_IDX(MI_PREDICATE_SRC0, RENDER_RING_BASE),
+	REG64_IDX(MI_PREDICATE_SRC1, RENDER_RING_BASE),
 	REG32(GEN7_3DPRIM_END_OFFSET),
 	REG32(GEN7_3DPRIM_START_VERTEX),
 	REG32(GEN7_3DPRIM_VERTEX_COUNT),
@@ -636,22 +646,22 @@ static const struct drm_i915_reg_descriptor gen7_render_regs[] = {
 };
 
 static const struct drm_i915_reg_descriptor hsw_render_regs[] = {
-	REG64_IDX(HSW_CS_GPR, 0),
-	REG64_IDX(HSW_CS_GPR, 1),
-	REG64_IDX(HSW_CS_GPR, 2),
-	REG64_IDX(HSW_CS_GPR, 3),
-	REG64_IDX(HSW_CS_GPR, 4),
-	REG64_IDX(HSW_CS_GPR, 5),
-	REG64_IDX(HSW_CS_GPR, 6),
-	REG64_IDX(HSW_CS_GPR, 7),
-	REG64_IDX(HSW_CS_GPR, 8),
-	REG64_IDX(HSW_CS_GPR, 9),
-	REG64_IDX(HSW_CS_GPR, 10),
-	REG64_IDX(HSW_CS_GPR, 11),
-	REG64_IDX(HSW_CS_GPR, 12),
-	REG64_IDX(HSW_CS_GPR, 13),
-	REG64_IDX(HSW_CS_GPR, 14),
-	REG64_IDX(HSW_CS_GPR, 15),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 0),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 1),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 2),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 3),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 4),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 5),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 6),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 7),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 8),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 9),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 10),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 11),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 12),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 13),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 14),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, RENDER_RING_BASE, 15),
 	REG32(HSW_SCRATCH1,
 	      .mask = ~HSW_SCRATCH1_L3_DATA_ATOMICS_DISABLE,
 	      .value = 0),
@@ -674,22 +684,22 @@ static const struct drm_i915_reg_descriptor gen9_blt_regs[] = {
 	REG32(BCS_SWCTRL),
 	REG64_IDX(RING_TIMESTAMP, BLT_RING_BASE),
 	REG32_IDX(RING_CTX_TIMESTAMP, BLT_RING_BASE),
-	REG64_IDX(BCS_GPR, 0),
-	REG64_IDX(BCS_GPR, 1),
-	REG64_IDX(BCS_GPR, 2),
-	REG64_IDX(BCS_GPR, 3),
-	REG64_IDX(BCS_GPR, 4),
-	REG64_IDX(BCS_GPR, 5),
-	REG64_IDX(BCS_GPR, 6),
-	REG64_IDX(BCS_GPR, 7),
-	REG64_IDX(BCS_GPR, 8),
-	REG64_IDX(BCS_GPR, 9),
-	REG64_IDX(BCS_GPR, 10),
-	REG64_IDX(BCS_GPR, 11),
-	REG64_IDX(BCS_GPR, 12),
-	REG64_IDX(BCS_GPR, 13),
-	REG64_IDX(BCS_GPR, 14),
-	REG64_IDX(BCS_GPR, 15),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 0),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 1),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 2),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 3),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 4),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 5),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 6),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 7),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 8),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 9),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 10),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 11),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 12),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 13),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 14),
+	REG64_BASE_IDX(GEN8_RING_CS_GPR, BLT_RING_BASE, 15),
 };
 
 #undef REG64
@@ -946,8 +956,8 @@ int intel_engine_init_cmd_parser(struct intel_engine_cs *engine)
 	int cmd_table_count;
 	int ret;
 
-	if (!IS_GEN(engine->i915, 7) && !(IS_GEN(engine->i915, 9) &&
-					  engine->class == COPY_ENGINE_CLASS))
+	if (GRAPHICS_VER(engine->i915) != 7 && !(GRAPHICS_VER(engine->i915) == 9 &&
+						 engine->class == COPY_ENGINE_CLASS))
 		return 0;
 
 	switch (engine->class) {
@@ -977,7 +987,7 @@ int intel_engine_init_cmd_parser(struct intel_engine_cs *engine)
 		break;
 	case COPY_ENGINE_CLASS:
 		engine->get_cmd_length_mask = gen7_blt_get_cmd_length_mask;
-		if (IS_GEN(engine->i915, 9)) {
+		if (GRAPHICS_VER(engine->i915) == 9) {
 			cmd_tables = gen9_blt_cmd_table;
 			cmd_table_count = ARRAY_SIZE(gen9_blt_cmd_table);
 			engine->get_cmd_length_mask =
@@ -993,7 +1003,7 @@ int intel_engine_init_cmd_parser(struct intel_engine_cs *engine)
 			cmd_table_count = ARRAY_SIZE(gen7_blt_cmd_table);
 		}
 
-		if (IS_GEN(engine->i915, 9)) {
+		if (GRAPHICS_VER(engine->i915) == 9) {
 			engine->reg_tables = gen9_blt_reg_tables;
 			engine->reg_table_count =
 				ARRAY_SIZE(gen9_blt_reg_tables);
@@ -1144,27 +1154,31 @@ find_reg(const struct intel_engine_cs *engine, u32 addr)
 /* Returns a vmap'd pointer to dst_obj, which the caller must unmap */
 static u32 *copy_batch(struct drm_i915_gem_object *dst_obj,
 		       struct drm_i915_gem_object *src_obj,
-		       unsigned long offset, unsigned long length)
+		       unsigned long offset, unsigned long length,
+		       bool *needs_clflush_after)
 {
-	bool needs_clflush;
+	unsigned int src_needs_clflush;
+	unsigned int dst_needs_clflush;
 	void *dst, *src;
 	int ret;
 
+	ret = i915_gem_object_prepare_write(dst_obj, &dst_needs_clflush);
+	if (ret)
+		return ERR_PTR(ret);
+
 	dst = i915_gem_object_pin_map(dst_obj, I915_MAP_WB);
+	i915_gem_object_finish_access(dst_obj);
 	if (IS_ERR(dst))
 		return dst;
 
-	ret = i915_gem_object_pin_pages(src_obj);
+	ret = i915_gem_object_prepare_read(src_obj, &src_needs_clflush);
 	if (ret) {
 		i915_gem_object_unpin_map(dst_obj);
 		return ERR_PTR(ret);
 	}
 
-	needs_clflush =
-		!(src_obj->cache_coherent & I915_BO_CACHE_COHERENT_FOR_READ);
-
 	src = ERR_PTR(-ENODEV);
-	if (needs_clflush && i915_has_memcpy_from_wc()) {
+	if (src_needs_clflush && i915_has_memcpy_from_wc()) {
 		src = i915_gem_object_pin_map(src_obj, I915_MAP_WC);
 		if (!IS_ERR(src)) {
 			i915_unaligned_memcpy_from_wc(dst,
@@ -1186,7 +1200,7 @@ static u32 *copy_batch(struct drm_i915_gem_object *dst_obj,
 		 * validate up to the end of the batch.
 		 */
 		remain = length;
-		if (!(dst_obj->cache_coherent & I915_BO_CACHE_COHERENT_FOR_READ))
+		if (dst_needs_clflush & CLFLUSH_BEFORE)
 			remain = round_up(remain,
 					  boot_cpu_data.x86_clflush_size);
 
@@ -1196,7 +1210,7 @@ static u32 *copy_batch(struct drm_i915_gem_object *dst_obj,
 			int len = min(remain, PAGE_SIZE - x);
 
 			src = kmap_atomic(i915_gem_object_get_page(src_obj, n));
-			if (needs_clflush)
+			if (src_needs_clflush)
 				drm_clflush_virt_range(src + x, len);
 			memcpy(ptr, src + x, len);
 			kunmap_atomic(src);
@@ -1207,11 +1221,13 @@ static u32 *copy_batch(struct drm_i915_gem_object *dst_obj,
 		}
 	}
 
-	i915_gem_object_unpin_pages(src_obj);
+	i915_gem_object_finish_access(src_obj);
 
 	memset32(dst + length, 0, (dst_obj->base.size - length) / sizeof(u32));
 
 	/* dst_obj is returned with vmap pinned */
+	*needs_clflush_after = dst_needs_clflush & CLFLUSH_AFTER;
+
 	return dst;
 }
 
@@ -1410,7 +1426,7 @@ static unsigned long *alloc_whitelist(u32 batch_length)
  * @batch_offset: byte offset in the batch at which execution starts
  * @batch_length: length of the commands in batch_obj
  * @shadow: validated copy of the batch buffer in question
- * @trampoline: whether to emit a conditional trampoline at the end of the batch
+ * @trampoline: true if we need to trampoline into privileged execution
  *
  * Parses the specified batch buffer looking for privilege violations as
  * described in the overview.
@@ -1418,6 +1434,7 @@ static unsigned long *alloc_whitelist(u32 batch_length)
  * Return: non-zero if the parser finds violations or otherwise fails; -EACCES
  * if the batch appears legal but should use hardware parsing
  */
+
 int intel_engine_cmd_parser(struct intel_engine_cs *engine,
 			    struct i915_vma *batch,
 			    unsigned long batch_offset,
@@ -1428,6 +1445,7 @@ int intel_engine_cmd_parser(struct intel_engine_cs *engine,
 	u32 *cmd, *batch_end, offset = 0;
 	struct drm_i915_cmd_descriptor default_desc = noop_desc;
 	const struct drm_i915_cmd_descriptor *desc = &default_desc;
+	bool needs_clflush_after = false;
 	unsigned long *jump_whitelist;
 	u64 batch_addr, shadow_addr;
 	int ret = 0;
@@ -1438,7 +1456,9 @@ int intel_engine_cmd_parser(struct intel_engine_cs *engine,
 				     batch->size));
 	GEM_BUG_ON(!batch_length);
 
-	cmd = copy_batch(shadow->obj, batch->obj, batch_offset, batch_length);
+	cmd = copy_batch(shadow->obj, batch->obj,
+			 batch_offset, batch_length,
+			 &needs_clflush_after);
 	if (IS_ERR(cmd)) {
 		DRM_DEBUG("CMD: Failed to copy batch\n");
 		return PTR_ERR(cmd);
@@ -1458,42 +1478,43 @@ int intel_engine_cmd_parser(struct intel_engine_cs *engine,
 	 * space. Parsing should be faster in some cases this way.
 	 */
 	batch_end = cmd + batch_length / sizeof(*batch_end);
-	while (*cmd != MI_BATCH_BUFFER_END) {
-		u32 length = 1;
+	do {
+		u32 length;
 
-		if (*cmd != MI_NOOP) { /* MI_NOOP == 0 */
-			desc = find_cmd(engine, *cmd, desc, &default_desc);
-			if (!desc) {
-				DRM_DEBUG("CMD: Unrecognized command: 0x%08X\n", *cmd);
-				ret = -EINVAL;
-				break;
-			}
+		if (*cmd == MI_BATCH_BUFFER_END)
+			break;
 
-			if (desc->flags & CMD_DESC_FIXED)
-				length = desc->length.fixed;
-			else
-				length = (*cmd & desc->length.mask) + LENGTH_BIAS;
+		desc = find_cmd(engine, *cmd, desc, &default_desc);
+		if (!desc) {
+			DRM_DEBUG("CMD: Unrecognized command: 0x%08X\n", *cmd);
+			ret = -EINVAL;
+			break;
+		}
 
-			if ((batch_end - cmd) < length) {
-				DRM_DEBUG("CMD: Command length exceeds batch length: 0x%08X length=%u batchlen=%td\n",
-					  *cmd,
-					  length,
-					  batch_end - cmd);
-				ret = -EINVAL;
-				break;
-			}
+		if (desc->flags & CMD_DESC_FIXED)
+			length = desc->length.fixed;
+		else
+			length = (*cmd & desc->length.mask) + LENGTH_BIAS;
 
-			if (!check_cmd(engine, desc, cmd, length)) {
-				ret = -EACCES;
-				break;
-			}
+		if ((batch_end - cmd) < length) {
+			DRM_DEBUG("CMD: Command length exceeds batch length: 0x%08X length=%u batchlen=%td\n",
+				  *cmd,
+				  length,
+				  batch_end - cmd);
+			ret = -EINVAL;
+			break;
+		}
 
-			if (cmd_desc_is(desc, MI_BATCH_BUFFER_START)) {
-				ret = check_bbstart(cmd, offset, length, batch_length,
-						    batch_addr, shadow_addr,
-						    jump_whitelist);
-				break;
-			}
+		if (!check_cmd(engine, desc, cmd, length)) {
+			ret = -EACCES;
+			break;
+		}
+
+		if (cmd_desc_is(desc, MI_BATCH_BUFFER_START)) {
+			ret = check_bbstart(cmd, offset, length, batch_length,
+					    batch_addr, shadow_addr,
+					    jump_whitelist);
+			break;
 		}
 
 		if (!IS_ERR_OR_NULL(jump_whitelist))
@@ -1506,7 +1527,7 @@ int intel_engine_cmd_parser(struct intel_engine_cs *engine,
 			ret = -EINVAL;
 			break;
 		}
-	}
+	} while (1);
 
 	if (trampoline) {
 		/*
@@ -1536,7 +1557,7 @@ int intel_engine_cmd_parser(struct intel_engine_cs *engine,
 				if (IS_HASWELL(engine->i915))
 					flags = MI_BATCH_NON_SECURE_HSW;
 
-				GEM_BUG_ON(!IS_GEN_RANGE(engine->i915, 6, 7));
+				GEM_BUG_ON(!IS_GRAPHICS_VER(engine->i915, 6, 7));
 				__gen6_emit_bb_start(batch_end,
 						     batch_addr,
 						     flags);

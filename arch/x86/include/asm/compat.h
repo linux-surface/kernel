@@ -12,6 +12,9 @@
 #include <asm/user32.h>
 #include <asm/unistd.h>
 
+#define compat_mode_t	compat_mode_t
+typedef u16		compat_mode_t;
+
 #include <asm-generic/compat.h>
 
 #define COMPAT_USER_HZ		100
@@ -19,25 +22,19 @@
 
 typedef u16		__compat_uid_t;
 typedef u16		__compat_gid_t;
-typedef u32		__compat_uid32_t;
-typedef u32		__compat_gid32_t;
-typedef u16		compat_mode_t;
 typedef u16		compat_dev_t;
 typedef u16		compat_nlink_t;
 typedef u16		compat_ipc_pid_t;
-typedef u32		compat_caddr_t;
 typedef __kernel_fsid_t	compat_fsid_t;
 
 struct compat_stat {
-	compat_dev_t	st_dev;
-	u16		__pad1;
+	u32		st_dev;
 	compat_ino_t	st_ino;
 	compat_mode_t	st_mode;
 	compat_nlink_t	st_nlink;
 	__compat_uid_t	st_uid;
 	__compat_gid_t	st_gid;
-	compat_dev_t	st_rdev;
-	u16		__pad2;
+	u32		st_rdev;
 	u32		st_size;
 	u32		st_blksize;
 	u32		st_blocks;
@@ -91,13 +88,6 @@ struct compat_statfs {
 };
 
 #define COMPAT_RLIM_INFINITY		0xffffffff
-
-typedef u32		compat_old_sigset_t;	/* at least 32 bits */
-
-#define _COMPAT_NSIG		64
-#define _COMPAT_NSIG_BPW	32
-
-typedef u32               compat_sigset_word;
 
 #define COMPAT_OFF_T_MAX	0x7fffffff
 
@@ -163,19 +153,6 @@ struct compat_shmid64_ds {
 #define COMPAT_USE_64BIT_TIME \
 	(!!(task_pt_regs(current)->orig_ax & __X32_SYSCALL_BIT))
 #endif
-
-static inline void __user *arch_compat_alloc_user_space(long len)
-{
-	compat_uptr_t sp = task_pt_regs(current)->sp;
-
-	/*
-	 * -128 for the x32 ABI redzone.  For IA32, it is not strictly
-	 * necessary, but not harmful.
-	 */
-	sp -= 128;
-
-	return (void __user *)round_down(sp - len, 16);
-}
 
 static inline bool in_x32_syscall(void)
 {

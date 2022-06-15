@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 // Copyright (c) 2020 Facebook
-#include <linux/bpf.h>
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
@@ -52,7 +52,7 @@ int BPF_PROG(fentry_XXX)
 static inline void
 fexit_update_maps(struct bpf_perf_event_value *after)
 {
-	struct bpf_perf_event_value *before, diff, *accum;
+	struct bpf_perf_event_value *before, diff;
 	__u32 zero = 0;
 
 	before = bpf_map_lookup_elem(&fentry_readings, &zero);
@@ -78,7 +78,6 @@ int BPF_PROG(fexit_XXX)
 {
 	struct bpf_perf_event_value reading;
 	__u32 cpu = bpf_get_smp_processor_id();
-	__u32 one = 1, zero = 0;
 	int err;
 
 	/* read all events before updating the maps, to reduce error */

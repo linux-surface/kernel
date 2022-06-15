@@ -198,10 +198,12 @@ static struct device_attribute twl_host_stats_attr = {
 };
 
 /* Host attributes initializer */
-static struct device_attribute *twl_host_attrs[] = {
-	&twl_host_stats_attr,
+static struct attribute *twl_host_attrs[] = {
+	&twl_host_stats_attr.attr,
 	NULL,
 };
+
+ATTRIBUTE_GROUPS(twl_host);
 
 /* This function will look up an AEN severity string */
 static char *twl_aen_severity_lookup(unsigned char severity_code)
@@ -295,14 +297,11 @@ static int twl_scsiop_execute_scsi(TW_Device_Extension *tw_dev, int request_id,
 	TW_Command_Apache *command_packet;
 	int i, sg_count;
 	struct scsi_cmnd *srb = NULL;
-	struct scatterlist *sglist = NULL, *sg;
+	struct scatterlist *sg;
 	int retval = 1;
 
-	if (tw_dev->srb[request_id]) {
+	if (tw_dev->srb[request_id])
 		srb = tw_dev->srb[request_id];
-		if (scsi_sglist(srb))
-			sglist = scsi_sglist(srb);
-	}
 
 	/* Initialize command packet */
 	full_command_packet = tw_dev->command_packet_virt[request_id];
@@ -863,7 +862,6 @@ static int twl_fill_sense(TW_Device_Extension *tw_dev, int i, int request_id, in
 	TW_Command_Full *full_command_packet;
 	unsigned short error;
 	char *error_str;
-	int retval = 1;
 
 	header = tw_dev->sense_buffer_virt[i];
 	full_command_packet = tw_dev->command_packet_virt[request_id];
@@ -895,7 +893,7 @@ static int twl_fill_sense(TW_Device_Extension *tw_dev, int i, int request_id, in
 		goto out;
 	}
 out:
-	return retval;
+	return 1;
 } /* End twl_fill_sense() */
 
 /* This function will free up device extension resources */
@@ -1220,7 +1218,7 @@ static irqreturn_t twl_interrupt(int irq, void *dev_instance)
 
 			/* Now complete the io */
 			scsi_dma_unmap(cmd);
-			cmd->scsi_done(cmd);
+			scsi_done(cmd);
 			tw_dev->state[request_id] = TW_S_COMPLETED;
 			twl_free_request_id(tw_dev, request_id);
 			tw_dev->posted_request_count--;
@@ -1373,7 +1371,7 @@ static int twl_reset_device_extension(TW_Device_Extension *tw_dev, int ioctl_res
 			if (cmd) {
 				cmd->result = (DID_RESET << 16);
 				scsi_dma_unmap(cmd);
-				cmd->scsi_done(cmd);
+				scsi_done(cmd);
 			}
 		}
 	}
@@ -1408,9 +1406,6 @@ out:
 static int twl_scsi_biosparam(struct scsi_device *sdev, struct block_device *bdev, sector_t capacity, int geom[])
 {
 	int heads, sectors;
-	TW_Device_Extension *tw_dev;
-
-	tw_dev = (TW_Device_Extension *)sdev->host->hostdata;
 
 	if (capacity >= 0x200000) {
 		heads = 255;
@@ -1457,8 +1452,9 @@ out:
 } /* End twl_scsi_eh_reset() */
 
 /* This is the main scsi queue function to handle scsi opcodes */
-static int twl_scsi_queue_lck(struct scsi_cmnd *SCpnt, void (*done)(struct scsi_cmnd *))
+static int twl_scsi_queue_lck(struct scsi_cmnd *SCpnt)
 {
+	void (*done)(struct scsi_cmnd *) = scsi_done;
 	int request_id, retval;
 	TW_Device_Extension *tw_dev = (TW_Device_Extension *)SCpnt->device->host->hostdata;
 
@@ -1467,9 +1463,6 @@ static int twl_scsi_queue_lck(struct scsi_cmnd *SCpnt, void (*done)(struct scsi_
 		retval = SCSI_MLQUEUE_HOST_BUSY;
 		goto out;
 	}
-
-	/* Save done function into scsi_cmnd struct */
-	SCpnt->scsi_done = done;
 
 	/* Get a free request id */
 	twl_get_request_id(tw_dev, &request_id);
@@ -1551,7 +1544,7 @@ static struct scsi_host_template driver_template = {
 	.sg_tablesize		= TW_LIBERATOR_MAX_SGL_LENGTH,
 	.max_sectors		= TW_MAX_SECTORS,
 	.cmd_per_lun		= TW_MAX_CMDS_PER_LUN,
-	.shost_attrs		= twl_host_attrs,
+	.shost_groups		= twl_host_groups,
 	.emulated		= 1,
 	.no_write_same		= 1,
 };
@@ -1574,8 +1567,6 @@ static int twl_probe(struct pci_dev *pdev, const struct pci_device_id *dev_id)
 	pci_try_set_mwi(pdev);
 
 	retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-	if (retval)
-		retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 	if (retval) {
 		TW_PRINTK(host, TW_DRIVER, 0x18, "Failed to set dma mask");
 		retval = -ENODEV;
@@ -1793,8 +1784,6 @@ static int __maybe_unused twl_resume(struct device *dev)
 	pci_try_set_mwi(pdev);
 
 	retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-	if (retval)
-		retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 	if (retval) {
 		TW_PRINTK(host, TW_DRIVER, 0x25, "Failed to set dma mask during resume");
 		retval = -ENODEV;

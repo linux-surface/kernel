@@ -7,17 +7,18 @@
  *          Michael Thayer <michael.thayer@oracle.com,
  *          Hans de Goede <hdegoede@redhat.com>
  */
-#include <linux/console.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/vt_kern.h>
 
+#include <drm/drm_aperture.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_file.h>
 #include <drm/drm_ioctl.h>
 #include <drm/drm_managed.h>
+#include <drm/drm_module.h>
 
 #include "vbox_drv.h"
 
@@ -42,7 +43,7 @@ static int vbox_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!vbox_check_supported(VBE_DISPI_ID_HGSMI))
 		return -ENODEV;
 
-	ret = drm_fb_helper_remove_conflicting_pci_framebuffers(pdev, "vboxvideodrmfb");
+	ret = drm_aperture_remove_conflicting_pci_framebuffers(pdev, &driver);
 	if (ret)
 		return ret;
 
@@ -68,7 +69,7 @@ static int vbox_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	ret = vbox_mode_init(vbox);
 	if (ret)
-		goto err_mm_fini;
+		goto err_hw_fini;
 
 	ret = vbox_irq_init(vbox);
 	if (ret)
@@ -86,8 +87,6 @@ err_irq_fini:
 	vbox_irq_fini(vbox);
 err_mode_fini:
 	vbox_mode_fini(vbox);
-err_mm_fini:
-	vbox_mm_fini(vbox);
 err_hw_fini:
 	vbox_hw_fini(vbox);
 	return ret;
@@ -100,7 +99,6 @@ static void vbox_pci_remove(struct pci_dev *pdev)
 	drm_dev_unregister(&vbox->ddev);
 	vbox_irq_fini(vbox);
 	vbox_mode_fini(vbox);
-	vbox_mm_fini(vbox);
 	vbox_hw_fini(vbox);
 }
 
@@ -183,7 +181,6 @@ static const struct drm_driver driver = {
 	.lastclose = drm_fb_helper_lastclose,
 
 	.fops = &vbox_fops,
-	.irq_handler = vbox_irq_handler,
 	.name = DRIVER_NAME,
 	.desc = DRIVER_DESC,
 	.date = DRIVER_DATE,
@@ -194,26 +191,7 @@ static const struct drm_driver driver = {
 	DRM_GEM_VRAM_DRIVER,
 };
 
-static int __init vbox_init(void)
-{
-#ifdef CONFIG_VGA_CONSOLE
-	if (vgacon_text_force() && vbox_modeset == -1)
-		return -EINVAL;
-#endif
-
-	if (vbox_modeset == 0)
-		return -EINVAL;
-
-	return pci_register_driver(&vbox_pci_driver);
-}
-
-static void __exit vbox_exit(void)
-{
-	pci_unregister_driver(&vbox_pci_driver);
-}
-
-module_init(vbox_init);
-module_exit(vbox_exit);
+drm_module_pci_driver_if_modeset(vbox_pci_driver, vbox_modeset);
 
 MODULE_AUTHOR("Oracle Corporation");
 MODULE_AUTHOR("Hans de Goede <hdegoede@redhat.com>");

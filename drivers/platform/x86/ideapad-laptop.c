@@ -41,6 +41,7 @@
 static const char *const ideapad_wmi_fnesc_events[] = {
 	"26CAB2E5-5CF1-46AE-AAC3-4A12B6BA50E6", /* Yoga 3 */
 	"56322276-8493-4CE8-A783-98C991274F5E", /* Yoga 700 */
+	"8FC0DE0C-B4E4-43FD-B0F3-8871711C1294", /* Legion 5 */
 };
 #endif
 
@@ -57,8 +58,8 @@ enum {
 };
 
 enum {
-	SMBC_CONSERVATION_ON  = 3,
-	SMBC_CONSERVATION_OFF = 5,
+	SBMC_CONSERVATION_ON  = 3,
+	SBMC_CONSERVATION_OFF = 5,
 };
 
 enum {
@@ -182,9 +183,9 @@ static int eval_gbmd(acpi_handle handle, unsigned long *res)
 	return eval_int(handle, "GBMD", res);
 }
 
-static int exec_smbc(acpi_handle handle, unsigned long arg)
+static int exec_sbmc(acpi_handle handle, unsigned long arg)
 {
-	return exec_simple_method(handle, "SMBC", arg);
+	return exec_simple_method(handle, "SBMC", arg);
 }
 
 static int eval_hals(acpi_handle handle, unsigned long *res)
@@ -477,7 +478,7 @@ static ssize_t conservation_mode_store(struct device *dev,
 	if (err)
 		return err;
 
-	err = exec_smbc(priv->adev->handle, state ? SMBC_CONSERVATION_ON : SMBC_CONSERVATION_OFF);
+	err = exec_sbmc(priv->adev->handle, state ? SBMC_CONSERVATION_ON : SBMC_CONSERVATION_OFF);
 	if (err)
 		return err;
 
@@ -809,6 +810,7 @@ static int dytc_profile_set(struct platform_profile_handler *pprof,
 {
 	struct ideapad_dytc_priv *dytc = container_of(pprof, struct ideapad_dytc_priv, pprof);
 	struct ideapad_private *priv = dytc->priv;
+	unsigned long output;
 	int err;
 
 	err = mutex_lock_interruptible(&dytc->mutex);
@@ -829,7 +831,7 @@ static int dytc_profile_set(struct platform_profile_handler *pprof,
 
 		/* Determine if we are in CQL mode. This alters the commands we do */
 		err = dytc_cql_command(priv, DYTC_SET_COMMAND(DYTC_FUNCTION_MMC, perfmode, 1),
-				       NULL);
+				       &output);
 		if (err)
 			goto unlock;
 	}
@@ -866,6 +868,18 @@ static void dytc_profile_refresh(struct ideapad_private *priv)
 	}
 }
 
+static const struct dmi_system_id ideapad_dytc_v4_allow_table[] = {
+	{
+		/* Ideapad 5 Pro 16ACH6 */
+		.ident = "LENOVO 82L5",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "82L5")
+		}
+	},
+	{}
+};
+
 static int ideapad_dytc_profile_init(struct ideapad_private *priv)
 {
 	int err, dytc_version;
@@ -880,12 +894,21 @@ static int ideapad_dytc_profile_init(struct ideapad_private *priv)
 		return err;
 
 	/* Check DYTC is enabled and supports mode setting */
-	if (!test_bit(DYTC_QUERY_ENABLE_BIT, &output))
+	if (!test_bit(DYTC_QUERY_ENABLE_BIT, &output)) {
+		dev_info(&priv->platform_device->dev, "DYTC_QUERY_ENABLE_BIT returned false\n");
 		return -ENODEV;
+	}
 
 	dytc_version = (output >> DYTC_QUERY_REV_BIT) & 0xF;
-	if (dytc_version < 5)
-		return -ENODEV;
+
+	if (dytc_version < 5) {
+		if (dytc_version < 4 || !dmi_check_system(ideapad_dytc_v4_allow_table)) {
+			dev_info(&priv->platform_device->dev,
+				 "DYTC_VERSION is less than 4 or is not allowed: %d\n",
+				 dytc_version);
+			return -ENODEV;
+		}
+	}
 
 	priv->dytc = kzalloc(sizeof(*priv->dytc), GFP_KERNEL);
 	if (!priv->dytc)
@@ -1407,6 +1430,18 @@ static void ideapad_acpi_notify(acpi_handle handle, u32 event, void *data)
 		case 6:
 			ideapad_input_report(priv, bit);
 			break;
+		case 10:
+			/*
+			 * This event gets send on a Yoga 300-11IBR when the EC
+			 * believes that the device has changed between laptop/
+			 * tent/stand/tablet mode. The EC relies on getting
+			 * angle info from 2 accelerometers through a special
+			 * windows service calling a DSM on the DUAL250E ACPI-
+			 * device. Linux does not do this, making the laptop/
+			 * tent/stand/tablet mode info unreliable, so we simply
+			 * ignore these events.
+			 */
+			break;
 		case 9:
 			ideapad_sync_rfk_state(priv);
 			break;
@@ -1446,10 +1481,18 @@ static void ideapad_acpi_notify(acpi_handle handle, u32 event, void *data)
 static void ideapad_wmi_notify(u32 value, void *context)
 {
 	struct ideapad_private *priv = context;
+	unsigned long result;
 
 	switch (value) {
 	case 128:
 		ideapad_input_report(priv, value);
+		break;
+	case 208:
+		if (!eval_hals(priv->adev->handle, &result)) {
+			bool state = test_bit(HALS_FNLOCK_STATE_BIT, &result);
+
+			exec_sals(priv->adev->handle, state ? SALS_FNLOCK_ON : SALS_FNLOCK_OFF);
+		}
 		break;
 	default:
 		dev_info(&priv->platform_device->dev,
@@ -1512,17 +1555,13 @@ static void ideapad_check_features(struct ideapad_private *priv)
 
 static int ideapad_acpi_add(struct platform_device *pdev)
 {
+	struct acpi_device *adev = ACPI_COMPANION(&pdev->dev);
 	struct ideapad_private *priv;
-	struct acpi_device *adev;
 	acpi_status status;
 	unsigned long cfg;
 	int err, i;
 
-	err = acpi_bus_get_device(ACPI_HANDLE(&pdev->dev), &adev);
-	if (err)
-		return -ENODEV;
-
-	if (eval_int(adev->handle, "_CFG", &cfg))
+	if (!adev || eval_int(adev->handle, "_CFG", &cfg))
 		return -ENODEV;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);

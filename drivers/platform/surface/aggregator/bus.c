@@ -2,7 +2,7 @@
 /*
  * Surface System Aggregator Module bus and device integration.
  *
- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/device.h>
@@ -316,14 +316,12 @@ static int ssam_bus_probe(struct device *dev)
 		->probe(to_ssam_device(dev));
 }
 
-static int ssam_bus_remove(struct device *dev)
+static void ssam_bus_remove(struct device *dev)
 {
 	struct ssam_device_driver *sdrv = to_ssam_device_driver(dev->driver);
 
 	if (sdrv->remove)
 		sdrv->remove(to_ssam_device(dev));
-
-	return 0;
 }
 
 struct bus_type ssam_bus_type = {
@@ -376,27 +374,19 @@ static int ssam_remove_device(struct device *dev, void *_data)
 }
 
 /**
- * ssam_controller_remove_clients() - Remove SSAM client devices registered as
- * direct children under the given controller.
- * @ctrl: The controller to remove all direct clients for.
+ * ssam_remove_clients() - Remove SSAM client devices registered as direct
+ * children under the given parent device.
+ * @dev: The (parent) device to remove all direct clients for.
  *
- * Remove all SSAM client devices registered as direct children under the
- * given controller. Note that this only accounts for direct children of the
- * controller device. This does not take care of any client devices where the
- * parent device has been manually set before calling ssam_device_add. Refer
- * to ssam_device_add()/ssam_device_remove() for more details on those cases.
- *
- * To avoid new devices being added in parallel to this call, the main
- * controller lock (not statelock) must be held during this (and if
- * necessary, any subsequent deinitialization) call.
+ * Remove all SSAM client devices registered as direct children under the given
+ * device. Note that this only accounts for direct children of the device.
+ * Refer to ssam_device_add()/ssam_device_remove() for more details.
  */
-void ssam_controller_remove_clients(struct ssam_controller *ctrl)
+void ssam_remove_clients(struct device *dev)
 {
-	struct device *dev;
-
-	dev = ssam_controller_device(ctrl);
 	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
 }
+EXPORT_SYMBOL_GPL(ssam_remove_clients);
 
 /**
  * ssam_bus_register() - Register and set-up the SSAM client device bus.

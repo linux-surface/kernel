@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Marvell OcteonTx2 RVU Virtual Function ethernet driver */
+/* Marvell RVU Virtual Function ethernet driver
+ *
+ * Copyright (C) 2020 Marvell.
+ *
+ */
 
 #include <linux/etherdevice.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/net_tstamp.h>
 
 #include "otx2_common.h"
 #include "otx2_reg.h"
+#include "otx2_ptp.h"
 #include "cn10k.h"
 
 #define DRV_NAME	"rvu_nicvf"
@@ -273,7 +279,6 @@ static void otx2vf_vfaf_mbox_destroy(struct otx2_nic *vf)
 	struct mbox *mbox = &vf->mbox;
 
 	if (vf->mbox_wq) {
-		flush_workqueue(vf->mbox_wq);
 		destroy_workqueue(vf->mbox_wq);
 		vf->mbox_wq = NULL;
 	}
@@ -395,6 +400,42 @@ static netdev_tx_t otx2vf_xmit(struct sk_buff *skb, struct net_device *netdev)
 	return NETDEV_TX_OK;
 }
 
+static void otx2vf_set_rx_mode(struct net_device *netdev)
+{
+	struct otx2_nic *vf = netdev_priv(netdev);
+
+	queue_work(vf->otx2_wq, &vf->rx_mode_work);
+}
+
+static void otx2vf_do_set_rx_mode(struct work_struct *work)
+{
+	struct otx2_nic *vf = container_of(work, struct otx2_nic, rx_mode_work);
+	struct net_device *netdev = vf->netdev;
+	unsigned int flags = netdev->flags;
+	struct nix_rx_mode *req;
+
+	mutex_lock(&vf->mbox.lock);
+
+	req = otx2_mbox_alloc_msg_nix_set_rx_mode(&vf->mbox);
+	if (!req) {
+		mutex_unlock(&vf->mbox.lock);
+		return;
+	}
+
+	req->mode = NIX_RX_MODE_UCAST;
+
+	if (flags & IFF_PROMISC)
+		req->mode |= NIX_RX_MODE_PROMISC;
+	if (flags & (IFF_ALLMULTI | IFF_MULTICAST))
+		req->mode |= NIX_RX_MODE_ALLMULTI;
+
+	req->mode |= NIX_RX_MODE_USE_MCE;
+
+	otx2_sync_mbox_msg(&vf->mbox);
+
+	mutex_unlock(&vf->mbox.lock);
+}
+
 static int otx2vf_change_mtu(struct net_device *netdev, int new_mtu)
 {
 	bool if_up = netif_running(netdev);
@@ -428,15 +469,36 @@ static void otx2vf_reset_task(struct work_struct *work)
 	rtnl_unlock();
 }
 
+static int otx2vf_set_features(struct net_device *netdev,
+			       netdev_features_t features)
+{
+	return otx2_handle_ntuple_tc_features(netdev, features);
+}
+
 static const struct net_device_ops otx2vf_netdev_ops = {
 	.ndo_open = otx2vf_open,
 	.ndo_stop = otx2vf_stop,
 	.ndo_start_xmit = otx2vf_xmit,
+	.ndo_set_rx_mode = otx2vf_set_rx_mode,
 	.ndo_set_mac_address = otx2_set_mac_address,
 	.ndo_change_mtu = otx2vf_change_mtu,
+	.ndo_set_features = otx2vf_set_features,
 	.ndo_get_stats64 = otx2_get_stats64,
 	.ndo_tx_timeout = otx2_tx_timeout,
+	.ndo_eth_ioctl	= otx2_ioctl,
+	.ndo_setup_tc = otx2_setup_tc,
 };
+
+static int otx2_wq_init(struct otx2_nic *vf)
+{
+	vf->otx2_wq = create_singlethread_workqueue("otx2vf_wq");
+	if (!vf->otx2_wq)
+		return -ENOMEM;
+
+	INIT_WORK(&vf->rx_mode_work, otx2vf_do_set_rx_mode);
+	INIT_WORK(&vf->reset_task, otx2vf_reset_task);
+	return 0;
+}
 
 static int otx2vf_realloc_msix_vectors(struct otx2_nic *vf)
 {
@@ -508,6 +570,10 @@ static int otx2vf_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	hw->rx_queues = qcount;
 	hw->tx_queues = qcount;
 	hw->max_queues = qcount;
+	hw->tot_tx_queues = qcount;
+	hw->rbuf_len = OTX2_DEFAULT_RBUF_LEN;
+	/* Use CQE of 128 byte descriptor size by default */
+	hw->xqe_size = 128;
 
 	hw->irq_name = devm_kmalloc_array(&hw->pdev->dev, num_vec, NAME_SIZE,
 					  GFP_KERNEL);
@@ -561,9 +627,12 @@ static int otx2vf_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (err)
 		goto err_detach_rsrc;
 
-	err = cn10k_vf_lmtst_init(vf);
+	err = cn10k_lmtst_init(vf);
 	if (err)
 		goto err_detach_rsrc;
+
+	/* Don't check for error.  Proceed without ptp */
+	otx2_ptp_init(vf);
 
 	/* Assign default mac address */
 	otx2_get_mac_from_af(netdev);
@@ -579,16 +648,17 @@ static int otx2vf_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 				NETIF_F_HW_VLAN_STAG_TX;
 	netdev->features |= netdev->hw_features;
 
-	netdev->gso_max_segs = OTX2_MAX_GSO_SEGS;
+	netdev->hw_features |= NETIF_F_NTUPLE;
+	netdev->hw_features |= NETIF_F_RXALL;
+	netdev->hw_features |= NETIF_F_HW_TC;
+
+	netif_set_gso_max_segs(netdev, OTX2_MAX_GSO_SEGS);
 	netdev->watchdog_timeo = OTX2_TX_TIMEOUT;
 
 	netdev->netdev_ops = &otx2vf_netdev_ops;
 
-	/* MTU range: 68 - 9190 */
 	netdev->min_mtu = OTX2_MIN_MTU;
 	netdev->max_mtu = otx2_get_max_mtu(vf);
-
-	INIT_WORK(&vf->reset_task, otx2vf_reset_task);
 
 	/* To distinguish, for LBK VFs set netdev name explicitly */
 	if (is_otx2_lbkvf(vf->pdev)) {
@@ -603,20 +673,44 @@ static int otx2vf_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	err = register_netdev(netdev);
 	if (err) {
 		dev_err(dev, "Failed to register netdevice\n");
-		goto err_detach_rsrc;
+		goto err_ptp_destroy;
 	}
+
+	err = otx2_wq_init(vf);
+	if (err)
+		goto err_unreg_netdev;
 
 	otx2vf_set_ethtool_ops(netdev);
 
-	/* Enable pause frames by default */
-	vf->flags |= OTX2_FLAG_RX_PAUSE_ENABLED;
-	vf->flags |= OTX2_FLAG_TX_PAUSE_ENABLED;
+	err = otx2vf_mcam_flow_init(vf);
+	if (err)
+		goto err_unreg_netdev;
+
+	err = otx2_init_tc(vf);
+	if (err)
+		goto err_unreg_netdev;
+
+	err = otx2_register_dl(vf);
+	if (err)
+		goto err_shutdown_tc;
+
+#ifdef CONFIG_DCB
+	err = otx2_dcbnl_set_ops(netdev);
+	if (err)
+		goto err_shutdown_tc;
+#endif
 
 	return 0;
 
+err_shutdown_tc:
+	otx2_shutdown_tc(vf);
+err_unreg_netdev:
+	unregister_netdev(netdev);
+err_ptp_destroy:
+	otx2_ptp_destroy(vf);
 err_detach_rsrc:
-	if (hw->lmt_base)
-		iounmap(hw->lmt_base);
+	if (test_bit(CN10K_LMTST, &vf->hw.cap_flag))
+		qmem_free(vf->dev, vf->dync_lmt);
 	otx2_detach_resources(&vf->mbox);
 err_disable_mbox_intr:
 	otx2vf_disable_mbox_intr(vf);
@@ -642,14 +736,32 @@ static void otx2vf_remove(struct pci_dev *pdev)
 
 	vf = netdev_priv(netdev);
 
+	/* Disable 802.3x pause frames */
+	if (vf->flags & OTX2_FLAG_RX_PAUSE_ENABLED ||
+	    (vf->flags & OTX2_FLAG_TX_PAUSE_ENABLED)) {
+		vf->flags &= ~OTX2_FLAG_RX_PAUSE_ENABLED;
+		vf->flags &= ~OTX2_FLAG_TX_PAUSE_ENABLED;
+		otx2_config_pause_frm(vf);
+	}
+
+#ifdef CONFIG_DCB
+	/* Disable PFC config */
+	if (vf->pfc_en) {
+		vf->pfc_en = 0;
+		otx2_config_priority_flow_ctrl(vf);
+	}
+#endif
+
 	cancel_work_sync(&vf->reset_task);
+	otx2_unregister_dl(vf);
 	unregister_netdev(netdev);
+	if (vf->otx2_wq)
+		destroy_workqueue(vf->otx2_wq);
+	otx2_ptp_destroy(vf);
 	otx2vf_disable_mbox_intr(vf);
 	otx2_detach_resources(&vf->mbox);
-
-	if (vf->hw.lmt_base)
-		iounmap(vf->hw.lmt_base);
-
+	if (test_bit(CN10K_LMTST, &vf->hw.cap_flag))
+		qmem_free(vf->dev, vf->dync_lmt);
 	otx2vf_vfaf_mbox_destroy(vf);
 	pci_free_irq_vectors(vf->pdev);
 	pci_set_drvdata(pdev, NULL);

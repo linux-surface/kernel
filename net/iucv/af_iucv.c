@@ -13,6 +13,7 @@
 #define KMSG_COMPONENT "af_iucv"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
+#include <linux/filter.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/types.h>
@@ -44,6 +45,7 @@ static struct proto iucv_proto = {
 };
 
 static struct iucv_interface *pr_iucv;
+static struct iucv_handler af_iucv_handler;
 
 /* special AF_IUCV IPRM messages */
 static const u8 iprm_shutdown[8] =
@@ -91,26 +93,9 @@ static void iucv_sock_close(struct sock *sk);
 
 static void afiucv_hs_callback_txnotify(struct sock *sk, enum iucv_tx_notify);
 
-/* Call Back functions */
-static void iucv_callback_rx(struct iucv_path *, struct iucv_message *);
-static void iucv_callback_txdone(struct iucv_path *, struct iucv_message *);
-static void iucv_callback_connack(struct iucv_path *, u8 *);
-static int iucv_callback_connreq(struct iucv_path *, u8 *, u8 *);
-static void iucv_callback_connrej(struct iucv_path *, u8 *);
-static void iucv_callback_shutdown(struct iucv_path *, u8 *);
-
 static struct iucv_sock_list iucv_sk_list = {
 	.lock = __RW_LOCK_UNLOCKED(iucv_sk_list.lock),
 	.autobind_name = ATOMIC_INIT(0)
-};
-
-static struct iucv_handler af_iucv_handler = {
-	.path_pending	  = iucv_callback_connreq,
-	.path_complete	  = iucv_callback_connack,
-	.path_severed	  = iucv_callback_connrej,
-	.message_pending  = iucv_callback_rx,
-	.message_complete = iucv_callback_txdone,
-	.path_quiesced	  = iucv_callback_shutdown,
 };
 
 static inline void high_nmcpy(unsigned char *dst, char *src)
@@ -158,7 +143,7 @@ static inline size_t iucv_msg_length(struct iucv_message *msg)
  * iucv_sock_in_state() - check for specific states
  * @sk:		sock structure
  * @state:	first iucv sk state
- * @state:	second iucv sk state
+ * @state2:	second iucv sk state
  *
  * Returns true if the socket in either in the first or second state.
  */
@@ -188,7 +173,7 @@ static inline int iucv_below_msglim(struct sock *sk)
 			(atomic_read(&iucv->pendings) <= 0));
 }
 
-/**
+/*
  * iucv_sock_wake_msglim() - Wake up thread waiting on msg limit
  */
 static void iucv_sock_wake_msglim(struct sock *sk)
@@ -203,7 +188,7 @@ static void iucv_sock_wake_msglim(struct sock *sk)
 	rcu_read_unlock();
 }
 
-/**
+/*
  * afiucv_hs_send() - send a message through HiperSockets transport
  */
 static int afiucv_hs_send(struct iucv_message *imsg, struct sock *sock,
@@ -489,7 +474,7 @@ static struct sock *iucv_sock_alloc(struct socket *sock, int proto, gfp_t prio, 
 	atomic_set(&iucv->msg_recv, 0);
 	iucv->path = NULL;
 	iucv->sk_txnotify = afiucv_hs_callback_txnotify;
-	memset(&iucv->src_user_id , 0, 32);
+	memset(&iucv->init, 0, sizeof(iucv->init));
 	if (pr_iucv)
 		iucv->transport = AF_IUCV_TRANS_IUCV;
 	else
@@ -621,7 +606,7 @@ static int iucv_sock_bind(struct socket *sock, struct sockaddr *addr,
 	for_each_netdev_rcu(&init_net, dev) {
 		if (!memcmp(dev->perm_addr, uid, 8)) {
 			memcpy(iucv->src_user_id, sa->siucv_user_id, 8);
-			/* Check for unitialized siucv_name */
+			/* Check for uninitialized siucv_name */
 			if (strncmp(sa->siucv_name, "        ", 8) == 0)
 				__iucv_auto_name(iucv);
 			else
@@ -1060,7 +1045,7 @@ static int iucv_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 			if (err == 0) {
 				atomic_dec(&iucv->skbs_in_xmit);
 				skb_unlink(skb, &iucv->send_skb_q);
-				kfree_skb(skb);
+				consume_skb(skb);
 			}
 
 			/* this error should never happen since the	*/
@@ -1309,7 +1294,7 @@ static int iucv_sock_recvmsg(struct socket *sock, struct msghdr *msg,
 			}
 		}
 
-		kfree_skb(skb);
+		consume_skb(skb);
 		if (iucv->transport == AF_IUCV_TRANS_HIPER) {
 			atomic_inc(&iucv->msg_recv);
 			if (atomic_read(&iucv->msg_recv) > iucv->msglimit) {
@@ -1772,7 +1757,7 @@ static void iucv_callback_txdone(struct iucv_path *path,
 	spin_unlock_irqrestore(&list->lock, flags);
 
 	if (this) {
-		kfree_skb(this);
+		consume_skb(this);
 		/* wake up any process waiting for sending */
 		iucv_sock_wake_msglim(sk);
 	}
@@ -1817,6 +1802,15 @@ static void iucv_callback_shutdown(struct iucv_path *path, u8 ipuser[16])
 	bh_unlock_sock(sk);
 }
 
+static struct iucv_handler af_iucv_handler = {
+	.path_pending		= iucv_callback_connreq,
+	.path_complete		= iucv_callback_connack,
+	.path_severed		= iucv_callback_connrej,
+	.message_pending	= iucv_callback_rx,
+	.message_complete	= iucv_callback_txdone,
+	.path_quiesced		= iucv_callback_shutdown,
+};
+
 /***************** HiperSockets transport callbacks ********************/
 static void afiucv_swap_src_dest(struct sk_buff *skb)
 {
@@ -1838,9 +1832,9 @@ static void afiucv_swap_src_dest(struct sk_buff *skb)
 	memset(skb->data, 0, ETH_HLEN);
 }
 
-/**
+/*
  * afiucv_hs_callback_syn - react on received SYN
- **/
+ */
 static int afiucv_hs_callback_syn(struct sock *sk, struct sk_buff *skb)
 {
 	struct af_iucv_trans_hdr *trans_hdr = iucv_trans_hdr(skb);
@@ -1903,71 +1897,73 @@ out:
 	return NET_RX_SUCCESS;
 }
 
-/**
+/*
  * afiucv_hs_callback_synack() - react on received SYN-ACK
- **/
+ */
 static int afiucv_hs_callback_synack(struct sock *sk, struct sk_buff *skb)
 {
 	struct iucv_sock *iucv = iucv_sk(sk);
 
-	if (!iucv)
-		goto out;
-	if (sk->sk_state != IUCV_BOUND)
-		goto out;
+	if (!iucv || sk->sk_state != IUCV_BOUND) {
+		kfree_skb(skb);
+		return NET_RX_SUCCESS;
+	}
+
 	bh_lock_sock(sk);
 	iucv->msglimit_peer = iucv_trans_hdr(skb)->window;
 	sk->sk_state = IUCV_CONNECTED;
 	sk->sk_state_change(sk);
 	bh_unlock_sock(sk);
-out:
-	kfree_skb(skb);
+	consume_skb(skb);
 	return NET_RX_SUCCESS;
 }
 
-/**
+/*
  * afiucv_hs_callback_synfin() - react on received SYN_FIN
- **/
+ */
 static int afiucv_hs_callback_synfin(struct sock *sk, struct sk_buff *skb)
 {
 	struct iucv_sock *iucv = iucv_sk(sk);
 
-	if (!iucv)
-		goto out;
-	if (sk->sk_state != IUCV_BOUND)
-		goto out;
+	if (!iucv || sk->sk_state != IUCV_BOUND) {
+		kfree_skb(skb);
+		return NET_RX_SUCCESS;
+	}
+
 	bh_lock_sock(sk);
 	sk->sk_state = IUCV_DISCONN;
 	sk->sk_state_change(sk);
 	bh_unlock_sock(sk);
-out:
-	kfree_skb(skb);
+	consume_skb(skb);
 	return NET_RX_SUCCESS;
 }
 
-/**
+/*
  * afiucv_hs_callback_fin() - react on received FIN
- **/
+ */
 static int afiucv_hs_callback_fin(struct sock *sk, struct sk_buff *skb)
 {
 	struct iucv_sock *iucv = iucv_sk(sk);
 
 	/* other end of connection closed */
-	if (!iucv)
-		goto out;
+	if (!iucv) {
+		kfree_skb(skb);
+		return NET_RX_SUCCESS;
+	}
+
 	bh_lock_sock(sk);
 	if (sk->sk_state == IUCV_CONNECTED) {
 		sk->sk_state = IUCV_DISCONN;
 		sk->sk_state_change(sk);
 	}
 	bh_unlock_sock(sk);
-out:
-	kfree_skb(skb);
+	consume_skb(skb);
 	return NET_RX_SUCCESS;
 }
 
-/**
+/*
  * afiucv_hs_callback_win() - react on received WIN
- **/
+ */
 static int afiucv_hs_callback_win(struct sock *sk, struct sk_buff *skb)
 {
 	struct iucv_sock *iucv = iucv_sk(sk);
@@ -1983,9 +1979,9 @@ static int afiucv_hs_callback_win(struct sock *sk, struct sk_buff *skb)
 	return NET_RX_SUCCESS;
 }
 
-/**
+/*
  * afiucv_hs_callback_rx() - react on received data
- **/
+ */
 static int afiucv_hs_callback_rx(struct sock *sk, struct sk_buff *skb)
 {
 	struct iucv_sock *iucv = iucv_sk(sk);
@@ -2027,11 +2023,11 @@ static int afiucv_hs_callback_rx(struct sock *sk, struct sk_buff *skb)
 	return NET_RX_SUCCESS;
 }
 
-/**
+/*
  * afiucv_hs_rcv() - base function for arriving data through HiperSockets
  *                   transport
  *                   called from netif RX softirq
- **/
+ */
 static int afiucv_hs_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
@@ -2114,7 +2110,7 @@ static int afiucv_hs_rcv(struct sk_buff *skb, struct net_device *dev,
 	case (AF_IUCV_FLAG_WIN):
 		err = afiucv_hs_callback_win(sk, skb);
 		if (skb->len == sizeof(struct af_iucv_trans_hdr)) {
-			kfree_skb(skb);
+			consume_skb(skb);
 			break;
 		}
 		fallthrough;	/* and receive non-zero length data */
@@ -2133,10 +2129,10 @@ static int afiucv_hs_rcv(struct sk_buff *skb, struct net_device *dev,
 	return err;
 }
 
-/**
- * afiucv_hs_callback_txnotify() - handle send notifcations from HiperSockets
+/*
+ * afiucv_hs_callback_txnotify() - handle send notifications from HiperSockets
  *                                 transport
- **/
+ */
 static void afiucv_hs_callback_txnotify(struct sock *sk, enum iucv_tx_notify n)
 {
 	struct iucv_sock *iucv = iucv_sk(sk);
@@ -2269,21 +2265,11 @@ static struct packet_type iucv_packet_type = {
 	.func = afiucv_hs_rcv,
 };
 
-static int afiucv_iucv_init(void)
-{
-	return pr_iucv->iucv_register(&af_iucv_handler, 0);
-}
-
-static void afiucv_iucv_exit(void)
-{
-	pr_iucv->iucv_unregister(&af_iucv_handler, 0);
-}
-
 static int __init afiucv_init(void)
 {
 	int err;
 
-	if (MACHINE_IS_VM) {
+	if (MACHINE_IS_VM && IS_ENABLED(CONFIG_IUCV)) {
 		cpcmd("QUERY USERID", iucv_userid, sizeof(iucv_userid), &err);
 		if (unlikely(err)) {
 			WARN_ON(err);
@@ -2291,11 +2277,7 @@ static int __init afiucv_init(void)
 			goto out;
 		}
 
-		pr_iucv = try_then_request_module(symbol_get(iucv_if), "iucv");
-		if (!pr_iucv) {
-			printk(KERN_WARNING "iucv_if lookup failed\n");
-			memset(&iucv_userid, 0, sizeof(iucv_userid));
-		}
+		pr_iucv = &iucv_if;
 	} else {
 		memset(&iucv_userid, 0, sizeof(iucv_userid));
 		pr_iucv = NULL;
@@ -2309,7 +2291,7 @@ static int __init afiucv_init(void)
 		goto out_proto;
 
 	if (pr_iucv) {
-		err = afiucv_iucv_init();
+		err = pr_iucv->iucv_register(&af_iucv_handler, 0);
 		if (err)
 			goto out_sock;
 	}
@@ -2323,23 +2305,19 @@ static int __init afiucv_init(void)
 
 out_notifier:
 	if (pr_iucv)
-		afiucv_iucv_exit();
+		pr_iucv->iucv_unregister(&af_iucv_handler, 0);
 out_sock:
 	sock_unregister(PF_IUCV);
 out_proto:
 	proto_unregister(&iucv_proto);
 out:
-	if (pr_iucv)
-		symbol_put(iucv_if);
 	return err;
 }
 
 static void __exit afiucv_exit(void)
 {
-	if (pr_iucv) {
-		afiucv_iucv_exit();
-		symbol_put(iucv_if);
-	}
+	if (pr_iucv)
+		pr_iucv->iucv_unregister(&af_iucv_handler, 0);
 
 	unregister_netdevice_notifier(&afiucv_netdev_notifier);
 	dev_remove_pack(&iucv_packet_type);

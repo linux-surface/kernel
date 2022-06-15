@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/spinlock.h>
 #include <linux/task_work.h>
-#include <linux/tracehook.h>
+#include <linux/resume_user_mode.h>
 
 static struct callback_head work_exited; /* all we need is ->next == NULL */
 
@@ -34,6 +34,9 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
 {
 	struct callback_head *head;
 
+	/* record the work call stack in order to print it in KASAN reports */
+	kasan_record_aux_stack(work);
+
 	do {
 		head = READ_ONCE(task->task_works);
 		if (unlikely(head == &work_exited))
@@ -59,6 +62,48 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
 }
 
 /**
+ * task_work_cancel_match - cancel a pending work added by task_work_add()
+ * @task: the task which should execute the work
+ * @match: match function to call
+ *
+ * RETURNS:
+ * The found work or NULL if not found.
+ */
+struct callback_head *
+task_work_cancel_match(struct task_struct *task,
+		       bool (*match)(struct callback_head *, void *data),
+		       void *data)
+{
+	struct callback_head **pprev = &task->task_works;
+	struct callback_head *work;
+	unsigned long flags;
+
+	if (likely(!task_work_pending(task)))
+		return NULL;
+	/*
+	 * If cmpxchg() fails we continue without updating pprev.
+	 * Either we raced with task_work_add() which added the
+	 * new entry before this work, we will find it again. Or
+	 * we raced with task_work_run(), *pprev == NULL/exited.
+	 */
+	raw_spin_lock_irqsave(&task->pi_lock, flags);
+	while ((work = READ_ONCE(*pprev))) {
+		if (!match(work, data))
+			pprev = &work->next;
+		else if (cmpxchg(pprev, work, work->next) == work)
+			break;
+	}
+	raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+
+	return work;
+}
+
+static bool task_work_func_match(struct callback_head *cb, void *data)
+{
+	return cb->func == data;
+}
+
+/**
  * task_work_cancel - cancel a pending work added by task_work_add()
  * @task: the task which should execute the work
  * @func: identifies the work to remove
@@ -72,28 +117,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
 struct callback_head *
 task_work_cancel(struct task_struct *task, task_work_func_t func)
 {
-	struct callback_head **pprev = &task->task_works;
-	struct callback_head *work;
-	unsigned long flags;
-
-	if (likely(!task->task_works))
-		return NULL;
-	/*
-	 * If cmpxchg() fails we continue without updating pprev.
-	 * Either we raced with task_work_add() which added the
-	 * new entry before this work, we will find it again. Or
-	 * we raced with task_work_run(), *pprev == NULL/exited.
-	 */
-	raw_spin_lock_irqsave(&task->pi_lock, flags);
-	while ((work = READ_ONCE(*pprev))) {
-		if (work->func != func)
-			pprev = &work->next;
-		else if (cmpxchg(pprev, work, work->next) == work)
-			break;
-	}
-	raw_spin_unlock_irqrestore(&task->pi_lock, flags);
-
-	return work;
+	return task_work_cancel_match(task, task_work_func_match, func);
 }
 
 /**

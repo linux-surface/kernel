@@ -7,6 +7,7 @@
 #include <linux/linkage.h>
 
 #include <asm/assembler.h>
+#include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
 
@@ -79,38 +80,43 @@ SYM_FUNC_START(__hyp_do_panic)
 	mov	lr, #(PSR_F_BIT | PSR_I_BIT | PSR_A_BIT | PSR_D_BIT |\
 		      PSR_MODE_EL1h)
 	msr	spsr_el2, lr
-	ldr	lr, =panic
+	ldr	lr, =nvhe_hyp_panic_handler
 	hyp_kimg_va lr, x6
 	msr	elr_el2, lr
 
 	mov	x29, x0
 
-	/* Load the format string into x0 and arguments into x1-7 */
-	ldr	x0, =__hyp_panic_string
-	hyp_kimg_va x0, x6
+#ifdef CONFIG_NVHE_EL2_DEBUG
+	/* Ensure host stage-2 is disabled */
+	mrs	x0, hcr_el2
+	bic	x0, x0, #HCR_VM
+	msr	hcr_el2, x0
+	isb
+	tlbi	vmalls12e1
+	dsb	nsh
+#endif
 
-	/* Load the format arguments into x1-7. */
-	mov	x6, x3
-	get_vcpu_ptr x7, x3
-	mrs	x3, esr_el2
-	mrs	x4, far_el2
-	mrs	x5, hpfar_el2
+	/* Load the panic arguments into x0-7 */
+	mrs	x0, esr_el2
+	mov	x4, x3
+	mov	x3, x2
+	hyp_pa	x3, x6
+	get_vcpu_ptr x5, x6
+	mrs	x6, far_el2
+	mrs	x7, hpfar_el2
 
 	/* Enter the host, conditionally restoring the host context. */
 	cbz	x29, __host_enter_without_restoring
 	b	__host_enter_for_panic
 SYM_FUNC_END(__hyp_do_panic)
 
-.macro host_el1_sync_vect
-	.align 7
-.L__vect_start\@:
-	stp	x0, x1, [sp, #-16]!
-	mrs	x0, esr_el2
-	lsr	x0, x0, #ESR_ELx_EC_SHIFT
-	cmp	x0, #ESR_ELx_EC_HVC64
-	b.ne	__host_exit
-
+SYM_FUNC_START(__host_hvc)
 	ldp	x0, x1, [sp]		// Don't fixup the stack yet
+
+	/* No stub for you, sonny Jim */
+alternative_if ARM64_KVM_PROTECTED_MODE
+	b	__host_exit
+alternative_else_nop_endif
 
 	/* Check for a stub HVC call */
 	cmp	x0, #HVC_STUB_HCALL_NR
@@ -128,6 +134,17 @@ SYM_FUNC_END(__hyp_do_panic)
 	ldr	x5, =__kvm_handle_stub_hvc
 	hyp_pa	x5, x6
 	br	x5
+SYM_FUNC_END(__host_hvc)
+
+.macro host_el1_sync_vect
+	.align 7
+.L__vect_start\@:
+	stp	x0, x1, [sp, #-16]!
+	mrs	x0, esr_el2
+	ubfx	x0, x0, #ESR_ELx_EC_SHIFT, #ESR_ELx_EC_WIDTH
+	cmp	x0, #ESR_ELx_EC_HVC64
+	b.eq	__host_hvc
+	b	__host_exit
 .L__vect_end\@:
 .if ((.L__vect_end\@ - .L__vect_start\@) > 0x80)
 	.error "host_el1_sync_vect larger than vector entry"
@@ -181,15 +198,15 @@ SYM_CODE_START(__kvm_hyp_host_vector)
 	invalid_host_el2_vect			// FIQ EL2h
 	invalid_host_el2_vect			// Error EL2h
 
-	host_el1_sync_vect			// Synchronous 64-bit EL1
-	invalid_host_el1_vect			// IRQ 64-bit EL1
-	invalid_host_el1_vect			// FIQ 64-bit EL1
-	invalid_host_el1_vect			// Error 64-bit EL1
+	host_el1_sync_vect			// Synchronous 64-bit EL1/EL0
+	invalid_host_el1_vect			// IRQ 64-bit EL1/EL0
+	invalid_host_el1_vect			// FIQ 64-bit EL1/EL0
+	invalid_host_el1_vect			// Error 64-bit EL1/EL0
 
-	invalid_host_el1_vect			// Synchronous 32-bit EL1
-	invalid_host_el1_vect			// IRQ 32-bit EL1
-	invalid_host_el1_vect			// FIQ 32-bit EL1
-	invalid_host_el1_vect			// Error 32-bit EL1
+	host_el1_sync_vect			// Synchronous 32-bit EL1/EL0
+	invalid_host_el1_vect			// IRQ 32-bit EL1/EL0
+	invalid_host_el1_vect			// FIQ 32-bit EL1/EL0
+	invalid_host_el1_vect			// Error 32-bit EL1/EL0
 SYM_CODE_END(__kvm_hyp_host_vector)
 
 /*

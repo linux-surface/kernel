@@ -124,12 +124,11 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 		/* kernel thread */
 		unsigned long status = p->thread.cp0_status;
 		memset(childregs, 0, sizeof(struct pt_regs));
-		ti->addr_limit = KERNEL_DS;
 		p->thread.reg16 = usp; /* fn */
 		p->thread.reg17 = kthread_arg;
 		p->thread.reg29 = childksp;
 		p->thread.reg31 = (unsigned long) ret_from_kernel_thread;
-#if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
+#if defined(CONFIG_CPU_R3000)
 		status = (status & ~(ST0_KUP | ST0_IEP | ST0_IEC)) |
 			 ((status & (ST0_KUC | ST0_IEC)) << 2);
 #else
@@ -145,7 +144,6 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	childregs->regs[2] = 0; /* Child gets zero as return value */
 	if (usp)
 		childregs->regs[29] = usp;
-	ti->addr_limit = USER_DS;
 
 	p->thread.reg29 = (unsigned long) childregs;
 	p->thread.reg31 = (unsigned long) ret_from_fork;
@@ -513,7 +511,7 @@ static int __init frame_info_init(void)
 
 	/*
 	 * Without schedule() frame info, result given by
-	 * thread_saved_pc() and get_wchan() are not reliable.
+	 * thread_saved_pc() and __get_wchan() are not reliable.
 	 */
 	if (schedule_mfi.pc_offset < 0)
 		printk("Can't analyze schedule() prologue at %p\n", schedule);
@@ -654,9 +652,9 @@ unsigned long unwind_stack(struct task_struct *task, unsigned long *sp,
 #endif
 
 /*
- * get_wchan - a maintenance nightmare^W^Wpain in the ass ...
+ * __get_wchan - a maintenance nightmare^W^Wpain in the ass ...
  */
-unsigned long get_wchan(struct task_struct *task)
+unsigned long __get_wchan(struct task_struct *task)
 {
 	unsigned long pc = 0;
 #ifdef CONFIG_KALLSYMS
@@ -664,8 +662,6 @@ unsigned long get_wchan(struct task_struct *task)
 	unsigned long ra = 0;
 #endif
 
-	if (!task || task == current || task->state == TASK_RUNNING)
-		goto out;
 	if (!task_stack_page(task))
 		goto out;
 
@@ -861,10 +857,10 @@ int mips_set_process_fp_mode(struct task_struct *task, unsigned int value)
 	 * scheduled in then it will already have picked up the new FP mode
 	 * whilst doing so.
 	 */
-	get_online_cpus();
+	cpus_read_lock();
 	for_each_cpu_and(cpu, &process_cpus, cpu_online_mask)
 		work_on_cpu(cpu, prepare_for_fp_mode_switch, NULL);
-	put_online_cpus();
+	cpus_read_unlock();
 
 	return 0;
 }

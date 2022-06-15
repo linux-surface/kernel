@@ -2508,12 +2508,17 @@ const struct em28xx_board em28xx_boards[] = {
 		.def_i2c_bus   = 1,
 		.i2c_speed     = EM28XX_I2C_CLK_WAIT_ENABLE |
 				 EM28XX_I2C_FREQ_400_KHZ,
-		.tuner_type    = TUNER_ABSENT,
+		.tuner_type    = TUNER_SI2157,
 		.tuner_gpio    = hauppauge_dualhd_dvb,
 		.has_dvb       = 1,
 		.has_dual_ts   = 1,
 		.ir_codes      = RC_MAP_HAUPPAUGE,
 		.leds          = hauppauge_dualhd_leds,
+		.input         = { {
+			.type     = EM28XX_VMUX_COMPOSITE,
+			.vmux     = TVP5150_COMPOSITE1,
+			.amux     = EM28XX_AMUX_LINE_IN,
+		} },
 	},
 	/*
 	 * 2040:026d Hauppauge WinTV-dualHD (model 01595 - ATSC/QAM) Isoc.
@@ -2778,7 +2783,11 @@ struct usb_device_id em28xx_id_table[] = {
 			.driver_info = EM2765_BOARD_SPEEDLINK_VAD_LAPLACE },
 	{ USB_DEVICE(0x2013, 0x0258),
 			.driver_info = EM28178_BOARD_PCTV_461E },
+	{ USB_DEVICE(0x2013, 0x8258), /* Bulk transport 461e */
+			.driver_info = EM28178_BOARD_PCTV_461E },
 	{ USB_DEVICE(0x2013, 0x0461),
+			.driver_info = EM28178_BOARD_PCTV_461E_V2 },
+	{ USB_DEVICE(0x2013, 0x8461), /* Bulk transport 461e v2 */
 			.driver_info = EM28178_BOARD_PCTV_461E_V2 },
 	{ USB_DEVICE(0x2013, 0x0259),
 			.driver_info = EM28178_BOARD_PCTV_461E_V2 },
@@ -3621,8 +3630,10 @@ static int em28xx_init_dev(struct em28xx *dev, struct usb_device *udev,
 
 	if (dev->is_audio_only) {
 		retval = em28xx_audio_setup(dev);
-		if (retval)
-			return -ENODEV;
+		if (retval) {
+			retval = -ENODEV;
+			goto err_deinit_media;
+		}
 		em28xx_init_extension(dev);
 
 		return 0;
@@ -3641,7 +3652,7 @@ static int em28xx_init_dev(struct em28xx *dev, struct usb_device *udev,
 		dev_err(&dev->intf->dev,
 			"%s: em28xx_i2c_register bus 0 - error [%d]!\n",
 		       __func__, retval);
-		return retval;
+		goto err_deinit_media;
 	}
 
 	/* register i2c bus 1 */
@@ -3657,9 +3668,7 @@ static int em28xx_init_dev(struct em28xx *dev, struct usb_device *udev,
 				"%s: em28xx_i2c_register bus 1 - error [%d]!\n",
 				__func__, retval);
 
-			em28xx_i2c_unregister(dev, 0);
-
-			return retval;
+			goto err_unreg_i2c;
 		}
 	}
 
@@ -3667,6 +3676,12 @@ static int em28xx_init_dev(struct em28xx *dev, struct usb_device *udev,
 	em28xx_card_setup(dev);
 
 	return 0;
+
+err_unreg_i2c:
+	em28xx_i2c_unregister(dev, 0);
+err_deinit_media:
+	em28xx_unregister_media_device(dev);
+	return retval;
 }
 
 static int em28xx_duplicate_dev(struct em28xx *dev)
@@ -3921,6 +3936,8 @@ static int em28xx_usb_probe(struct usb_interface *intf,
 		goto err_free;
 	}
 
+	kref_init(&dev->ref);
+
 	dev->devno = nr;
 	dev->model = id->driver_info;
 	dev->alt   = -1;
@@ -4021,6 +4038,8 @@ static int em28xx_usb_probe(struct usb_interface *intf,
 	}
 
 	if (dev->board.has_dual_ts && em28xx_duplicate_dev(dev) == 0) {
+		kref_init(&dev->dev_next->ref);
+
 		dev->dev_next->ts = SECONDARY_TS;
 		dev->dev_next->alt   = -1;
 		dev->dev_next->is_audio_only = has_vendor_audio &&
@@ -4061,25 +4080,21 @@ static int em28xx_usb_probe(struct usb_interface *intf,
 		dev->dev_next->dvb_max_pkt_size_isoc = dev->dvb_max_pkt_size_isoc_ts2;
 		dev->dev_next->dvb_alt_isoc = dev->dvb_alt_isoc;
 
-		/* Configuare hardware to support TS2*/
+		/* Configure hardware to support TS2*/
 		if (dev->dvb_xfer_bulk) {
-			/* The ep4 and ep5 are configuared for BULK */
+			/* The ep4 and ep5 are configured for BULK */
 			em28xx_write_reg(dev, 0x0b, 0x96);
 			mdelay(100);
 			em28xx_write_reg(dev, 0x0b, 0x80);
 			mdelay(100);
 		} else {
-			/* The ep4 and ep5 are configuared for ISO */
+			/* The ep4 and ep5 are configured for ISO */
 			em28xx_write_reg(dev, 0x0b, 0x96);
 			mdelay(100);
 			em28xx_write_reg(dev, 0x0b, 0x82);
 			mdelay(100);
 		}
-
-		kref_init(&dev->dev_next->ref);
 	}
-
-	kref_init(&dev->ref);
 
 	request_modules(dev);
 

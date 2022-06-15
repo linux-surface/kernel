@@ -259,14 +259,12 @@ static void ks_pcie_handle_legacy_irq(struct keystone_pcie *ks_pcie,
 	struct dw_pcie *pci = ks_pcie->pci;
 	struct device *dev = pci->dev;
 	u32 pending;
-	int virq;
 
 	pending = ks_pcie_app_readl(ks_pcie, IRQ_STATUS(offset));
 
 	if (BIT(0) & pending) {
-		virq = irq_linear_revmap(ks_pcie->legacy_irq_domain, offset);
-		dev_dbg(dev, ": irq: irq_offset %d, virq %d\n", offset, virq);
-		generic_handle_irq(virq);
+		dev_dbg(dev, ": irq: irq_offset %d", offset);
+		generic_handle_domain_irq(ks_pcie->legacy_irq_domain, offset);
 	}
 
 	/* EOI the INTx interrupt */
@@ -346,8 +344,9 @@ static const struct irq_domain_ops ks_pcie_legacy_irq_domain_ops = {
 };
 
 /**
- * ks_pcie_set_dbi_mode() - Set DBI mode to access overlaid BAR mask
- * registers
+ * ks_pcie_set_dbi_mode() - Set DBI mode to access overlaid BAR mask registers
+ * @ks_pcie: A pointer to the keystone_pcie structure which holds the KeyStone
+ *	     PCIe host controller driver information.
  *
  * Since modification of dbi_cs2 involves different clock domain, read the
  * status back to ensure the transition is complete.
@@ -367,6 +366,8 @@ static void ks_pcie_set_dbi_mode(struct keystone_pcie *ks_pcie)
 
 /**
  * ks_pcie_clear_dbi_mode() - Disable DBI mode
+ * @ks_pcie: A pointer to the keystone_pcie structure which holds the KeyStone
+ *	     PCIe host controller driver information.
  *
  * Since modification of dbi_cs2 involves different clock domain, read the
  * status back to ensure the transition is complete.
@@ -449,6 +450,7 @@ static struct pci_ops ks_child_pcie_ops = {
 
 /**
  * ks_pcie_v3_65_add_bus() - keystone add_bus post initialization
+ * @bus: A pointer to the PCI bus structure.
  *
  * This sets BAR0 to enable inbound access for MSI_IRQ register
  */
@@ -488,6 +490,8 @@ static struct pci_ops ks_pcie_ops = {
 
 /**
  * ks_pcie_link_up() - Check if link up
+ * @pci: A pointer to the dw_pcie structure which holds the DesignWare PCIe host
+ *	 controller driver information.
  */
 static int ks_pcie_link_up(struct dw_pcie *pci)
 {
@@ -527,13 +531,13 @@ static void ks_pcie_quirk(struct pci_dev *dev)
 	struct pci_dev *bridge;
 	static const struct pci_device_id rc_pci_devids[] = {
 		{ PCI_DEVICE(PCI_VENDOR_ID_TI, PCIE_RC_K2HK),
-		 .class = PCI_CLASS_BRIDGE_PCI << 8, .class_mask = ~0, },
+		 .class = PCI_CLASS_BRIDGE_PCI_NORMAL, .class_mask = ~0, },
 		{ PCI_DEVICE(PCI_VENDOR_ID_TI, PCIE_RC_K2E),
-		 .class = PCI_CLASS_BRIDGE_PCI << 8, .class_mask = ~0, },
+		 .class = PCI_CLASS_BRIDGE_PCI_NORMAL, .class_mask = ~0, },
 		{ PCI_DEVICE(PCI_VENDOR_ID_TI, PCIE_RC_K2L),
-		 .class = PCI_CLASS_BRIDGE_PCI << 8, .class_mask = ~0, },
+		 .class = PCI_CLASS_BRIDGE_PCI_NORMAL, .class_mask = ~0, },
 		{ PCI_DEVICE(PCI_VENDOR_ID_TI, PCIE_RC_K2G),
-		 .class = PCI_CLASS_BRIDGE_PCI << 8, .class_mask = ~0, },
+		 .class = PCI_CLASS_BRIDGE_PCI_NORMAL, .class_mask = ~0, },
 		{ 0, },
 	};
 
@@ -573,7 +577,7 @@ static void ks_pcie_msi_irq_handler(struct irq_desc *desc)
 	struct pcie_port *pp = &pci->pp;
 	struct device *dev = pci->dev;
 	struct irq_chip *chip = irq_desc_get_chip(desc);
-	u32 vector, virq, reg, pos;
+	u32 vector, reg, pos;
 
 	dev_dbg(dev, "%s, irq %d\n", __func__, irq);
 
@@ -594,10 +598,8 @@ static void ks_pcie_msi_irq_handler(struct irq_desc *desc)
 			continue;
 
 		vector = offset + (pos << 3);
-		virq = irq_linear_revmap(pp->irq_domain, vector);
-		dev_dbg(dev, "irq: bit %d, vector %d, virq %d\n", pos, vector,
-			virq);
-		generic_handle_irq(virq);
+		dev_dbg(dev, "irq: bit %d, vector %d\n", pos, vector);
+		generic_handle_domain_irq(pp->irq_domain, vector);
 	}
 
 	chained_irq_exit(chip, desc);
@@ -605,7 +607,6 @@ static void ks_pcie_msi_irq_handler(struct irq_desc *desc)
 
 /**
  * ks_pcie_legacy_irq_handler() - Handle legacy interrupt
- * @irq: IRQ line for legacy interrupts
  * @desc: Pointer to irq descriptor
  *
  * Traverse through pending legacy interrupts and invoke handler for each. Also
@@ -746,9 +747,9 @@ err:
 
 #ifdef CONFIG_ARM
 /*
- * When a PCI device does not exist during config cycles, keystone host gets a
- * bus error instead of returning 0xffffffff. This handler always returns 0
- * for this kind of faults.
+ * When a PCI device does not exist during config cycles, keystone host
+ * gets a bus error instead of returning 0xffffffff (PCI_ERROR_RESPONSE).
+ * This handler always returns 0 for this kind of fault.
  */
 static int ks_pcie_fault(unsigned long addr, unsigned int fsr,
 			 struct pt_regs *regs)
@@ -774,12 +775,19 @@ static int __init ks_pcie_init_id(struct keystone_pcie *ks_pcie)
 	struct dw_pcie *pci = ks_pcie->pci;
 	struct device *dev = pci->dev;
 	struct device_node *np = dev->of_node;
+	struct of_phandle_args args;
+	unsigned int offset = 0;
 
 	devctrl_regs = syscon_regmap_lookup_by_phandle(np, "ti,syscon-pcie-id");
 	if (IS_ERR(devctrl_regs))
 		return PTR_ERR(devctrl_regs);
 
-	ret = regmap_read(devctrl_regs, 0, &id);
+	/* Do not error out to maintain old DT compatibility */
+	ret = of_parse_phandle_with_fixed_args(np, "ti,syscon-pcie-id", 1, 0, &args);
+	if (!ret)
+		offset = args.args[0];
+
+	ret = regmap_read(devctrl_regs, offset, &id);
 	if (ret)
 		return ret;
 
@@ -798,7 +806,8 @@ static int __init ks_pcie_host_init(struct pcie_port *pp)
 	int ret;
 
 	pp->bridge->ops = &ks_pcie_ops;
-	pp->bridge->child_ops = &ks_child_pcie_ops;
+	if (!ks_pcie->is_am6)
+		pp->bridge->child_ops = &ks_child_pcie_ops;
 
 	ret = ks_pcie_config_legacy_irq(ks_pcie);
 	if (ret)
@@ -987,6 +996,8 @@ err_phy:
 static int ks_pcie_set_mode(struct device *dev)
 {
 	struct device_node *np = dev->of_node;
+	struct of_phandle_args args;
+	unsigned int offset = 0;
 	struct regmap *syscon;
 	u32 val;
 	u32 mask;
@@ -996,10 +1007,15 @@ static int ks_pcie_set_mode(struct device *dev)
 	if (IS_ERR(syscon))
 		return 0;
 
+	/* Do not error out to maintain old DT compatibility */
+	ret = of_parse_phandle_with_fixed_args(np, "ti,syscon-pcie-mode", 1, 0, &args);
+	if (!ret)
+		offset = args.args[0];
+
 	mask = KS_PCIE_DEV_TYPE_MASK | KS_PCIE_SYSCLOCKOUTEN;
 	val = KS_PCIE_DEV_TYPE(RC) | KS_PCIE_SYSCLOCKOUTEN;
 
-	ret = regmap_update_bits(syscon, 0, mask, val);
+	ret = regmap_update_bits(syscon, offset, mask, val);
 	if (ret) {
 		dev_err(dev, "failed to set pcie mode\n");
 		return ret;
@@ -1012,6 +1028,8 @@ static int ks_pcie_am654_set_mode(struct device *dev,
 				  enum dw_pcie_device_mode mode)
 {
 	struct device_node *np = dev->of_node;
+	struct of_phandle_args args;
+	unsigned int offset = 0;
 	struct regmap *syscon;
 	u32 val;
 	u32 mask;
@@ -1020,6 +1038,11 @@ static int ks_pcie_am654_set_mode(struct device *dev,
 	syscon = syscon_regmap_lookup_by_phandle(np, "ti,syscon-pcie-mode");
 	if (IS_ERR(syscon))
 		return 0;
+
+	/* Do not error out to maintain old DT compatibility */
+	ret = of_parse_phandle_with_fixed_args(np, "ti,syscon-pcie-mode", 1, 0, &args);
+	if (!ret)
+		offset = args.args[0];
 
 	mask = AM654_PCIE_DEV_TYPE_MASK;
 
@@ -1035,7 +1058,7 @@ static int ks_pcie_am654_set_mode(struct device *dev,
 		return -EINVAL;
 	}
 
-	ret = regmap_update_bits(syscon, 0, mask, val);
+	ret = regmap_update_bits(syscon, offset, mask, val);
 	if (ret) {
 		dev_err(dev, "failed to set pcie mode\n");
 		return ret;
@@ -1085,7 +1108,6 @@ static int __init ks_pcie_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	const struct ks_pcie_of_data *data;
-	const struct of_device_id *match;
 	enum dw_pcie_device_mode mode;
 	struct dw_pcie *pci;
 	struct keystone_pcie *ks_pcie;
@@ -1102,8 +1124,7 @@ static int __init ks_pcie_probe(struct platform_device *pdev)
 	int irq;
 	int i;
 
-	match = of_match_device(of_match_ptr(ks_pcie_of_match), dev);
-	data = (struct ks_pcie_of_data *)match->data;
+	data = of_device_get_match_data(dev);
 	if (!data)
 		return -EINVAL;
 

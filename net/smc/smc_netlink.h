@@ -17,8 +17,10 @@
 
 extern struct genl_family smc_gen_nl_family;
 
+extern const struct nla_policy smc_gen_ueid_policy[];
+
 struct smc_nl_dmp_ctx {
-	int pos[2];
+	int pos[3];
 };
 
 static inline struct smc_nl_dmp_ctx *smc_nl_dmp_ctx(struct netlink_callback *c)

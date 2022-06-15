@@ -4,32 +4,52 @@
 set -u
 set -e
 
-# This script currently only works for x86_64, as
-# it is based on the VM image used by the BPF CI which is
-# x86_64.
-QEMU_BINARY="${QEMU_BINARY:="qemu-system-x86_64"}"
-X86_BZIMAGE="arch/x86/boot/bzImage"
+# This script currently only works for x86_64 and s390x, as
+# it is based on the VM image used by the BPF CI, which is
+# available only for these architectures.
+ARCH="$(uname -m)"
+case "${ARCH}" in
+s390x)
+	QEMU_BINARY=qemu-system-s390x
+	QEMU_CONSOLE="ttyS1"
+	QEMU_FLAGS=(-smp 2)
+	BZIMAGE="arch/s390/boot/compressed/vmlinux"
+	;;
+x86_64)
+	QEMU_BINARY=qemu-system-x86_64
+	QEMU_CONSOLE="ttyS0,115200"
+	QEMU_FLAGS=(-cpu host -smp 8)
+	BZIMAGE="arch/x86/boot/bzImage"
+	;;
+*)
+	echo "Unsupported architecture"
+	exit 1
+	;;
+esac
 DEFAULT_COMMAND="./test_progs"
 MOUNT_DIR="mnt"
 ROOTFS_IMAGE="root.img"
 OUTPUT_DIR="$HOME/.bpf_selftests"
-KCONFIG_URL="https://raw.githubusercontent.com/libbpf/libbpf/master/travis-ci/vmtest/configs/latest.config"
-KCONFIG_API_URL="https://api.github.com/repos/libbpf/libbpf/contents/travis-ci/vmtest/configs/latest.config"
-INDEX_URL="https://raw.githubusercontent.com/libbpf/libbpf/master/travis-ci/vmtest/configs/INDEX"
+KCONFIG_URL="https://raw.githubusercontent.com/libbpf/libbpf/master/travis-ci/vmtest/configs/config-latest.${ARCH}"
+KCONFIG_API_URL="https://api.github.com/repos/libbpf/libbpf/contents/travis-ci/vmtest/configs/config-latest.${ARCH}"
+INDEX_URL="https://raw.githubusercontent.com/libbpf/ci/master/INDEX"
 NUM_COMPILE_JOBS="$(nproc)"
+LOG_FILE_BASE="$(date +"bpf_selftests.%Y-%m-%d_%H-%M-%S")"
+LOG_FILE="${LOG_FILE_BASE}.log"
+EXIT_STATUS_FILE="${LOG_FILE_BASE}.exit_status"
 
 usage()
 {
 	cat <<EOF
-Usage: $0 [-i] [-d <output_dir>] -- [<command>]
+Usage: $0 [-i] [-s] [-d <output_dir>] -- [<command>]
 
 <command> is the command you would normally run when you are in
 tools/testing/selftests/bpf. e.g:
 
 	$0 -- ./test_progs -t test_lsm
 
-If no command is specified, "${DEFAULT_COMMAND}" will be run by
-default.
+If no command is specified and a debug shell (-s) is not requested,
+"${DEFAULT_COMMAND}" will be run by default.
 
 If you build your kernel using KBUILD_OUTPUT= or O= options, these
 can be passed as environment variables to the script:
@@ -46,6 +66,9 @@ Options:
 	-d)		Update the output directory (default: ${OUTPUT_DIR})
 	-j)		Number of jobs for compilation, similar to -j in make
 			(default: ${NUM_COMPILE_JOBS})
+	-s)		Instead of powering off the VM, start an interactive
+			shell. If <command> is specified, the shell runs after
+			the command finishes executing
 EOF
 }
 
@@ -79,7 +102,7 @@ newest_rootfs_version()
 {
 	{
 	for file in "${!URLS[@]}"; do
-		if [[ $file =~ ^libbpf-vmtest-rootfs-(.*)\.tar\.zst$ ]]; then
+		if [[ $file =~ ^"${ARCH}"/libbpf-vmtest-rootfs-(.*)\.tar\.zst$ ]]; then
 			echo "${BASH_REMATCH[1]}"
 		fi
 	done
@@ -96,7 +119,7 @@ download_rootfs()
 		exit 1
 	fi
 
-	download "libbpf-vmtest-rootfs-$rootfsversion.tar.zst" |
+	download "${ARCH}/libbpf-vmtest-rootfs-$rootfsversion.tar.zst" |
 		zstd -d | sudo tar -C "$dir" -x
 }
 
@@ -146,7 +169,7 @@ update_init_script()
 	local init_script_dir="${OUTPUT_DIR}/${MOUNT_DIR}/etc/rcS.d"
 	local init_script="${init_script_dir}/S50-startup"
 	local command="$1"
-	local log_file="$2"
+	local exit_command="$2"
 
 	mount_image
 
@@ -160,17 +183,26 @@ EOF
 
 	fi
 
-	sudo bash -c "cat >${init_script}" <<EOF
-#!/bin/bash
+	sudo bash -c "echo '#!/bin/bash' > ${init_script}"
+
+	if [[ "${command}" != "" ]]; then
+		sudo bash -c "cat >>${init_script}" <<EOF
+# Have a default value in the exit status file
+# incase the VM is forcefully stopped.
+echo "130" > "/root/${EXIT_STATUS_FILE}"
 
 {
 	cd /root/bpf
 	echo ${command}
 	stdbuf -oL -eL ${command}
-} 2>&1 | tee /root/${log_file}
-poweroff -f
+	echo "\$?" > "/root/${EXIT_STATUS_FILE}"
+} 2>&1 | tee "/root/${LOG_FILE}"
+# Ensure that the logs are written to disk
+sync
 EOF
+	fi
 
+	sudo bash -c "echo ${exit_command} >> ${init_script}"
 	sudo chmod a+x "${init_script}"
 	unmount_image
 }
@@ -209,22 +241,23 @@ EOF
 		-nodefaults \
 		-display none \
 		-serial mon:stdio \
-		-cpu kvm64 \
+		"${QEMU_FLAGS[@]}" \
 		-enable-kvm \
-		-smp 4 \
-		-m 2G \
+		-m 4G \
 		-drive file="${rootfs_img}",format=raw,index=1,media=disk,if=virtio,cache=none \
 		-kernel "${kernel_bzimage}" \
-		-append "root=/dev/vda rw console=ttyS0,115200"
+		-append "root=/dev/vda rw console=${QEMU_CONSOLE}"
 }
 
 copy_logs()
 {
 	local mount_dir="${OUTPUT_DIR}/${MOUNT_DIR}"
-	local log_file="${mount_dir}/root/$1"
+	local log_file="${mount_dir}/root/${LOG_FILE}"
+	local exit_status_file="${mount_dir}/root/${EXIT_STATUS_FILE}"
 
 	mount_image
 	sudo cp ${log_file} "${OUTPUT_DIR}"
+	sudo cp ${exit_status_file} "${OUTPUT_DIR}"
 	sudo rm -f ${log_file}
 	unmount_image
 }
@@ -263,14 +296,15 @@ main()
 {
 	local script_dir="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 	local kernel_checkout=$(realpath "${script_dir}"/../../../../)
-	local log_file="$(date +"bpf_selftests.%Y-%m-%d_%H-%M-%S.log")"
 	# By default the script searches for the kernel in the checkout directory but
 	# it also obeys environment variables O= and KBUILD_OUTPUT=
-	local kernel_bzimage="${kernel_checkout}/${X86_BZIMAGE}"
+	local kernel_bzimage="${kernel_checkout}/${BZIMAGE}"
 	local command="${DEFAULT_COMMAND}"
 	local update_image="no"
+	local exit_command="poweroff -f"
+	local debug_shell="no"
 
-	while getopts 'hkid:j:' opt; do
+	while getopts 'hskid:j:' opt; do
 		case ${opt} in
 		i)
 			update_image="yes"
@@ -280,6 +314,11 @@ main()
 			;;
 		j)
 			NUM_COMPILE_JOBS="$OPTARG"
+			;;
+		s)
+			command=""
+			debug_shell="yes"
+			exit_command="bash"
 			;;
 		h)
 			usage
@@ -299,7 +338,7 @@ main()
 	done
 	shift $((OPTIND -1))
 
-	if [[ $# -eq 0 ]]; then
+	if [[ $# -eq 0  && "${debug_shell}" == "no" ]]; then
 		echo "No command specified, will run ${DEFAULT_COMMAND} in the vm"
 	else
 		command="$@"
@@ -314,13 +353,13 @@ main()
 		if is_rel_path "${O}"; then
 			O="$(realpath "${PWD}/${O}")"
 		fi
-		kernel_bzimage="${O}/${X86_BZIMAGE}"
+		kernel_bzimage="${O}/${BZIMAGE}"
 		make_command="${make_command} O=${O}"
 	elif [[ "${KBUILD_OUTPUT:=""}" != "" ]]; then
 		if is_rel_path "${KBUILD_OUTPUT}"; then
 			KBUILD_OUTPUT="$(realpath "${PWD}/${KBUILD_OUTPUT}")"
 		fi
-		kernel_bzimage="${KBUILD_OUTPUT}/${X86_BZIMAGE}"
+		kernel_bzimage="${KBUILD_OUTPUT}/${BZIMAGE}"
 		make_command="${make_command} KBUILD_OUTPUT=${KBUILD_OUTPUT}"
 	fi
 
@@ -347,19 +386,25 @@ main()
 	fi
 
 	update_selftests "${kernel_checkout}" "${make_command}"
-	update_init_script "${command}" "${log_file}"
+	update_init_script "${command}" "${exit_command}"
 	run_vm "${kernel_bzimage}"
-	copy_logs "${log_file}"
-	echo "Logs saved in ${OUTPUT_DIR}/${log_file}"
+	if [[ "${command}" != "" ]]; then
+		copy_logs
+		echo "Logs saved in ${OUTPUT_DIR}/${LOG_FILE}"
+	fi
 }
 
 catch()
 {
 	local exit_code=$1
+	local exit_status_file="${OUTPUT_DIR}/${EXIT_STATUS_FILE}"
 	# This is just a cleanup and the directory may
 	# have already been unmounted. So, don't let this
 	# clobber the error code we intend to return.
 	unmount_image || true
+	if [[ -f "${exit_status_file}" ]]; then
+		exit_code="$(cat ${exit_status_file})"
+	fi
 	exit ${exit_code}
 }
 

@@ -15,6 +15,7 @@
  */
 
 #include <linux/pci.h>
+#include <linux/dma-mapping.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -69,14 +70,19 @@ static void cci_pci_free_irq(struct pci_dev *pcidev)
 }
 
 /* PCI Device ID */
-#define PCIE_DEVICE_ID_PF_INT_5_X	0xBCBD
-#define PCIE_DEVICE_ID_PF_INT_6_X	0xBCC0
-#define PCIE_DEVICE_ID_PF_DSC_1_X	0x09C4
-#define PCIE_DEVICE_ID_INTEL_PAC_N3000	0x0B30
+#define PCIE_DEVICE_ID_PF_INT_5_X		0xBCBD
+#define PCIE_DEVICE_ID_PF_INT_6_X		0xBCC0
+#define PCIE_DEVICE_ID_PF_DSC_1_X		0x09C4
+#define PCIE_DEVICE_ID_INTEL_PAC_N3000		0x0B30
+#define PCIE_DEVICE_ID_INTEL_PAC_D5005		0x0B2B
+#define PCIE_DEVICE_ID_SILICOM_PAC_N5010	0x1000
+#define PCIE_DEVICE_ID_SILICOM_PAC_N5011	0x1001
+
 /* VF Device */
-#define PCIE_DEVICE_ID_VF_INT_5_X	0xBCBF
-#define PCIE_DEVICE_ID_VF_INT_6_X	0xBCC1
-#define PCIE_DEVICE_ID_VF_DSC_1_X	0x09C5
+#define PCIE_DEVICE_ID_VF_INT_5_X		0xBCBF
+#define PCIE_DEVICE_ID_VF_INT_6_X		0xBCC1
+#define PCIE_DEVICE_ID_VF_DSC_1_X		0x09C5
+#define PCIE_DEVICE_ID_INTEL_PAC_D5005_VF	0x0B2C
 
 static struct pci_device_id cci_pcie_id_tbl[] = {
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_PF_INT_5_X),},
@@ -86,6 +92,10 @@ static struct pci_device_id cci_pcie_id_tbl[] = {
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_PF_DSC_1_X),},
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_VF_DSC_1_X),},
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_INTEL_PAC_N3000),},
+	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_INTEL_PAC_D5005),},
+	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_INTEL_PAC_D5005_VF),},
+	{PCI_DEVICE(PCI_VENDOR_ID_SILICOM_DENMARK, PCIE_DEVICE_ID_SILICOM_PAC_N5010),},
+	{PCI_DEVICE(PCI_VENDOR_ID_SILICOM_DENMARK, PCIE_DEVICE_ID_SILICOM_PAC_N5011),},
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, cci_pcie_id_tbl);
@@ -345,16 +355,10 @@ int cci_pci_probe(struct pci_dev *pcidev, const struct pci_device_id *pcidevid)
 
 	pci_set_master(pcidev);
 
-	if (!pci_set_dma_mask(pcidev, DMA_BIT_MASK(64))) {
-		ret = pci_set_consistent_dma_mask(pcidev, DMA_BIT_MASK(64));
-		if (ret)
-			goto disable_error_report_exit;
-	} else if (!pci_set_dma_mask(pcidev, DMA_BIT_MASK(32))) {
-		ret = pci_set_consistent_dma_mask(pcidev, DMA_BIT_MASK(32));
-		if (ret)
-			goto disable_error_report_exit;
-	} else {
-		ret = -EIO;
+	ret = dma_set_mask_and_coherent(&pcidev->dev, DMA_BIT_MASK(64));
+	if (ret)
+		ret = dma_set_mask_and_coherent(&pcidev->dev, DMA_BIT_MASK(32));
+	if (ret) {
 		dev_err(&pcidev->dev, "No suitable DMA support available.\n");
 		goto disable_error_report_exit;
 	}

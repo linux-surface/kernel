@@ -122,8 +122,9 @@ static struct scsi_host_template fnic_host_template = {
 	.can_queue = FNIC_DFLT_IO_REQ,
 	.sg_tablesize = FNIC_MAX_SG_DESC_CNT,
 	.max_sectors = 0xffff,
-	.shost_attrs = fnic_attrs,
+	.shost_groups = fnic_host_groups,
 	.track_queue_depth = 1,
+	.cmd_size = sizeof(struct fnic_cmd_priv),
 };
 
 static void
@@ -1099,9 +1100,6 @@ static int __init fnic_init_module(void)
 		err = -ENOMEM;
 		goto err_create_fnic_workq;
 	}
-
-	spin_lock_init(&fnic_list_lock);
-	INIT_LIST_HEAD(&fnic_list);
 
 	fnic_fip_queue = create_singlethread_workqueue("fnic_fip_q");
 	if (!fnic_fip_queue) {

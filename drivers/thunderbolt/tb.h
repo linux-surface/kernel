@@ -20,6 +20,7 @@
 
 #define NVM_MIN_SIZE		SZ_32K
 #define NVM_MAX_SIZE		SZ_512K
+#define NVM_DATA_DWORDS		16
 
 /* Intel specific NVM offsets */
 #define NVM_DEVID		0x05
@@ -57,6 +58,12 @@ struct tb_nvm {
 	bool flushed;
 };
 
+enum tb_nvm_write_ops {
+	WRITE_AND_AUTHENTICATE = 1,
+	WRITE_ONLY = 2,
+	AUTHENTICATE_ONLY = 3,
+};
+
 #define TB_SWITCH_KEY_SIZE		32
 #define TB_SWITCH_MAX_DEPTH		6
 #define USB4_SWITCH_MAX_DEPTH		5
@@ -82,15 +89,31 @@ enum tb_switch_tmu_rate {
  * @cap: Offset to the TMU capability (%0 if not found)
  * @has_ucap: Does the switch support uni-directional mode
  * @rate: TMU refresh rate related to upstream switch. In case of root
- *	  switch this holds the domain rate.
+ *	  switch this holds the domain rate. Reflects the HW setting.
  * @unidirectional: Is the TMU in uni-directional or bi-directional mode
- *		    related to upstream switch. Don't case for root switch.
+ *		    related to upstream switch. Don't care for root switch.
+ *		    Reflects the HW setting.
+ * @unidirectional_request: Is the new TMU mode: uni-directional or bi-directional
+ *			    that is requested to be set. Related to upstream switch.
+ *			    Don't care for root switch.
+ * @rate_request: TMU new refresh rate related to upstream switch that is
+ *		  requested to be set. In case of root switch, this holds
+ *		  the new domain rate that is requested to be set.
  */
 struct tb_switch_tmu {
 	int cap;
 	bool has_ucap;
 	enum tb_switch_tmu_rate rate;
 	bool unidirectional;
+	bool unidirectional_request;
+	enum tb_switch_tmu_rate rate_request;
+};
+
+enum tb_clx {
+	TB_CLX_DISABLE,
+	TB_CL0S,
+	TB_CL1,
+	TB_CL2,
 };
 
 /**
@@ -115,7 +138,9 @@ struct tb_switch_tmu {
  * @link_usb4: Upstream link is USB4
  * @generation: Switch Thunderbolt generation
  * @cap_plug_events: Offset to the plug events capability (%0 if not found)
+ * @cap_vsec_tmu: Offset to the TMU vendor specific capability (%0 if not found)
  * @cap_lc: Offset to the link controller capability (%0 if not found)
+ * @cap_lp: Offset to the low power (CLx for TBT) capability (%0 if not found)
  * @is_unplugged: The switch is going away
  * @drom: DROM of the switch (%NULL if not found)
  * @nvm: Pointer to the NVM if the switch has one (%NULL otherwise)
@@ -135,6 +160,13 @@ struct tb_switch_tmu {
  * @rpm_complete: Completion used to wait for runtime resume to
  *		  complete (ICM only)
  * @quirks: Quirks used for this Thunderbolt switch
+ * @credit_allocation: Are the below buffer allocation parameters valid
+ * @max_usb3_credits: Router preferred number of buffers for USB 3.x
+ * @min_dp_aux_credits: Router preferred minimum number of buffers for DP AUX
+ * @min_dp_main_credits: Router preferred minimum number of buffers for DP MAIN
+ * @max_pcie_credits: Router preferred number of buffers for PCIe
+ * @max_dma_credits: Router preferred number of buffers for DMA/P2P
+ * @clx: CLx state on the upstream link of the router
  *
  * When the switch is being added or removed to the domain (other
  * switches) you need to have domain lock held.
@@ -159,7 +191,9 @@ struct tb_switch {
 	bool link_usb4;
 	unsigned int generation;
 	int cap_plug_events;
+	int cap_vsec_tmu;
 	int cap_lc;
+	int cap_lp;
 	bool is_unplugged;
 	u8 *drom;
 	struct tb_nvm *nvm;
@@ -177,6 +211,13 @@ struct tb_switch {
 	u8 depth;
 	struct completion rpm_complete;
 	unsigned long quirks;
+	bool credit_allocation;
+	unsigned int max_usb3_credits;
+	unsigned int min_dp_aux_credits;
+	unsigned int min_dp_main_credits;
+	unsigned int max_pcie_credits;
+	unsigned int max_dma_credits;
+	enum tb_clx clx;
 };
 
 /**
@@ -189,6 +230,7 @@ struct tb_switch {
  * @cap_tmu: Offset of the adapter specific TMU capability (%0 if not present)
  * @cap_adap: Offset of the adapter specific capability (%0 if not present)
  * @cap_usb4: Offset to the USB4 port capability (%0 if not present)
+ * @usb4: Pointer to the USB4 port structure (only if @cap_usb4 is != %0)
  * @port: Port number on switch
  * @disabled: Disabled by eeprom or enabled but not implemented
  * @bonded: true if the port is bonded (two lanes combined as one)
@@ -198,6 +240,10 @@ struct tb_switch {
  * @in_hopids: Currently allocated input HopIDs
  * @out_hopids: Currently allocated output HopIDs
  * @list: Used to link ports to DP resources list
+ * @total_credits: Total number of buffers available for this port
+ * @ctl_credits: Buffers reserved for control path
+ * @dma_credits: Number of credits allocated for DMA tunneling for all
+ *		 DMA paths through this port.
  *
  * In USB4 terminology this structure represents an adapter (protocol or
  * lane adapter).
@@ -211,6 +257,7 @@ struct tb_port {
 	int cap_tmu;
 	int cap_adap;
 	int cap_usb4;
+	struct usb4_port *usb4;
 	u8 port;
 	bool disabled;
 	bool bonded;
@@ -219,6 +266,24 @@ struct tb_port {
 	struct ida in_hopids;
 	struct ida out_hopids;
 	struct list_head list;
+	unsigned int total_credits;
+	unsigned int ctl_credits;
+	unsigned int dma_credits;
+};
+
+/**
+ * struct usb4_port - USB4 port device
+ * @dev: Device for the port
+ * @port: Pointer to the lane 0 adapter
+ * @can_offline: Does the port have necessary platform support to moved
+ *		 it into offline mode and back
+ * @offline: The port is currently in offline mode
+ */
+struct usb4_port {
+	struct device dev;
+	struct tb_port *port;
+	bool can_offline;
+	bool offline;
 };
 
 /**
@@ -255,6 +320,8 @@ struct tb_retimer {
  * @next_hop_index: HopID of the packet when it is routed out from @out_port
  * @initial_credits: Number of initial flow control credits allocated for
  *		     the path
+ * @nfc_credits: Number of non-flow controlled buffers allocated for the
+ *		 @in_port.
  *
  * Hop configuration is always done on the IN port of a switch.
  * in_port and out_port have to be on the same switch. Packets arriving on
@@ -274,6 +341,7 @@ struct tb_path_hop {
 	int in_counter_index;
 	int next_hop_index;
 	unsigned int initial_credits;
+	unsigned int nfc_credits;
 };
 
 /**
@@ -296,7 +364,6 @@ enum tb_path_port {
  * struct tb_path - a unidirectional path between two ports
  * @tb: Pointer to the domain structure
  * @name: Name of the path (used for debugging)
- * @nfc_credits: Number of non flow controlled credits allocated for the path
  * @ingress_shared_buffer: Shared buffering used for ingress ports on the path
  * @egress_shared_buffer: Shared buffering used for egress ports on the path
  * @ingress_fc_enable: Flow control for ingress ports on the path
@@ -309,6 +376,7 @@ enum tb_path_port {
  *	      when deactivating this path
  * @hops: Path hops
  * @path_length: How many hops the path uses
+ * @alloc_hopid: Does this path consume port HopID
  *
  * A path consists of a number of hops (see &struct tb_path_hop). To
  * establish a PCIe tunnel two paths have to be created between the two
@@ -317,7 +385,6 @@ enum tb_path_port {
 struct tb_path {
 	struct tb *tb;
 	const char *name;
-	int nfc_credits;
 	enum tb_path_port ingress_shared_buffer;
 	enum tb_path_port egress_shared_buffer;
 	enum tb_path_port ingress_fc_enable;
@@ -330,6 +397,7 @@ struct tb_path {
 	bool clear_fc;
 	struct tb_path_hop *hops;
 	int path_length;
+	bool alloc_hopid;
 };
 
 /* HopIDs 0-7 are reserved by the Thunderbolt protocol */
@@ -346,6 +414,7 @@ struct tb_path {
 #define TB_WAKE_ON_USB4		BIT(2)
 #define TB_WAKE_ON_USB3		BIT(3)
 #define TB_WAKE_ON_PCIE		BIT(4)
+#define TB_WAKE_ON_DP		BIT(5)
 
 /**
  * struct tb_cm_ops - Connection manager specific operations vector
@@ -406,8 +475,12 @@ struct tb_cm_ops {
 	int (*challenge_switch_key)(struct tb *tb, struct tb_switch *sw,
 				    const u8 *challenge, u8 *response);
 	int (*disconnect_pcie_paths)(struct tb *tb);
-	int (*approve_xdomain_paths)(struct tb *tb, struct tb_xdomain *xd);
-	int (*disconnect_xdomain_paths)(struct tb *tb, struct tb_xdomain *xd);
+	int (*approve_xdomain_paths)(struct tb *tb, struct tb_xdomain *xd,
+				     int transmit_path, int transmit_ring,
+				     int receive_path, int receive_ring);
+	int (*disconnect_xdomain_paths)(struct tb *tb, struct tb_xdomain *xd,
+					int transmit_path, int transmit_ring,
+					int receive_path, int receive_ring);
 	int (*usb4_switch_op)(struct tb_switch *sw, u16 opcode, u32 *metadata,
 			      u8 *status, const void *tx_data, size_t tx_data_len,
 			      void *rx_data, size_t rx_data_len);
@@ -619,13 +692,14 @@ struct tb *tb_probe(struct tb_nhi *nhi);
 extern struct device_type tb_domain_type;
 extern struct device_type tb_retimer_type;
 extern struct device_type tb_switch_type;
+extern struct device_type usb4_port_device_type;
 
 int tb_domain_init(void);
 void tb_domain_exit(void);
 int tb_xdomain_init(void);
 void tb_xdomain_exit(void);
 
-struct tb *tb_domain_alloc(struct tb_nhi *nhi, size_t privsize);
+struct tb *tb_domain_alloc(struct tb_nhi *nhi, int timeout_msec, size_t privsize);
 int tb_domain_add(struct tb *tb);
 void tb_domain_remove(struct tb *tb);
 int tb_domain_suspend_noirq(struct tb *tb);
@@ -641,8 +715,12 @@ int tb_domain_approve_switch(struct tb *tb, struct tb_switch *sw);
 int tb_domain_approve_switch_key(struct tb *tb, struct tb_switch *sw);
 int tb_domain_challenge_switch_key(struct tb *tb, struct tb_switch *sw);
 int tb_domain_disconnect_pcie_paths(struct tb *tb);
-int tb_domain_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd);
-int tb_domain_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd);
+int tb_domain_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				    int transmit_path, int transmit_ring,
+				    int receive_path, int receive_ring);
+int tb_domain_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				       int transmit_path, int transmit_ring,
+				       int receive_path, int receive_ring);
 int tb_domain_disconnect_all_paths(struct tb *tb);
 
 static inline struct tb *tb_domain_get(struct tb *tb)
@@ -666,6 +744,16 @@ int tb_nvm_add_non_active(struct tb_nvm *nvm, size_t size,
 void tb_nvm_free(struct tb_nvm *nvm);
 void tb_nvm_exit(void);
 
+typedef int (*read_block_fn)(void *, unsigned int, void *, size_t);
+typedef int (*write_block_fn)(void *, unsigned int, const void *, size_t);
+
+int tb_nvm_read_data(unsigned int address, void *buf, size_t size,
+		     unsigned int retries, read_block_fn read_block,
+		     void *read_block_data);
+int tb_nvm_write_data(unsigned int address, const void *buf, size_t size,
+		      unsigned int retries, write_block_fn write_next_block,
+		      void *write_block_data);
+
 struct tb_switch *tb_switch_alloc(struct tb *tb, struct device *parent,
 				  u64 route);
 struct tb_switch *tb_switch_alloc_safe_mode(struct tb *tb,
@@ -676,6 +764,8 @@ void tb_switch_remove(struct tb_switch *sw);
 void tb_switch_suspend(struct tb_switch *sw, bool runtime);
 int tb_switch_resume(struct tb_switch *sw);
 int tb_switch_reset(struct tb_switch *sw);
+int tb_switch_wait_for_bit(struct tb_switch *sw, u32 offset, u32 bit,
+			   u32 value, int timeout_msec);
 void tb_sw_set_unplugged(struct tb_switch *sw);
 struct tb_port *tb_switch_find_port(struct tb_switch *sw,
 				    enum tb_port_type type);
@@ -765,6 +855,7 @@ static inline bool tb_switch_is_alpine_ridge(const struct tb_switch *sw)
 	if (sw->config.vendor_id == PCI_VENDOR_ID_INTEL) {
 		switch (sw->config.device_id) {
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_2C_BRIDGE:
+		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_4C_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_LP_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_C_4C_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_C_2C_BRIDGE:
@@ -781,18 +872,6 @@ static inline bool tb_switch_is_titan_ridge(const struct tb_switch *sw)
 		case PCI_DEVICE_ID_INTEL_TITAN_RIDGE_2C_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_TITAN_RIDGE_4C_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_TITAN_RIDGE_DD_BRIDGE:
-			return true;
-		}
-	}
-	return false;
-}
-
-static inline bool tb_switch_is_ice_lake(const struct tb_switch *sw)
-{
-	if (sw->config.vendor_id == PCI_VENDOR_ID_INTEL) {
-		switch (sw->config.device_id) {
-		case PCI_DEVICE_ID_INTEL_ICL_NHI0:
-		case PCI_DEVICE_ID_INTEL_ICL_NHI1:
 			return true;
 		}
 	}
@@ -851,16 +930,69 @@ int tb_switch_tmu_init(struct tb_switch *sw);
 int tb_switch_tmu_post_time(struct tb_switch *sw);
 int tb_switch_tmu_disable(struct tb_switch *sw);
 int tb_switch_tmu_enable(struct tb_switch *sw);
-
-static inline bool tb_switch_tmu_is_enabled(const struct tb_switch *sw)
+void tb_switch_tmu_configure(struct tb_switch *sw,
+			     enum tb_switch_tmu_rate rate,
+			     bool unidirectional);
+/**
+ * tb_switch_tmu_hifi_is_enabled() - Checks if the specified TMU mode is enabled
+ * @sw: Router whose TMU mode to check
+ * @unidirectional: If uni-directional (bi-directional otherwise)
+ *
+ * Return true if hardware TMU configuration matches the one passed in
+ * as parameter. That is HiFi and either uni-directional or bi-directional.
+ */
+static inline bool tb_switch_tmu_hifi_is_enabled(const struct tb_switch *sw,
+						 bool unidirectional)
 {
 	return sw->tmu.rate == TB_SWITCH_TMU_RATE_HIFI &&
-	       !sw->tmu.unidirectional;
+	       sw->tmu.unidirectional == unidirectional;
 }
+
+int tb_switch_enable_clx(struct tb_switch *sw, enum tb_clx clx);
+int tb_switch_disable_clx(struct tb_switch *sw, enum tb_clx clx);
+
+/**
+ * tb_switch_is_clx_enabled() - Checks if the CLx is enabled
+ * @sw: Router to check the CLx state for
+ *
+ * Checks if the CLx is enabled on the router upstream link.
+ * Not applicable for a host router.
+ */
+static inline bool tb_switch_is_clx_enabled(const struct tb_switch *sw)
+{
+	return sw->clx != TB_CLX_DISABLE;
+}
+
+/**
+ * tb_switch_is_cl0s_enabled() - Checks if the CL0s is enabled
+ * @sw: Router to check for the CL0s
+ *
+ * Checks if the CL0s is enabled on the router upstream link.
+ * Not applicable for a host router.
+ */
+static inline bool tb_switch_is_cl0s_enabled(const struct tb_switch *sw)
+{
+	return sw->clx == TB_CL0S;
+}
+
+/**
+ * tb_switch_is_clx_supported() - Is CLx supported on this type of router
+ * @sw: The router to check CLx support for
+ */
+static inline bool tb_switch_is_clx_supported(const struct tb_switch *sw)
+{
+	return tb_switch_is_usb4(sw) || tb_switch_is_titan_ridge(sw);
+}
+
+int tb_switch_mask_clx_objections(struct tb_switch *sw);
+
+int tb_switch_pcie_l1_enable(struct tb_switch *sw);
+
+int tb_switch_xhci_connect(struct tb_switch *sw);
+void tb_switch_xhci_disconnect(struct tb_switch *sw);
 
 int tb_wait_for_port(struct tb_port *port, bool wait_if_unplugged);
 int tb_port_add_nfc_credits(struct tb_port *port, int credits);
-int tb_port_set_initial_credits(struct tb_port *port, u32 credits);
 int tb_port_clear_counter(struct tb_port *port, int counter);
 int tb_port_unlock(struct tb_port *port);
 int tb_port_enable(struct tb_port *port);
@@ -871,6 +1003,11 @@ int tb_port_alloc_out_hopid(struct tb_port *port, int hopid, int max_hopid);
 void tb_port_release_out_hopid(struct tb_port *port, int hopid);
 struct tb_port *tb_next_port_on_path(struct tb_port *start, struct tb_port *end,
 				     struct tb_port *prev);
+
+static inline bool tb_port_use_credit_allocation(const struct tb_port *port)
+{
+	return tb_port_is_null(port) && port->sw->credit_allocation;
+}
 
 /**
  * tb_for_each_port_on_path() - Iterate over each port on path
@@ -889,6 +1026,9 @@ int tb_port_get_link_width(struct tb_port *port);
 int tb_port_state(struct tb_port *port);
 int tb_port_lane_bonding_enable(struct tb_port *port);
 void tb_port_lane_bonding_disable(struct tb_port *port);
+int tb_port_wait_for_link_width(struct tb_port *port, int width,
+				int timeout_msec);
+int tb_port_update_credits(struct tb_port *port);
 
 int tb_switch_find_vse_cap(struct tb_switch *sw, enum tb_switch_vse_cap vsec);
 int tb_switch_find_cap(struct tb_switch *sw, enum tb_switch_cap cap);
@@ -912,7 +1052,8 @@ int tb_dp_port_enable(struct tb_port *port, bool enable);
 
 struct tb_path *tb_path_discover(struct tb_port *src, int src_hopid,
 				 struct tb_port *dst, int dst_hopid,
-				 struct tb_port **last, const char *name);
+				 struct tb_port **last, const char *name,
+				 bool alloc_hopid);
 struct tb_path *tb_path_alloc(struct tb *tb, struct tb_port *src, int src_hopid,
 			      struct tb_port *dst, int dst_hopid, int link_nr,
 			      const char *name);
@@ -923,6 +1064,17 @@ bool tb_path_is_invalid(struct tb_path *path);
 bool tb_path_port_on_path(const struct tb_path *path,
 			  const struct tb_port *port);
 
+/**
+ * tb_path_for_each_hop() - Iterate over each hop on path
+ * @path: Path whose hops to iterate
+ * @hop: Hop used as iterator
+ *
+ * Iterates over each hop on path.
+ */
+#define tb_path_for_each_hop(path, hop)					\
+	for ((hop) = &(path)->hops[0];					\
+	     (hop) <= &(path)->hops[(path)->path_length - 1]; (hop)++)
+
 int tb_drom_read(struct tb_switch *sw);
 int tb_drom_read_uid_only(struct tb_switch *sw, u64 *uid);
 
@@ -932,6 +1084,11 @@ void tb_lc_unconfigure_port(struct tb_port *port);
 int tb_lc_configure_xdomain(struct tb_port *port);
 void tb_lc_unconfigure_xdomain(struct tb_port *port);
 int tb_lc_start_lane_initialization(struct tb_port *port);
+bool tb_lc_is_clx_supported(struct tb_port *port);
+bool tb_lc_is_usb_plugged(struct tb_port *port);
+bool tb_lc_is_xhci_connected(struct tb_port *port);
+int tb_lc_xhci_connect(struct tb_port *port);
+void tb_lc_xhci_disconnect(struct tb_port *port);
 int tb_lc_set_wake(struct tb_switch *sw, unsigned int flags);
 int tb_lc_set_sleep(struct tb_switch *sw);
 bool tb_lc_lane_bonding_possible(struct tb_switch *sw);
@@ -969,7 +1126,7 @@ void tb_xdomain_remove(struct tb_xdomain *xd);
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
 
-int tb_retimer_scan(struct tb_port *port);
+int tb_retimer_scan(struct tb_port *port, bool add);
 void tb_retimer_remove_all(struct tb_port *port);
 
 static inline bool tb_is_retimer(const struct device *dev)
@@ -994,10 +1151,12 @@ int usb4_switch_set_sleep(struct tb_switch *sw);
 int usb4_switch_nvm_sector_size(struct tb_switch *sw);
 int usb4_switch_nvm_read(struct tb_switch *sw, unsigned int address, void *buf,
 			 size_t size);
+int usb4_switch_nvm_set_offset(struct tb_switch *sw, unsigned int address);
 int usb4_switch_nvm_write(struct tb_switch *sw, unsigned int address,
 			  const void *buf, size_t size);
 int usb4_switch_nvm_authenticate(struct tb_switch *sw);
 int usb4_switch_nvm_authenticate_status(struct tb_switch *sw, u32 *status);
+int usb4_switch_credits_init(struct tb_switch *sw);
 bool usb4_switch_query_dp_resource(struct tb_switch *sw, struct tb_port *in);
 int usb4_switch_alloc_dp_resource(struct tb_switch *sw, struct tb_port *in);
 int usb4_switch_dealloc_dp_resource(struct tb_switch *sw, struct tb_port *in);
@@ -1005,20 +1164,28 @@ struct tb_port *usb4_switch_map_pcie_down(struct tb_switch *sw,
 					  const struct tb_port *port);
 struct tb_port *usb4_switch_map_usb3_down(struct tb_switch *sw,
 					  const struct tb_port *port);
+int usb4_switch_add_ports(struct tb_switch *sw);
+void usb4_switch_remove_ports(struct tb_switch *sw);
 
 int usb4_port_unlock(struct tb_port *port);
 int usb4_port_configure(struct tb_port *port);
 void usb4_port_unconfigure(struct tb_port *port);
 int usb4_port_configure_xdomain(struct tb_port *port);
 void usb4_port_unconfigure_xdomain(struct tb_port *port);
+int usb4_port_router_offline(struct tb_port *port);
+int usb4_port_router_online(struct tb_port *port);
 int usb4_port_enumerate_retimers(struct tb_port *port);
+bool usb4_port_clx_supported(struct tb_port *port);
 
+int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_read(struct tb_port *port, u8 index, u8 reg, void *buf,
 			   u8 size);
 int usb4_port_retimer_write(struct tb_port *port, u8 index, u8 reg,
 			    const void *buf, u8 size);
 int usb4_port_retimer_is_last(struct tb_port *port, u8 index);
 int usb4_port_retimer_nvm_sector_size(struct tb_port *port, u8 index);
+int usb4_port_retimer_nvm_set_offset(struct tb_port *port, u8 index,
+				     unsigned int address);
 int usb4_port_retimer_nvm_write(struct tb_port *port, u8 index,
 				unsigned int address, const void *buf,
 				size_t size);
@@ -1037,6 +1204,22 @@ int usb4_usb3_port_allocate_bandwidth(struct tb_port *port, int *upstream_bw,
 int usb4_usb3_port_release_bandwidth(struct tb_port *port, int *upstream_bw,
 				     int *downstream_bw);
 
+static inline bool tb_is_usb4_port_device(const struct device *dev)
+{
+	return dev->type == &usb4_port_device_type;
+}
+
+static inline struct usb4_port *tb_to_usb4_port_device(struct device *dev)
+{
+	if (tb_is_usb4_port_device(dev))
+		return container_of(dev, struct usb4_port, dev);
+	return NULL;
+}
+
+struct usb4_port *usb4_port_device_add(struct tb_port *port);
+void usb4_port_device_remove(struct usb4_port *usb4);
+int usb4_port_device_resume(struct usb4_port *usb4);
+
 /* Keep link controller awake during update */
 #define QUIRK_FORCE_POWER_LINK_CONTROLLER		BIT(0)
 
@@ -1050,6 +1233,11 @@ bool tb_acpi_may_tunnel_usb3(void);
 bool tb_acpi_may_tunnel_dp(void);
 bool tb_acpi_may_tunnel_pcie(void);
 bool tb_acpi_is_xdomain_allowed(void);
+
+int tb_acpi_init(void);
+void tb_acpi_exit(void);
+int tb_acpi_power_on_retimers(struct tb_port *port);
+int tb_acpi_power_off_retimers(struct tb_port *port);
 #else
 static inline void tb_acpi_add_links(struct tb_nhi *nhi) { }
 
@@ -1058,6 +1246,11 @@ static inline bool tb_acpi_may_tunnel_usb3(void) { return true; }
 static inline bool tb_acpi_may_tunnel_dp(void) { return true; }
 static inline bool tb_acpi_may_tunnel_pcie(void) { return true; }
 static inline bool tb_acpi_is_xdomain_allowed(void) { return true; }
+
+static inline int tb_acpi_init(void) { return 0; }
+static inline void tb_acpi_exit(void) { }
+static inline int tb_acpi_power_on_retimers(struct tb_port *port) { return 0; }
+static inline int tb_acpi_power_off_retimers(struct tb_port *port) { return 0; }
 #endif
 
 #ifdef CONFIG_DEBUG_FS

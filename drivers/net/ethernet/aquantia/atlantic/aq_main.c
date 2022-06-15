@@ -231,9 +231,6 @@ static void aq_ndev_set_multicast_settings(struct net_device *ndev)
 static int aq_ndev_config_hwtstamp(struct aq_nic_s *aq_nic,
 				   struct hwtstamp_config *config)
 {
-	if (config->flags)
-		return -EINVAL;
-
 	switch (config->tx_type) {
 	case HWTSTAMP_TX_OFF:
 	case HWTSTAMP_TX_ON:
@@ -421,7 +418,7 @@ static const struct net_device_ops aq_ndev_ops = {
 	.ndo_change_mtu = aq_ndev_change_mtu,
 	.ndo_set_mac_address = aq_ndev_set_mac_address,
 	.ndo_set_features = aq_ndev_set_features,
-	.ndo_do_ioctl = aq_ndev_ioctl,
+	.ndo_eth_ioctl = aq_ndev_ioctl,
 	.ndo_vlan_rx_add_vid = aq_ndo_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = aq_ndo_vlan_rx_kill_vid,
 	.ndo_setup_tc = aq_ndo_setup_tc,

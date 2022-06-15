@@ -81,7 +81,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	pop	%rbx
 	leave
 	.cfi_def_cfa		%rsp, 8
-	ret
+	RET
 
 	/* The out-of-line code runs with the pre-leave stack frame. */
 	.cfi_def_cfa		%rbp, 16
@@ -137,7 +137,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 
 	/*
 	 * If the return from callback is zero or negative, return immediately,
-	 * else re-execute ENCLU with the postive return value interpreted as
+	 * else re-execute ENCLU with the positive return value interpreted as
 	 * the requested ENCLU function.
 	 */
 	cmp	$0, %eax

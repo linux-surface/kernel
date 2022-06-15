@@ -19,6 +19,12 @@ are often referred to as greyscale formats.
    - `0` denotes padding bits set to 0.
 
 
+.. raw:: latex
+
+    \scriptsize
+
+.. tabularcolumns:: |p{3.6cm}|p{3.0cm}|p{1.3cm}|p{2.6cm}|p{1.3cm}|p{1.3cm}|p{1.3cm}|
+
 .. flat-table:: Luma-Only Image Formats
     :header-rows: 1
     :stub-columns: 0
@@ -69,8 +75,8 @@ are often referred to as greyscale formats.
       - ``V4L2_PIX_FMT_Y10P``
       - 'Y10P'
 
-      - Y'\ :sub:`0`\ [7:0]
-      - Y'\ :sub:`1`\ [9:8]
+      - Y'\ :sub:`0`\ [9:2]
+      - Y'\ :sub:`1`\ [9:2]
       - Y'\ :sub:`2`\ [9:2]
       - Y'\ :sub:`3`\ [9:2]
       - Y'\ :sub:`3`\ [1:0] Y'\ :sub:`2`\ [1:0] Y'\ :sub:`1`\ [1:0] Y'\ :sub:`0`\ [1:0]
@@ -118,6 +124,10 @@ are often referred to as greyscale formats.
       - ...
       - ...
       - ...
+
+.. raw:: latex
+
+    \normalsize
 
 .. note::
 

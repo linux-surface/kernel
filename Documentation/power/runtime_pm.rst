@@ -265,6 +265,10 @@ defined in include/linux/pm.h:
       RPM_SUSPENDED, which means that each device is initially regarded by the
       PM core as 'suspended', regardless of its real hardware status
 
+  `enum rpm_status last_status;`
+    - the last runtime PM status of the device captured before disabling runtime
+      PM for it (invalid initially and when disable_depth is 0)
+
   `unsigned int runtime_auto;`
     - if set, indicates that the user space has allowed the device driver to
       power manage the device at run time via the /sys/devices/.../power/control
@@ -333,11 +337,17 @@ drivers/base/power/runtime.c and include/linux/pm_runtime.h:
 
   `int pm_runtime_resume(struct device *dev);`
     - execute the subsystem-level resume callback for the device; returns 0 on
-      success, 1 if the device's runtime PM status was already 'active' or
-      error code on failure, where -EAGAIN means it may be safe to attempt to
-      resume the device again in future, but 'power.runtime_error' should be
-      checked additionally, and -EACCES means that 'power.disable_depth' is
+      success, 1 if the device's runtime PM status is already 'active' (also if
+      'power.disable_depth' is nonzero, but the status was 'active' when it was
+      changing from 0 to 1) or error code on failure, where -EAGAIN means it may
+      be safe to attempt to resume the device again in future, but
+      'power.runtime_error' should be checked additionally, and -EACCES means
+      that the callback could not be run, because 'power.disable_depth' was
       different from 0
+
+  `int pm_runtime_resume_and_get(struct device *dev);`
+    - run pm_runtime_resume(dev) and if successful, increment the device's
+      usage counter; return the result of pm_runtime_resume
 
   `int pm_request_idle(struct device *dev);`
     - submit a request to execute the subsystem-level idle callback for the
@@ -374,7 +384,11 @@ drivers/base/power/runtime.c and include/linux/pm_runtime.h:
 
   `int pm_runtime_get_sync(struct device *dev);`
     - increment the device's usage counter, run pm_runtime_resume(dev) and
-      return its result
+      return its result;
+      note that it does not drop the device's usage counter on errors, so
+      consider using pm_runtime_resume_and_get() instead of it, especially
+      if its return value is checked by the caller, as this is likely to
+      result in cleaner code.
 
   `int pm_runtime_get_if_in_use(struct device *dev);`
     - return -EINVAL if 'power.disable_depth' is nonzero; otherwise, if the
@@ -822,6 +836,15 @@ As a consequence, the PM core will never directly inform the device's subsystem
 or driver about runtime power changes.  Instead, the driver for the device's
 parent must take responsibility for telling the device's driver when the
 parent's power state changes.
+
+Note that, in some cases it may not be desirable for subsystems/drivers to call
+pm_runtime_no_callbacks() for their devices. This could be because a subset of
+the runtime PM callbacks needs to be implemented, a platform dependent PM
+domain could get attached to the device or that the device is power managed
+through a supplier device link. For these reasons and to avoid boilerplate code
+in subsystems/drivers, the PM core allows runtime PM callbacks to be
+unassigned. More precisely, if a callback pointer is NULL, the PM core will act
+as though there was a callback and it returned 0.
 
 9. Autosuspend, or automatically-delayed suspends
 =================================================

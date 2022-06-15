@@ -77,7 +77,7 @@ static inline void trap_myself(void)
 	__asm("int3");
 }
 
-static void inline remap_stack_and_trap(void)
+static inline void remap_stack_and_trap(void)
 {
 	__asm__ volatile (
 		"movl %%esp,%%ebx ;"
@@ -101,4 +101,16 @@ static void inline remap_stack_and_trap(void)
 		"memory");
 }
 
+static __always_inline void *get_stub_page(void)
+{
+	unsigned long ret;
+
+	asm volatile (
+		"movl %%esp,%0 ;"
+		"andl %1,%0"
+		: "=a" (ret)
+		: "g" (~(UM_KERN_PAGE_SIZE - 1)));
+
+	return (void *)ret;
+}
 #endif

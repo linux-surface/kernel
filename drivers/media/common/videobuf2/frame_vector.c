@@ -14,7 +14,6 @@
  * get_vaddr_frames() - map virtual addresses to pfns
  * @start:	starting user address
  * @nr_frames:	number of pages / pfns from start to map
- * @gup_flags:	flags modifying lookup behaviour
  * @vec:	structure which receives pages / pfns of the addresses mapped.
  *		It should have space for at least nr_frames entries.
  *
@@ -38,6 +37,7 @@ int get_vaddr_frames(unsigned long start, unsigned int nr_frames,
 {
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma;
+	int ret_pin_user_pages_fast = 0;
 	int ret = 0;
 	int err;
 
@@ -57,6 +57,7 @@ int get_vaddr_frames(unsigned long start, unsigned int nr_frames,
 		vec->is_pfns = false;
 		goto out_unlocked;
 	}
+	ret_pin_user_pages_fast = ret;
 
 	mmap_read_lock(mm);
 	vec->got_ref = false;
@@ -65,14 +66,25 @@ int get_vaddr_frames(unsigned long start, unsigned int nr_frames,
 	do {
 		unsigned long *nums = frame_vector_pfns(vec);
 
-		vma = find_vma_intersection(mm, start, start + 1);
+		vma = vma_lookup(mm, start);
 		if (!vma)
 			break;
 
 		while (ret < nr_frames && start + PAGE_SIZE <= vma->vm_end) {
 			err = follow_pfn(vma, start, &nums[ret]);
 			if (err) {
-				if (ret == 0)
+				if (ret)
+					goto out;
+				// If follow_pfn() returns -EINVAL, then this
+				// is not an IO mapping or a raw PFN mapping.
+				// In that case, return the original error from
+				// pin_user_pages_fast(). Otherwise this
+				// function would return -EINVAL when
+				// pin_user_pages_fast() returned -ENOMEM,
+				// which makes debugging hard.
+				if (err == -EINVAL && ret_pin_user_pages_fast)
+					ret = ret_pin_user_pages_fast;
+				else
 					ret = err;
 				goto out;
 			}

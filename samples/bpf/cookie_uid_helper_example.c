@@ -67,8 +67,8 @@ static bool test_finish;
 
 static void maps_create(void)
 {
-	map_fd = bpf_create_map(BPF_MAP_TYPE_HASH, sizeof(uint32_t),
-				sizeof(struct stats), 100, 0);
+	map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, NULL, sizeof(uint32_t),
+				sizeof(struct stats), 100, NULL);
 	if (map_fd < 0)
 		error(1, errno, "map create failed!\n");
 }
@@ -157,9 +157,13 @@ static void prog_load(void)
 				offsetof(struct __sk_buff, len)),
 		BPF_EXIT_INSN(),
 	};
-	prog_fd = bpf_load_program(BPF_PROG_TYPE_SOCKET_FILTER, prog,
-					ARRAY_SIZE(prog), "GPL", 0,
-					log_buf, sizeof(log_buf));
+	LIBBPF_OPTS(bpf_prog_load_opts, opts,
+		.log_buf = log_buf,
+		.log_size = sizeof(log_buf),
+	);
+
+	prog_fd = bpf_prog_load(BPF_PROG_TYPE_SOCKET_FILTER, NULL, "GPL",
+				prog, ARRAY_SIZE(prog), &opts);
 	if (prog_fd < 0)
 		error(1, errno, "failed to load prog\n%s\n", log_buf);
 }
@@ -167,7 +171,7 @@ static void prog_load(void)
 static void prog_attach_iptables(char *file)
 {
 	int ret;
-	char rules[100];
+	char rules[256];
 
 	if (bpf_obj_pin(prog_fd, file))
 		error(1, errno, "bpf_obj_pin");
@@ -175,8 +179,13 @@ static void prog_attach_iptables(char *file)
 		printf("file path too long: %s\n", file);
 		exit(1);
 	}
-	sprintf(rules, "iptables -A OUTPUT -m bpf --object-pinned %s -j ACCEPT",
-		file);
+	ret = snprintf(rules, sizeof(rules),
+		       "iptables -A OUTPUT -m bpf --object-pinned %s -j ACCEPT",
+		       file);
+	if (ret < 0 || ret >= sizeof(rules)) {
+		printf("error constructing iptables command\n");
+		exit(1);
+	}
 	ret = system(rules);
 	if (ret < 0) {
 		printf("iptables rule update failed: %d/n", WEXITSTATUS(ret));

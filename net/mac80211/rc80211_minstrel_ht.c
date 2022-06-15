@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2010-2013 Felix Fietkau <nbd@openwrt.org>
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  */
 #include <linux/netdevice.h>
 #include <linux/types.h>
@@ -17,8 +17,6 @@
 
 #define AVG_AMPDU_SIZE	16
 #define AVG_PKT_SIZE	1200
-
-#define SAMPLE_SWITCH_THR	100
 
 /* Number of bits for an average sized packet */
 #define MCS_NBITS ((AVG_PKT_SIZE * AVG_AMPDU_SIZE) << 3)
@@ -370,7 +368,7 @@ minstrel_ht_get_stats(struct minstrel_priv *mp, struct minstrel_ht_sta *mi,
 		/* short preamble */
 		if ((mi->supported[group] & BIT(idx + 4)) &&
 		    (rate->flags & IEEE80211_TX_RC_USE_SHORT_PREAMBLE))
-				idx += 4;
+			idx += 4;
 		goto out;
 	}
 
@@ -434,7 +432,7 @@ minstrel_ht_get_tp_avg(struct minstrel_ht_sta *mi, int group, int rate,
 	unsigned int nsecs = 0, overhead = mi->overhead;
 	unsigned int ampdu_len = 1;
 
-	/* do not account throughput if sucess prob is below 10% */
+	/* do not account throughput if success prob is below 10% */
 	if (prob_avg < MINSTREL_FRAC(10, 100))
 		return 0;
 
@@ -805,7 +803,6 @@ minstrel_ht_group_min_rate_offset(struct minstrel_ht_sta *mi, int group,
 static u16
 minstrel_ht_next_inc_rate(struct minstrel_ht_sta *mi, u32 fast_rate_dur)
 {
-	struct minstrel_mcs_group_data *mg;
 	u8 type = MINSTREL_SAMPLE_TYPE_INC;
 	int i, index = 0;
 	u8 group;
@@ -813,7 +810,6 @@ minstrel_ht_next_inc_rate(struct minstrel_ht_sta *mi, u32 fast_rate_dur)
 	group = mi->sample[type].sample_group;
 	for (i = 0; i < ARRAY_SIZE(minstrel_mcs_groups); i++) {
 		group = (group + 1) % ARRAY_SIZE(minstrel_mcs_groups);
-		mg = &mi->groups[group];
 
 		index = minstrel_ht_group_min_rate_offset(mi, group,
 							  fast_rate_dur);
@@ -870,7 +866,6 @@ static u16
 minstrel_ht_next_jump_rate(struct minstrel_ht_sta *mi, u32 fast_rate_dur,
 			   u32 slow_rate_dur, int *slow_rate_ofs)
 {
-	struct minstrel_mcs_group_data *mg;
 	struct minstrel_rate_stats *mrs;
 	u32 max_duration = slow_rate_dur;
 	int i, index, offset;
@@ -888,7 +883,6 @@ minstrel_ht_next_jump_rate(struct minstrel_ht_sta *mi, u32 fast_rate_dur,
 		u8 type;
 
 		group = (group + 1) % ARRAY_SIZE(minstrel_mcs_groups);
-		mg = &mi->groups[group];
 
 		supported = mi->supported[group];
 		if (!supported)
@@ -1180,29 +1174,6 @@ minstrel_downgrade_rate(struct minstrel_ht_sta *mi, u16 *idx, bool primary)
 }
 
 static void
-minstrel_aggr_check(struct ieee80211_sta *pubsta, struct sk_buff *skb)
-{
-	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
-	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
-	u16 tid;
-
-	if (skb_get_queue_mapping(skb) == IEEE80211_AC_VO)
-		return;
-
-	if (unlikely(!ieee80211_is_data_qos(hdr->frame_control)))
-		return;
-
-	if (unlikely(skb->protocol == cpu_to_be16(ETH_P_PAE)))
-		return;
-
-	tid = ieee80211_get_tid(hdr);
-	if (likely(sta->ampdu_mlme.tid_tx[tid]))
-		return;
-
-	ieee80211_start_tx_ba_session(pubsta, tid, 0);
-}
-
-static void
 minstrel_ht_tx_status(void *priv, struct ieee80211_supported_band *sband,
                       void *priv_sta, struct ieee80211_tx_status *st)
 {
@@ -1214,6 +1185,10 @@ minstrel_ht_tx_status(void *priv, struct ieee80211_supported_band *sband,
 	u32 update_interval = mp->update_interval;
 	bool last, update = false;
 	int i;
+
+	/* Ignore packet that was sent with noAck flag */
+	if (info->flags & IEEE80211_TX_CTL_NO_ACK)
+		return;
 
 	/* This packet was aggregated but doesn't carry status info */
 	if ((info->flags & IEEE80211_TX_CTL_AMPDU) &&
@@ -1502,10 +1477,6 @@ minstrel_ht_get_rate(void *priv, struct ieee80211_sta *sta, void *priv_sta,
 	struct minstrel_priv *mp = priv;
 	u16 sample_idx;
 
-	if (!(info->flags & IEEE80211_TX_CTL_AMPDU) &&
-	    !minstrel_ht_is_legacy_group(MI_RATE_GROUP(mi->max_prob_rate)))
-		minstrel_aggr_check(sta, txrc->skb);
-
 	info->flags |= mi->tx_flags;
 
 #ifdef CONFIG_MAC80211_DEBUGFS
@@ -1518,7 +1489,7 @@ minstrel_ht_get_rate(void *priv, struct ieee80211_sta *sta, void *priv_sta,
 	    (info->control.flags & IEEE80211_TX_CTRL_PORT_CTRL_PROTO))
 		return;
 
-	if (time_is_before_jiffies(mi->sample_time))
+	if (time_is_after_jiffies(mi->sample_time))
 		return;
 
 	mi->sample_time = jiffies + MINSTREL_SAMPLE_INTERVAL;
@@ -1911,6 +1882,7 @@ static u32 minstrel_ht_get_expected_throughput(void *priv_sta)
 
 static const struct rate_control_ops mac80211_minstrel_ht = {
 	.name = "minstrel_ht",
+	.capa = RATE_CTRL_CAPA_AMPDU_TRIGGER,
 	.tx_status_ext = minstrel_ht_tx_status,
 	.get_rate = minstrel_ht_get_rate,
 	.rate_init = minstrel_ht_rate_init,

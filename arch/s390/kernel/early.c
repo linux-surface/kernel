@@ -2,7 +2,6 @@
 /*
  *    Copyright IBM Corp. 2007, 2009
  *    Author(s): Hongjie Yang <hongjie@us.ibm.com>,
- *		 Heiko Carstens <heiko.carstens@de.ibm.com>
  */
 
 #define KMSG_COMPONENT "setup"
@@ -18,6 +17,7 @@
 #include <linux/pfn.h>
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
+#include <asm/asm-extable.h>
 #include <asm/diag.h>
 #include <asm/ebcdic.h>
 #include <asm/ipl.h>
@@ -32,6 +32,8 @@
 #include <asm/boot_data.h>
 #include <asm/switch_to.h>
 #include "entry.h"
+
+int __bootdata(is_full_image);
 
 static void __init reset_tod_clock(void)
 {
@@ -147,22 +149,10 @@ static __init void setup_topology(void)
 	topology_max_mnest = max_mnest;
 }
 
-static void early_pgm_check_handler(void)
+static void early_pgm_check_handler(struct pt_regs *regs)
 {
-	const struct exception_table_entry *fixup;
-	unsigned long cr0, cr0_new;
-	unsigned long addr;
-
-	addr = S390_lowcore.program_old_psw.addr;
-	fixup = s390_search_extables(addr);
-	if (!fixup)
+	if (!fixup_exception(regs))
 		disabled_wait();
-	/* Disable low address protection before storing into lowcore. */
-	__ctl_store(cr0, 0, 0);
-	cr0_new = cr0 & ~(1UL << 28);
-	__ctl_load(cr0_new, 0, 0);
-	S390_lowcore.program_old_psw.addr = extable_fixup(fixup);
-	__ctl_load(cr0, 0, 0);
 }
 
 static noinline __init void setup_lowcore_early(void)
@@ -180,11 +170,9 @@ static noinline __init void setup_lowcore_early(void)
 
 static noinline __init void setup_facility_list(void)
 {
-	memcpy(S390_lowcore.alt_stfle_fac_list,
-	       S390_lowcore.stfle_fac_list,
-	       sizeof(S390_lowcore.alt_stfle_fac_list));
+	memcpy(alt_stfle_fac_list, stfle_fac_list, sizeof(alt_stfle_fac_list));
 	if (!IS_ENABLED(CONFIG_KERNEL_NOBP))
-		__clear_facility(82, S390_lowcore.alt_stfle_fac_list);
+		__clear_facility(82, alt_stfle_fac_list);
 }
 
 static __init void detect_diag9c(void)
@@ -236,6 +224,10 @@ static __init void detect_machine_facilities(void)
 		clock_comparator_max = -1ULL >> 1;
 		__ctl_set_bit(0, 53);
 	}
+	if (IS_ENABLED(CONFIG_PCI) && test_facility(153)) {
+		S390_lowcore.machine_flags |= MACHINE_FLAG_PCI_MIO;
+		/* the control bit is set during PCI initialization */
+	}
 }
 
 static inline void save_vector_registers(void)
@@ -276,12 +268,12 @@ char __bootdata(early_command_line)[COMMAND_LINE_SIZE];
 static void __init setup_boot_command_line(void)
 {
 	/* copy arch command line */
-	strlcpy(boot_command_line, early_command_line, ARCH_COMMAND_LINE_SIZE);
+	strlcpy(boot_command_line, early_command_line, COMMAND_LINE_SIZE);
 }
 
 static void __init check_image_bootable(void)
 {
-	if (!memcmp(EP_STRING, (void *)EP_OFFSET, strlen(EP_STRING)))
+	if (is_full_image)
 		return;
 
 	sclp_early_printk("Linux kernel boot failure: An attempt to boot a vmlinux ELF image failed.\n");
@@ -290,13 +282,20 @@ static void __init check_image_bootable(void)
 	disabled_wait();
 }
 
+static void __init sort_amode31_extable(void)
+{
+	sort_extable(__start_amode31_ex_table, __stop_amode31_ex_table);
+}
+
 void __init startup_init(void)
 {
+	sclp_early_adjust_va();
 	reset_tod_clock();
 	check_image_bootable();
 	time_early_init();
 	init_kernel_storage_key();
 	lockdep_off();
+	sort_amode31_extable();
 	setup_lowcore_early();
 	setup_facility_list();
 	detect_machine_type();

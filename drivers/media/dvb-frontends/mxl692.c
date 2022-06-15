@@ -7,15 +7,6 @@
  * based on code:
  * Copyright (c) 2016 MaxLinear, Inc. All rights reserved
  * which was released under GPL V2
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/mutex.h>
@@ -224,7 +215,9 @@ static int mxl692_validate_fw_header(struct mxl692_dev *dev,
 	u32 ix, temp;
 	__be32 *local_buf = NULL;
 	u8 temp_cksum = 0;
-	const u8 fw_hdr[] = { 0x4D, 0x31, 0x10, 0x02, 0x40, 0x00, 0x00, 0x80 };
+	static const u8 fw_hdr[] = {
+		0x4D, 0x31, 0x10, 0x02, 0x40, 0x00, 0x00, 0x80
+	};
 
 	if (memcmp(buffer, fw_hdr, 8) != 0) {
 		status = -EINVAL;
@@ -377,7 +370,7 @@ static int mxl692_memread(struct mxl692_dev *dev, u32 addr,
 
 static const char *mxl692_opcode_string(u8 opcode)
 {
-	if (opcode >= 0 && opcode <= MXL_EAGLE_OPCODE_INTERNAL)
+	if (opcode <= MXL_EAGLE_OPCODE_INTERNAL)
 		return MXL_EAGLE_OPCODE_STRING[opcode];
 
 	return "invalid opcode";

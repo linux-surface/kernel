@@ -219,6 +219,7 @@ static const struct usb_device_id id_table_combined[] = {
 	{ USB_DEVICE(FTDI_VID, FTDI_MTXORB_6_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_R2000KU_TRUE_RNG) },
 	{ USB_DEVICE(FTDI_VID, FTDI_VARDAAN_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_AUTO_M3_OP_COM_V2_PID) },
 	{ USB_DEVICE(MTXORB_VID, MTXORB_FTDI_RANGE_0100_PID) },
 	{ USB_DEVICE(MTXORB_VID, MTXORB_FTDI_RANGE_0101_PID) },
 	{ USB_DEVICE(MTXORB_VID, MTXORB_FTDI_RANGE_0102_PID) },
@@ -611,6 +612,7 @@ static const struct usb_device_id id_table_combined[] = {
 		.driver_info = (kernel_ulong_t)&ftdi_jtag_quirk },
 	{ USB_DEVICE(FTDI_VID, FTDI_NT_ORIONLX_PLUS_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_NT_ORION_IO_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_NT_ORIONMX_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_SYNAPSE_SS200_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_CUSTOMWARE_MINIPLEX_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_CUSTOMWARE_MINIPLEX2_PID) },
@@ -967,6 +969,7 @@ static const struct usb_device_id id_table_combined[] = {
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_VX_023_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_VX_034_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_101_PID) },
+	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_159_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_160_1_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_160_2_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_160_3_PID) },
@@ -975,12 +978,14 @@ static const struct usb_device_id id_table_combined[] = {
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_160_6_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_160_7_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_160_8_PID) },
+	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_235_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_257_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_279_1_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_279_2_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_279_3_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_279_4_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_313_PID) },
+	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_320_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_324_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_346_1_PID) },
 	{ USB_DEVICE(BRAINBOXES_VID, BRAINBOXES_US_346_2_PID) },
@@ -1034,6 +1039,9 @@ static const struct usb_device_id id_table_combined[] = {
 	/* Sienna devices */
 	{ USB_DEVICE(FTDI_VID, FTDI_SIENNA_PID) },
 	{ USB_DEVICE(ECHELON_VID, ECHELON_U20_PID) },
+	/* IDS GmbH devices */
+	{ USB_DEVICE(IDS_VID, IDS_SI31A_PID) },
+	{ USB_DEVICE(IDS_VID, IDS_CM31A_PID) },
 	/* U-Blox devices */
 	{ USB_DEVICE(UBLOX_VID, UBLOX_C099F9P_ZED_PID) },
 	{ USB_DEVICE(UBLOX_VID, UBLOX_C099F9P_ODIN_PID) },
@@ -1082,8 +1090,7 @@ static int  ftdi_tiocmset(struct tty_struct *tty,
 			unsigned int set, unsigned int clear);
 static int  ftdi_ioctl(struct tty_struct *tty,
 			unsigned int cmd, unsigned long arg);
-static int get_serial_info(struct tty_struct *tty,
-				struct serial_struct *ss);
+static void get_serial_info(struct tty_struct *tty, struct serial_struct *ss);
 static int set_serial_info(struct tty_struct *tty,
 				struct serial_struct *ss);
 static void ftdi_break_ctl(struct tty_struct *tty, int break_state);
@@ -1433,27 +1440,15 @@ static int _read_latency_timer(struct usb_serial_port *port)
 {
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
 	struct usb_device *udev = port->serial->dev;
-	unsigned char *buf;
+	u8 buf;
 	int rv;
 
-	buf = kmalloc(1, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	rv = usb_control_msg(udev,
-			     usb_rcvctrlpipe(udev, 0),
-			     FTDI_SIO_GET_LATENCY_TIMER_REQUEST,
-			     FTDI_SIO_GET_LATENCY_TIMER_REQUEST_TYPE,
-			     0, priv->interface,
-			     buf, 1, WDR_TIMEOUT);
-	if (rv < 1) {
-		if (rv >= 0)
-			rv = -EIO;
-	} else {
-		rv = buf[0];
-	}
-
-	kfree(buf);
+	rv = usb_control_msg_recv(udev, 0, FTDI_SIO_GET_LATENCY_TIMER_REQUEST,
+				  FTDI_SIO_GET_LATENCY_TIMER_REQUEST_TYPE, 0,
+				  priv->interface, &buf, 1, WDR_TIMEOUT,
+				  GFP_KERNEL);
+	if (rv == 0)
+		rv = buf;
 
 	return rv;
 }
@@ -1477,8 +1472,7 @@ static int read_latency_timer(struct usb_serial_port *port)
 	return 0;
 }
 
-static int get_serial_info(struct tty_struct *tty,
-				struct serial_struct *ss)
+static void get_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
@@ -1486,49 +1480,34 @@ static int get_serial_info(struct tty_struct *tty,
 	ss->flags = priv->flags;
 	ss->baud_base = priv->baud_base;
 	ss->custom_divisor = priv->custom_divisor;
-	return 0;
 }
 
-static int set_serial_info(struct tty_struct *tty,
-	struct serial_struct *ss)
+static int set_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
-	struct ftdi_private old_priv;
+	int old_flags, old_divisor;
 
 	mutex_lock(&priv->cfg_lock);
-	old_priv = *priv;
-
-	/* Do error checking and permission checking */
 
 	if (!capable(CAP_SYS_ADMIN)) {
 		if ((ss->flags ^ priv->flags) & ~ASYNC_USR_MASK) {
 			mutex_unlock(&priv->cfg_lock);
 			return -EPERM;
 		}
-		priv->flags = ((priv->flags & ~ASYNC_USR_MASK) |
-			       (ss->flags & ASYNC_USR_MASK));
-		priv->custom_divisor = ss->custom_divisor;
-		goto check_and_exit;
 	}
 
-	if (ss->baud_base != priv->baud_base) {
-		mutex_unlock(&priv->cfg_lock);
-		return -EINVAL;
-	}
+	old_flags = priv->flags;
+	old_divisor = priv->custom_divisor;
 
-	/* Make the changes - these are privileged changes! */
-
-	priv->flags = ((priv->flags & ~ASYNC_FLAGS) |
-					(ss->flags & ASYNC_FLAGS));
+	priv->flags = ss->flags & ASYNC_FLAGS;
 	priv->custom_divisor = ss->custom_divisor;
 
-check_and_exit:
 	write_latency_timer(port);
 
-	if ((priv->flags ^ old_priv.flags) & ASYNC_SPD_MASK ||
+	if ((priv->flags ^ old_flags) & ASYNC_SPD_MASK ||
 			((priv->flags & ASYNC_SPD_MASK) == ASYNC_SPD_CUST &&
-			 priv->custom_divisor != old_priv.custom_divisor)) {
+			 priv->custom_divisor != old_divisor)) {
 
 		/* warn about deprecation unless clearing */
 		if (priv->flags & ASYNC_SPD_MASK)
@@ -1864,32 +1843,21 @@ static int ftdi_read_cbus_pins(struct usb_serial_port *port)
 {
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
 	struct usb_serial *serial = port->serial;
-	unsigned char *buf;
+	u8 buf;
 	int result;
 
 	result = usb_autopm_get_interface(serial->interface);
 	if (result)
 		return result;
 
-	buf = kmalloc(1, GFP_KERNEL);
-	if (!buf) {
-		usb_autopm_put_interface(serial->interface);
-		return -ENOMEM;
-	}
+	result = usb_control_msg_recv(serial->dev, 0,
+				      FTDI_SIO_READ_PINS_REQUEST,
+				      FTDI_SIO_READ_PINS_REQUEST_TYPE, 0,
+				      priv->interface, &buf, 1, WDR_TIMEOUT,
+				      GFP_KERNEL);
+	if (result == 0)
+		result = buf;
 
-	result = usb_control_msg(serial->dev,
-				 usb_rcvctrlpipe(serial->dev, 0),
-				 FTDI_SIO_READ_PINS_REQUEST,
-				 FTDI_SIO_READ_PINS_REQUEST_TYPE, 0,
-				 priv->interface, buf, 1, WDR_TIMEOUT);
-	if (result < 1) {
-		if (result >= 0)
-			result = -EIO;
-	} else {
-		result = buf[0];
-	}
-
-	kfree(buf);
 	usb_autopm_put_interface(serial->interface);
 
 	return result;
@@ -2950,5 +2918,5 @@ MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-module_param(ndi_latency_timer, int, S_IRUGO | S_IWUSR);
+module_param(ndi_latency_timer, int, 0644);
 MODULE_PARM_DESC(ndi_latency_timer, "NDI device latency timer override");

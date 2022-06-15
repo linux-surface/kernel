@@ -271,7 +271,7 @@ static void sdma_v2_4_ring_emit_ib(struct amdgpu_ring *ring,
 }
 
 /**
- * sdma_v2_4_hdp_flush_ring_emit - emit an hdp flush on the DMA ring
+ * sdma_v2_4_ring_emit_hdp_flush - emit an hdp flush on the DMA ring
  *
  * @ring: amdgpu ring pointer
  *
@@ -876,12 +876,10 @@ static int sdma_v2_4_sw_init(void *handle)
 		ring->ring_obj = NULL;
 		ring->use_doorbell = false;
 		sprintf(ring->name, "sdma%d", i);
-		r = amdgpu_ring_init(adev, ring, 1024,
-				     &adev->sdma.trap_irq,
-				     (i == 0) ?
-				     AMDGPU_SDMA_IRQ_INSTANCE0 :
+		r = amdgpu_ring_init(adev, ring, 1024, &adev->sdma.trap_irq,
+				     (i == 0) ? AMDGPU_SDMA_IRQ_INSTANCE0 :
 				     AMDGPU_SDMA_IRQ_INSTANCE1,
-				     AMDGPU_RING_PRIO_DEFAULT);
+				     AMDGPU_RING_PRIO_DEFAULT, NULL);
 		if (r)
 			return r;
 	}
@@ -1144,6 +1142,7 @@ static const struct amdgpu_ring_funcs sdma_v2_4_ring_funcs = {
 	.align_mask = 0xf,
 	.nop = SDMA_PKT_NOP_HEADER_OP(SDMA_OP_NOP),
 	.support_64bit_ptrs = false,
+	.secure_submission_supported = true,
 	.get_rptr = sdma_v2_4_ring_get_rptr,
 	.get_wptr = sdma_v2_4_ring_get_wptr,
 	.set_wptr = sdma_v2_4_ring_set_wptr,

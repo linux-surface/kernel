@@ -16,13 +16,12 @@
  */
 
 #include <linux/regset.h>
-#include <linux/tracehook.h>
+#include <linux/ptrace.h>
 #include <linux/audit.h>
 #include <linux/context_tracking.h>
 #include <linux/syscalls.h>
 
 #include <asm/switch_to.h>
-#include <asm/asm-prototypes.h>
 #include <asm/debug.h>
 
 #define CREATE_TRACE_POINTS
@@ -59,7 +58,6 @@ long arch_ptrace(struct task_struct *child, long request,
 		if ((addr & (sizeof(long) - 1)) || !child->thread.regs)
 			break;
 
-		CHECK_FULL_REGS(child->thread.regs);
 		if (index < PT_FPR0)
 			ret = ptrace_get_reg(child, (int) index, &tmp);
 		else
@@ -81,7 +79,6 @@ long arch_ptrace(struct task_struct *child, long request,
 		if ((addr & (sizeof(long) - 1)) || !child->thread.regs)
 			break;
 
-		CHECK_FULL_REGS(child->thread.regs);
 		if (index < PT_FPR0)
 			ret = ptrace_put_reg(child, index, data);
 		else
@@ -262,16 +259,15 @@ long do_syscall_trace_enter(struct pt_regs *regs)
 {
 	u32 flags;
 
-	flags = READ_ONCE(current_thread_info()->flags) &
-		(_TIF_SYSCALL_EMU | _TIF_SYSCALL_TRACE);
+	flags = read_thread_flags() & (_TIF_SYSCALL_EMU | _TIF_SYSCALL_TRACE);
 
 	if (flags) {
-		int rc = tracehook_report_syscall_entry(regs);
+		int rc = ptrace_report_syscall_entry(regs);
 
 		if (unlikely(flags & _TIF_SYSCALL_EMU)) {
 			/*
 			 * A nonzero return code from
-			 * tracehook_report_syscall_entry() tells us to prevent
+			 * ptrace_report_syscall_entry() tells us to prevent
 			 * the syscall execution, but we are not going to
 			 * execute it anyway.
 			 *
@@ -337,7 +333,7 @@ void do_syscall_trace_leave(struct pt_regs *regs)
 
 	step = test_thread_flag(TIF_SINGLESTEP);
 	if (step || test_thread_flag(TIF_SYSCALL_TRACE))
-		tracehook_report_syscall_exit(regs, step);
+		ptrace_report_syscall_exit(regs, step);
 }
 
 void __init pt_regs_check(void);
@@ -352,8 +348,6 @@ void __init pt_regs_check(void)
 		     offsetof(struct user_pt_regs, gpr));
 	BUILD_BUG_ON(offsetof(struct pt_regs, nip) !=
 		     offsetof(struct user_pt_regs, nip));
-	BUILD_BUG_ON(offsetof(struct pt_regs, msr) !=
-		     offsetof(struct user_pt_regs, msr));
 	BUILD_BUG_ON(offsetof(struct pt_regs, msr) !=
 		     offsetof(struct user_pt_regs, msr));
 	BUILD_BUG_ON(offsetof(struct pt_regs, orig_gpr3) !=
@@ -377,7 +371,11 @@ void __init pt_regs_check(void)
 		     offsetof(struct user_pt_regs, trap));
 	BUILD_BUG_ON(offsetof(struct pt_regs, dar) !=
 		     offsetof(struct user_pt_regs, dar));
+	BUILD_BUG_ON(offsetof(struct pt_regs, dear) !=
+		     offsetof(struct user_pt_regs, dar));
 	BUILD_BUG_ON(offsetof(struct pt_regs, dsisr) !=
+		     offsetof(struct user_pt_regs, dsisr));
+	BUILD_BUG_ON(offsetof(struct pt_regs, esr) !=
 		     offsetof(struct user_pt_regs, dsisr));
 	BUILD_BUG_ON(offsetof(struct pt_regs, result) !=
 		     offsetof(struct user_pt_regs, result));
@@ -446,4 +444,10 @@ void __init pt_regs_check(void)
 	 * real registers.
 	 */
 	BUILD_BUG_ON(PT_DSCR < sizeof(struct user_pt_regs) / sizeof(unsigned long));
+
+#ifdef PPC64_ELF_ABI_v1
+	BUILD_BUG_ON(!IS_ENABLED(CONFIG_HAVE_FUNCTION_DESCRIPTORS));
+#else
+	BUILD_BUG_ON(IS_ENABLED(CONFIG_HAVE_FUNCTION_DESCRIPTORS));
+#endif
 }

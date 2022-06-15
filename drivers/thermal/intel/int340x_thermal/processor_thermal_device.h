@@ -24,6 +24,7 @@
 #define PCI_DEVICE_ID_INTEL_HSB_THERMAL	0x0A03
 #define PCI_DEVICE_ID_INTEL_ICL_THERMAL	0x8a03
 #define PCI_DEVICE_ID_INTEL_JSL_THERMAL	0x4E03
+#define PCI_DEVICE_ID_INTEL_RPL_THERMAL	0xA71D
 #define PCI_DEVICE_ID_INTEL_SKL_THERMAL	0x1903
 #define PCI_DEVICE_ID_INTEL_TGL_THERMAL	0x9A03
 
@@ -44,6 +45,7 @@ struct proc_thermal_device {
 	struct intel_soc_dts_sensors *soc_dts;
 	u32 mmio_feature_mask;
 	void __iomem *mmio_base;
+	void *priv_data;
 };
 
 struct rapl_mmio_regs {
@@ -79,4 +81,14 @@ void proc_thermal_rfim_remove(struct pci_dev *pdev);
 int proc_thermal_mbox_add(struct pci_dev *pdev, struct proc_thermal_device *proc_priv);
 void proc_thermal_mbox_remove(struct pci_dev *pdev);
 
+int processor_thermal_send_mbox_read_cmd(struct pci_dev *pdev, u16 id, u64 *resp);
+int processor_thermal_send_mbox_write_cmd(struct pci_dev *pdev, u16 id, u32 data);
+int proc_thermal_add(struct device *dev, struct proc_thermal_device *priv);
+void proc_thermal_remove(struct proc_thermal_device *proc_priv);
+int proc_thermal_suspend(struct device *dev);
+int proc_thermal_resume(struct device *dev);
+int proc_thermal_mmio_add(struct pci_dev *pdev,
+			  struct proc_thermal_device *proc_priv,
+			  kernel_ulong_t feature_mask);
+void proc_thermal_mmio_remove(struct pci_dev *pdev, struct proc_thermal_device *proc_priv);
 #endif

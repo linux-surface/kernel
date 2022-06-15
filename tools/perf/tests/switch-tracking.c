@@ -18,6 +18,7 @@
 #include "record.h"
 #include "tests.h"
 #include "util/mmap.h"
+#include "pmu.h"
 
 static int spin_sleep(void)
 {
@@ -320,7 +321,7 @@ out_free_nodes:
  * evsel->core.system_wide and evsel->tracking flags (respectively) with other events
  * sometimes enabled or disabled.
  */
-int test__switch_tracking(struct test *test __maybe_unused, int subtest __maybe_unused)
+static int test__switch_tracking(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	const char *sched_switch = "sched:sched_switch";
 	struct switch_tracking switch_tracking = { .tids = NULL, };
@@ -371,7 +372,10 @@ int test__switch_tracking(struct test *test __maybe_unused, int subtest __maybe_
 	cpu_clocks_evsel = evlist__last(evlist);
 
 	/* Second event */
-	err = parse_events(evlist, "cycles:u", NULL);
+	if (perf_pmu__has_hybrid())
+		err = parse_events(evlist, "cpu_core/cycles/u", NULL);
+	else
+		err = parse_events(evlist, "cycles:u", NULL);
 	if (err) {
 		pr_debug("Failed to parse event cycles:u\n");
 		goto out_err;
@@ -584,3 +588,5 @@ out_err:
 	err = -1;
 	goto out;
 }
+
+DEFINE_SUITE("Track with sched_switch", switch_tracking);

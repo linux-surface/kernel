@@ -84,7 +84,7 @@ static int am65_cpsw_port_attr_br_flags_pre_set(struct net_device *netdev,
 	return 0;
 }
 
-static int am65_cpsw_port_attr_set(struct net_device *ndev,
+static int am65_cpsw_port_attr_set(struct net_device *ndev, const void *ctx,
 				   const struct switchdev_attr *attr,
 				   struct netlink_ext_ack *extack)
 {
@@ -237,14 +237,10 @@ static int am65_cpsw_port_vlans_add(struct am65_cpsw_port *port,
 {
 	bool untag = vlan->flags & BRIDGE_VLAN_INFO_UNTAGGED;
 	struct net_device *orig_dev = vlan->obj.orig_dev;
-	bool cpu_port = netif_is_bridge_master(orig_dev);
 	bool pvid = vlan->flags & BRIDGE_VLAN_INFO_PVID;
 
 	netdev_dbg(port->ndev, "VID add: %s: vid:%u flags:%X\n",
 		   port->ndev->name, vlan->vid, vlan->flags);
-
-	if (cpu_port && !(vlan->flags & BRIDGE_VLAN_INFO_BRENTRY))
-		return 0;
 
 	return am65_cpsw_port_vlan_add(port, untag, pvid, vlan->vid, orig_dev);
 }
@@ -302,7 +298,7 @@ static int am65_cpsw_port_mdb_del(struct am65_cpsw_port *port,
 	return 0;
 }
 
-static int am65_cpsw_port_obj_add(struct net_device *ndev,
+static int am65_cpsw_port_obj_add(struct net_device *ndev, const void *ctx,
 				  const struct switchdev_obj *obj,
 				  struct netlink_ext_ack *extack)
 {
@@ -329,7 +325,7 @@ static int am65_cpsw_port_obj_add(struct net_device *ndev,
 	return err;
 }
 
-static int am65_cpsw_port_obj_del(struct net_device *ndev,
+static int am65_cpsw_port_obj_del(struct net_device *ndev, const void *ctx,
 				  const struct switchdev_obj *obj)
 {
 	struct switchdev_obj_port_vlan *vlan = SWITCHDEV_OBJ_PORT_VLAN(obj);
@@ -358,7 +354,7 @@ static int am65_cpsw_port_obj_del(struct net_device *ndev,
 static void am65_cpsw_fdb_offload_notify(struct net_device *ndev,
 					 struct switchdev_notifier_fdb_info *rcv)
 {
-	struct switchdev_notifier_fdb_info info;
+	struct switchdev_notifier_fdb_info info = {};
 
 	info.addr = rcv->addr;
 	info.vid = rcv->vid;
@@ -385,7 +381,7 @@ static void am65_cpsw_switchdev_event_work(struct work_struct *work)
 			   fdb->addr, fdb->vid, fdb->added_by_user,
 			   fdb->offloaded, port_id);
 
-		if (!fdb->added_by_user)
+		if (!fdb->added_by_user || fdb->is_local)
 			break;
 		if (memcmp(port->slave.mac_addr, (u8 *)fdb->addr, ETH_ALEN) == 0)
 			port_id = HOST_PORT_NUM;
@@ -401,7 +397,7 @@ static void am65_cpsw_switchdev_event_work(struct work_struct *work)
 			   fdb->addr, fdb->vid, fdb->added_by_user,
 			   fdb->offloaded, port_id);
 
-		if (!fdb->added_by_user)
+		if (!fdb->added_by_user || fdb->is_local)
 			break;
 		if (memcmp(port->slave.mac_addr, (u8 *)fdb->addr, ETH_ALEN) == 0)
 			port_id = HOST_PORT_NUM;

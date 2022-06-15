@@ -30,11 +30,14 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 
+#include <drm/drm_aperture.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_vblank.h>
+
+#include <soc/bcm2835/raspberrypi-firmware.h>
 
 #include "uapi/drm/vc4_drm.h"
 
@@ -49,17 +52,13 @@
 #define DRIVER_PATCHLEVEL 0
 
 /* Helper function for mapping the regs on a platform device. */
-void __iomem *vc4_ioremap_regs(struct platform_device *dev, int index)
+void __iomem *vc4_ioremap_regs(struct platform_device *pdev, int index)
 {
-	struct resource *res;
 	void __iomem *map;
 
-	res = platform_get_resource(dev, IORESOURCE_MEM, index);
-	map = devm_ioremap_resource(&dev->dev, res);
-	if (IS_ERR(map)) {
-		DRM_ERROR("Failed to map registers: %ld\n", PTR_ERR(map));
+	map = devm_platform_ioremap_resource(pdev, index);
+	if (IS_ERR(map))
 		return map;
-	}
 
 	return map;
 }
@@ -169,10 +168,6 @@ static struct drm_driver vc4_drm_driver = {
 			    DRIVER_SYNCOBJ),
 	.open = vc4_open,
 	.postclose = vc4_close,
-	.irq_handler = vc4_irq,
-	.irq_preinstall = vc4_irq_preinstall,
-	.irq_postinstall = vc4_irq_postinstall,
-	.irq_uninstall = vc4_irq_uninstall,
 
 #if defined(CONFIG_DEBUG_FS)
 	.debugfs_init = vc4_debugfs_init,
@@ -194,11 +189,6 @@ static struct drm_driver vc4_drm_driver = {
 	.patchlevel = DRIVER_PATCHLEVEL,
 };
 
-static int compare_dev(struct device *dev, void *data)
-{
-	return dev == data;
-}
-
 static void vc4_match_add_drivers(struct device *dev,
 				  struct component_match **match,
 				  struct platform_driver *const *drivers,
@@ -212,7 +202,7 @@ static void vc4_match_add_drivers(struct device *dev,
 
 		while ((d = platform_find_device_by_driver(p, drv))) {
 			put_device(p);
-			component_match_add(dev, match, compare_dev, d);
+			component_match_add(dev, match, component_compare_dev, d);
 			p = d;
 		}
 		put_device(p);
@@ -222,6 +212,7 @@ static void vc4_match_add_drivers(struct device *dev,
 static int vc4_drm_bind(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
+	struct rpi_firmware *firmware = NULL;
 	struct drm_device *drm;
 	struct vc4_dev *vc4;
 	struct device_node *node;
@@ -258,6 +249,29 @@ static int vc4_drm_bind(struct device *dev)
 	if (ret)
 		return ret;
 
+	node = of_find_compatible_node(NULL, NULL, "raspberrypi,bcm2835-firmware");
+	if (node) {
+		firmware = rpi_firmware_get(node);
+		of_node_put(node);
+
+		if (!firmware)
+			return -EPROBE_DEFER;
+	}
+
+	ret = drm_aperture_remove_framebuffers(false, &vc4_drm_driver);
+	if (ret)
+		return ret;
+
+	if (firmware) {
+		ret = rpi_firmware_property(firmware,
+					    RPI_FIRMWARE_NOTIFY_DISPLAY_DONE,
+					    NULL, 0);
+		if (ret)
+			drm_warn(drm, "Couldn't stop firmware display driver: %d\n", ret);
+
+		rpi_firmware_put(firmware);
+	}
+
 	ret = component_bind_all(dev, drm);
 	if (ret)
 		return ret;
@@ -265,8 +279,6 @@ static int vc4_drm_bind(struct device *dev)
 	ret = vc4_plane_create_additional_planes(drm);
 	if (ret)
 		goto unbind_all;
-
-	drm_fb_helper_remove_conflicting_framebuffers(NULL, "vc4drmfb", false);
 
 	ret = vc4_kms_load(drm);
 	if (ret < 0)
@@ -303,12 +315,21 @@ static const struct component_master_ops vc4_drm_ops = {
 	.unbind = vc4_drm_unbind,
 };
 
+/*
+ * This list determines the binding order of our components, and we have
+ * a few constraints:
+ *   - The TXP driver needs to be bound before the PixelValves (CRTC)
+ *     but after the HVS to set the possible_crtc field properly
+ *   - The HDMI driver needs to be bound after the HVS so that we can
+ *     lookup the HVS maximum core clock rate and figure out if we
+ *     support 4kp60 or not.
+ */
 static struct platform_driver *const component_drivers[] = {
+	&vc4_hvs_driver,
 	&vc4_hdmi_driver,
 	&vc4_vec_driver,
 	&vc4_dpi_driver,
 	&vc4_dsi_driver,
-	&vc4_hvs_driver,
 	&vc4_txp_driver,
 	&vc4_crtc_driver,
 	&vc4_v3d_driver,
@@ -352,6 +373,9 @@ static struct platform_driver vc4_platform_driver = {
 static int __init vc4_drm_register(void)
 {
 	int ret;
+
+	if (drm_firmware_drivers_only())
+		return -ENODEV;
 
 	ret = platform_register_drivers(component_drivers,
 					ARRAY_SIZE(component_drivers));

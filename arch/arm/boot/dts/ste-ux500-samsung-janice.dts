@@ -20,6 +20,28 @@
 		stdout-path = &serial2;
 	};
 
+	battery: battery {
+		compatible = "samsung,eb535151vu";
+	};
+
+	thermal-zones {
+		battery-thermal {
+			/* This zone will be polled by the battery temperature code */
+			polling-delay = <0>;
+			polling-delay-passive = <0>;
+			thermal-sensors = <&bat_therm>;
+		};
+	};
+
+	bat_therm: thermistor {
+		compatible = "samsung,1404-001221";
+		io-channels = <&gpadc 0x02>; /* BatTemp */
+		pullup-uv = <1800000>;
+		pullup-ohm = <230000>;
+		pulldown-ohm = <0>;
+		#thermal-sensor-cells = <0>;
+	};
+
 	/* External LDO for eMMC LDO VMEM_3V3 controlled by GPIO6 */
 	ldo_3v3_reg: regulator-gpio-ldo-3v3 {
 		compatible = "regulator-fixed";
@@ -135,21 +157,22 @@
 
 	/*
 	 * This regulator is a GPIO line that drives the Broadcom WLAN
-	 * line BT_VREG_EN high and enables the internal regulators
-	 * inside the chip.
+	 * line WL_REG_ON high and enables the internal regulators
+	 * inside the chip. Unfortunatley it is erroneously named
+	 * WLAN_RST_N on the schematic but it is not a reset line.
 	 *
 	 * The voltage specified here is only used to determine the OCR mask,
 	 * the for the SDIO connector, the chip is actually connected
 	 * directly to VBAT.
 	 */
-	wl_bt_reg: regulator-gpio-wlan {
+	wl_reg: regulator-gpio-wlan {
 		compatible = "regulator-fixed";
-		regulator-name = "BT_VREG_EN";
+		regulator-name = "WL_REG_ON";
 		regulator-min-microvolt = <3000000>;
 		regulator-max-microvolt = <3000000>;
 		startup-delay-us = <100000>;
-		/* GPIO222 (BT_VREG_EN) */
-		gpio = <&gpio6 30 GPIO_ACTIVE_HIGH>;
+		/* GPIO215 (WLAN_RST_N to WL_REG_ON) */
+		gpio = <&gpio6 23 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		pinctrl-names = "default";
 		pinctrl-0 = <&wlan_ldo_en_default>;
@@ -265,6 +288,9 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&panel_default_mode>;
 			spi-3wire;
+			/* TYPE 3: inverse clock polarity and phase */
+			spi-cpha;
+			spi-cpol;
 
 			port {
 				panel_in: endpoint {
@@ -390,27 +416,22 @@
 			pinctrl-1 = <&mc1_a_2_sleep>;
 			/*
 			 * GPIO-controlled voltage enablement: this drives
-			 * the BT_VREG_EN line high when we use this device.
-			 * Represented as regulator to fill OCR mask and to
-			 * be usable in parallel with the Bluetooth chip.
+			 * the WL_REG_ON line high when we use this device.
+			 * Represented as regulator to fill OCR mask.
 			 */
-			vmmc-supply = <&wl_bt_reg>;
+			vmmc-supply = <&wl_reg>;
 
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "okay";
 
 			wifi@1 {
-				/* Actually BRCM4330 */
-				compatible = "brcm,bcm4329-fmac";
+				compatible = "brcm,bcm4330-fmac", "brcm,bcm4329-fmac";
 				reg = <1>;
 				/* GPIO216 WL_HOST_WAKE */
 				interrupt-parent = <&gpio6>;
 				interrupts = <24 IRQ_TYPE_EDGE_FALLING>;
 				interrupt-names = "host-wake";
-				/* GPIO215  WLAN_RST_N */
-				/* FIXME: kernel does not use this assert/deassert */
-				reset-gpios = <&gpio6 23 GPIO_ACTIVE_LOW>;
 				pinctrl-names = "default";
 				pinctrl-0 = <&wlan_default_mode>;
 			};
@@ -424,6 +445,8 @@
 			non-removable;
 			cap-mmc-highspeed;
 			mmc-ddr-1_8v;
+			no-sdio;
+			no-sd;
 			vmmc-supply = <&ldo_3v3_reg>;
 			pinctrl-names = "default", "sleep";
 			pinctrl-0 = <&mc2_a_1_default>;
@@ -439,16 +462,10 @@
 			status = "okay";
 
 			bluetooth {
+				/* BCM4330B1 actually */
 				compatible = "brcm,bcm4330-bt";
-				/*
-				 * We actually have shutdown-gpios, BT_VREG_EN on GPIO222,
-				 * but since this GPIO is shared with the WLAN chip, we need
-				 * to reference the regulator instead. The regulator
-				 * framework will reference count the GPIO usage and
-				 * make sure we can use the same GPIO for several supplies.
-				 */
-				// shutdown-gpios = <&gpio6 30 GPIO_ACTIVE_HIGH>;
-				vbat-supply = <&wl_bt_reg>;
+				/* GPIO222 rail BT_VREG_EN to BT_REG_ON */
+				shutdown-gpios = <&gpio6 30 GPIO_ACTIVE_HIGH>;
 				/* BT_WAKE on GPIO199 */
 				device-wakeup-gpios = <&gpio6 7 GPIO_ACTIVE_HIGH>;
 				/* BT_HOST_WAKE on GPIO97 */
@@ -481,13 +498,13 @@
 
 		prcmu@80157000 {
 			ab8500 {
-				ab8500_usb {
+				phy {
 					pinctrl-names = "default", "sleep";
 					pinctrl-0 = <&usb_a_1_default>;
 					pinctrl-1 = <&usb_a_1_sleep>;
 				};
 
-				ab8500-regulators {
+				regulator {
 					ab8500_ldo_aux1 {
 						/* Used for VDD for sensors */
 						regulator-name = "V-SENSORS-VDD";
@@ -590,12 +607,11 @@
 					#size-cells = <0>;
 
 					/* Bosch BMA222 accelerometer */
-					accelerometer@08 {
+					accelerometer@8 {
 						compatible = "bosch,bma222";
 						reg = <0x08>;
-						/* FIXME: no idea about this */
-						mount-matrix = "1", "0", "0",
-							       "0", "1", "0",
+						mount-matrix = "0", "1", "0",
+							       "-1", "0", "0",
 							       "0", "0", "1";
 						vddio-supply = <&ab8500_ldo_aux2_reg>; // 1.8V
 						vdd-supply = <&ab8500_ldo_aux1_reg>; // 3V
@@ -759,9 +775,9 @@
 	/* GPIO that enables the WLAN internal LDO regulators */
 	wlan-ldo {
 		wlan_ldo_en_default: wlan_ldo_default {
-			/* GPIO222 BT_VREG_ON */
+			/* GPIO215 named WLAN_RST_N */
 			janice_cfg1 {
-				pins = "GPIO222_AJ9";
+				pins = "GPIO215_AH13";
 				ste,config = <&gpio_out_lo>;
 			};
 		};
@@ -875,11 +891,6 @@
 	};
 	wlan {
 		wlan_default_mode: wlan_default {
-			/* GPIO215 used for RESET_N */
-			janice_cfg1 {
-				pins = "GPIO215_AH13";
-				ste,config = <&gpio_out_lo>;
-			};
 			/* GPIO216 for WL_HOST_WAKE */
 			janice_cfg2 {
 				pins = "GPIO216_AG12";
@@ -889,14 +900,17 @@
 	};
 	bluetooth {
 		bluetooth_default_mode: bluetooth_default {
+			/* GPIO199 BT_WAKE and GPIO222 BT_VREG_ON */
 			janice_cfg1 {
-				pins = "GPIO199_AH23";
+				pins = "GPIO199_AH23", "GPIO222_AJ9";
 				ste,config = <&gpio_out_lo>;
 			};
+			/* GPIO97 BT_HOST_WAKE */
 			janice_cfg2 {
 				pins = "GPIO97_D9";
 				ste,config = <&gpio_in_nopull>;
 			};
+			/* GPIO209 BT_RST_N */
 			janice_cfg3 {
 				pins = "GPIO209_AG15";
 				ste,config = <&gpio_out_hi>;

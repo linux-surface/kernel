@@ -13,14 +13,14 @@
  * @start: start from the capability
  * @size: map size
  * @len: the length that is actually mapped
+ * @pa: physical address of the capability
  *
  * Returns the io address of for the part of the capability
  */
-void __iomem *vp_modern_map_capability(struct virtio_pci_modern_device *mdev, int off,
-				       size_t minlen,
-				       u32 align,
-				       u32 start, u32 size,
-				       size_t *len)
+static void __iomem *
+vp_modern_map_capability(struct virtio_pci_modern_device *mdev, int off,
+			 size_t minlen, u32 align, u32 start, u32 size,
+			 size_t *len, resource_size_t *pa)
 {
 	struct pci_dev *dev = mdev->pci_dev;
 	u8 bar;
@@ -34,6 +34,13 @@ void __iomem *vp_modern_map_capability(struct virtio_pci_modern_device *mdev, in
 			     &offset);
 	pci_read_config_dword(dev, off + offsetof(struct virtio_pci_cap, length),
 			      &length);
+
+	/* Check if the BAR may have changed since we requested the region. */
+	if (bar >= PCI_STD_NUM_BARS || !(mdev->modern_bars & (1 << bar))) {
+		dev_err(&dev->dev,
+			"virtio_pci: bar unexpectedly changed to %u\n", bar);
+		return NULL;
+	}
 
 	if (length <= start) {
 		dev_err(&dev->dev,
@@ -88,9 +95,11 @@ void __iomem *vp_modern_map_capability(struct virtio_pci_modern_device *mdev, in
 		dev_err(&dev->dev,
 			"virtio_pci: unable to map virtio %u@%u on bar %i\n",
 			length, offset, bar);
+	else if (pa)
+		*pa = pci_resource_start(dev, bar) + offset;
+
 	return p;
 }
-EXPORT_SYMBOL_GPL(vp_modern_map_capability);
 
 /**
  * virtio_pci_find_capability - walk capabilities to find device info.
@@ -118,7 +127,7 @@ static inline int virtio_pci_find_capability(struct pci_dev *dev, u8 cfg_type,
 				     &bar);
 
 		/* Ignore structures with reserved BAR values */
-		if (bar > 0x5)
+		if (bar >= PCI_STD_NUM_BARS)
 			continue;
 
 		if (type == cfg_type) {
@@ -275,12 +284,12 @@ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
 	mdev->common = vp_modern_map_capability(mdev, common,
 				      sizeof(struct virtio_pci_common_cfg), 4,
 				      0, sizeof(struct virtio_pci_common_cfg),
-				      NULL);
+				      NULL, NULL);
 	if (!mdev->common)
 		goto err_map_common;
 	mdev->isr = vp_modern_map_capability(mdev, isr, sizeof(u8), 1,
 					     0, 1,
-					     NULL);
+					     NULL, NULL);
 	if (!mdev->isr)
 		goto err_map_isr;
 
@@ -308,7 +317,8 @@ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
 		mdev->notify_base = vp_modern_map_capability(mdev, notify,
 							     2, 2,
 							     0, notify_length,
-							     &mdev->notify_len);
+							     &mdev->notify_len,
+							     &mdev->notify_pa);
 		if (!mdev->notify_base)
 			goto err_map_notify;
 	} else {
@@ -321,7 +331,8 @@ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
 	if (device) {
 		mdev->device = vp_modern_map_capability(mdev, device, 0, 4,
 							0, PAGE_SIZE,
-							&mdev->device_len);
+							&mdev->device_len,
+							NULL);
 		if (!mdev->device)
 			goto err_map_device;
 	}
@@ -341,7 +352,7 @@ err_map_common:
 EXPORT_SYMBOL_GPL(vp_modern_probe);
 
 /*
- * vp_modern_probe: remove and cleanup the modern virtio pci device
+ * vp_modern_remove: remove and cleanup the modern virtio pci device
  * @mdev: the modern virtio-pci device
  */
 void vp_modern_remove(struct virtio_pci_modern_device *mdev)
@@ -378,6 +389,27 @@ u64 vp_modern_get_features(struct virtio_pci_modern_device *mdev)
 	return features;
 }
 EXPORT_SYMBOL_GPL(vp_modern_get_features);
+
+/*
+ * vp_modern_get_driver_features - get driver features from device
+ * @mdev: the modern virtio-pci device
+ *
+ * Returns the driver features read from the device
+ */
+u64 vp_modern_get_driver_features(struct virtio_pci_modern_device *mdev)
+{
+	struct virtio_pci_common_cfg __iomem *cfg = mdev->common;
+
+	u64 features;
+
+	vp_iowrite32(0, &cfg->guest_feature_select);
+	features = vp_ioread32(&cfg->guest_feature);
+	vp_iowrite32(1, &cfg->guest_feature_select);
+	features |= ((u64)vp_ioread32(&cfg->guest_feature) << 32);
+
+	return features;
+}
+EXPORT_SYMBOL_GPL(vp_modern_get_driver_features);
 
 /*
  * vp_modern_set_features - set features to device
@@ -584,14 +616,51 @@ EXPORT_SYMBOL_GPL(vp_modern_get_num_queues);
  *
  * Returns the notification offset for a virtqueue
  */
-u16 vp_modern_get_queue_notify_off(struct virtio_pci_modern_device *mdev,
-				   u16 index)
+static u16 vp_modern_get_queue_notify_off(struct virtio_pci_modern_device *mdev,
+					  u16 index)
 {
 	vp_iowrite16(index, &mdev->common->queue_select);
 
 	return vp_ioread16(&mdev->common->queue_notify_off);
 }
-EXPORT_SYMBOL_GPL(vp_modern_get_queue_notify_off);
+
+/*
+ * vp_modern_map_vq_notify - map notification area for a
+ * specific virtqueue
+ * @mdev: the modern virtio-pci device
+ * @index: the queue index
+ * @pa: the pointer to the physical address of the nofity area
+ *
+ * Returns the address of the notification area
+ */
+void __iomem *vp_modern_map_vq_notify(struct virtio_pci_modern_device *mdev,
+				      u16 index, resource_size_t *pa)
+{
+	u16 off = vp_modern_get_queue_notify_off(mdev, index);
+
+	if (mdev->notify_base) {
+		/* offset should not wrap */
+		if ((u64)off * mdev->notify_offset_multiplier + 2
+			> mdev->notify_len) {
+			dev_warn(&mdev->pci_dev->dev,
+				 "bad notification offset %u (x %u) "
+				 "for queue %u > %zd",
+				 off, mdev->notify_offset_multiplier,
+				 index, mdev->notify_len);
+			return NULL;
+		}
+		if (pa)
+			*pa = mdev->notify_pa +
+			      off * mdev->notify_offset_multiplier;
+		return mdev->notify_base + off * mdev->notify_offset_multiplier;
+	} else {
+		return vp_modern_map_capability(mdev,
+				       mdev->notify_map_cap, 2, 2,
+				       off * mdev->notify_offset_multiplier, 2,
+				       NULL, pa);
+	}
+}
+EXPORT_SYMBOL_GPL(vp_modern_map_vq_notify);
 
 MODULE_VERSION("0.1");
 MODULE_DESCRIPTION("Modern Virtio PCI Device");

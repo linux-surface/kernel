@@ -9,7 +9,6 @@
 #include <asm/unistd.h>
 #include <asm/asm-offsets.h>
 #include <linux/threads.h>
-#include <asm/setup.h>
 #include <asm/page.h>
 #include <asm/thread_info.h>
 
@@ -250,7 +249,7 @@ ENTRY(csky_irq)
 
 
 	mov	a0, sp
-	jbsr	csky_do_IRQ
+	jbsr	generic_handle_arch_irq
 
 	jmpi	ret_from_exception
 

@@ -19,8 +19,8 @@
 #define RTAS_UNKNOWN_SERVICE (-1)
 #define RTAS_INSTANTIATE_MAX (1ULL<<30) /* Don't instantiate rtas at/above this value */
 
-/* Buffer size for ppc_rtas system call. */
-#define RTAS_RMOBUF_MAX (64 * 1024)
+/* Memory set aside for sys_rtas to use with calls that need a work area. */
+#define RTAS_USER_REGION_SIZE (64 * 1024)
 
 /* RTAS return status codes */
 #define RTAS_BUSY		-2    /* RTAS Busy */
@@ -264,7 +264,7 @@ extern void rtas_get_rtc_time(struct rtc_time *rtc_time);
 extern int rtas_set_rtc_time(struct rtc_time *rtc_time);
 
 extern unsigned int rtas_busy_delay_time(int status);
-extern unsigned int rtas_busy_delay(int status);
+bool rtas_busy_delay(int status);
 
 extern int early_init_dt_scan_rtas(unsigned long node,
 		const char *uname, int depth, void *data);
@@ -274,7 +274,6 @@ extern void pSeries_log_error(char *buf, unsigned int err_type, int fatal);
 #ifdef CONFIG_PPC_PSERIES
 extern time64_t last_rtas_event;
 extern int clobbering_unread_rtas_event(void);
-extern int pseries_devicetree_update(s32 scope);
 extern void post_mobility_fixup(void);
 int rtas_syscall_dispatch_ibm_suspend_me(u64 handle);
 #else
@@ -357,7 +356,7 @@ extern void rtas_take_timebase(void);
 static inline int page_is_rtas_user_buf(unsigned long pfn)
 {
 	unsigned long paddr = (pfn << PAGE_SHIFT);
-	if (paddr >= rtas_rmo_buf && paddr < (rtas_rmo_buf + RTAS_RMOBUF_MAX))
+	if (paddr >= rtas_rmo_buf && paddr < (rtas_rmo_buf + RTAS_USER_REGION_SIZE))
 		return 1;
 	return 0;
 }

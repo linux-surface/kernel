@@ -259,7 +259,6 @@ static bool linear_make_request(struct mddev *mddev, struct bio *bio)
 		if (mddev->gendisk)
 			trace_block_bio_remap(bio, disk_devt(mddev->gendisk),
 					      bio_sector);
-		mddev_check_writesame(mddev, bio);
 		mddev_check_write_zeroes(mddev, bio);
 		submit_bio_noacct(bio);
 	}
@@ -312,7 +311,7 @@ static void linear_exit (void)
 module_init(linear_init);
 module_exit(linear_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Linear device concatenation personality for MD");
+MODULE_DESCRIPTION("Linear device concatenation personality for MD (deprecated)");
 MODULE_ALIAS("md-personality-1"); /* LINEAR - deprecated*/
 MODULE_ALIAS("md-linear");
 MODULE_ALIAS("md-level--1");

@@ -9,6 +9,7 @@
  * Copyright (C) 2019 GRATE-DRIVER project
  */
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/clk/tegra.h>
 #include <linux/debugfs.h>
@@ -31,11 +32,15 @@
 #include <soc/tegra/common.h>
 #include <soc/tegra/fuse.h>
 
+#include "../jedec_ddr.h"
+#include "../of_memory.h"
+
 #include "mc.h"
 
 #define EMC_INTSTATUS				0x000
 #define EMC_INTMASK				0x004
 #define EMC_DBG					0x008
+#define EMC_ADR_CFG				0x010
 #define EMC_CFG					0x00c
 #define EMC_REFCTRL				0x020
 #define EMC_TIMING_CONTROL			0x028
@@ -81,6 +86,7 @@
 #define EMC_EMRS				0x0d0
 #define EMC_SELF_REF				0x0e0
 #define EMC_MRW					0x0e8
+#define EMC_MRR					0x0ec
 #define EMC_XM2DQSPADCTRL3			0x0f8
 #define EMC_FBIO_SPARE				0x100
 #define EMC_FBIO_CFG5				0x104
@@ -150,8 +156,8 @@
 #define EMC_SELF_REF_CMD_ENABLED		BIT(0)
 
 #define DRAM_DEV_SEL_ALL			(0 << 30)
-#define DRAM_DEV_SEL_0				(2 << 30)
-#define DRAM_DEV_SEL_1				(1 << 30)
+#define DRAM_DEV_SEL_0				BIT(31)
+#define DRAM_DEV_SEL_1				BIT(30)
 #define DRAM_BROADCAST(num) \
 	((num) > 1 ? DRAM_DEV_SEL_ALL : DRAM_DEV_SEL_0)
 
@@ -208,6 +214,13 @@
 
 #define EMC_REFRESH_OVERFLOW_INT		BIT(3)
 #define EMC_CLKCHANGE_COMPLETE_INT		BIT(4)
+#define EMC_MRR_DIVLD_INT			BIT(5)
+
+#define EMC_MRR_DEV_SELECTN			GENMASK(31, 30)
+#define EMC_MRR_MRR_MA				GENMASK(23, 16)
+#define EMC_MRR_MRR_DATA			GENMASK(15, 0)
+
+#define EMC_ADR_CFG_EMEM_NUMDEV			BIT(0)
 
 enum emc_dram_type {
 	DRAM_TYPE_DDR3,
@@ -378,6 +391,8 @@ struct tegra_emc {
 
 	/* protect shared rate-change code path */
 	struct mutex rate_lock;
+
+	bool mrr_error;
 };
 
 static int emc_seq_update_timing(struct tegra_emc *emc)
@@ -998,24 +1013,30 @@ static int emc_load_timings_from_dt(struct tegra_emc *emc,
 	if (err)
 		return err;
 
-	dev_info(emc->dev,
-		 "got %u timings for RAM code %u (min %luMHz max %luMHz)\n",
-		 emc->num_timings,
-		 tegra_read_ram_code(),
-		 emc->timings[0].rate / 1000000,
-		 emc->timings[emc->num_timings - 1].rate / 1000000);
+	dev_info_once(emc->dev,
+		      "got %u timings for RAM code %u (min %luMHz max %luMHz)\n",
+		      emc->num_timings,
+		      tegra_read_ram_code(),
+		      emc->timings[0].rate / 1000000,
+		      emc->timings[emc->num_timings - 1].rate / 1000000);
 
 	return 0;
 }
 
-static struct device_node *emc_find_node_by_ram_code(struct device *dev)
+static struct device_node *emc_find_node_by_ram_code(struct tegra_emc *emc)
 {
+	struct device *dev = emc->dev;
 	struct device_node *np;
 	u32 value, ram_code;
 	int err;
 
+	if (emc->mrr_error) {
+		dev_warn(dev, "memory timings skipped due to MRR error\n");
+		return NULL;
+	}
+
 	if (of_get_child_count(dev->of_node) == 0) {
-		dev_info(dev, "device-tree doesn't have memory timings\n");
+		dev_info_once(dev, "device-tree doesn't have memory timings\n");
 		return NULL;
 	}
 
@@ -1035,11 +1056,73 @@ static struct device_node *emc_find_node_by_ram_code(struct device *dev)
 	return NULL;
 }
 
+static int emc_read_lpddr_mode_register(struct tegra_emc *emc,
+					unsigned int emem_dev,
+					unsigned int register_addr,
+					unsigned int *register_data)
+{
+	u32 memory_dev = emem_dev ? 1 : 2;
+	u32 val, mr_mask = 0xff;
+	int err;
+
+	/* clear data-valid interrupt status */
+	writel_relaxed(EMC_MRR_DIVLD_INT, emc->regs + EMC_INTSTATUS);
+
+	/* issue mode register read request */
+	val  = FIELD_PREP(EMC_MRR_DEV_SELECTN, memory_dev);
+	val |= FIELD_PREP(EMC_MRR_MRR_MA, register_addr);
+
+	writel_relaxed(val, emc->regs + EMC_MRR);
+
+	/* wait for the LPDDR2 data-valid interrupt */
+	err = readl_relaxed_poll_timeout_atomic(emc->regs + EMC_INTSTATUS, val,
+						val & EMC_MRR_DIVLD_INT,
+						1, 100);
+	if (err) {
+		dev_err(emc->dev, "mode register %u read failed: %d\n",
+			register_addr, err);
+		emc->mrr_error = true;
+		return err;
+	}
+
+	/* read out mode register data */
+	val = readl_relaxed(emc->regs + EMC_MRR);
+	*register_data = FIELD_GET(EMC_MRR_MRR_DATA, val) & mr_mask;
+
+	return 0;
+}
+
+static void emc_read_lpddr_sdram_info(struct tegra_emc *emc,
+				      unsigned int emem_dev)
+{
+	union lpddr2_basic_config4 basic_conf4;
+	unsigned int manufacturer_id;
+	unsigned int revision_id1;
+	unsigned int revision_id2;
+
+	/* these registers are standard for all LPDDR JEDEC memory chips */
+	emc_read_lpddr_mode_register(emc, emem_dev, 5, &manufacturer_id);
+	emc_read_lpddr_mode_register(emc, emem_dev, 6, &revision_id1);
+	emc_read_lpddr_mode_register(emc, emem_dev, 7, &revision_id2);
+	emc_read_lpddr_mode_register(emc, emem_dev, 8, &basic_conf4.value);
+
+	dev_info(emc->dev, "SDRAM[dev%u]: manufacturer: 0x%x (%s) rev1: 0x%x rev2: 0x%x prefetch: S%u density: %uMbit iowidth: %ubit\n",
+		 emem_dev, manufacturer_id,
+		 lpddr2_jedec_manufacturer(manufacturer_id),
+		 revision_id1, revision_id2,
+		 4 >> basic_conf4.arch_type,
+		 64 << basic_conf4.density,
+		 32 >> basic_conf4.io_width);
+}
+
 static int emc_setup_hw(struct tegra_emc *emc)
 {
+	u32 fbio_cfg5, emc_cfg, emc_dbg, emc_adr_cfg;
 	u32 intmask = EMC_REFRESH_OVERFLOW_INT;
-	u32 fbio_cfg5, emc_cfg, emc_dbg;
+	static bool print_sdram_info_once;
 	enum emc_dram_type dram_type;
+	const char *dram_type_str;
+	unsigned int emem_numdev;
 
 	fbio_cfg5 = readl_relaxed(emc->regs + EMC_FBIO_CFG5);
 	dram_type = fbio_cfg5 & EMC_FBIO_CFG5_DRAM_TYPE_MASK;
@@ -1075,6 +1158,34 @@ static int emc_setup_hw(struct tegra_emc *emc)
 	emc_dbg &= ~EMC_DBG_WRITE_MUX_ACTIVE;
 	emc_dbg &= ~EMC_DBG_FORCE_UPDATE;
 	writel_relaxed(emc_dbg, emc->regs + EMC_DBG);
+
+	switch (dram_type) {
+	case DRAM_TYPE_DDR1:
+		dram_type_str = "DDR1";
+		break;
+	case DRAM_TYPE_LPDDR2:
+		dram_type_str = "LPDDR2";
+		break;
+	case DRAM_TYPE_DDR2:
+		dram_type_str = "DDR2";
+		break;
+	case DRAM_TYPE_DDR3:
+		dram_type_str = "DDR3";
+		break;
+	}
+
+	emc_adr_cfg = readl_relaxed(emc->regs + EMC_ADR_CFG);
+	emem_numdev = FIELD_GET(EMC_ADR_CFG_EMEM_NUMDEV, emc_adr_cfg) + 1;
+
+	dev_info_once(emc->dev, "%u %s %s attached\n", emem_numdev,
+		      dram_type_str, emem_numdev == 2 ? "devices" : "device");
+
+	if (dram_type == DRAM_TYPE_LPDDR2 && !print_sdram_info_once) {
+		while (emem_numdev--)
+			emc_read_lpddr_sdram_info(emc, emem_numdev);
+
+		print_sdram_info_once = true;
+	}
 
 	return 0;
 }
@@ -1289,7 +1400,7 @@ static int tegra_emc_debug_min_rate_set(void *data, u64 rate)
 	return 0;
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(tegra_emc_debug_min_rate_fops,
+DEFINE_DEBUGFS_ATTRIBUTE(tegra_emc_debug_min_rate_fops,
 			tegra_emc_debug_min_rate_get,
 			tegra_emc_debug_min_rate_set, "%llu\n");
 
@@ -1319,7 +1430,7 @@ static int tegra_emc_debug_max_rate_set(void *data, u64 rate)
 	return 0;
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(tegra_emc_debug_max_rate_fops,
+DEFINE_DEBUGFS_ATTRIBUTE(tegra_emc_debug_max_rate_fops,
 			tegra_emc_debug_max_rate_get,
 			tegra_emc_debug_max_rate_set, "%llu\n");
 
@@ -1354,10 +1465,6 @@ static void tegra_emc_debugfs_init(struct tegra_emc *emc)
 	}
 
 	emc->debugfs.root = debugfs_create_dir("emc", NULL);
-	if (!emc->debugfs.root) {
-		dev_err(emc->dev, "failed to create debugfs directory\n");
-		return;
-	}
 
 	debugfs_create_file("available_rates", 0444, emc->debugfs.root,
 			    emc, &tegra_emc_debug_available_rates_fops);
@@ -1480,49 +1587,6 @@ err_msg:
 	return err;
 }
 
-static int tegra_emc_opp_table_init(struct tegra_emc *emc)
-{
-	u32 hw_version = BIT(tegra_sku_info.soc_speedo_id);
-	struct opp_table *hw_opp_table;
-	int err;
-
-	hw_opp_table = dev_pm_opp_set_supported_hw(emc->dev, &hw_version, 1);
-	err = PTR_ERR_OR_ZERO(hw_opp_table);
-	if (err) {
-		dev_err(emc->dev, "failed to set OPP supported HW: %d\n", err);
-		return err;
-	}
-
-	err = dev_pm_opp_of_add_table(emc->dev);
-	if (err) {
-		if (err == -ENODEV)
-			dev_err(emc->dev, "OPP table not found, please update your device tree\n");
-		else
-			dev_err(emc->dev, "failed to add OPP table: %d\n", err);
-
-		goto put_hw_table;
-	}
-
-	dev_info(emc->dev, "OPP HW ver. 0x%x, current clock rate %lu MHz\n",
-		 hw_version, clk_get_rate(emc->clk) / 1000000);
-
-	/* first dummy rate-set initializes voltage state */
-	err = dev_pm_opp_set_rate(emc->dev, clk_get_rate(emc->clk));
-	if (err) {
-		dev_err(emc->dev, "failed to initialize OPP clock: %d\n", err);
-		goto remove_table;
-	}
-
-	return 0;
-
-remove_table:
-	dev_pm_opp_of_remove_table(emc->dev);
-put_hw_table:
-	dev_pm_opp_put_supported_hw(hw_opp_table);
-
-	return err;
-}
-
 static void devm_tegra_emc_unset_callback(void *data)
 {
 	tegra20_clk_set_emc_round_callback(NULL, NULL);
@@ -1568,6 +1632,7 @@ static int tegra_emc_init_clk(struct tegra_emc *emc)
 
 static int tegra_emc_probe(struct platform_device *pdev)
 {
+	struct tegra_core_opp_params opp_params = {};
 	struct device_node *np;
 	struct tegra_emc *emc;
 	int err;
@@ -1584,14 +1649,6 @@ static int tegra_emc_probe(struct platform_device *pdev)
 	emc->clk_nb.notifier_call = emc_clk_change_notify;
 	emc->dev = &pdev->dev;
 
-	np = emc_find_node_by_ram_code(&pdev->dev);
-	if (np) {
-		err = emc_load_timings_from_dt(emc, np);
-		of_node_put(np);
-		if (err)
-			return err;
-	}
-
 	emc->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(emc->regs))
 		return PTR_ERR(emc->regs);
@@ -1599,6 +1656,14 @@ static int tegra_emc_probe(struct platform_device *pdev)
 	err = emc_setup_hw(emc);
 	if (err)
 		return err;
+
+	np = emc_find_node_by_ram_code(emc);
+	if (np) {
+		err = emc_load_timings_from_dt(emc, np);
+		of_node_put(np);
+		if (err)
+			return err;
+	}
 
 	err = platform_get_irq(pdev, 0);
 	if (err < 0)
@@ -1617,7 +1682,9 @@ static int tegra_emc_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
-	err = tegra_emc_opp_table_init(emc);
+	opp_params.init_state = true;
+
+	err = devm_tegra_core_dev_init_opp_table(&pdev->dev, &opp_params);
 	if (err)
 		return err;
 

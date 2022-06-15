@@ -153,6 +153,7 @@ static int shift_state = 0;
 
 static unsigned int ledstate = -1U;			/* undefined */
 static unsigned char ledioctl;
+static bool vt_switch;
 
 /*
  * Notifier list for console keyboard events
@@ -324,13 +325,13 @@ int kbd_rate(struct kbd_repeat *rpt)
 static void put_queue(struct vc_data *vc, int ch)
 {
 	tty_insert_flip_char(&vc->port, ch, 0);
-	tty_schedule_flip(&vc->port);
+	tty_flip_buffer_push(&vc->port);
 }
 
 static void puts_queue(struct vc_data *vc, const char *cp)
 {
 	tty_insert_flip_string(&vc->port, cp, strlen(cp));
-	tty_schedule_flip(&vc->port);
+	tty_flip_buffer_push(&vc->port);
 }
 
 static void applkey(struct vc_data *vc, int key, char mode)
@@ -414,6 +415,12 @@ void vt_set_leds_compute_shiftstate(void)
 {
 	unsigned long flags;
 
+	/*
+	 * When VT is switched, the keyboard led needs to be set once.
+	 * Ensure that after the switch is completed, the state of the
+	 * keyboard LED is consistent with the state of the keyboard lock.
+	 */
+	vt_switch = true;
 	set_leds();
 
 	spin_lock_irqsave(&kbd_event_lock, flags);
@@ -515,7 +522,7 @@ static void fn_hold(struct vc_data *vc)
 	 * these routines are also activated by ^S/^Q.
 	 * (And SCROLLOCK can also be set by the ioctl KDSKBLED.)
 	 */
-	if (tty->stopped)
+	if (tty->flow.stopped)
 		start_tty(tty);
 	else
 		stop_tty(tty);
@@ -584,7 +591,7 @@ static void fn_inc_console(struct vc_data *vc)
 static void fn_send_intr(struct vc_data *vc)
 {
 	tty_insert_flip_char(&vc->port, 0, TTY_BREAK);
-	tty_schedule_flip(&vc->port);
+	tty_flip_buffer_push(&vc->port);
 }
 
 static void fn_scroll_forw(struct vc_data *vc)
@@ -1171,9 +1178,9 @@ static inline unsigned char getleds(void)
  *
  *	Check the status of a keyboard led flag and report it back
  */
-int vt_get_leds(int console, int flag)
+int vt_get_leds(unsigned int console, int flag)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	int ret;
 	unsigned long flags;
 
@@ -1193,9 +1200,9 @@ EXPORT_SYMBOL_GPL(vt_get_leds);
  *	Set the LEDs on a console. This is a wrapper for the VT layer
  *	so that we can keep kbd knowledge internal
  */
-void vt_set_led_state(int console, int leds)
+void vt_set_led_state(unsigned int console, int leds)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	setledstate(kb, leds);
 }
 
@@ -1212,9 +1219,9 @@ void vt_set_led_state(int console, int leds)
  *	don't hold the lock. We probably need to split out an LED lock
  *	but not during an -rc release!
  */
-void vt_kbd_con_start(int console)
+void vt_kbd_con_start(unsigned int console)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	unsigned long flags;
 	spin_lock_irqsave(&led_lock, flags);
 	clr_vc_kbd_led(kb, VC_SCROLLOCK);
@@ -1229,9 +1236,9 @@ void vt_kbd_con_start(int console)
  *	Handle console stop. This is a wrapper for the VT layer
  *	so that we can keep kbd knowledge internal
  */
-void vt_kbd_con_stop(int console)
+void vt_kbd_con_stop(unsigned int console)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	unsigned long flags;
 	spin_lock_irqsave(&led_lock, flags);
 	set_vc_kbd_led(kb, VC_SCROLLOCK);
@@ -1254,6 +1261,11 @@ static void kbd_bh(struct tasklet_struct *unused)
 	leds = getleds();
 	leds |= (unsigned int)kbd->lockstate << 8;
 	spin_unlock_irqrestore(&led_lock, flags);
+
+	if (vt_switch) {
+		ledstate = ~leds;
+		vt_switch = false;
+	}
 
 	if (leds != ledstate) {
 		kbd_propagate_led_state(ledstate, leds);
@@ -1377,7 +1389,7 @@ static void kbd_rawcode(unsigned char data)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
 
-	kbd = kbd_table + vc->vc_num;
+	kbd = &kbd_table[vc->vc_num];
 	if (kbd->kbdmode == VC_RAW)
 		put_queue(vc, data);
 }
@@ -1400,7 +1412,7 @@ static void kbd_keycode(unsigned int keycode, int down, bool hw_raw)
 		tty->driver_data = vc;
 	}
 
-	kbd = kbd_table + vc->vc_num;
+	kbd = &kbd_table[vc->vc_num];
 
 #ifdef CONFIG_SPARC
 	if (keycode == KEY_STOP)
@@ -1825,9 +1837,9 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
  *	Update the keyboard mode bits while holding the correct locks.
  *	Return 0 for success or an error code.
  */
-int vt_do_kdskbmode(int console, unsigned int arg)
+int vt_do_kdskbmode(unsigned int console, unsigned int arg)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	int ret = 0;
 	unsigned long flags;
 
@@ -1865,9 +1877,9 @@ int vt_do_kdskbmode(int console, unsigned int arg)
  *	Update the keyboard meta bits while holding the correct locks.
  *	Return 0 for success or an error code.
  */
-int vt_do_kdskbmeta(int console, unsigned int arg)
+int vt_do_kdskbmeta(unsigned int console, unsigned int arg)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	int ret = 0;
 	unsigned long flags;
 
@@ -2008,9 +2020,9 @@ out:
 }
 
 int vt_do_kdsk_ioctl(int cmd, struct kbentry __user *user_kbe, int perm,
-						int console)
+						unsigned int console)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	struct kbentry kbe;
 
 	if (copy_from_user(&kbe, user_kbe, sizeof(struct kbentry)))
@@ -2097,9 +2109,9 @@ int vt_do_kdgkb_ioctl(int cmd, struct kbsentry __user *user_kdgkb, int perm)
 	return ret;
 }
 
-int vt_do_kdskled(int console, int cmd, unsigned long arg, int perm)
+int vt_do_kdskled(unsigned int console, int cmd, unsigned long arg, int perm)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
         unsigned long flags;
 	unsigned char ucval;
 
@@ -2139,9 +2151,9 @@ int vt_do_kdskled(int console, int cmd, unsigned long arg, int perm)
         return -ENOIOCTLCMD;
 }
 
-int vt_do_kdgkbmode(int console)
+int vt_do_kdgkbmode(unsigned int console)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	/* This is a spot read so needs no locking */
 	switch (kb->kbdmode) {
 	case VC_RAW:
@@ -2163,9 +2175,9 @@ int vt_do_kdgkbmode(int console)
  *
  *	Report the meta flag status of this console
  */
-int vt_do_kdgkbmeta(int console)
+int vt_do_kdgkbmeta(unsigned int console)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
         /* Again a spot read so no locking */
 	return vc_kbd_mode(kb, VC_META) ? K_ESCPREFIX : K_METABIT;
 }
@@ -2176,7 +2188,7 @@ int vt_do_kdgkbmeta(int console)
  *
  *	Restore the unicode console state to its default
  */
-void vt_reset_unicode(int console)
+void vt_reset_unicode(unsigned int console)
 {
 	unsigned long flags;
 
@@ -2186,7 +2198,7 @@ void vt_reset_unicode(int console)
 }
 
 /**
- *	vt_get_shiftstate	-	shift bit state
+ *	vt_get_shift_state	-	shift bit state
  *
  *	Report the shift bits from the keyboard state. We have to export
  *	this to support some oddities in the vt layer.
@@ -2204,9 +2216,9 @@ int vt_get_shift_state(void)
  *	Reset the keyboard bits for a console as part of a general console
  *	reset event
  */
-void vt_reset_keyboard(int console)
+void vt_reset_keyboard(unsigned int console)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	unsigned long flags;
 
 	spin_lock_irqsave(&kbd_event_lock, flags);
@@ -2234,9 +2246,9 @@ void vt_reset_keyboard(int console)
  *	caller must be sure that there are no synchronization needs
  */
 
-int vt_get_kbd_mode_bit(int console, int bit)
+int vt_get_kbd_mode_bit(unsigned int console, int bit)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	return vc_kbd_mode(kb, bit);
 }
 
@@ -2249,9 +2261,9 @@ int vt_get_kbd_mode_bit(int console, int bit)
  *	caller must be sure that there are no synchronization needs
  */
 
-void vt_set_kbd_mode_bit(int console, int bit)
+void vt_set_kbd_mode_bit(unsigned int console, int bit)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	unsigned long flags;
 
 	spin_lock_irqsave(&kbd_event_lock, flags);
@@ -2268,9 +2280,9 @@ void vt_set_kbd_mode_bit(int console, int bit)
  *	caller must be sure that there are no synchronization needs
  */
 
-void vt_clr_kbd_mode_bit(int console, int bit)
+void vt_clr_kbd_mode_bit(unsigned int console, int bit)
 {
-	struct kbd_struct *kb = kbd_table + console;
+	struct kbd_struct *kb = &kbd_table[console];
 	unsigned long flags;
 
 	spin_lock_irqsave(&kbd_event_lock, flags);

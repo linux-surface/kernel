@@ -37,7 +37,10 @@ struct pt_regs {
 	unsigned short __esh;
 	unsigned short fs;
 	unsigned short __fsh;
-	/* On interrupt, gs and __gsh store the vector number. */
+	/*
+	 * On interrupt, gs and __gsh store the vector number.  They never
+	 * store gs any more.
+	 */
 	unsigned short gs;
 	unsigned short __gsh;
 	/* On interrupt, this is the error code. */
@@ -134,7 +137,7 @@ static __always_inline int user_mode(struct pt_regs *regs)
 #endif
 }
 
-static inline int v8086_mode(struct pt_regs *regs)
+static __always_inline int v8086_mode(struct pt_regs *regs)
 {
 #ifdef CONFIG_X86_32
 	return (regs->flags & X86_VM_MASK);
@@ -178,7 +181,7 @@ static inline bool any_64bit_mode(struct pt_regs *regs)
 #define current_user_stack_pointer()	current_pt_regs()->sp
 #define compat_user_stack_pointer()	current_pt_regs()->sp
 
-static inline bool ip_within_syscall_gap(struct pt_regs *regs)
+static __always_inline bool ip_within_syscall_gap(struct pt_regs *regs)
 {
 	bool ret = (regs->ip >= (unsigned long)entry_SYSCALL_64 &&
 		    regs->ip <  (unsigned long)entry_SYSCALL_64_safe_stack);

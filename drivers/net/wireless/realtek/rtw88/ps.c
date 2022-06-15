@@ -83,6 +83,9 @@ void rtw_power_mode_change(struct rtw_dev *rtwdev, bool enter)
 	/* Each request require an ack from firmware */
 	request |= POWER_MODE_ACK;
 
+	if (rtw_fw_feature_check(&rtwdev->fw, FW_FEATURE_TX_WAKE))
+		request |= POWER_TX_WAKE;
+
 	rtw_write8(rtwdev, rtwdev->hci.rpwm_addr, request);
 
 	/* Check firmware get the power requset and ack via cpwm register */
@@ -152,7 +155,7 @@ static void rtw_fw_leave_lps_check(struct rtw_dev *rtwdev)
 	else
 		fw = &rtwdev->fw;
 
-	if (fw->feature & FW_FEATURE_LPS_C2H)
+	if (rtw_fw_feature_check(fw, FW_FEATURE_LPS_C2H))
 		ret = __rtw_fw_leave_lps_check_c2h(rtwdev);
 	else
 		ret = __rtw_fw_leave_lps_check_reg(rtwdev);
@@ -172,7 +175,7 @@ static void rtw_fw_leave_lps_check_prepare(struct rtw_dev *rtwdev)
 	else
 		fw = &rtwdev->fw;
 
-	if (fw->feature & FW_FEATURE_LPS_C2H)
+	if (rtw_fw_feature_check(fw, FW_FEATURE_LPS_C2H))
 		reinit_completion(&rtwdev->lps_leave_check);
 }
 

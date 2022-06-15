@@ -126,7 +126,7 @@ static int byt_cht_cx2072x_fixup(struct snd_soc_pcm_runtime *rtd,
 	ret = snd_soc_dai_set_fmt(asoc_rtd_to_cpu(rtd, 0),
 				SND_SOC_DAIFMT_I2S     |
 				SND_SOC_DAIFMT_NB_NF   |
-				SND_SOC_DAIFMT_CBS_CFS);
+				SND_SOC_DAIFMT_CBC_CFC);
 	if (ret < 0) {
 		dev_err(rtd->dev, "can't set format to I2S, err %d\n", ret);
 		return ret;
@@ -147,7 +147,7 @@ static int byt_cht_cx2072x_aif1_startup(struct snd_pcm_substream *substream)
 					    SNDRV_PCM_HW_PARAM_RATE, 48000);
 }
 
-static struct snd_soc_ops byt_cht_cx2072x_aif1_ops = {
+static const struct snd_soc_ops byt_cht_cx2072x_aif1_ops = {
 	.startup = byt_cht_cx2072x_aif1_startup,
 };
 
@@ -195,10 +195,9 @@ static struct snd_soc_dai_link byt_cht_cx2072x_dais[] = {
 		.id = 0,
 		.no_pcm = 1,
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
-					      | SND_SOC_DAIFMT_CBS_CFS,
+					      | SND_SOC_DAIFMT_CBC_CFC,
 		.init = byt_cht_cx2072x_init,
 		.be_hw_params_fixup = byt_cht_cx2072x_fixup,
-		.nonatomic = true,
 		.dpcm_playback = 1,
 		.dpcm_capture = 1,
 		SND_SOC_DAILINK_REG(ssp2, cx2072x, platform),
@@ -258,7 +257,7 @@ static int snd_byt_cht_cx2072x_probe(struct platform_device *pdev)
 		byt_cht_cx2072x_dais[dai_index].codecs->name = codec_name;
 	}
 
-	/* override plaform name, if required */
+	/* override platform name, if required */
 	ret = snd_soc_fixup_dai_links_platform_name(&byt_cht_cx2072x_card,
 						    mach->mach_params.platform);
 	if (ret)

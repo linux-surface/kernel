@@ -168,6 +168,8 @@ enum {
 	QEDE_PRI_FLAG_CMT,
 	QEDE_PRI_FLAG_SMART_AN_SUPPORT, /* MFW supports SmartAN */
 	QEDE_PRI_FLAG_RECOVER_ON_ERROR,
+	QEDE_PRI_FLAG_ESL_SUPPORT, /* MFW supports Enhanced System Lockdown */
+	QEDE_PRI_FLAG_ESL_ACTIVE, /* Enhanced System Lockdown Active status */
 	QEDE_PRI_FLAG_LEN,
 };
 
@@ -175,6 +177,8 @@ static const char qede_private_arr[QEDE_PRI_FLAG_LEN][ETH_GSTRING_LEN] = {
 	"Coupled-Function",
 	"SmartAN capable",
 	"Recover on error",
+	"ESL capable",
+	"ESL active",
 };
 
 enum qede_ethtool_tests {
@@ -478,6 +482,7 @@ static int qede_get_sset_count(struct net_device *dev, int stringset)
 static u32 qede_get_priv_flags(struct net_device *dev)
 {
 	struct qede_dev *edev = netdev_priv(dev);
+	bool esl_active;
 	u32 flags = 0;
 
 	if (edev->dev_info.common.num_hwfns > 1)
@@ -488,6 +493,14 @@ static u32 qede_get_priv_flags(struct net_device *dev)
 
 	if (edev->err_flags & BIT(QEDE_ERR_IS_RECOVERABLE))
 		flags |= BIT(QEDE_PRI_FLAG_RECOVER_ON_ERROR);
+
+	if (edev->dev_info.common.esl)
+		flags |= BIT(QEDE_PRI_FLAG_ESL_SUPPORT);
+
+	edev->ops->common->get_esl_status(edev->cdev, &esl_active);
+
+	if (esl_active)
+		flags |= BIT(QEDE_PRI_FLAG_ESL_ACTIVE);
 
 	return flags;
 }
@@ -625,13 +638,13 @@ static void qede_get_drvinfo(struct net_device *ndev,
 		 (edev->dev_info.common.mfw_rev >> 8) & 0xFF,
 		 edev->dev_info.common.mfw_rev & 0xFF);
 
-	if ((strlen(storm) + strlen(DRV_MODULE_VERSION) + strlen("[storm]  ")) <
+	if ((strlen(storm) + strlen("[storm]")) <
 	    sizeof(info->version))
 		snprintf(info->version, sizeof(info->version),
-			 "%s [storm %s]", DRV_MODULE_VERSION, storm);
+			 "[storm %s]", storm);
 	else
 		snprintf(info->version, sizeof(info->version),
-			 "%s %s", DRV_MODULE_VERSION, storm);
+			 "%s", storm);
 
 	if (edev->dev_info.common.mbi_version) {
 		snprintf(mbi, ETHTOOL_FWVERS_LEN, "%d.%d.%d",
@@ -760,7 +773,9 @@ static int qede_flash_device(struct net_device *dev,
 }
 
 static int qede_get_coalesce(struct net_device *dev,
-			     struct ethtool_coalesce *coal)
+			     struct ethtool_coalesce *coal,
+			     struct kernel_ethtool_coalesce *kernel_coal,
+			     struct netlink_ext_ack *extack)
 {
 	void *rx_handle = NULL, *tx_handle = NULL;
 	struct qede_dev *edev = netdev_priv(dev);
@@ -819,7 +834,9 @@ out:
 	return rc;
 }
 
-int qede_set_coalesce(struct net_device *dev, struct ethtool_coalesce *coal)
+int qede_set_coalesce(struct net_device *dev, struct ethtool_coalesce *coal,
+		      struct kernel_ethtool_coalesce *kernel_coal,
+		      struct netlink_ext_ack *extack)
 {
 	struct qede_dev *edev = netdev_priv(dev);
 	struct qede_fastpath *fp;
@@ -884,7 +901,9 @@ int qede_set_coalesce(struct net_device *dev, struct ethtool_coalesce *coal)
 }
 
 static void qede_get_ringparam(struct net_device *dev,
-			       struct ethtool_ringparam *ering)
+			       struct ethtool_ringparam *ering,
+			       struct kernel_ethtool_ringparam *kernel_ering,
+			       struct netlink_ext_ack *extack)
 {
 	struct qede_dev *edev = netdev_priv(dev);
 
@@ -895,7 +914,9 @@ static void qede_get_ringparam(struct net_device *dev,
 }
 
 static int qede_set_ringparam(struct net_device *dev,
-			      struct ethtool_ringparam *ering)
+			      struct ethtool_ringparam *ering,
+			      struct kernel_ethtool_ringparam *kernel_ering,
+			      struct netlink_ext_ack *extack)
 {
 	struct qede_dev *edev = netdev_priv(dev);
 

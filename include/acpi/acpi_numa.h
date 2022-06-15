@@ -3,7 +3,6 @@
 #define __ACPI_NUMA_H
 
 #ifdef CONFIG_ACPI_NUMA
-#include <linux/kernel.h>
 #include <linux/numa.h>
 
 /* Proximity bitmap length */
@@ -43,4 +42,4 @@ static inline void disable_hmat(void)
 {
 }
 #endif				/* CONFIG_ACPI_HMAT */
-#endif				/* __ACP_NUMA_H */
+#endif				/* __ACPI_NUMA_H */

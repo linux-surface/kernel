@@ -4,6 +4,7 @@
 #include <linux/net_tstamp.h>
 #include <linux/phy.h>
 #include <linux/rtnetlink.h>
+#include <linux/ptp_clock_kernel.h>
 
 #include "common.h"
 
@@ -88,6 +89,7 @@ tunable_strings[__ETHTOOL_TUNABLE_COUNT][ETH_GSTRING_LEN] = {
 	[ETHTOOL_RX_COPYBREAK]	= "rx-copybreak",
 	[ETHTOOL_TX_COPYBREAK]	= "tx-copybreak",
 	[ETHTOOL_PFC_PREVENTION_TOUT] = "pfc-prevention-tout",
+	[ETHTOOL_TX_COPYBREAK_BUF_SIZE] = "tx-copybreak-buf-size",
 };
 
 const char
@@ -273,6 +275,7 @@ const struct link_mode_info link_mode_params[] = {
 	__DEFINE_LINK_MODE_PARAMS(10000, KR, Full),
 	[ETHTOOL_LINK_MODE_10000baseR_FEC_BIT] = {
 		.speed	= SPEED_10000,
+		.lanes	= 1,
 		.duplex = DUPLEX_FULL,
 	},
 	__DEFINE_LINK_MODE_PARAMS(20000, MLD2, Full),
@@ -396,6 +399,7 @@ const char sof_timestamping_names[][ETH_GSTRING_LEN] = {
 	[const_ilog2(SOF_TIMESTAMPING_OPT_STATS)]    = "option-stats",
 	[const_ilog2(SOF_TIMESTAMPING_OPT_PKTINFO)]  = "option-pktinfo",
 	[const_ilog2(SOF_TIMESTAMPING_OPT_TX_SWHW)]  = "option-tx-swhw",
+	[const_ilog2(SOF_TIMESTAMPING_BIND_PHC)]     = "bind-phc",
 };
 static_assert(ARRAY_SIZE(sof_timestamping_names) == __SOF_TIMESTAMPING_CNT);
 
@@ -553,6 +557,18 @@ int __ethtool_get_ts_info(struct net_device *dev, struct ethtool_ts_info *info)
 	return 0;
 }
 
+int ethtool_get_phc_vclocks(struct net_device *dev, int **vclock_index)
+{
+	struct ethtool_ts_info info = { };
+	int num = 0;
+
+	if (!__ethtool_get_ts_info(dev, &info))
+		num = ptp_get_vclocks_index(info.phc_index, vclock_index);
+
+	return num;
+}
+EXPORT_SYMBOL(ethtool_get_phc_vclocks);
+
 const struct ethtool_phy_ops *ethtool_phy_ops;
 
 void ethtool_set_ethtool_phy_ops(const struct ethtool_phy_ops *ops)
@@ -562,3 +578,19 @@ void ethtool_set_ethtool_phy_ops(const struct ethtool_phy_ops *ops)
 	rtnl_unlock();
 }
 EXPORT_SYMBOL_GPL(ethtool_set_ethtool_phy_ops);
+
+void
+ethtool_params_from_link_mode(struct ethtool_link_ksettings *link_ksettings,
+			      enum ethtool_link_mode_bit_indices link_mode)
+{
+	const struct link_mode_info *link_info;
+
+	if (WARN_ON_ONCE(link_mode >= __ETHTOOL_LINK_MODE_MASK_NBITS))
+		return;
+
+	link_info = &link_mode_params[link_mode];
+	link_ksettings->base.speed = link_info->speed;
+	link_ksettings->lanes = link_info->lanes;
+	link_ksettings->base.duplex = link_info->duplex;
+}
+EXPORT_SYMBOL_GPL(ethtool_params_from_link_mode);

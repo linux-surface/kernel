@@ -7439,7 +7439,7 @@ static void cik_irq_disable(struct radeon_device *rdev)
 }
 
 /**
- * cik_irq_disable - disable interrupts for suspend
+ * cik_irq_suspend - disable interrupts for suspend
  *
  * @rdev: radeon_device pointer
  *
@@ -7948,8 +7948,6 @@ restart_ih:
 			DRM_ERROR("Illegal register access in command stream\n");
 			/* XXX check the bitfield order! */
 			me_id = (ring_id & 0x60) >> 5;
-			pipe_id = (ring_id & 0x18) >> 3;
-			queue_id = (ring_id & 0x7) >> 0;
 			switch (me_id) {
 			case 0:
 				/* This results in a full GPU reset, but all we need to do is soft
@@ -7971,8 +7969,6 @@ restart_ih:
 			DRM_ERROR("Illegal instruction in command stream\n");
 			/* XXX check the bitfield order! */
 			me_id = (ring_id & 0x60) >> 5;
-			pipe_id = (ring_id & 0x18) >> 3;
-			queue_id = (ring_id & 0x7) >> 0;
 			switch (me_id) {
 			case 0:
 				/* This results in a full GPU reset, but all we need to do is soft
@@ -8521,8 +8517,8 @@ int cik_suspend(struct radeon_device *rdev)
 	cik_cp_enable(rdev, false);
 	cik_sdma_enable(rdev, false);
 	if (rdev->has_uvd) {
-		uvd_v1_0_fini(rdev);
 		radeon_uvd_suspend(rdev);
+		uvd_v1_0_fini(rdev);
 	}
 	if (rdev->has_vce)
 		radeon_vce_suspend(rdev);
@@ -8588,9 +8584,7 @@ int cik_init(struct radeon_device *rdev)
 	radeon_get_clock_info(rdev->ddev);
 
 	/* Fence driver */
-	r = radeon_fence_driver_init(rdev);
-	if (r)
-		return r;
+	radeon_fence_driver_init(rdev);
 
 	/* initialize memory controller */
 	r = cik_mc_init(rdev);

@@ -110,7 +110,7 @@ static int rcar_pwm_set_counter(struct rcar_pwm_chip *rp, int div, int duty_ns,
 	unsigned long clk_rate = clk_get_rate(rp->clk);
 	u32 cyc, ph;
 
-	one_cycle = (unsigned long long)NSEC_PER_SEC * 100ULL * (1 << div);
+	one_cycle = NSEC_PER_SEC * 100ULL << div;
 	do_div(one_cycle, clk_rate);
 
 	tmp = period_ns * 100ULL;
@@ -224,7 +224,6 @@ static int rcar_pwm_probe(struct platform_device *pdev)
 
 	rcar_pwm->chip.dev = &pdev->dev;
 	rcar_pwm->chip.ops = &rcar_pwm_ops;
-	rcar_pwm->chip.base = -1;
 	rcar_pwm->chip.npwm = 1;
 
 	pm_runtime_enable(&pdev->dev);
@@ -242,13 +241,12 @@ static int rcar_pwm_probe(struct platform_device *pdev)
 static int rcar_pwm_remove(struct platform_device *pdev)
 {
 	struct rcar_pwm_chip *rcar_pwm = platform_get_drvdata(pdev);
-	int ret;
 
-	ret = pwmchip_remove(&rcar_pwm->chip);
+	pwmchip_remove(&rcar_pwm->chip);
 
 	pm_runtime_disable(&pdev->dev);
 
-	return ret;
+	return 0;
 }
 
 static const struct of_device_id rcar_pwm_of_table[] = {

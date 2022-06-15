@@ -75,7 +75,7 @@
  * By default we use get_cycles() for this purpose, but individual
  * architectures may override this in their asm/timex.h header file.
  */
-#define random_get_entropy()	get_cycles()
+#define random_get_entropy()	((unsigned long)get_cycles())
 #endif
 
 /*
@@ -133,7 +133,7 @@
 
 /*
  * kernel variables
- * Note: maximum error = NTP synch distance = dispersion + delay / 2;
+ * Note: maximum error = NTP sync distance = dispersion + delay / 2;
  * estimated error = NTP dispersion.
  */
 extern unsigned long tick_usec;		/* USER_HZ period (usec) */

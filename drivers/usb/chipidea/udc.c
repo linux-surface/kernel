@@ -49,6 +49,8 @@ ctrl_endpt_in_desc = {
 	.wMaxPacketSize  = cpu_to_le16(CTRL_PAYLOAD_MAX),
 };
 
+static int reprime_dtd(struct ci_hdrc *ci, struct ci_hw_ep *hwep,
+		       struct td_node *node);
 /**
  * hw_ep_bit: calculates the bit number
  * @num: endpoint number
@@ -238,7 +240,7 @@ static int hw_ep_set_halt(struct ci_hdrc *ci, int num, int dir, int value)
 }
 
 /**
- * hw_is_port_high_speed: test if port is high speed
+ * hw_port_is_high_speed: test if port is high speed
  * @ci: the controller
  *
  * This function returns true if high speed port
@@ -599,6 +601,12 @@ static int _hardware_enqueue(struct ci_hw_ep *hwep, struct ci_hw_req *hwreq)
 
 		prevlastnode->ptr->next = cpu_to_le32(next);
 		wmb();
+
+		if (ci->rev == CI_REVISION_22) {
+			if (!hw_read(ci, OP_ENDPTSTAT, BIT(n)))
+				reprime_dtd(ci, hwep, prevlastnode);
+		}
+
 		if (hw_read(ci, OP_ENDPTPRIME, BIT(n)))
 			goto done;
 		do {
@@ -2061,6 +2069,7 @@ static int udc_start(struct ci_hdrc *ci)
 	ci->gadget.name         = ci->platdata->name;
 	ci->gadget.otg_caps	= otg_caps;
 	ci->gadget.sg_supported = 1;
+	ci->gadget.irq		= ci->irq;
 
 	if (ci->platdata->flags & CI_HDRC_REQUIRES_ALIGNED_DMA)
 		ci->gadget.quirk_avoids_skb_reserve = 1;
@@ -2143,7 +2152,7 @@ static void udc_id_switch_for_host(struct ci_hdrc *ci)
 {
 	/*
 	 * host doesn't care B_SESSION_VALID event
-	 * so clear and disbale BSV irq
+	 * so clear and disable BSV irq
 	 */
 	if (ci->is_otg)
 		hw_write_otgsc(ci, OTGSC_BSVIE | OTGSC_BSVIS, OTGSC_BSVIS);

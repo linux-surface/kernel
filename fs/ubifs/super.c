@@ -268,13 +268,14 @@ static struct inode *ubifs_alloc_inode(struct super_block *sb)
 {
 	struct ubifs_inode *ui;
 
-	ui = kmem_cache_alloc(ubifs_inode_slab, GFP_NOFS);
+	ui = alloc_inode_sb(sb, ubifs_inode_slab, GFP_NOFS);
 	if (!ui)
 		return NULL;
 
 	memset((void *)ui + sizeof(struct inode), 0,
 	       sizeof(struct ubifs_inode) - sizeof(struct inode));
 	mutex_init(&ui->ui_mutex);
+	init_rwsem(&ui->xattr_sem);
 	spin_lock_init(&ui->ui_lock);
 	return &ui->vfs_inode;
 };
@@ -1263,6 +1264,10 @@ static int mount_ubifs(struct ubifs_info *c)
 	if (err)
 		return err;
 
+	err = ubifs_sysfs_register(c);
+	if (err)
+		goto out_debugging;
+
 	err = check_volume_empty(c);
 	if (err)
 		goto out_free;
@@ -1366,7 +1371,7 @@ static int mount_ubifs(struct ubifs_info *c)
 	sprintf(c->bgt_name, BGT_NAME_PATTERN, c->vi.ubi_num, c->vi.vol_id);
 	if (!c->ro_mount) {
 		/* Create background thread */
-		c->bgt = kthread_create(ubifs_bg_thread, c, "%s", c->bgt_name);
+		c->bgt = kthread_run(ubifs_bg_thread, c, "%s", c->bgt_name);
 		if (IS_ERR(c->bgt)) {
 			err = PTR_ERR(c->bgt);
 			c->bgt = NULL;
@@ -1374,7 +1379,6 @@ static int mount_ubifs(struct ubifs_info *c)
 				  c->bgt_name, err);
 			goto out_wbufs;
 		}
-		wake_up_process(c->bgt);
 	}
 
 	err = ubifs_read_master(c);
@@ -1552,8 +1556,8 @@ static int mount_ubifs(struct ubifs_info *c)
 	ubifs_msg(c, "LEB size: %d bytes (%d KiB), min./max. I/O unit sizes: %d bytes/%d bytes",
 		  c->leb_size, c->leb_size >> 10, c->min_io_size,
 		  c->max_write_size);
-	ubifs_msg(c, "FS size: %lld bytes (%lld MiB, %d LEBs), journal size %lld bytes (%lld MiB, %d LEBs)",
-		  x, x >> 20, c->main_lebs,
+	ubifs_msg(c, "FS size: %lld bytes (%lld MiB, %d LEBs), max %d LEBs, journal size %lld bytes (%lld MiB, %d LEBs)",
+		  x, x >> 20, c->main_lebs, c->max_leb_cnt,
 		  y, y >> 20, c->log_lebs + c->max_bud_cnt);
 	ubifs_msg(c, "reserved for root: %llu bytes (%llu KiB)",
 		  c->report_rp_size, c->report_rp_size >> 10);
@@ -1640,6 +1644,8 @@ out_free:
 	vfree(c->sbuf);
 	kfree(c->bottom_up_buf);
 	kfree(c->sup_node);
+	ubifs_sysfs_unregister(c);
+out_debugging:
 	ubifs_debugging_exit(c);
 	return err;
 }
@@ -1683,6 +1689,7 @@ static void ubifs_umount(struct ubifs_info *c)
 	kfree(c->bottom_up_buf);
 	kfree(c->sup_node);
 	ubifs_debugging_exit(c);
+	ubifs_sysfs_unregister(c);
 }
 
 /**
@@ -1779,7 +1786,7 @@ static int ubifs_remount_rw(struct ubifs_info *c)
 		goto out;
 
 	/* Create background thread */
-	c->bgt = kthread_create(ubifs_bg_thread, c, "%s", c->bgt_name);
+	c->bgt = kthread_run(ubifs_bg_thread, c, "%s", c->bgt_name);
 	if (IS_ERR(c->bgt)) {
 		err = PTR_ERR(c->bgt);
 		c->bgt = NULL;
@@ -1787,7 +1794,6 @@ static int ubifs_remount_rw(struct ubifs_info *c)
 			  c->bgt_name, err);
 		goto out;
 	}
-	wake_up_process(c->bgt);
 
 	c->orph_buf = vmalloc(c->leb_size);
 	if (!c->orph_buf) {
@@ -1852,7 +1858,6 @@ out:
 		kthread_stop(c->bgt);
 		c->bgt = NULL;
 	}
-	free_wbufs(c);
 	kfree(c->write_reserve_buf);
 	c->write_reserve_buf = NULL;
 	vfree(c->ileb_buf);
@@ -2060,7 +2065,7 @@ const struct super_operations ubifs_super_operations = {
  * @mode: UBI volume open mode
  *
  * The primary method of mounting UBIFS is by specifying the UBI volume
- * character device node path. However, UBIFS may also be mounted withoug any
+ * character device node path. However, UBIFS may also be mounted without any
  * character device node using one of the following methods:
  *
  * o ubiX_Y    - mount UBI device number X, volume Y;
@@ -2231,6 +2236,8 @@ static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 		err = -ENOMEM;
 		goto out_umount;
 	}
+
+	import_uuid(&sb->s_uuid, c->uuid);
 
 	mutex_unlock(&c->umount_mutex);
 	return 0;
@@ -2433,14 +2440,20 @@ static int __init ubifs_init(void)
 
 	dbg_debugfs_init();
 
+	err = ubifs_sysfs_init();
+	if (err)
+		goto out_dbg;
+
 	err = register_filesystem(&ubifs_fs_type);
 	if (err) {
 		pr_err("UBIFS error (pid %d): cannot register file system, error %d",
 		       current->pid, err);
-		goto out_dbg;
+		goto out_sysfs;
 	}
 	return 0;
 
+out_sysfs:
+	ubifs_sysfs_exit();
 out_dbg:
 	dbg_debugfs_exit();
 	ubifs_compressors_exit();
@@ -2459,6 +2472,7 @@ static void __exit ubifs_exit(void)
 	WARN_ON(atomic_long_read(&ubifs_clean_zn_cnt) != 0);
 
 	dbg_debugfs_exit();
+	ubifs_sysfs_exit();
 	ubifs_compressors_exit();
 	unregister_shrinker(&ubifs_shrinker_info);
 

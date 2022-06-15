@@ -25,8 +25,6 @@ extern int mem_init_done;
 #include <asm/mmu.h>
 #include <asm/page.h>
 
-#define FIRST_USER_ADDRESS	0UL
-
 extern unsigned long va_to_phys(unsigned long address);
 extern pte_t *va_to_pte(unsigned long address);
 
@@ -401,6 +399,9 @@ static inline unsigned long pmd_page_vaddr(pmd_t pmd)
 	return ((unsigned long) (pmd_val(pmd) & PAGE_MASK));
 }
 
+/* returns pfn of the pmd entry*/
+#define pmd_pfn(pmd)	(__pa(pmd_val(pmd)) >> PAGE_SHIFT)
+
 /* returns struct *page of the pmd entry*/
 #define pmd_page(pmd)	(pfn_to_page(__pa(pmd_val(pmd)) >> PAGE_SHIFT))
 
@@ -444,8 +445,6 @@ int map_page(unsigned long va, phys_addr_t pa, int flags);
 extern int mem_init_done;
 
 asmlinkage void __init mmu_init(void);
-
-void __init *early_get_page(void);
 
 #endif /* __ASSEMBLY__ */
 #endif /* __KERNEL__ */

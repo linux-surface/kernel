@@ -22,6 +22,7 @@ properties:
       - mediatek,mt7623-dpi
       - mediatek,mt8173-dpi
       - mediatek,mt8183-dpi
+      - mediatek,mt8192-dpi
 
   reg:
     maxItems: 1
@@ -50,15 +51,10 @@ properties:
       - const: sleep
 
   port:
-    type: object
+    $ref: /schemas/graph.yaml#/properties/port
     description:
-      Output port node with endpoint definitions as described in
-      Documentation/devicetree/bindings/graph.txt. This port should be connected
-      to the input port of an attached HDMI or LVDS encoder chip.
-
-    properties:
-      endpoint:
-        type: object
+      Output port node. This port should be connected to the input port of an
+      attached HDMI or LVDS encoder chip.
 
 required:
   - compatible
@@ -74,8 +70,7 @@ examples:
   - |
     #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/clock/mt8173-clk.h>
-    #include <dt-bindings/interrupt-controller/arm-gic.h>
-    #include <dt-bindings/interrupt-controller/irq.h>
+
     dpi0: dpi@1401d000 {
         compatible = "mediatek,mt8173-dpi";
         reg = <0x1401d000 0x1000>;

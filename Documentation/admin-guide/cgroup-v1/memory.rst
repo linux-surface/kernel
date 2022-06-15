@@ -64,6 +64,7 @@ Brief summary of control files.
 				     threads
  cgroup.procs			     show list of processes
  cgroup.event_control		     an interface for event_fd()
+				     This knob is not available on CONFIG_PREEMPT_RT systems.
  memory.usage_in_bytes		     show current usage for memory
 				     (See 5.5 for details)
  memory.memsw.usage_in_bytes	     show current usage for memory+Swap
@@ -75,6 +76,7 @@ Brief summary of control files.
  memory.max_usage_in_bytes	     show max memory usage recorded
  memory.memsw.max_usage_in_bytes     show max memory+Swap usage recorded
  memory.soft_limit_in_bytes	     set/show soft limit of memory usage
+				     This knob is not available on CONFIG_PREEMPT_RT systems.
  memory.stat			     show various statistics
  memory.use_hierarchy		     set/show hierarchical account enabled
                                      This knob is deprecated and shouldn't be
@@ -87,10 +89,8 @@ Brief summary of control files.
  memory.oom_control		     set/show oom controls.
  memory.numa_stat		     show the number of memory usage per numa
 				     node
- memory.kmem.limit_in_bytes          set/show hard limit for kernel memory
-                                     This knob is deprecated and shouldn't be
-                                     used. It is planned that this be removed in
-                                     the foreseeable future.
+ memory.kmem.limit_in_bytes          This knob is deprecated and writing to
+                                     it will return -ENOTSUPP.
  memory.kmem.usage_in_bytes          show current kernel memory allocation
  memory.kmem.failcnt                 show the number of kernel memory usage
 				     hits limits
@@ -360,8 +360,8 @@ U != 0, K = unlimited:
 
 U != 0, K < U:
     Kernel memory is a subset of the user memory. This setup is useful in
-    deployments where the total amount of memory per-cgroup is overcommited.
-    Overcommiting kernel memory limits is definitely not recommended, since the
+    deployments where the total amount of memory per-cgroup is overcommitted.
+    Overcommitting kernel memory limits is definitely not recommended, since the
     box can still run out of non-reclaimable memory.
     In this case, the admin could set up K so that the sum of all groups is
     never greater than the total memory, and freely set U at the cost of his
@@ -517,11 +517,6 @@ will be charged as a new owner of it.
   Though rmdir() offlines memcg, but the memcg may still stay there due to
   charged file caches. Some out-of-use page caches may keep charged until
   memory pressure happens. If you want to avoid that, force_empty will be useful.
-
-  Also, note that when memory.kmem.limit_in_bytes is set the charges due to
-  kernel pages will still be seen. This is not considered a failure and the
-  write will still return success. In this case, it is expected that
-  memory.kmem.usage_in_bytes == memory.usage_in_bytes.
 
 5.2 stat file
 -------------
@@ -851,6 +846,9 @@ At reading, current status of OOM is shown.
 	  (if 1, oom-killer is disabled)
 	- under_oom	   0 or 1
 	  (if 1, the memory cgroup is under OOM, tasks may be stopped.)
+        - oom_kill         integer counter
+          The number of processes belonging to this cgroup killed by any
+          kind of OOM killer.
 
 11. Memory Pressure
 ===================

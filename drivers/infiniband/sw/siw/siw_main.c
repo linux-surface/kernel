@@ -98,15 +98,14 @@ static int siw_create_tx_threads(void)
 			continue;
 
 		siw_tx_thread[cpu] =
-			kthread_create(siw_run_sq, (unsigned long *)(long)cpu,
-				       "siw_tx/%d", cpu);
+			kthread_run_on_cpu(siw_run_sq,
+					   (unsigned long *)(long)cpu,
+					   cpu, "siw_tx/%u");
 		if (IS_ERR(siw_tx_thread[cpu])) {
 			siw_tx_thread[cpu] = NULL;
 			continue;
 		}
-		kthread_bind(siw_tx_thread[cpu], cpu);
 
-		wake_up_process(siw_tx_thread[cpu]);
 		assigned++;
 	}
 	return assigned;
@@ -297,6 +296,7 @@ static const struct ib_device_ops siw_device_ops = {
 
 	INIT_RDMA_OBJ_SIZE(ib_cq, siw_cq, base_cq),
 	INIT_RDMA_OBJ_SIZE(ib_pd, siw_pd, base_pd),
+	INIT_RDMA_OBJ_SIZE(ib_qp, siw_qp, base_qp),
 	INIT_RDMA_OBJ_SIZE(ib_srq, siw_srq, base_srq),
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, siw_ucontext, base_ucontext),
 };

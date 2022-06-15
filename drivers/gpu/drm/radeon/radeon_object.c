@@ -49,34 +49,11 @@ static void radeon_bo_clear_surface_reg(struct radeon_bo *bo);
  * function are calling it.
  */
 
-static void radeon_update_memory_usage(struct radeon_bo *bo,
-				       unsigned mem_type, int sign)
-{
-	struct radeon_device *rdev = bo->rdev;
-
-	switch (mem_type) {
-	case TTM_PL_TT:
-		if (sign > 0)
-			atomic64_add(bo->tbo.base.size, &rdev->gtt_usage);
-		else
-			atomic64_sub(bo->tbo.base.size, &rdev->gtt_usage);
-		break;
-	case TTM_PL_VRAM:
-		if (sign > 0)
-			atomic64_add(bo->tbo.base.size, &rdev->vram_usage);
-		else
-			atomic64_sub(bo->tbo.base.size, &rdev->vram_usage);
-		break;
-	}
-}
-
 static void radeon_ttm_bo_destroy(struct ttm_buffer_object *tbo)
 {
 	struct radeon_bo *bo;
 
 	bo = container_of(tbo, struct radeon_bo, tbo);
-
-	radeon_update_memory_usage(bo, bo->tbo.mem.mem_type, -1);
 
 	mutex_lock(&bo->rdev->gem.mutex);
 	list_del_init(&bo->list);
@@ -159,7 +136,6 @@ int radeon_bo_create(struct radeon_device *rdev,
 	struct radeon_bo *bo;
 	enum ttm_bo_type type;
 	unsigned long page_align = roundup(byte_align, PAGE_SIZE) >> PAGE_SHIFT;
-	size_t acc_size;
 	int r;
 
 	size = ALIGN(size, PAGE_SIZE);
@@ -172,9 +148,6 @@ int radeon_bo_create(struct radeon_device *rdev,
 		type = ttm_bo_type_device;
 	}
 	*bo_ptr = NULL;
-
-	acc_size = ttm_bo_dma_acc_size(&rdev->mman.bdev, size,
-				       sizeof(struct radeon_bo));
 
 	bo = kzalloc(sizeof(struct radeon_bo), GFP_KERNEL);
 	if (bo == NULL)
@@ -230,8 +203,8 @@ int radeon_bo_create(struct radeon_device *rdev,
 	/* Kernel allocation are uninterruptible */
 	down_read(&rdev->pm.mclk_lock);
 	r = ttm_bo_init(&rdev->mman.bdev, &bo->tbo, size, type,
-			&bo->placement, page_align, !kernel, acc_size,
-			sg, resv, &radeon_ttm_bo_destroy);
+			&bo->placement, page_align, !kernel, sg, resv,
+			&radeon_ttm_bo_destroy);
 	up_read(&rdev->pm.mclk_lock);
 	if (unlikely(r != 0)) {
 		return r;
@@ -254,7 +227,7 @@ int radeon_bo_kmap(struct radeon_bo *bo, void **ptr)
 		}
 		return 0;
 	}
-	r = ttm_bo_kmap(&bo->tbo, 0, bo->tbo.mem.num_pages, &bo->kmap);
+	r = ttm_bo_kmap(&bo->tbo, 0, bo->tbo.resource->num_pages, &bo->kmap);
 	if (r) {
 		return r;
 	}
@@ -363,7 +336,7 @@ void radeon_bo_unpin(struct radeon_bo *bo)
 {
 	ttm_bo_unpin(&bo->tbo);
 	if (!bo->tbo.pin_count) {
-		if (bo->tbo.mem.mem_type == TTM_PL_VRAM)
+		if (bo->tbo.resource->mem_type == TTM_PL_VRAM)
 			bo->rdev->vram_pin_size -= radeon_bo_size(bo);
 		else
 			bo->rdev->gart_pin_size -= radeon_bo_size(bo);
@@ -372,7 +345,7 @@ void radeon_bo_unpin(struct radeon_bo *bo)
 
 int radeon_bo_evict_vram(struct radeon_device *rdev)
 {
-	struct ttm_bo_device *bdev = &rdev->mman.bdev;
+	struct ttm_device *bdev = &rdev->mman.bdev;
 	struct ttm_resource_manager *man;
 
 	/* late 2.6.33 fix IGP hibernate - we need pm ops to do this correct */
@@ -384,6 +357,8 @@ int radeon_bo_evict_vram(struct radeon_device *rdev)
 	}
 #endif
 	man = ttm_manager_type(bdev, TTM_PL_VRAM);
+	if (!man)
+		return 0;
 	return ttm_resource_manager_evict_all(bdev, man);
 }
 
@@ -438,7 +413,9 @@ void radeon_bo_fini(struct radeon_device *rdev)
 static u64 radeon_bo_get_threshold_for_moves(struct radeon_device *rdev)
 {
 	u64 real_vram_size = rdev->mc.real_vram_size;
-	u64 vram_usage = atomic64_read(&rdev->vram_usage);
+	struct ttm_resource_manager *man =
+		ttm_manager_type(&rdev->mman.bdev, TTM_PL_VRAM);
+	u64 vram_usage = ttm_resource_manager_usage(man);
 
 	/* This function is based on the current VRAM usage.
 	 *
@@ -508,7 +485,7 @@ int radeon_bo_list_validate(struct radeon_device *rdev,
 			u32 domain = lobj->preferred_domains;
 			u32 allowed = lobj->allowed_domains;
 			u32 current_domain =
-				radeon_mem_type_to_domain(bo->tbo.mem.mem_type);
+				radeon_mem_type_to_domain(bo->tbo.resource->mem_type);
 
 			/* Check if this buffer will be moved and don't move it
 			 * if we have moved too many buffers for this IB already.
@@ -571,7 +548,6 @@ int radeon_bo_get_surface_reg(struct radeon_bo *bo)
 		return 0;
 
 	if (bo->surface_reg >= 0) {
-		reg = &rdev->surface_regs[bo->surface_reg];
 		i = bo->surface_reg;
 		goto out;
 	}
@@ -607,7 +583,7 @@ int radeon_bo_get_surface_reg(struct radeon_bo *bo)
 
 out:
 	radeon_set_surface_reg(rdev, i, bo->tiling_flags, bo->pitch,
-			       bo->tbo.mem.start << PAGE_SHIFT,
+			       bo->tbo.resource->start << PAGE_SHIFT,
 			       bo->tbo.base.size);
 	return 0;
 }
@@ -713,7 +689,7 @@ int radeon_bo_check_tiling(struct radeon_bo *bo, bool has_moved,
 		return 0;
 	}
 
-	if (bo->tbo.mem.mem_type != TTM_PL_VRAM) {
+	if (bo->tbo.resource->mem_type != TTM_PL_VRAM) {
 		if (!has_moved)
 			return 0;
 
@@ -728,9 +704,7 @@ int radeon_bo_check_tiling(struct radeon_bo *bo, bool has_moved,
 	return radeon_bo_get_surface_reg(bo);
 }
 
-void radeon_bo_move_notify(struct ttm_buffer_object *bo,
-			   bool evict,
-			   struct ttm_resource *new_mem)
+void radeon_bo_move_notify(struct ttm_buffer_object *bo)
 {
 	struct radeon_bo *rbo;
 
@@ -740,13 +714,6 @@ void radeon_bo_move_notify(struct ttm_buffer_object *bo,
 	rbo = container_of(bo, struct radeon_bo, tbo);
 	radeon_bo_check_tiling(rbo, 0, 1);
 	radeon_vm_bo_invalidate(rbo->rdev, rbo);
-
-	/* update statistics */
-	if (!new_mem)
-		return;
-
-	radeon_update_memory_usage(rbo, bo->mem.mem_type, -1);
-	radeon_update_memory_usage(rbo, new_mem->mem_type, 1);
 }
 
 vm_fault_t radeon_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
@@ -762,11 +729,11 @@ vm_fault_t radeon_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 	rbo = container_of(bo, struct radeon_bo, tbo);
 	radeon_bo_check_tiling(rbo, 0, 0);
 	rdev = rbo->rdev;
-	if (bo->mem.mem_type != TTM_PL_VRAM)
+	if (bo->resource->mem_type != TTM_PL_VRAM)
 		return 0;
 
-	size = bo->mem.num_pages << PAGE_SHIFT;
-	offset = bo->mem.start << PAGE_SHIFT;
+	size = bo->resource->num_pages << PAGE_SHIFT;
+	offset = bo->resource->start << PAGE_SHIFT;
 	if ((offset + size) <= rdev->mc.visible_vram_size)
 		return 0;
 
@@ -788,7 +755,7 @@ vm_fault_t radeon_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 		radeon_ttm_placement_from_domain(rbo, RADEON_GEM_DOMAIN_GTT);
 		r = ttm_bo_validate(bo, &rbo->placement, &ctx);
 	} else if (likely(!r)) {
-		offset = bo->mem.start << PAGE_SHIFT;
+		offset = bo->resource->start << PAGE_SHIFT;
 		/* this should never happen */
 		if ((offset + size) > rdev->mc.visible_vram_size)
 			return VM_FAULT_SIGBUS;

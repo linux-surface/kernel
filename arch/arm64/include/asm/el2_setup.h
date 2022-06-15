@@ -33,8 +33,7 @@
  * EL2.
  */
 .macro __init_el2_timers
-	mrs	x0, cnthctl_el2
-	orr	x0, x0, #3			// Enable EL1 physical timers
+	mov	x0, #3				// Enable EL1 physical timers
 	msr	cnthctl_el2, x0
 	msr	cntvoff_el2, xzr		// Clear virtual offset
 .endm
@@ -65,6 +64,19 @@
 						// use EL1&0 translation.
 
 .Lskip_spe_\@:
+	/* Trace buffer */
+	ubfx	x0, x1, #ID_AA64DFR0_TRBE_SHIFT, #4
+	cbz	x0, .Lskip_trace_\@		// Skip if TraceBuffer is not present
+
+	mrs_s	x0, SYS_TRBIDR_EL1
+	and	x0, x0, TRBIDR_PROG
+	cbnz	x0, .Lskip_trace_\@		// If TRBE is available at EL2
+
+	mov	x0, #(MDCR_EL2_E2TB_MASK << MDCR_EL2_E2TB_SHIFT)
+	orr	x2, x2, x0			// allow the EL1&0 translation
+						// to own it.
+
+.Lskip_trace_\@:
 	msr	mdcr_el2, x2			// Configure debug traps
 .endm
 
@@ -94,8 +106,8 @@
 	msr_s	SYS_ICC_SRE_EL2, x0
 	isb					// Make sure SRE is now set
 	mrs_s	x0, SYS_ICC_SRE_EL2		// Read SRE back,
-	tbz	x0, #0, 1f			// and check that it sticks
-	msr_s	SYS_ICH_HCR_EL2, xzr		// Reset ICC_HCR_EL2 to defaults
+	tbz	x0, #0, .Lskip_gicv3_\@		// and check that it sticks
+	msr_s	SYS_ICH_HCR_EL2, xzr		// Reset ICH_HCR_EL2 to defaults
 .Lskip_gicv3_\@:
 .endm
 
@@ -131,6 +143,35 @@
 .Lskip_sve_\@:
 .endm
 
+/* Disable any fine grained traps */
+.macro __init_el2_fgt
+	mrs	x1, id_aa64mmfr0_el1
+	ubfx	x1, x1, #ID_AA64MMFR0_FGT_SHIFT, #4
+	cbz	x1, .Lskip_fgt_\@
+
+	mov	x0, xzr
+	mrs	x1, id_aa64dfr0_el1
+	ubfx	x1, x1, #ID_AA64DFR0_PMSVER_SHIFT, #4
+	cmp	x1, #3
+	b.lt	.Lset_fgt_\@
+	/* Disable PMSNEVFR_EL1 read and write traps */
+	orr	x0, x0, #(1 << 62)
+
+.Lset_fgt_\@:
+	msr_s	SYS_HDFGRTR_EL2, x0
+	msr_s	SYS_HDFGWTR_EL2, x0
+	msr_s	SYS_HFGRTR_EL2, xzr
+	msr_s	SYS_HFGWTR_EL2, xzr
+	msr_s	SYS_HFGITR_EL2, xzr
+
+	mrs	x1, id_aa64pfr0_el1		// AMU traps UNDEF without AMU
+	ubfx	x1, x1, #ID_AA64PFR0_AMU_SHIFT, #4
+	cbz	x1, .Lskip_fgt_\@
+
+	msr_s	SYS_HAFGRTR_EL2, xzr
+.Lskip_fgt_\@:
+.endm
+
 .macro __init_el2_nvhe_prepare_eret
 	mov	x0, #INIT_PSTATE_EL1
 	msr	spsr_el2, x0
@@ -155,6 +196,7 @@
 	__init_el2_nvhe_idregs
 	__init_el2_nvhe_cptr
 	__init_el2_nvhe_sve
+	__init_el2_fgt
 	__init_el2_nvhe_prepare_eret
 .endm
 

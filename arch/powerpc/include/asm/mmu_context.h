@@ -21,7 +21,6 @@ extern void destroy_context(struct mm_struct *mm);
 #ifdef CONFIG_SPAPR_TCE_IOMMU
 struct mm_iommu_table_group_mem_t;
 
-extern int isolate_lru_page(struct page *page);	/* from internal.h */
 extern bool mm_iommu_preregistered(struct mm_struct *mm);
 extern long mm_iommu_new(struct mm_struct *mm,
 		unsigned long ua, unsigned long entries,
@@ -57,7 +56,6 @@ static inline bool mm_iommu_is_devmem(struct mm_struct *mm, unsigned long hpa,
 static inline void mm_iommu_init(struct mm_struct *mm) { }
 #endif
 extern void switch_slb(struct task_struct *tsk, struct mm_struct *mm);
-extern void set_context(unsigned long id, pgd_t *pgd);
 
 #ifdef CONFIG_PPC_BOOK3S_64
 extern void radix__switch_mmu_context(struct mm_struct *prev,
@@ -72,10 +70,11 @@ static inline void switch_mmu_context(struct mm_struct *prev,
 }
 
 extern int hash__alloc_context_id(void);
-extern void hash__reserve_context_id(int id);
+void __init hash__reserve_context_id(int id);
 extern void __destroy_context(int context_id);
 static inline void mmu_context_init(void) { }
 
+#ifdef CONFIG_PPC_64S_HASH_MMU
 static inline int alloc_extended_context(struct mm_struct *mm,
 					 unsigned long ea)
 {
@@ -101,6 +100,7 @@ static inline bool need_extra_context(struct mm_struct *mm, unsigned long ea)
 		return true;
 	return false;
 }
+#endif
 
 #else
 extern void switch_mmu_context(struct mm_struct *prev, struct mm_struct *next,
@@ -120,12 +120,6 @@ static inline bool need_extra_context(struct mm_struct *mm, unsigned long ea)
 {
 	return false;
 }
-#endif
-
-#if defined(CONFIG_KVM_BOOK3S_HV_POSSIBLE) && defined(CONFIG_PPC_RADIX_MMU)
-extern void radix_kvm_prefetch_workaround(struct mm_struct *mm);
-#else
-static inline void radix_kvm_prefetch_workaround(struct mm_struct *mm) { }
 #endif
 
 extern void switch_cop(struct mm_struct *next);
@@ -222,6 +216,18 @@ static inline void mm_context_add_copro(struct mm_struct *mm) { }
 static inline void mm_context_remove_copro(struct mm_struct *mm) { }
 #endif
 
+#if defined(CONFIG_KVM_BOOK3S_HV_POSSIBLE) && defined(CONFIG_PPC_RADIX_MMU)
+void do_h_rpt_invalidate_prt(unsigned long pid, unsigned long lpid,
+			     unsigned long type, unsigned long pg_sizes,
+			     unsigned long start, unsigned long end);
+#else
+static inline void do_h_rpt_invalidate_prt(unsigned long pid,
+					   unsigned long lpid,
+					   unsigned long type,
+					   unsigned long pg_sizes,
+					   unsigned long start,
+					   unsigned long end) { }
+#endif
 
 extern void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 			       struct task_struct *tsk);
@@ -263,7 +269,7 @@ extern void arch_exit_mmap(struct mm_struct *mm);
 static inline void arch_unmap(struct mm_struct *mm,
 			      unsigned long start, unsigned long end)
 {
-	unsigned long vdso_base = (unsigned long)mm->context.vdso - PAGE_SIZE;
+	unsigned long vdso_base = (unsigned long)mm->context.vdso;
 
 	if (start <= vdso_base && vdso_base < end)
 		mm->context.vdso = NULL;

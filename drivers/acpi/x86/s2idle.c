@@ -32,6 +32,9 @@ static const struct acpi_device_id lps0_device_ids[] = {
 	{"", },
 };
 
+/* Microsoft platform agnostic UUID */
+#define ACPI_LPS0_DSM_UUID_MICROSOFT      "11e00d56-ce64-47ce-837b-1f898f9aa461"
+
 #define ACPI_LPS0_DSM_UUID	"c4eb40a0-6cd2-11e2-bcfd-0800200c9a66"
 
 #define ACPI_LPS0_GET_DEVICE_CONSTRAINTS	1
@@ -39,15 +42,22 @@ static const struct acpi_device_id lps0_device_ids[] = {
 #define ACPI_LPS0_SCREEN_ON	4
 #define ACPI_LPS0_ENTRY		5
 #define ACPI_LPS0_EXIT		6
+#define ACPI_LPS0_MS_ENTRY      7
+#define ACPI_LPS0_MS_EXIT       8
 
 /* AMD */
 #define ACPI_LPS0_DSM_UUID_AMD      "e3f32452-febc-43ce-9039-932122d37721"
+#define ACPI_LPS0_ENTRY_AMD         2
+#define ACPI_LPS0_EXIT_AMD          3
 #define ACPI_LPS0_SCREEN_OFF_AMD    4
 #define ACPI_LPS0_SCREEN_ON_AMD     5
 
 static acpi_handle lps0_device_handle;
 static guid_t lps0_dsm_guid;
-static char lps0_dsm_func_mask;
+static int lps0_dsm_func_mask;
+
+static guid_t lps0_dsm_guid_microsoft;
+static int lps0_dsm_func_mask_microsoft;
 
 /* Device constraint entry structure */
 struct lpi_device_info {
@@ -68,21 +78,15 @@ struct lpi_constraints {
 	int min_dstate;
 };
 
-/* AMD */
-/* Device constraint entry structure */
-struct lpi_device_info_amd {
-	int revision;
-	int count;
-	union acpi_object *package;
-};
-
-/* Constraint package structure */
+/* AMD Constraint package structure */
 struct lpi_device_constraint_amd {
 	char *name;
 	int enabled;
 	int function_states;
 	int min_dstate;
 };
+
+static LIST_HEAD(lps0_s2idle_devops_head);
 
 static struct lpi_constraints *lpi_constraints_table;
 static int lpi_constraints_table_size;
@@ -94,14 +98,14 @@ static void lpi_device_get_constraints_amd(void)
 	int i, j, k;
 
 	out_obj = acpi_evaluate_dsm_typed(lps0_device_handle, &lps0_dsm_guid,
-					  1, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
+					  rev_id, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
 					  NULL, ACPI_TYPE_PACKAGE);
-
-	if (!out_obj)
-		return;
 
 	acpi_handle_debug(lps0_device_handle, "_DSM function 1 eval %s\n",
 			  out_obj ? "successful" : "failed");
+
+	if (!out_obj)
+		return;
 
 	for (i = 0; i < out_obj->package.count; i++) {
 		union acpi_object *package = &out_obj->package.elements[i];
@@ -291,9 +295,9 @@ static void lpi_check_constraints(void)
 
 	for (i = 0; i < lpi_constraints_table_size; ++i) {
 		acpi_handle handle = lpi_constraints_table[i].handle;
-		struct acpi_device *adev;
+		struct acpi_device *adev = acpi_fetch_acpi_dev(handle);
 
-		if (!handle || acpi_bus_get_device(handle, &adev))
+		if (!adev)
 			continue;
 
 		acpi_handle_debug(handle,
@@ -315,14 +319,15 @@ static void lpi_check_constraints(void)
 	}
 }
 
-static void acpi_sleep_run_lps0_dsm(unsigned int func)
+static void acpi_sleep_run_lps0_dsm(unsigned int func, unsigned int func_mask, guid_t dsm_guid)
 {
 	union acpi_object *out_obj;
 
-	if (!(lps0_dsm_func_mask & (1 << func)))
+	if (!(func_mask & (1 << func)))
 		return;
 
-	out_obj = acpi_evaluate_dsm(lps0_device_handle, &lps0_dsm_guid, rev_id, func, NULL);
+	out_obj = acpi_evaluate_dsm(lps0_device_handle, &dsm_guid,
+					rev_id, func, NULL);
 	ACPI_FREE(out_obj);
 
 	acpi_handle_debug(lps0_device_handle, "_DSM function %u evaluation %s\n",
@@ -334,11 +339,33 @@ static bool acpi_s2idle_vendor_amd(void)
 	return boot_cpu_data.x86_vendor == X86_VENDOR_AMD;
 }
 
+static int validate_dsm(acpi_handle handle, const char *uuid, int rev, guid_t *dsm_guid)
+{
+	union acpi_object *obj;
+	int ret = -EINVAL;
+
+	guid_parse(uuid, dsm_guid);
+	obj = acpi_evaluate_dsm(handle, dsm_guid, rev, 0, NULL);
+
+	/* Check if the _DSM is present and as expected. */
+	if (!obj || obj->type != ACPI_TYPE_BUFFER || obj->buffer.length == 0 ||
+	    obj->buffer.length > sizeof(u32)) {
+		acpi_handle_debug(handle,
+				"_DSM UUID %s rev %d function 0 evaluation failed\n", uuid, rev);
+		goto out;
+	}
+
+	ret = *(int *)obj->buffer.pointer;
+	acpi_handle_debug(handle, "_DSM UUID %s rev %d function mask: 0x%x\n", uuid, rev, ret);
+
+out:
+	ACPI_FREE(obj);
+	return ret;
+}
+
 static int lps0_device_attach(struct acpi_device *adev,
 			      const struct acpi_device_id *not_used)
 {
-	union acpi_object *out_obj;
-
 	if (lps0_device_handle)
 		return 0;
 
@@ -346,28 +373,43 @@ static int lps0_device_attach(struct acpi_device *adev,
 		return 0;
 
 	if (acpi_s2idle_vendor_amd()) {
-		guid_parse(ACPI_LPS0_DSM_UUID_AMD, &lps0_dsm_guid);
-		out_obj = acpi_evaluate_dsm(adev->handle, &lps0_dsm_guid, 0, 0, NULL);
-		rev_id = 0;
+		/* AMD0004, AMD0005, AMDI0005:
+		 * - Should use rev_id 0x0
+		 * - function mask > 0x3: Should use AMD method, but has off by one bug
+		 * - function mask = 0x3: Should use Microsoft method
+		 * AMDI0006:
+		 * - should use rev_id 0x0
+		 * - function mask = 0x3: Should use Microsoft method
+		 * AMDI0007:
+		 * - Should use rev_id 0x2
+		 * - Should only use AMD method
+		 */
+		const char *hid = acpi_device_hid(adev);
+		rev_id = strcmp(hid, "AMDI0007") ? 0 : 2;
+		lps0_dsm_func_mask = validate_dsm(adev->handle,
+					ACPI_LPS0_DSM_UUID_AMD, rev_id, &lps0_dsm_guid);
+		lps0_dsm_func_mask_microsoft = validate_dsm(adev->handle,
+					ACPI_LPS0_DSM_UUID_MICROSOFT, 0,
+					&lps0_dsm_guid_microsoft);
+		if (lps0_dsm_func_mask > 0x3 && (!strcmp(hid, "AMD0004") ||
+						 !strcmp(hid, "AMD0005") ||
+						 !strcmp(hid, "AMDI0005"))) {
+			lps0_dsm_func_mask = (lps0_dsm_func_mask << 1) | 0x1;
+			acpi_handle_debug(adev->handle, "_DSM UUID %s: Adjusted function mask: 0x%x\n",
+					  ACPI_LPS0_DSM_UUID_AMD, lps0_dsm_func_mask);
+		} else if (lps0_dsm_func_mask_microsoft > 0 && !strcmp(hid, "AMDI0007")) {
+			lps0_dsm_func_mask_microsoft = -EINVAL;
+			acpi_handle_debug(adev->handle, "_DSM Using AMD method\n");
+		}
 	} else {
-		guid_parse(ACPI_LPS0_DSM_UUID, &lps0_dsm_guid);
-		out_obj = acpi_evaluate_dsm(adev->handle, &lps0_dsm_guid, 1, 0, NULL);
 		rev_id = 1;
+		lps0_dsm_func_mask = validate_dsm(adev->handle,
+					ACPI_LPS0_DSM_UUID, rev_id, &lps0_dsm_guid);
+		lps0_dsm_func_mask_microsoft = -EINVAL;
 	}
 
-	/* Check if the _DSM is present and as expected. */
-	if (!out_obj || out_obj->type != ACPI_TYPE_BUFFER) {
-		acpi_handle_debug(adev->handle,
-				  "_DSM function 0 evaluation failed\n");
-		return 0;
-	}
-
-	lps0_dsm_func_mask = *(char *)out_obj->buffer.pointer;
-
-	ACPI_FREE(out_obj);
-
-	acpi_handle_debug(adev->handle, "_DSM function mask: 0x%x\n",
-			  lps0_dsm_func_mask);
+	if (lps0_dsm_func_mask < 0 && lps0_dsm_func_mask_microsoft < 0)
+		return 0; //function evaluation failed
 
 	lps0_device_handle = adev->handle;
 
@@ -400,17 +442,42 @@ static struct acpi_scan_handler lps0_handler = {
 
 int acpi_s2idle_prepare_late(void)
 {
+	struct acpi_s2idle_dev_ops *handler;
+
 	if (!lps0_device_handle || sleep_no_lps0)
 		return 0;
 
 	if (pm_debug_messages_on)
 		lpi_check_constraints();
 
-	if (acpi_s2idle_vendor_amd()) {
-		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_OFF_AMD);
-	} else {
-		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_OFF);
-		acpi_sleep_run_lps0_dsm(ACPI_LPS0_ENTRY);
+	/* Screen off */
+	if (lps0_dsm_func_mask > 0)
+		acpi_sleep_run_lps0_dsm(acpi_s2idle_vendor_amd() ?
+					ACPI_LPS0_SCREEN_OFF_AMD :
+					ACPI_LPS0_SCREEN_OFF,
+					lps0_dsm_func_mask, lps0_dsm_guid);
+
+	if (lps0_dsm_func_mask_microsoft > 0)
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_OFF,
+				lps0_dsm_func_mask_microsoft, lps0_dsm_guid_microsoft);
+
+	/* LPS0 entry */
+	if (lps0_dsm_func_mask > 0)
+		acpi_sleep_run_lps0_dsm(acpi_s2idle_vendor_amd() ?
+					ACPI_LPS0_ENTRY_AMD :
+					ACPI_LPS0_ENTRY,
+					lps0_dsm_func_mask, lps0_dsm_guid);
+	if (lps0_dsm_func_mask_microsoft > 0) {
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_ENTRY,
+				lps0_dsm_func_mask_microsoft, lps0_dsm_guid_microsoft);
+		/* modern standby entry */
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_MS_ENTRY,
+				lps0_dsm_func_mask_microsoft, lps0_dsm_guid_microsoft);
+	}
+
+	list_for_each_entry(handler, &lps0_s2idle_devops_head, list_node) {
+		if (handler->prepare)
+			handler->prepare();
 	}
 
 	return 0;
@@ -418,15 +485,39 @@ int acpi_s2idle_prepare_late(void)
 
 void acpi_s2idle_restore_early(void)
 {
+	struct acpi_s2idle_dev_ops *handler;
+
 	if (!lps0_device_handle || sleep_no_lps0)
 		return;
 
-	if (acpi_s2idle_vendor_amd()) {
-		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_ON_AMD);
-	} else {
-		acpi_sleep_run_lps0_dsm(ACPI_LPS0_EXIT);
-		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_ON);
-	}
+	list_for_each_entry(handler, &lps0_s2idle_devops_head, list_node)
+		if (handler->restore)
+			handler->restore();
+
+	/* Modern standby exit */
+	if (lps0_dsm_func_mask_microsoft > 0)
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_MS_EXIT,
+				lps0_dsm_func_mask_microsoft, lps0_dsm_guid_microsoft);
+
+	/* LPS0 exit */
+	if (lps0_dsm_func_mask > 0)
+		acpi_sleep_run_lps0_dsm(acpi_s2idle_vendor_amd() ?
+					ACPI_LPS0_EXIT_AMD :
+					ACPI_LPS0_EXIT,
+					lps0_dsm_func_mask, lps0_dsm_guid);
+	if (lps0_dsm_func_mask_microsoft > 0)
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_EXIT,
+				lps0_dsm_func_mask_microsoft, lps0_dsm_guid_microsoft);
+
+	/* Screen on */
+	if (lps0_dsm_func_mask_microsoft > 0)
+		acpi_sleep_run_lps0_dsm(ACPI_LPS0_SCREEN_ON,
+				lps0_dsm_func_mask_microsoft, lps0_dsm_guid_microsoft);
+	if (lps0_dsm_func_mask > 0)
+		acpi_sleep_run_lps0_dsm(acpi_s2idle_vendor_amd() ?
+					ACPI_LPS0_SCREEN_ON_AMD :
+					ACPI_LPS0_SCREEN_ON,
+					lps0_dsm_func_mask, lps0_dsm_guid);
 }
 
 static const struct platform_s2idle_ops acpi_s2idle_ops_lps0 = {
@@ -444,5 +535,29 @@ void acpi_s2idle_setup(void)
 	acpi_scan_add_handler(&lps0_handler);
 	s2idle_set_ops(&acpi_s2idle_ops_lps0);
 }
+
+int acpi_register_lps0_dev(struct acpi_s2idle_dev_ops *arg)
+{
+	if (!lps0_device_handle || sleep_no_lps0)
+		return -ENODEV;
+
+	lock_system_sleep();
+	list_add(&arg->list_node, &lps0_s2idle_devops_head);
+	unlock_system_sleep();
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(acpi_register_lps0_dev);
+
+void acpi_unregister_lps0_dev(struct acpi_s2idle_dev_ops *arg)
+{
+	if (!lps0_device_handle || sleep_no_lps0)
+		return;
+
+	lock_system_sleep();
+	list_del(&arg->list_node);
+	unlock_system_sleep();
+}
+EXPORT_SYMBOL_GPL(acpi_unregister_lps0_dev);
 
 #endif /* CONFIG_SUSPEND */

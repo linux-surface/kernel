@@ -40,7 +40,7 @@ See events.rst for more information.
 Implementation Details
 ----------------------
 
-See :doc:`ftrace-design` for details for arch porters and such.
+See Documentation/trace/ftrace-design.rst for details for arch porters and such.
 
 
 The File System
@@ -354,8 +354,8 @@ of ftrace. Here is a list of some of the key files:
 	is being directly called by the function. If the count is greater
 	than 1 it most likely will be ftrace_ops_list_func().
 
-	If the callback of the function jumps to a trampoline that is
-	specific to a the callback and not the standard trampoline,
+	If the callback of a function jumps to a trampoline that is
+	specific to the callback and which is not the standard trampoline,
 	its address will be printed as well as the function that the
 	trampoline calls.
 
@@ -2442,11 +2442,10 @@ Or this simple script!
   #!/bin/bash
 
   tracefs=`sed -ne 's/^tracefs \(.*\) tracefs.*/\1/p' /proc/mounts`
-  echo nop > $tracefs/tracing/current_tracer
-  echo 0 > $tracefs/tracing/tracing_on
-  echo $$ > $tracefs/tracing/set_ftrace_pid
-  echo function > $tracefs/tracing/current_tracer
-  echo 1 > $tracefs/tracing/tracing_on
+  echo 0 > $tracefs/tracing_on
+  echo $$ > $tracefs/set_ftrace_pid
+  echo function > $tracefs/current_tracer
+  echo 1 > $tracefs/tracing_on
   exec "$@"
 
 
@@ -2762,7 +2761,7 @@ listed in:
   put_prev_task_idle
   kmem_cache_create
   pick_next_task_rt
-  get_online_cpus
+  cpus_read_lock
   pick_next_task_fair
   mutex_lock
   [...]
@@ -3371,7 +3370,7 @@ one of the latency tracers, you will get the following results.
 
 Instances
 ---------
-In the tracefs tracing directory is a directory called "instances".
+In the tracefs tracing directory, there is a directory called "instances".
 This directory can have new directories created inside of it using
 mkdir, and removing directories with rmdir. The directory created
 with mkdir in this directory will already contain files and other

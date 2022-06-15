@@ -277,7 +277,8 @@ void __init efi_arch_mem_reserve(phys_addr_t addr, u64 size)
 		return;
 	}
 
-	new = early_memremap(data.phys_map, data.size);
+	new = early_memremap_prot(data.phys_map, data.size,
+				  pgprot_val(pgprot_encrypted(FIXMAP_PAGE_NORMAL)));
 	if (!new) {
 		pr_err("Failed to map new boot services memmap\n");
 		return;
@@ -441,13 +442,25 @@ void __init efi_free_boot_services(void)
 		 * 1.4.4 with SGX enabled booting Linux via Fedora 24's
 		 * grub2-efi on a hard disk.  (And no, I don't know why
 		 * this happened, but Linux should still try to boot rather
-		 * panicing early.)
+		 * panicking early.)
 		 */
 		rm_size = real_mode_size_needed();
 		if (rm_size && (start + rm_size) < (1<<20) && size >= rm_size) {
 			set_real_mode_mem(start);
 			start += rm_size;
 			size -= rm_size;
+		}
+
+		/*
+		 * Don't free memory under 1M for two reasons:
+		 * - BIOS might clobber it
+		 * - Crash kernel needs it to be reserved
+		 */
+		if (start + size < SZ_1M)
+			continue;
+		if (start < SZ_1M) {
+			size -= (SZ_1M - start);
+			start = SZ_1M;
 		}
 
 		memblock_free_late(start, size);
@@ -726,7 +739,7 @@ void efi_crash_gracefully_on_page_fault(unsigned long phys_addr)
 	 * Buggy efi_reset_system() is handled differently from other EFI
 	 * Runtime Services as it doesn't use efi_rts_wq. Although,
 	 * native_machine_emergency_restart() says that machine_real_restart()
-	 * could fail, it's better not to compilcate this fault handler
+	 * could fail, it's better not to complicate this fault handler
 	 * because this case occurs *very* rarely and hence could be improved
 	 * on a need by basis.
 	 */

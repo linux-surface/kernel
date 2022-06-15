@@ -24,8 +24,11 @@ function check {
     local code=$1
     local str=$2
     local exp_str=$3
+    local exp_fail=$4
 
-    if [ $code -ne 0 ]; then
+    [ -z "$exp_fail" ] && cop="-ne" || cop="-eq"
+
+    if [ $code $cop 0 ]; then
 	((num_errors++))
 	return
     fi
@@ -47,7 +50,7 @@ function make_netdev {
 	modprobe netdevsim
     fi
 
-    echo $NSIM_ID > /sys/bus/netdevsim/new_device
+    echo $NSIM_ID $@ > /sys/bus/netdevsim/new_device
     # get new device name
     ls /sys/bus/netdevsim/devices/netdevsim${NSIM_ID}/net/
 }

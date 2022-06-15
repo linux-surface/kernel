@@ -8,6 +8,7 @@
  */
 
 #include <linux/linkage.h>
+#include <asm/assembler.h>
 
 	// Registers used to hold message words temporarily.  There aren't
 	// enough ARM registers to hold the whole message block, so we have to
@@ -36,6 +37,23 @@
 	str		\a, [\dst, #\offset]
 	str		\b, [\dst, #\offset + 4]
 #endif
+.endm
+
+.macro _le32_bswap	a, tmp
+#ifdef __ARMEB__
+	rev_l		\a, \tmp
+#endif
+.endm
+
+.macro _le32_bswap_8x	a, b, c, d, e, f, g, h,  tmp
+	_le32_bswap	\a, \tmp
+	_le32_bswap	\b, \tmp
+	_le32_bswap	\c, \tmp
+	_le32_bswap	\d, \tmp
+	_le32_bswap	\e, \tmp
+	_le32_bswap	\f, \tmp
+	_le32_bswap	\g, \tmp
+	_le32_bswap	\h, \tmp
 .endm
 
 // Execute a quarter-round of BLAKE2s by mixing two columns or two diagonals.
@@ -149,8 +167,8 @@
 .endm
 
 //
-// void blake2s_compress_arch(struct blake2s_state *state,
-//			      const u8 *block, size_t nblocks, u32 inc);
+// void blake2s_compress(struct blake2s_state *state,
+//			 const u8 *block, size_t nblocks, u32 inc);
 //
 // Only the first three fields of struct blake2s_state are used:
 //	u32 h[8];	(inout)
@@ -158,7 +176,7 @@
 //	u32 f[2];	(in)
 //
 	.align		5
-ENTRY(blake2s_compress_arch)
+ENTRY(blake2s_compress)
 	push		{r0-r2,r4-r11,lr}	// keep this an even number
 
 .Lnext_block:
@@ -180,8 +198,10 @@ ENTRY(blake2s_compress_arch)
 	tst		r1, #3
 	bne		.Lcopy_block_misaligned
 	ldmia		r1!, {r2-r9}
+	_le32_bswap_8x	r2, r3, r4, r5, r6, r7, r8, r9,  r14
 	stmia		r12!, {r2-r9}
 	ldmia		r1!, {r2-r9}
+	_le32_bswap_8x	r2, r3, r4, r5, r6, r7, r8, r9,  r14
 	stmia		r12, {r2-r9}
 .Lcopy_block_done:
 	str		r1, [sp, #68]		// Update message pointer
@@ -268,6 +288,7 @@ ENTRY(blake2s_compress_arch)
 1:
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
 	ldr		r3, [r1], #4
+	_le32_bswap	r3, r4
 #else
 	ldrb		r3, [r1, #0]
 	ldrb		r4, [r1, #1]
@@ -282,4 +303,4 @@ ENTRY(blake2s_compress_arch)
 	str		r3, [r12], #4
 	bne		1b
 	b		.Lcopy_block_done
-ENDPROC(blake2s_compress_arch)
+ENDPROC(blake2s_compress)

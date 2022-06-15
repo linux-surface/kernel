@@ -103,8 +103,9 @@ void sctp_packet_config(struct sctp_packet *packet, __u32 vtag,
 		sctp_transport_route(tp, NULL, sp);
 		if (asoc->param_flags & SPP_PMTUD_ENABLE)
 			sctp_assoc_sync_pmtu(asoc);
-	} else if (!sctp_transport_pmtu_check(tp)) {
-		if (asoc->param_flags & SPP_PMTUD_ENABLE)
+	} else if (!sctp_transport_pl_enabled(tp) &&
+		   asoc->param_flags & SPP_PMTUD_ENABLE) {
+		if (!sctp_transport_pmtu_check(tp))
 			sctp_assoc_sync_pmtu(asoc);
 	}
 
@@ -133,7 +134,7 @@ void sctp_packet_config(struct sctp_packet *packet, __u32 vtag,
 		dst_hold(tp->dst);
 		sk_setup_caps(sk, tp->dst);
 	}
-	packet->max_size = sk_can_gso(sk) ? tp->dst->dev->gso_max_size
+	packet->max_size = sk_can_gso(sk) ? READ_ONCE(tp->dst->dev->gso_max_size)
 					  : asoc->pathmtu;
 	rcu_read_unlock();
 }
@@ -209,6 +210,30 @@ enum sctp_xmit sctp_packet_transmit_chunk(struct sctp_packet *packet,
 	}
 
 	return retval;
+}
+
+/* Try to bundle a pad chunk into a packet with a heartbeat chunk for PLPMTUTD probe */
+static enum sctp_xmit sctp_packet_bundle_pad(struct sctp_packet *pkt, struct sctp_chunk *chunk)
+{
+	struct sctp_transport *t = pkt->transport;
+	struct sctp_chunk *pad;
+	int overhead = 0;
+
+	if (!chunk->pmtu_probe)
+		return SCTP_XMIT_OK;
+
+	/* calculate the Padding Data size for the pad chunk */
+	overhead += sizeof(struct sctphdr) + sizeof(struct sctp_chunkhdr);
+	overhead += sizeof(struct sctp_sender_hb_info) + sizeof(struct sctp_pad_chunk);
+	pad = sctp_make_pad(t->asoc, t->pl.probe_size - overhead);
+	if (!pad)
+		return SCTP_XMIT_DELAY;
+
+	list_add_tail(&pad->list, &pkt->chunk_list);
+	pkt->size += SCTP_PAD4(ntohs(pad->chunk_hdr->length));
+	chunk->transport = t;
+
+	return SCTP_XMIT_OK;
 }
 
 /* Try to bundle an auth chunk into the packet. */
@@ -382,6 +407,10 @@ enum sctp_xmit sctp_packet_append_chunk(struct sctp_packet *packet,
 		goto finish;
 
 	retval = __sctp_packet_append_chunk(packet, chunk);
+	if (retval != SCTP_XMIT_OK)
+		goto finish;
+
+	retval = sctp_packet_bundle_pad(packet, chunk);
 
 finish:
 	return retval;
@@ -552,13 +581,16 @@ int sctp_packet_transmit(struct sctp_packet *packet, gfp_t gfp)
 	chunk = list_entry(packet->chunk_list.next, struct sctp_chunk, list);
 	sk = chunk->skb->sk;
 
-	/* check gso */
-	if (packet->size > tp->pathmtu && !packet->ipfragok) {
-		if (!sk_can_gso(sk)) {
-			pr_err_once("Trying to GSO but underlying device doesn't support it.");
-			goto out;
+	if (packet->size > tp->pathmtu && !packet->ipfragok && !chunk->pmtu_probe) {
+		if (tp->pl.state == SCTP_PL_ERROR) { /* do IP fragmentation if in Error state */
+			packet->ipfragok = 1;
+		} else {
+			if (!sk_can_gso(sk)) { /* check gso */
+				pr_err_once("Trying to GSO but underlying device doesn't support it.");
+				goto out;
+			}
+			gso = 1;
 		}
-		gso = 1;
 	}
 
 	/* alloc head skb */
@@ -583,13 +615,6 @@ int sctp_packet_transmit(struct sctp_packet *packet, gfp_t gfp)
 		kfree_skb(head);
 		goto out;
 	}
-
-	rcu_read_lock();
-	if (__sk_dst_get(sk) != tp->dst) {
-		dst_hold(tp->dst);
-		sk_setup_caps(sk, tp->dst);
-	}
-	rcu_read_unlock();
 
 	/* pack up chunks */
 	pkt_count = sctp_packet_pack(packet, head, gso, gfp);

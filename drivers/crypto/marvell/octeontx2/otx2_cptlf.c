@@ -56,7 +56,7 @@ static int cptlf_set_pri(struct otx2_cptlf_info *lf, int pri)
 
 	ret = otx2_cpt_read_af_reg(lfs->mbox, lfs->pdev,
 				   CPT_AF_LFX_CTL(lf->slot),
-				   &lf_ctrl.u);
+				   &lf_ctrl.u, lfs->blkaddr);
 	if (ret)
 		return ret;
 
@@ -64,7 +64,7 @@ static int cptlf_set_pri(struct otx2_cptlf_info *lf, int pri)
 
 	ret = otx2_cpt_write_af_reg(lfs->mbox, lfs->pdev,
 				    CPT_AF_LFX_CTL(lf->slot),
-				    lf_ctrl.u);
+				    lf_ctrl.u, lfs->blkaddr);
 	return ret;
 }
 
@@ -77,7 +77,7 @@ static int cptlf_set_eng_grps_mask(struct otx2_cptlf_info *lf,
 
 	ret = otx2_cpt_read_af_reg(lfs->mbox, lfs->pdev,
 				   CPT_AF_LFX_CTL(lf->slot),
-				   &lf_ctrl.u);
+				   &lf_ctrl.u, lfs->blkaddr);
 	if (ret)
 		return ret;
 
@@ -85,7 +85,7 @@ static int cptlf_set_eng_grps_mask(struct otx2_cptlf_info *lf,
 
 	ret = otx2_cpt_write_af_reg(lfs->mbox, lfs->pdev,
 				    CPT_AF_LFX_CTL(lf->slot),
-				    lf_ctrl.u);
+				    lf_ctrl.u, lfs->blkaddr);
 	return ret;
 }
 
@@ -379,9 +379,14 @@ int otx2_cptlf_init(struct otx2_cptlfs_info *lfs, u8 eng_grp_mask, int pri,
 	for (slot = 0; slot < lfs->lfs_num; slot++) {
 		lfs->lf[slot].lfs = lfs;
 		lfs->lf[slot].slot = slot;
-		lfs->lf[slot].lmtline = lfs->reg_base +
-			OTX2_CPT_RVU_FUNC_ADDR_S(BLKADDR_LMT, slot,
+		if (lfs->lmt_base)
+			lfs->lf[slot].lmtline = lfs->lmt_base +
+						(slot * LMTLINE_SIZE);
+		else
+			lfs->lf[slot].lmtline = lfs->reg_base +
+				OTX2_CPT_RVU_FUNC_ADDR_S(BLKADDR_LMT, slot,
 						 OTX2_CPT_LMT_LF_LMTLINEX(0));
+
 		lfs->lf[slot].ioreg = lfs->reg_base +
 			OTX2_CPT_RVU_FUNC_ADDR_S(BLKADDR_CPT0, slot,
 						 OTX2_CPT_LF_NQX(0));

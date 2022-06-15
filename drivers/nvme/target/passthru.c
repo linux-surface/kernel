@@ -20,6 +20,16 @@ MODULE_IMPORT_NS(NVME_TARGET_PASSTHRU);
  */
 static DEFINE_XARRAY(passthru_subsystems);
 
+void nvmet_passthrough_override_cap(struct nvmet_ctrl *ctrl)
+{
+	/*
+	 * Multiple command set support can only be declared if the underlying
+	 * controller actually supports it.
+	 */
+	if (!nvme_multi_css(ctrl->subsys->passthru_ctrl))
+		ctrl->cap &= ~(1ULL << 43);
+}
+
 static u16 nvmet_passthru_override_id_ctrl(struct nvmet_req *req)
 {
 	struct nvmet_ctrl *ctrl = req->sq->ctrl;
@@ -153,11 +163,10 @@ static void nvmet_passthru_execute_cmd_work(struct work_struct *w)
 {
 	struct nvmet_req *req = container_of(w, struct nvmet_req, p.work);
 	struct request *rq = req->p.rq;
-	u16 status;
+	int status;
 
-	nvme_execute_passthru_rq(rq);
+	status = nvme_execute_passthru_rq(rq);
 
-	status = nvme_req(rq)->status;
 	if (status == NVME_SC_SUCCESS &&
 	    req->cmd->common.opcode == nvme_admin_identify) {
 		switch (req->cmd->identify.cns) {
@@ -168,7 +177,8 @@ static void nvmet_passthru_execute_cmd_work(struct work_struct *w)
 			nvmet_passthru_override_id_ns(req);
 			break;
 		}
-	}
+	} else if (status < 0)
+		status = NVME_SC_INTERNAL;
 
 	req->cqe->result = nvme_req(rq)->result;
 	nvmet_req_complete(req, status);
@@ -194,20 +204,20 @@ static int nvmet_passthru_map_sg(struct nvmet_req *req, struct request *rq)
 	if (req->sg_cnt > BIO_MAX_VECS)
 		return -EINVAL;
 
-	if (req->transfer_len <= NVMET_MAX_INLINE_DATA_LEN) {
+	if (nvmet_use_inline_bvec(req)) {
 		bio = &req->p.inline_bio;
-		bio_init(bio, req->inline_bvec, ARRAY_SIZE(req->inline_bvec));
+		bio_init(bio, NULL, req->inline_bvec,
+			 ARRAY_SIZE(req->inline_bvec), req_op(rq));
 	} else {
-		bio = bio_alloc(GFP_KERNEL, bio_max_segs(req->sg_cnt));
+		bio = bio_alloc(NULL, bio_max_segs(req->sg_cnt), req_op(rq),
+				GFP_KERNEL);
 		bio->bi_end_io = bio_put;
 	}
-	bio->bi_opf = req_op(rq);
 
 	for_each_sg(req->sg, sg, req->sg_cnt, i) {
 		if (bio_add_pc_page(rq->q, bio, sg_page(sg), sg->length,
 				    sg->offset) < sg->length) {
-			if (bio != &req->p.inline_bio)
-				bio_put(bio);
+			nvmet_req_bio_put(req, bio);
 			return -EINVAL;
 		}
 	}
@@ -219,7 +229,7 @@ static int nvmet_passthru_map_sg(struct nvmet_req *req, struct request *rq)
 
 static void nvmet_passthru_execute_cmd(struct nvmet_req *req)
 {
-	struct nvme_ctrl *ctrl = nvmet_req_passthru_ctrl(req);
+	struct nvme_ctrl *ctrl = nvmet_req_subsys(req)->passthru_ctrl;
 	struct request_queue *q = ctrl->admin_q;
 	struct nvme_ns *ns = NULL;
 	struct request *rq = NULL;
@@ -244,11 +254,12 @@ static void nvmet_passthru_execute_cmd(struct nvmet_req *req)
 		timeout = nvmet_req_subsys(req)->admin_timeout;
 	}
 
-	rq = nvme_alloc_request(q, req->cmd, 0);
+	rq = blk_mq_alloc_request(q, nvme_req_op(req->cmd), 0);
 	if (IS_ERR(rq)) {
 		status = NVME_SC_INTERNAL;
 		goto out_put_ns;
 	}
+	nvme_init_request(rq, req->cmd);
 
 	if (timeout)
 		rq->timeout = timeout;
@@ -272,11 +283,10 @@ static void nvmet_passthru_execute_cmd(struct nvmet_req *req)
 	if (req->p.use_workqueue || effects) {
 		INIT_WORK(&req->p.work, nvmet_passthru_execute_cmd_work);
 		req->p.rq = rq;
-		schedule_work(&req->p.work);
+		queue_work(nvmet_wq, &req->p.work);
 	} else {
 		rq->end_io_data = req;
-		blk_execute_rq_nowait(ns ? ns->disk : NULL, rq, 0,
-				      nvmet_passthru_req_done);
+		blk_execute_rq_nowait(rq, false, nvmet_passthru_req_done);
 	}
 
 	if (ns)
@@ -300,7 +310,7 @@ out:
  */
 static void nvmet_passthru_set_host_behaviour(struct nvmet_req *req)
 {
-	struct nvme_ctrl *ctrl = nvmet_req_passthru_ctrl(req);
+	struct nvme_ctrl *ctrl = nvmet_req_subsys(req)->passthru_ctrl;
 	struct nvme_feat_host_behavior *host;
 	u16 status = NVME_SC_INTERNAL;
 	int ret;

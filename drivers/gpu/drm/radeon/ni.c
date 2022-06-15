@@ -2323,8 +2323,8 @@ int cayman_suspend(struct radeon_device *rdev)
 	cayman_cp_enable(rdev, false);
 	cayman_dma_stop(rdev);
 	if (rdev->has_uvd) {
-		uvd_v1_0_fini(rdev);
 		radeon_uvd_suspend(rdev);
+		uvd_v1_0_fini(rdev);
 	}
 	evergreen_irq_suspend(rdev);
 	radeon_wb_disable(rdev);
@@ -2375,9 +2375,7 @@ int cayman_init(struct radeon_device *rdev)
 	/* Initialize clocks */
 	radeon_get_clock_info(rdev->ddev);
 	/* Fence driver */
-	r = radeon_fence_driver_init(rdev);
-	if (r)
-		return r;
+	radeon_fence_driver_init(rdev);
 	/* initialize memory controller */
 	r = evergreen_mc_init(rdev);
 	if (r)

@@ -39,6 +39,9 @@ mlxsw_sp_fib_entry_op_ctx_clear(struct mlxsw_sp_fib_entry_op_ctx *op_ctx)
 struct mlxsw_sp_router {
 	struct mlxsw_sp *mlxsw_sp;
 	struct mlxsw_sp_rif **rifs;
+	struct idr rif_mac_profiles_idr;
+	atomic_t rif_mac_profiles_count;
+	u8 max_rif_mac_profile;
 	struct mlxsw_sp_vr *vrs;
 	struct rhashtable neigh_ht;
 	struct rhashtable nexthop_group_ht;
@@ -58,7 +61,6 @@ struct mlxsw_sp_router {
 #define MLXSW_SP_UNRESOLVED_NH_PROBE_INTERVAL 5000 /* ms */
 	struct list_head nexthop_neighs_list;
 	struct list_head ipip_list;
-	bool aborted;
 	struct notifier_block nexthop_nb;
 	struct notifier_block fib_nb;
 	struct notifier_block netevent_nb;
@@ -66,8 +68,6 @@ struct mlxsw_sp_router {
 	struct notifier_block inet6addr_nb;
 	const struct mlxsw_sp_rif_ops **rif_ops_arr;
 	const struct mlxsw_sp_ipip_ops **ipip_ops_arr;
-	u32 adj_discard_index;
-	bool adj_discard_index_valid;
 	struct mlxsw_sp_router_nve_decap nve_decap_config;
 	struct mutex lock; /* Protects shared router resources */
 	struct work_struct fib_event_work;
@@ -78,6 +78,13 @@ struct mlxsw_sp_router {
 	struct mlxsw_sp_fib_entry_op_ctx *ll_op_ctx;
 	u16 lb_rif_index;
 	struct mlxsw_sp_router_xm *xm;
+	const struct mlxsw_sp_adj_grp_size_range *adj_grp_size_ranges;
+	size_t adj_grp_size_ranges_count;
+	struct delayed_work nh_grp_activity_dw;
+	struct list_head nh_res_grp_list;
+	bool inc_parsing_depth;
+	refcount_t num_groups;
+	u32 adj_trap_index;
 };
 
 struct mlxsw_sp_fib_entry_priv {
@@ -152,11 +159,9 @@ int mlxsw_sp_rif_counter_value_get(struct mlxsw_sp *mlxsw_sp,
 				   struct mlxsw_sp_rif *rif,
 				   enum mlxsw_sp_rif_counter_dir dir,
 				   u64 *cnt);
-void mlxsw_sp_rif_counter_free(struct mlxsw_sp *mlxsw_sp,
-			       struct mlxsw_sp_rif *rif,
+void mlxsw_sp_rif_counter_free(struct mlxsw_sp_rif *rif,
 			       enum mlxsw_sp_rif_counter_dir dir);
-int mlxsw_sp_rif_counter_alloc(struct mlxsw_sp *mlxsw_sp,
-			       struct mlxsw_sp_rif *rif,
+int mlxsw_sp_rif_counter_alloc(struct mlxsw_sp_rif *rif,
 			       enum mlxsw_sp_rif_counter_dir dir);
 struct mlxsw_sp_neigh_entry *
 mlxsw_sp_rif_neigh_next(struct mlxsw_sp_rif *rif,
@@ -195,20 +200,20 @@ mlxsw_sp_ipip_demote_tunnel_by_saddr(struct mlxsw_sp *mlxsw_sp,
 				     const struct mlxsw_sp_ipip_entry *except);
 struct mlxsw_sp_nexthop *mlxsw_sp_nexthop_next(struct mlxsw_sp_router *router,
 					       struct mlxsw_sp_nexthop *nh);
-bool mlxsw_sp_nexthop_offload(struct mlxsw_sp_nexthop *nh);
+bool mlxsw_sp_nexthop_is_forward(const struct mlxsw_sp_nexthop *nh);
 unsigned char *mlxsw_sp_nexthop_ha(struct mlxsw_sp_nexthop *nh);
 int mlxsw_sp_nexthop_indexes(struct mlxsw_sp_nexthop *nh, u32 *p_adj_index,
 			     u32 *p_adj_size, u32 *p_adj_hash_index);
 struct mlxsw_sp_rif *mlxsw_sp_nexthop_rif(struct mlxsw_sp_nexthop *nh);
 bool mlxsw_sp_nexthop_group_has_ipip(struct mlxsw_sp_nexthop *nh);
-bool mlxsw_sp_nexthop_is_discard(const struct mlxsw_sp_nexthop *nh);
 #define mlxsw_sp_nexthop_for_each(nh, router)				\
 	for (nh = mlxsw_sp_nexthop_next(router, NULL); nh;		\
 	     nh = mlxsw_sp_nexthop_next(router, nh))
 int mlxsw_sp_nexthop_counter_get(struct mlxsw_sp *mlxsw_sp,
 				 struct mlxsw_sp_nexthop *nh, u64 *p_counter);
-int mlxsw_sp_nexthop_update(struct mlxsw_sp *mlxsw_sp, u32 adj_index,
-			    struct mlxsw_sp_nexthop *nh);
+int mlxsw_sp_nexthop_eth_update(struct mlxsw_sp *mlxsw_sp, u32 adj_index,
+				struct mlxsw_sp_nexthop *nh, bool force,
+				char *ratr_pl);
 void mlxsw_sp_nexthop_counter_alloc(struct mlxsw_sp *mlxsw_sp,
 				    struct mlxsw_sp_nexthop *nh);
 void mlxsw_sp_nexthop_counter_free(struct mlxsw_sp *mlxsw_sp,
@@ -222,6 +227,8 @@ static inline bool mlxsw_sp_l3addr_eq(const union mlxsw_sp_l3addr *addr1,
 
 int mlxsw_sp_ipip_ecn_encap_init(struct mlxsw_sp *mlxsw_sp);
 int mlxsw_sp_ipip_ecn_decap_init(struct mlxsw_sp *mlxsw_sp);
+struct net_device *
+mlxsw_sp_ipip_netdev_ul_dev_get(const struct net_device *ol_dev);
 
 extern const struct mlxsw_sp_router_ll_ops mlxsw_sp_router_ll_xm_ops;
 

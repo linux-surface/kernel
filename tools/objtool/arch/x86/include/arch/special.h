@@ -9,8 +9,9 @@
 #define JUMP_ENTRY_SIZE		16
 #define JUMP_ORIG_OFFSET	0
 #define JUMP_NEW_OFFSET		4
+#define JUMP_KEY_OFFSET		8
 
-#define ALT_ENTRY_SIZE		13
+#define ALT_ENTRY_SIZE		12
 #define ALT_ORIG_OFFSET		0
 #define ALT_NEW_OFFSET		4
 #define ALT_FEATURE_OFFSET	8

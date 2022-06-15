@@ -11,6 +11,7 @@
 #include <linux/kmod.h>
 #include <linux/sched.h>
 #include <linux/debugfs.h>
+#include <linux/devfreq_cooling.h>
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -26,6 +27,7 @@
 #include <linux/hrtimer.h>
 #include <linux/of.h>
 #include <linux/pm_qos.h>
+#include <linux/units.h>
 #include "governor.h"
 
 #define CREATE_TRACE_POINTS
@@ -33,7 +35,6 @@
 
 #define IS_SUPPORTED_FLAG(f, name) ((f & DEVFREQ_GOV_FLAG_##name) ? true : false)
 #define IS_SUPPORTED_ATTR(f, name) ((f & DEVFREQ_GOV_ATTR_##name) ? true : false)
-#define HZ_PER_KHZ	1000
 
 static struct class *devfreq_class;
 static struct dentry *devfreq_debugfs;
@@ -381,13 +382,13 @@ static int devfreq_set_target(struct devfreq *devfreq, unsigned long new_freq,
 	devfreq_notify_transition(devfreq, &freqs, DEVFREQ_POSTCHANGE);
 
 	if (devfreq_update_status(devfreq, new_freq))
-		dev_err(&devfreq->dev,
-			"Couldn't update frequency transition information.\n");
+		dev_warn(&devfreq->dev,
+			 "Couldn't update frequency transition information.\n");
 
 	devfreq->previous_freq = new_freq;
 
 	if (devfreq->suspend_freq)
-		devfreq->resume_freq = cur_freq;
+		devfreq->resume_freq = new_freq;
 
 	return err;
 }
@@ -821,10 +822,12 @@ struct devfreq *devfreq_add_device(struct device *dev,
 
 	if (devfreq->profile->timer < 0
 		|| devfreq->profile->timer >= DEVFREQ_TIMER_NUM) {
-		goto err_out;
+		mutex_unlock(&devfreq->lock);
+		err = -EINVAL;
+		goto err_dev;
 	}
 
-	if (!devfreq->profile->max_state && !devfreq->profile->freq_table) {
+	if (!devfreq->profile->max_state || !devfreq->profile->freq_table) {
 		mutex_unlock(&devfreq->lock);
 		err = set_freq_table(devfreq);
 		if (err < 0)
@@ -935,6 +938,12 @@ struct devfreq *devfreq_add_device(struct device *dev,
 
 	mutex_unlock(&devfreq_list_lock);
 
+	if (devfreq->profile->is_cooling_device) {
+		devfreq->cdev = devfreq_cooling_em_register(devfreq, NULL);
+		if (IS_ERR(devfreq->cdev))
+			devfreq->cdev = NULL;
+	}
+
 	return devfreq;
 
 err_init:
@@ -959,6 +968,8 @@ int devfreq_remove_device(struct devfreq *devfreq)
 {
 	if (!devfreq)
 		return -EINVAL;
+
+	devfreq_cooling_unregister(devfreq->cdev);
 
 	if (devfreq->governor) {
 		devfreq->governor->event_handler(devfreq,
@@ -1289,6 +1300,32 @@ err_out:
 	return err;
 }
 EXPORT_SYMBOL(devfreq_add_governor);
+
+static void devm_devfreq_remove_governor(void *governor)
+{
+	WARN_ON(devfreq_remove_governor(governor));
+}
+
+/**
+ * devm_devfreq_add_governor() - Add devfreq governor
+ * @dev:	device which adds devfreq governor
+ * @governor:	the devfreq governor to be added
+ *
+ * This is a resource-managed variant of devfreq_add_governor().
+ */
+int devm_devfreq_add_governor(struct device *dev,
+			      struct devfreq_governor *governor)
+{
+	int err;
+
+	err = devfreq_add_governor(governor);
+	if (err)
+		return err;
+
+	return devm_add_action_or_reset(dev, devm_devfreq_remove_governor,
+					governor);
+}
+EXPORT_SYMBOL(devm_devfreq_add_governor);
 
 /**
  * devfreq_remove_governor() - Remove devfreq feature from a device.

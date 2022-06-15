@@ -686,7 +686,7 @@ static void cdnsp_free_priv_device(struct cdnsp_device *pdev)
 
 static int cdnsp_alloc_priv_device(struct cdnsp_device *pdev)
 {
-	int ret = -ENOMEM;
+	int ret;
 
 	ret = cdnsp_init_device_ctx(pdev);
 	if (ret)
@@ -882,7 +882,7 @@ static u32 cdnsp_get_endpoint_max_burst(struct usb_gadget *g,
 	if (g->speed == USB_SPEED_HIGH &&
 	    (usb_endpoint_xfer_isoc(pep->endpoint.desc) ||
 	     usb_endpoint_xfer_int(pep->endpoint.desc)))
-		return (usb_endpoint_maxp(pep->endpoint.desc) & 0x1800) >> 11;
+		return usb_endpoint_maxp_mult(pep->endpoint.desc) - 1;
 
 	return 0;
 }
@@ -987,6 +987,9 @@ int cdnsp_endpoint_init(struct cdnsp_device *pdev,
 
 	/* Set up the endpoint ring. */
 	pep->ring = cdnsp_ring_alloc(pdev, 2, ring_type, max_packet, mem_flags);
+	if (!pep->ring)
+		return -ENOMEM;
+
 	pep->skip = false;
 
 	/* Fill the endpoint context */
@@ -1082,9 +1085,8 @@ void cdnsp_mem_cleanup(struct cdnsp_device *pdev)
 	dma_pool_destroy(pdev->device_pool);
 	pdev->device_pool = NULL;
 
-	if (pdev->dcbaa)
-		dma_free_coherent(dev, sizeof(*pdev->dcbaa),
-				  pdev->dcbaa, pdev->dcbaa->dma);
+	dma_free_coherent(dev, sizeof(*pdev->dcbaa),
+			  pdev->dcbaa, pdev->dcbaa->dma);
 
 	pdev->dcbaa = NULL;
 
@@ -1231,7 +1233,6 @@ int cdnsp_mem_init(struct cdnsp_device *pdev)
 	if (!pdev->dcbaa)
 		return -ENOMEM;
 
-	memset(pdev->dcbaa, 0, sizeof(*pdev->dcbaa));
 	pdev->dcbaa->dma = dma;
 
 	cdnsp_write_64(dma, &pdev->op_regs->dcbaa_ptr);

@@ -209,6 +209,28 @@ static int bcm_pmb_power_on_device(struct bcm_pmb *pmb, int bus, u8 device)
 	return err;
 }
 
+static int bcm_pmb_power_on_sata(struct bcm_pmb *pmb, int bus, u8 device)
+{
+	int err;
+
+	err = bcm_pmb_power_on_zone(pmb, bus, device, 0);
+	if (err)
+		return err;
+
+	/* Does not apply to the BCM963158 */
+	err = bcm_pmb_bpcm_write(pmb, bus, device, BPCM_MISC_CONTROL, 0);
+	if (err)
+		return err;
+
+	err = bcm_pmb_bpcm_write(pmb, bus, device, BPCM_SR_CONTROL, 0xffffffff);
+	if (err)
+		return err;
+
+	err = bcm_pmb_bpcm_write(pmb, bus, device, BPCM_SR_CONTROL, 0);
+
+	return err;
+}
+
 static int bcm_pmb_power_on(struct generic_pm_domain *genpd)
 {
 	struct bcm_pmb_pm_domain *pd = container_of(genpd, struct bcm_pmb_pm_domain, genpd);
@@ -222,6 +244,8 @@ static int bcm_pmb_power_on(struct generic_pm_domain *genpd)
 		return bcm_pmb_power_on_zone(pmb, data->bus, data->device, 0);
 	case BCM_PMB_HOST_USB:
 		return bcm_pmb_power_on_device(pmb, data->bus, data->device);
+	case BCM_PMB_SATA:
+		return bcm_pmb_power_on_sata(pmb, data->bus, data->device);
 	default:
 		dev_err(pmb->dev, "unsupported device id: %d\n", data->id);
 		return -EINVAL;
@@ -252,7 +276,6 @@ static int bcm_pmb_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	const struct bcm_pmb_pd_data *table;
 	const struct bcm_pmb_pd_data *e;
-	struct resource *res;
 	struct bcm_pmb *pmb;
 	int max_id;
 	int err;
@@ -263,8 +286,7 @@ static int bcm_pmb_probe(struct platform_device *pdev)
 
 	pmb->dev = dev;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	pmb->base = devm_ioremap_resource(&pdev->dev, res);
+	pmb->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(pmb->base))
 		return PTR_ERR(pmb->base);
 
@@ -317,8 +339,14 @@ static const struct bcm_pmb_pd_data bcm_pmb_bcm4908_data[] = {
 	{ },
 };
 
+static const struct bcm_pmb_pd_data bcm_pmb_bcm63138_data[] = {
+	{ .name = "sata", .id = BCM_PMB_SATA, .bus = 0, .device = 3, },
+	{ },
+};
+
 static const struct of_device_id bcm_pmb_of_match[] = {
 	{ .compatible = "brcm,bcm4908-pmb", .data = &bcm_pmb_bcm4908_data, },
+	{ .compatible = "brcm,bcm63138-pmb", .data = &bcm_pmb_bcm63138_data, },
 	{ },
 };
 

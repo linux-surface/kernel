@@ -48,7 +48,7 @@ TRACE_EVENT(rcu_utilization,
  * RCU flavor, the grace-period number, and a string identifying the
  * grace-period-related event as follows:
  *
- *	"AccReadyCB": CPU acclerates new callbacks to RCU_NEXT_READY_TAIL.
+ *	"AccReadyCB": CPU accelerates new callbacks to RCU_NEXT_READY_TAIL.
  *	"AccWaitCB": CPU accelerates new callbacks to RCU_WAIT_TAIL.
  *	"newreq": Request a new grace period.
  *	"start": Start a grace period.
@@ -278,6 +278,7 @@ TRACE_EVENT_RCU(rcu_exp_funnel_lock,
  * "WakeNot": Don't wake rcuo kthread.
  * "WakeNotPoll": Don't wake rcuo kthread because it is polling.
  * "WakeOvfIsDeferred": Wake rcuo kthread later, CB list is huge.
+ * "WakeBypassIsDeferred": Wake rcuo kthread later, bypass list is contended.
  * "WokeEmpty": rcuo CB kthread woke to find empty list.
  */
 TRACE_EVENT_RCU(rcu_nocb_wake,
@@ -430,6 +431,34 @@ TRACE_EVENT_RCU(rcu_fqs,
 	TP_printk("%s %ld %d %s",
 		  __entry->rcuname, __entry->gp_seq,
 		  __entry->cpu, __entry->qsevent)
+);
+
+/*
+ * Tracepoint for RCU stall events. Takes a string identifying the RCU flavor
+ * and a string identifying which function detected the RCU stall as follows:
+ *
+ *	"StallDetected": Scheduler-tick detects other CPU's stalls.
+ *	"SelfDetected": Scheduler-tick detects a current CPU's stall.
+ *	"ExpeditedStall": Expedited grace period detects stalls.
+ */
+TRACE_EVENT(rcu_stall_warning,
+
+	TP_PROTO(const char *rcuname, const char *msg),
+
+	TP_ARGS(rcuname, msg),
+
+	TP_STRUCT__entry(
+		__field(const char *, rcuname)
+		__field(const char *, msg)
+	),
+
+	TP_fast_assign(
+		__entry->rcuname = rcuname;
+		__entry->msg = msg;
+	),
+
+	TP_printk("%s %s",
+		  __entry->rcuname, __entry->msg)
 );
 
 #endif /* #if defined(CONFIG_TREE_RCU) */
@@ -765,16 +794,15 @@ TRACE_EVENT_RCU(rcu_torture_read,
  * Tracepoint for rcu_barrier() execution.  The string "s" describes
  * the rcu_barrier phase:
  *	"Begin": rcu_barrier() started.
+ *	"CB": An rcu_barrier_callback() invoked a callback, not the last.
  *	"EarlyExit": rcu_barrier() piggybacked, thus early exit.
  *	"Inc1": rcu_barrier() piggyback check counter incremented.
- *	"OfflineNoCBQ": rcu_barrier() found offline no-CBs CPU with callbacks.
- *	"OnlineQ": rcu_barrier() found online CPU with callbacks.
- *	"OnlineNQ": rcu_barrier() found online CPU, no callbacks.
+ *	"Inc2": rcu_barrier() piggyback check counter incremented.
  *	"IRQ": An rcu_barrier_callback() callback posted on remote CPU.
  *	"IRQNQ": An rcu_barrier_callback() callback found no callbacks.
- *	"CB": An rcu_barrier_callback() invoked a callback, not the last.
  *	"LastCB": An rcu_barrier_callback() invoked the last callback.
- *	"Inc2": rcu_barrier() piggyback check counter incremented.
+ *	"NQ": rcu_barrier() found a CPU with no callbacks.
+ *	"OnlineQ": rcu_barrier() found online CPU with callbacks.
  * The "cpu" argument is the CPU or -1 if meaningless, the "cnt" argument
  * is the count of remaining callbacks, and "done" is the piggybacking count.
  */

@@ -7,7 +7,7 @@
  * Copyright (C) 2001 IBM.
  */
 
-#include <stdarg.h>
+#include <linux/stdarg.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/spinlock.h>
@@ -25,6 +25,7 @@
 #include <linux/reboot.h>
 #include <linux/syscalls.h>
 
+#include <asm/interrupt.h>
 #include <asm/prom.h>
 #include <asm/rtas.h>
 #include <asm/hvcall.h>
@@ -45,6 +46,13 @@
 
 /* This is here deliberately so it's only used in this file */
 void enter_rtas(unsigned long);
+
+static inline void do_enter_rtas(unsigned long args)
+{
+	enter_rtas(args);
+
+	srr_regs_clobbered(); /* rtas uses SRRs, invalidate */
+}
 
 struct rtas_t rtas = {
 	.lock = __ARCH_SPIN_LOCK_UNLOCKED
@@ -384,7 +392,7 @@ static char *__fetch_rtas_last_error(char *altbuf)
 	save_args = rtas.args;
 	rtas.args = err_args;
 
-	enter_rtas(__pa(&rtas.args));
+	do_enter_rtas(__pa(&rtas.args));
 
 	err_args = rtas.args;
 	rtas.args = save_args;
@@ -430,7 +438,7 @@ va_rtas_call_unlocked(struct rtas_args *args, int token, int nargs, int nret,
 	for (i = 0; i < nret; ++i)
 		args->rets[i] = 0;
 
-	enter_rtas(__pa(args));
+	do_enter_rtas(__pa(args));
 }
 
 void rtas_call_unlocked(struct rtas_args *args, int token, int nargs, int nret, ...)
@@ -484,8 +492,25 @@ int rtas_call(int token, int nargs, int nret, int *outputs, ...)
 }
 EXPORT_SYMBOL(rtas_call);
 
-/* For RTAS_BUSY (-2), delay for 1 millisecond.  For an extended busy status
- * code of 990n, perform the hinted delay of 10^n (last digit) milliseconds.
+/**
+ * rtas_busy_delay_time() - From an RTAS status value, calculate the
+ *                          suggested delay time in milliseconds.
+ *
+ * @status: a value returned from rtas_call() or similar APIs which return
+ *          the status of a RTAS function call.
+ *
+ * Context: Any context.
+ *
+ * Return:
+ * * 100000 - If @status is 9905.
+ * * 10000  - If @status is 9904.
+ * * 1000   - If @status is 9903.
+ * * 100    - If @status is 9902.
+ * * 10     - If @status is 9901.
+ * * 1      - If @status is either 9900 or -2. This is "wrong" for -2, but
+ *            some callers depend on this behavior, and the worst outcome
+ *            is that they will delay for longer than necessary.
+ * * 0      - If @status is not a busy or extended delay value.
  */
 unsigned int rtas_busy_delay_time(int status)
 {
@@ -505,17 +530,77 @@ unsigned int rtas_busy_delay_time(int status)
 }
 EXPORT_SYMBOL(rtas_busy_delay_time);
 
-/* For an RTAS busy status code, perform the hinted delay. */
-unsigned int rtas_busy_delay(int status)
+/**
+ * rtas_busy_delay() - helper for RTAS busy and extended delay statuses
+ *
+ * @status: a value returned from rtas_call() or similar APIs which return
+ *          the status of a RTAS function call.
+ *
+ * Context: Process context. May sleep or schedule.
+ *
+ * Return:
+ * * true  - @status is RTAS_BUSY or an extended delay hint. The
+ *           caller may assume that the CPU has been yielded if necessary,
+ *           and that an appropriate delay for @status has elapsed.
+ *           Generally the caller should reattempt the RTAS call which
+ *           yielded @status.
+ *
+ * * false - @status is not @RTAS_BUSY nor an extended delay hint. The
+ *           caller is responsible for handling @status.
+ */
+bool rtas_busy_delay(int status)
 {
 	unsigned int ms;
+	bool ret;
 
-	might_sleep();
-	ms = rtas_busy_delay_time(status);
-	if (ms && need_resched())
-		msleep(ms);
+	switch (status) {
+	case RTAS_EXTENDED_DELAY_MIN...RTAS_EXTENDED_DELAY_MAX:
+		ret = true;
+		ms = rtas_busy_delay_time(status);
+		/*
+		 * The extended delay hint can be as high as 100 seconds.
+		 * Surely any function returning such a status is either
+		 * buggy or isn't going to be significantly slowed by us
+		 * polling at 1HZ. Clamp the sleep time to one second.
+		 */
+		ms = clamp(ms, 1U, 1000U);
+		/*
+		 * The delay hint is an order-of-magnitude suggestion, not
+		 * a minimum. It is fine, possibly even advantageous, for
+		 * us to pause for less time than hinted. For small values,
+		 * use usleep_range() to ensure we don't sleep much longer
+		 * than actually needed.
+		 *
+		 * See Documentation/timers/timers-howto.rst for
+		 * explanation of the threshold used here. In effect we use
+		 * usleep_range() for 9900 and 9901, msleep() for
+		 * 9902-9905.
+		 */
+		if (ms <= 20)
+			usleep_range(ms * 100, ms * 1000);
+		else
+			msleep(ms);
+		break;
+	case RTAS_BUSY:
+		ret = true;
+		/*
+		 * We should call again immediately if there's no other
+		 * work to do.
+		 */
+		cond_resched();
+		break;
+	default:
+		ret = false;
+		/*
+		 * Not a busy or extended delay status; the caller should
+		 * handle @status itself. Ensure we warn on misuses in
+		 * atomic context regardless.
+		 */
+		might_sleep();
+		break;
+	}
 
-	return ms;
+	return ret;
 }
 EXPORT_SYMBOL(rtas_busy_delay);
 
@@ -801,13 +886,13 @@ void rtas_os_term(char *str)
 /**
  * rtas_activate_firmware() - Activate a new version of firmware.
  *
+ * Context: This function may sleep.
+ *
  * Activate a new version of partition firmware. The OS must call this
  * after resuming from a partition hibernation or migration in order
  * to maintain the ability to perform live firmware updates. It's not
  * catastrophic for this method to be absent or to fail; just log the
  * condition in that case.
- *
- * Context: This function may sleep.
  */
 void rtas_activate_firmware(void)
 {
@@ -828,7 +913,6 @@ void rtas_activate_firmware(void)
 		pr_err("ibm,activate-firmware failed (%i)\n", fwrc);
 }
 
-static int ibm_suspend_me_token = RTAS_UNKNOWN_SERVICE;
 #ifdef CONFIG_PPC_PSERIES
 /**
  * rtas_call_reentrant() - Used for reentrant rtas calls
@@ -883,11 +967,12 @@ int rtas_call_reentrant(int token, int nargs, int nret, int *outputs, ...)
 #endif /* CONFIG_PPC_PSERIES */
 
 /**
- * Find a specific pseries error log in an RTAS extended event log.
+ * get_pseries_errorlog() - Find a specific pseries error log in an RTAS
+ *                          extended event log.
  * @log: RTAS error/event log
  * @section_id: two character section identifier
  *
- * Returns a pointer to the specified errorlog or NULL if not found.
+ * Return: A pointer to the specified errorlog or NULL if not found.
  */
 struct pseries_errorlog *get_pseries_errorlog(struct rtas_error_log *log,
 					      uint16_t section_id)
@@ -988,10 +1073,10 @@ static struct rtas_filter rtas_filters[] __ro_after_init = {
 static bool in_rmo_buf(u32 base, u32 end)
 {
 	return base >= rtas_rmo_buf &&
-		base < (rtas_rmo_buf + RTAS_RMOBUF_MAX) &&
+		base < (rtas_rmo_buf + RTAS_USER_REGION_SIZE) &&
 		base <= end &&
 		end >= rtas_rmo_buf &&
-		end < (rtas_rmo_buf + RTAS_RMOBUF_MAX);
+		end < (rtas_rmo_buf + RTAS_USER_REGION_SIZE);
 }
 
 static bool block_rtas_call(int token, int nargs,
@@ -1052,12 +1137,24 @@ err:
 	return true;
 }
 
+static void __init rtas_syscall_filter_init(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(rtas_filters); i++)
+		rtas_filters[i].token = rtas_token(rtas_filters[i].name);
+}
+
 #else
 
 static bool block_rtas_call(int token, int nargs,
 			    struct rtas_args *args)
 {
 	return false;
+}
+
+static void __init rtas_syscall_filter_init(void)
+{
 }
 
 #endif /* CONFIG_PPC_RTAS_FILTER */
@@ -1103,7 +1200,7 @@ SYSCALL_DEFINE1(rtas, struct rtas_args __user *, uargs)
 		return -EINVAL;
 
 	/* Need to handle ibm,suspend_me call specially */
-	if (token == ibm_suspend_me_token) {
+	if (token == rtas_token("ibm,suspend-me")) {
 
 		/*
 		 * rtas_ibm_suspend_me assumes the streamid handle is in cpu
@@ -1127,7 +1224,7 @@ SYSCALL_DEFINE1(rtas, struct rtas_args __user *, uargs)
 	flags = lock_rtas();
 
 	rtas.args = args;
-	enter_rtas(__pa(&rtas.args));
+	do_enter_rtas(__pa(&rtas.args));
 	args = rtas.args;
 
 	/* A -1 return code indicates that the last command couldn't
@@ -1163,9 +1260,6 @@ void __init rtas_initialize(void)
 	unsigned long rtas_region = RTAS_INSTANTIATE_MAX;
 	u32 base, size, entry;
 	int no_base, no_size, no_entry;
-#ifdef CONFIG_PPC_RTAS_FILTER
-	int i;
-#endif
 
 	/* Get RTAS dev node and fill up our "rtas" structure with infos
 	 * about it.
@@ -1191,12 +1285,10 @@ void __init rtas_initialize(void)
 	 * the stop-self token if any
 	 */
 #ifdef CONFIG_PPC64
-	if (firmware_has_feature(FW_FEATURE_LPAR)) {
+	if (firmware_has_feature(FW_FEATURE_LPAR))
 		rtas_region = min(ppc64_rma_size, RTAS_INSTANTIATE_MAX);
-		ibm_suspend_me_token = rtas_token("ibm,suspend-me");
-	}
 #endif
-	rtas_rmo_buf = memblock_phys_alloc_range(RTAS_RMOBUF_MAX, PAGE_SIZE,
+	rtas_rmo_buf = memblock_phys_alloc_range(RTAS_USER_REGION_SIZE, PAGE_SIZE,
 						 0, rtas_region);
 	if (!rtas_rmo_buf)
 		panic("ERROR: RTAS: Failed to allocate %lx bytes below %pa\n",
@@ -1206,11 +1298,7 @@ void __init rtas_initialize(void)
 	rtas_last_error_token = rtas_token("rtas-last-error");
 #endif
 
-#ifdef CONFIG_PPC_RTAS_FILTER
-	for (i = 0; i < ARRAY_SIZE(rtas_filters); i++) {
-		rtas_filters[i].token = rtas_token(rtas_filters[i].name);
-	}
-#endif
+	rtas_syscall_filter_init();
 }
 
 int __init early_init_dt_scan_rtas(unsigned long node,
@@ -1224,6 +1312,12 @@ int __init early_init_dt_scan_rtas(unsigned long node,
 	basep  = of_get_flat_dt_prop(node, "linux,rtas-base", NULL);
 	entryp = of_get_flat_dt_prop(node, "linux,rtas-entry", NULL);
 	sizep  = of_get_flat_dt_prop(node, "rtas-size", NULL);
+
+#ifdef CONFIG_PPC64
+	/* need this feature to decide the crashkernel offset */
+	if (of_get_flat_dt_prop(node, "ibm,hypertas-functions", NULL))
+		powerpc_firmware_features |= FW_FEATURE_LPAR;
+#endif
 
 	if (basep && entryp && sizep) {
 		rtas.base = *basep;

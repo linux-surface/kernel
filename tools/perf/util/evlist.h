@@ -50,7 +50,6 @@ enum bkw_mmap_state {
 
 struct evlist {
 	struct perf_evlist core;
-	int		 nr_groups;
 	bool		 enabled;
 	int		 id_pos;
 	int		 is_pos;
@@ -65,6 +64,7 @@ struct evlist {
 	struct evsel *selected;
 	struct events_stats stats;
 	struct perf_env	*env;
+	const char *hybrid_pmu_name;
 	void (*trace_event_sample_raw)(struct evlist *evlist,
 				       union perf_event *event,
 				       struct perf_sample *sample);
@@ -111,6 +111,7 @@ int __evlist__add_default_attrs(struct evlist *evlist,
 	__evlist__add_default_attrs(evlist, array, ARRAY_SIZE(array))
 
 int arch_evlist__add_default_attrs(struct evlist *evlist);
+struct evsel *arch_evlist__leader(struct list_head *list);
 
 int evlist__add_dummy(struct evlist *evlist);
 
@@ -202,7 +203,6 @@ void evlist__set_selected(struct evlist *evlist, struct evsel *evsel);
 int evlist__create_maps(struct evlist *evlist, struct target *target);
 int evlist__apply_filters(struct evlist *evlist, struct evsel **err_evsel);
 
-void __evlist__set_leader(struct list_head *list);
 void evlist__set_leader(struct evlist *evlist);
 
 u64 __evlist__combined_sample_type(struct evlist *evlist);
@@ -278,6 +278,22 @@ void evlist__to_front(struct evlist *evlist, struct evsel *move_evsel);
 	__evlist__for_each_entry_continue(&(evlist)->core.entries, evsel)
 
 /**
+ * __evlist__for_each_entry_from - continue iteration from @evsel (included)
+ * @list: list_head instance to iterate
+ * @evsel: struct evsel iterator
+ */
+#define __evlist__for_each_entry_from(list, evsel) \
+	list_for_each_entry_from(evsel, list, core.node)
+
+/**
+ * evlist__for_each_entry_from - continue iteration from @evsel (included)
+ * @evlist: evlist instance to iterate
+ * @evsel: struct evsel iterator
+ */
+#define evlist__for_each_entry_from(evlist, evsel) \
+	__evlist__for_each_entry_from(&(evlist)->core.entries, evsel)
+
+/**
  * __evlist__for_each_entry_reverse - iterate thru all the evsels in reverse order
  * @list: list_head instance to iterate
  * @evsel: struct evsel iterator
@@ -311,16 +327,52 @@ void evlist__to_front(struct evlist *evlist, struct evsel *move_evsel);
 #define evlist__for_each_entry_safe(evlist, tmp, evsel) \
 	__evlist__for_each_entry_safe(&(evlist)->core.entries, tmp, evsel)
 
-#define evlist__for_each_cpu(evlist, index, cpu)	\
-	evlist__cpu_iter_start(evlist);			\
-	perf_cpu_map__for_each_cpu (cpu, index, (evlist)->core.all_cpus)
+/** Iterator state for evlist__for_each_cpu */
+struct evlist_cpu_iterator {
+	/** The list being iterated through. */
+	struct evlist *container;
+	/** The current evsel of the iterator. */
+	struct evsel *evsel;
+	/** The CPU map index corresponding to the evsel->core.cpus for the current CPU. */
+	int cpu_map_idx;
+	/**
+	 * The CPU map index corresponding to evlist->core.all_cpus for the
+	 * current CPU.  Distinct from cpu_map_idx as the evsel's cpu map may
+	 * contain fewer entries.
+	 */
+	int evlist_cpu_map_idx;
+	/** The number of CPU map entries in evlist->core.all_cpus. */
+	int evlist_cpu_map_nr;
+	/** The current CPU of the iterator. */
+	struct perf_cpu cpu;
+	/** If present, used to set the affinity when switching between CPUs. */
+	struct affinity *affinity;
+};
+
+/**
+ * evlist__for_each_cpu - without affinity, iterate over the evlist. With
+ *                        affinity, iterate over all CPUs and then the evlist
+ *                        for each evsel on that CPU. When switching between
+ *                        CPUs the affinity is set to the CPU to avoid IPIs
+ *                        during syscalls.
+ * @evlist_cpu_itr: the iterator instance.
+ * @evlist: evlist instance to iterate.
+ * @affinity: NULL or used to set the affinity to the current CPU.
+ */
+#define evlist__for_each_cpu(evlist_cpu_itr, evlist, affinity)		\
+	for ((evlist_cpu_itr) = evlist__cpu_begin(evlist, affinity);	\
+	     !evlist_cpu_iterator__end(&evlist_cpu_itr);		\
+	     evlist_cpu_iterator__next(&evlist_cpu_itr))
+
+/** Returns an iterator set to the first CPU/evsel of evlist. */
+struct evlist_cpu_iterator evlist__cpu_begin(struct evlist *evlist, struct affinity *affinity);
+/** Move to next element in iterator, updating CPU, evsel and the affinity. */
+void evlist_cpu_iterator__next(struct evlist_cpu_iterator *evlist_cpu_itr);
+/** Returns true when iterator is at the end of the CPUs and evlist. */
+bool evlist_cpu_iterator__end(const struct evlist_cpu_iterator *evlist_cpu_itr);
 
 struct evsel *evlist__get_tracking_event(struct evlist *evlist);
 void evlist__set_tracking_event(struct evlist *evlist, struct evsel *tracking_evsel);
-
-void evlist__cpu_iter_start(struct evlist *evlist);
-bool evsel__cpu_iter_skip(struct evsel *ev, int cpu);
-bool evsel__cpu_iter_skip_no_inc(struct evsel *ev, int cpu);
 
 struct evsel *evlist__find_evsel_by_str(struct evlist *evlist, const char *str);
 
@@ -358,6 +410,7 @@ void evlist__close_control(int ctl_fd, int ctl_fd_ack, bool *ctl_fd_close);
 int evlist__initialize_ctlfd(struct evlist *evlist, int ctl_fd, int ctl_fd_ack);
 int evlist__finalize_ctlfd(struct evlist *evlist);
 bool evlist__ctlfd_initialized(struct evlist *evlist);
+int evlist__ctlfd_update(struct evlist *evlist, struct pollfd *update);
 int evlist__ctlfd_process(struct evlist *evlist, enum evlist_ctl_cmd *cmd);
 int evlist__ctlfd_ack(struct evlist *evlist);
 
@@ -365,4 +418,7 @@ int evlist__ctlfd_ack(struct evlist *evlist);
 #define EVLIST_DISABLED_MSG "Events disabled\n"
 
 struct evsel *evlist__find_evsel(struct evlist *evlist, int idx);
+
+int evlist__scnprintf_evsels(struct evlist *evlist, size_t size, char *bf);
+void evlist__check_mem_load_aux(struct evlist *evlist);
 #endif /* __PERF_EVLIST_H */

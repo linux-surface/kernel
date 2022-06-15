@@ -20,6 +20,11 @@
 	model = "Radxa ROCK Pi E";
 	compatible = "radxa,rockpi-e", "rockchip,rk3328";
 
+	aliases {
+		mmc0 = &sdmmc;
+		mmc1 = &emmc;
+	};
+
 	chosen {
 		stdout-path = "serial2:1500000n8";
 	};
@@ -172,8 +177,6 @@
 };
 
 &gmac2phy {
-	pinctrl-names = "default";
-	pinctrl-0 = <&fephyled_linkm1>, <&fephyled_rxm1>;
 	status = "okay";
 };
 
@@ -374,6 +377,11 @@
 };
 
 &uart2 {
+	status = "okay";
+};
+
+&usbdrd3 {
+	dr_mode = "host";
 	status = "okay";
 };
 

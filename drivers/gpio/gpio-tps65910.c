@@ -111,6 +111,8 @@ static int tps65910_gpio_probe(struct platform_device *pdev)
 	int ret;
 	int i;
 
+	device_set_node(&pdev->dev, dev_fwnode(pdev->dev.parent));
+
 	tps65910_gpio = devm_kzalloc(&pdev->dev,
 				sizeof(*tps65910_gpio), GFP_KERNEL);
 	if (!tps65910_gpio)
@@ -137,9 +139,7 @@ static int tps65910_gpio_probe(struct platform_device *pdev)
 	tps65910_gpio->gpio_chip.set	= tps65910_gpio_set;
 	tps65910_gpio->gpio_chip.get	= tps65910_gpio_get;
 	tps65910_gpio->gpio_chip.parent = &pdev->dev;
-#ifdef CONFIG_OF_GPIO
-	tps65910_gpio->gpio_chip.of_node = tps65910->dev->of_node;
-#endif
+
 	if (pdata && pdata->gpio_base)
 		tps65910_gpio->gpio_chip.base = pdata->gpio_base;
 	else
@@ -165,16 +165,8 @@ static int tps65910_gpio_probe(struct platform_device *pdev)
 	}
 
 skip_init:
-	ret = devm_gpiochip_add_data(&pdev->dev, &tps65910_gpio->gpio_chip,
-				     tps65910_gpio);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "Could not register gpiochip, %d\n", ret);
-		return ret;
-	}
-
-	platform_set_drvdata(pdev, tps65910_gpio);
-
-	return ret;
+	return devm_gpiochip_add_data(&pdev->dev, &tps65910_gpio->gpio_chip,
+				      tps65910_gpio);
 }
 
 static struct platform_driver tps65910_gpio_driver = {

@@ -272,7 +272,16 @@ static int mpu3050_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_OFFSET:
 		switch (chan->type) {
 		case IIO_TEMP:
-			/* The temperature scaling is (x+23000)/280 Celsius */
+			/*
+			 * The temperature scaling is (x+23000)/280 Celsius
+			 * for the "best fit straight line" temperature range
+			 * of -30C..85C.  The 23000 includes room temperature
+			 * offset of +35C, 280 is the precision scale and x is
+			 * the 16-bit signed integer reported by hardware.
+			 *
+			 * Temperature value itself represents temperature of
+			 * the sensor die.
+			 */
 			*val = 23000;
 			return IIO_VAL_INT;
 		default:
@@ -329,7 +338,7 @@ static int mpu3050_read_raw(struct iio_dev *indio_dev,
 				goto out_read_raw_unlock;
 			}
 
-			*val = be16_to_cpu(raw_val);
+			*val = (s16)be16_to_cpu(raw_val);
 			ret = IIO_VAL_INT;
 
 			goto out_read_raw_unlock;
@@ -462,13 +471,10 @@ static irqreturn_t mpu3050_trigger_handler(int irq, void *p)
 	struct iio_dev *indio_dev = pf->indio_dev;
 	struct mpu3050 *mpu3050 = iio_priv(indio_dev);
 	int ret;
-	/*
-	 * Temperature 1*16 bits
-	 * Three axes 3*16 bits
-	 * Timestamp 64 bits (4*16 bits)
-	 * Sum total 8*16 bits
-	 */
-	__be16 hw_values[8];
+	struct {
+		__be16 chans[4];
+		s64 timestamp __aligned(8);
+	} scan;
 	s64 timestamp;
 	unsigned int datums_from_fifo = 0;
 
@@ -551,6 +557,8 @@ static irqreturn_t mpu3050_trigger_handler(int irq, void *p)
 					       MPU3050_FIFO_R,
 					       &fifo_values[offset],
 					       toread);
+			if (ret)
+				goto out_trigger_unlock;
 
 			dev_dbg(mpu3050->dev,
 				"%04x %04x %04x %04x %04x\n",
@@ -561,9 +569,10 @@ static irqreturn_t mpu3050_trigger_handler(int irq, void *p)
 				fifo_values[4]);
 
 			/* Index past the footer (fifo_values[0]) and push */
-			iio_push_to_buffers_with_timestamp(indio_dev,
-							   &fifo_values[1],
-							   timestamp);
+			iio_push_to_buffers_with_ts_unaligned(indio_dev,
+							      &fifo_values[1],
+							      sizeof(__be16) * 4,
+							      timestamp);
 
 			fifocnt -= toread;
 			datums_from_fifo++;
@@ -621,15 +630,15 @@ static irqreturn_t mpu3050_trigger_handler(int irq, void *p)
 		goto out_trigger_unlock;
 	}
 
-	ret = regmap_bulk_read(mpu3050->map, MPU3050_TEMP_H, &hw_values,
-			       sizeof(hw_values));
+	ret = regmap_bulk_read(mpu3050->map, MPU3050_TEMP_H, scan.chans,
+			       sizeof(scan.chans));
 	if (ret) {
 		dev_err(mpu3050->dev,
 			"error reading axis data\n");
 		goto out_trigger_unlock;
 	}
 
-	iio_push_to_buffers_with_timestamp(indio_dev, hw_values, timestamp);
+	iio_push_to_buffers_with_timestamp(indio_dev, &scan, timestamp);
 
 out_trigger_unlock:
 	mutex_unlock(&mpu3050->lock);
@@ -1047,7 +1056,7 @@ static int mpu3050_trigger_probe(struct iio_dev *indio_dev, int irq)
 	mpu3050->trig = devm_iio_trigger_alloc(&indio_dev->dev,
 					       "%s-dev%d",
 					       indio_dev->name,
-					       indio_dev->id);
+					       iio_device_id(indio_dev));
 	if (!mpu3050->trig)
 		return -ENOMEM;
 
@@ -1153,7 +1162,7 @@ int mpu3050_common_probe(struct device *dev,
 	mpu3050->divisor = 99;
 
 	/* Read the mounting matrix, if present */
-	ret = iio_read_mount_matrix(dev, "mount-matrix", &mpu3050->orientation);
+	ret = iio_read_mount_matrix(dev, &mpu3050->orientation);
 	if (ret)
 		return ret;
 

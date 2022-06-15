@@ -271,6 +271,7 @@ static void hotplug_dock_devices(struct dock_station *ds, u32 event)
 
 		if (!acpi_device_enumerated(adev)) {
 			int ret = acpi_bus_scan(adev->handle);
+
 			if (ret)
 				dev_dbg(&adev->dev, "scan error %d\n", -ret);
 		}
@@ -488,10 +489,9 @@ static ssize_t docked_show(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
 	struct dock_station *dock_station = dev->platform_data;
-	struct acpi_device *adev = NULL;
+	struct acpi_device *adev = acpi_fetch_acpi_dev(dock_station->handle);
 
-	acpi_bus_get_device(dock_station->handle, &adev);
-	return snprintf(buf, PAGE_SIZE, "%u\n", acpi_device_enumerated(adev));
+	return sysfs_emit(buf, "%u\n", acpi_device_enumerated(adev));
 }
 static DEVICE_ATTR_RO(docked);
 
@@ -502,7 +502,8 @@ static ssize_t flags_show(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
 	struct dock_station *dock_station = dev->platform_data;
-	return snprintf(buf, PAGE_SIZE, "%d\n", dock_station->flags);
+
+	return sysfs_emit(buf, "%d\n", dock_station->flags);
 
 }
 static DEVICE_ATTR_RO(flags);
@@ -523,7 +524,7 @@ static ssize_t undock_store(struct device *dev, struct device_attribute *attr,
 	begin_undock(dock_station);
 	ret = handle_eject_request(dock_station, ACPI_NOTIFY_EJECT_REQUEST);
 	acpi_scan_lock_release();
-	return ret ? ret: count;
+	return ret ? ret : count;
 }
 static DEVICE_ATTR_WO(undock);
 
@@ -535,12 +536,13 @@ static ssize_t uid_show(struct device *dev,
 {
 	unsigned long long lbuf;
 	struct dock_station *dock_station = dev->platform_data;
+
 	acpi_status status = acpi_evaluate_integer(dock_station->handle,
 					"_UID", NULL, &lbuf);
 	if (ACPI_FAILURE(status))
-	    return 0;
+		return 0;
 
-	return snprintf(buf, PAGE_SIZE, "%llx\n", lbuf);
+	return sysfs_emit(buf, "%llx\n", lbuf);
 }
 static DEVICE_ATTR_RO(uid);
 
@@ -559,7 +561,7 @@ static ssize_t type_show(struct device *dev,
 	else
 		type = "unknown";
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", type);
+	return sysfs_emit(buf, "%s\n", type);
 }
 static DEVICE_ATTR_RO(type);
 

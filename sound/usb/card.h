@@ -19,7 +19,7 @@ struct audioformat {
 	unsigned char iface;		/* interface number */
 	unsigned char altsetting;	/* corresponding alternate setting */
 	unsigned char ep_idx;		/* endpoint array index */
-	unsigned char altset_idx;	/* array index of altenate setting */
+	unsigned char altset_idx;	/* array index of alternate setting */
 	unsigned char attributes;	/* corresponding attributes of cs endpoint */
 	unsigned char endpoint;		/* endpoint */
 	unsigned char ep_attr;		/* endpoint attributes */
@@ -54,6 +54,7 @@ struct snd_urb_ctx {
 	struct snd_usb_endpoint *ep;
 	int index;	/* index for urb array */
 	int packets;	/* number of packets per urb */
+	int queued;	/* queued data bytes by this urb */
 	int packet_size[MAX_PACKS_HS]; /* size of packets for next submission */
 	struct list_head ready_list;
 };
@@ -73,8 +74,9 @@ struct snd_usb_endpoint {
 
 	atomic_t state;		/* running state */
 
-	void (*prepare_data_urb) (struct snd_usb_substream *subs,
-				  struct urb *urb);
+	int (*prepare_data_urb) (struct snd_usb_substream *subs,
+				 struct urb *urb,
+				 bool in_stream_lock);
 	void (*retire_data_urb) (struct snd_usb_substream *subs,
 				 struct urb *urb);
 
@@ -95,6 +97,7 @@ struct snd_usb_endpoint {
 	unsigned int nurbs;		/* # urbs */
 	unsigned long active_mask;	/* bitmask of active urbs */
 	unsigned long unlink_mask;	/* bitmask of unlinked urbs */
+	atomic_t submitted_urbs;	/* currently submitted urbs */
 	char *syncbuf;			/* sync buffer for all sync URBs */
 	dma_addr_t sync_dma;		/* DMA address of syncbuf */
 
@@ -123,6 +126,7 @@ struct snd_usb_endpoint {
 	int skip_packets;		/* quirks for devices to ignore the first n packets
 					   in a stream */
 	bool implicit_fb_sync;		/* syncs with implicit feedback */
+	bool lowlatency_playback;	/* low-latency playback mode */
 	bool need_setup;		/* (re-)need for configure? */
 
 	/* for hw constraints */
@@ -134,6 +138,7 @@ struct snd_usb_endpoint {
 	unsigned int cur_period_frames;
 	unsigned int cur_period_bytes;
 	unsigned int cur_buffer_periods;
+	unsigned char cur_clock;
 
 	spinlock_t lock;
 	struct list_head list;
@@ -157,9 +162,12 @@ struct snd_usb_substream {
 	unsigned int stream_offset_adj;	/* Bytes to drop from beginning of stream (for non-compliant devices) */
 
 	unsigned int running: 1;	/* running status */
+	unsigned int period_elapsed_pending;	/* delay period handling */
 
+	unsigned int buffer_bytes;	/* buffer size in bytes */
+	unsigned int inflight_bytes;	/* in-flight data bytes on buffer (for playback) */
 	unsigned int hwptr_done;	/* processed byte position in the buffer */
-	unsigned int transfer_done;		/* processed frames since last period update */
+	unsigned int transfer_done;	/* processed frames since last period update */
 	unsigned int frame_limit;	/* limits number of packets in URB */
 
 	/* data and sync endpoints for this stream */
@@ -174,8 +182,7 @@ struct snd_usb_substream {
 	struct list_head fmt_list;	/* format list */
 	spinlock_t lock;
 
-	int last_frame_number;          /* stored frame number */
-	int last_delay;                 /* stored delay */
+	unsigned int last_frame_number;	/* stored frame number */
 
 	struct {
 		int marker;
@@ -184,6 +191,7 @@ struct snd_usb_substream {
 	} dsd_dop;
 
 	bool trigger_tstamp_pending_update; /* trigger timestamp being updated from initial estimate */
+	bool lowlatency_playback;	/* low-latency playback mode */
 	struct media_ctl *media_ctl;
 };
 

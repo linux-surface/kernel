@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/crypto.h>
+#include <net/devlink.h>
 #include "otx2_cpt_hw_types.h"
 #include "rvu.h"
 #include "mbox.h"
@@ -24,6 +25,10 @@
 #define OTX2_CPT_INVALID_CRYPTO_ENG_GRP 0xFF
 #define OTX2_CPT_NAME_LENGTH 64
 #define OTX2_CPT_DMA_MINALIGN 128
+
+/* HW capability flags */
+#define CN10K_MBOX  0
+#define CN10K_LMTST 1
 
 #define BAD_OTX2_CPT_ENG_TYPE OTX2_CPT_MAX_ENG_TYPES
 
@@ -116,22 +121,42 @@ static inline u64 otx2_cpt_read64(void __iomem *reg_base, u64 blk, u64 slot,
 			     OTX2_CPT_RVU_FUNC_ADDR_S(blk, slot, offs));
 }
 
+static inline bool is_dev_otx2(struct pci_dev *pdev)
+{
+	if (pdev->device == OTX2_CPT_PCI_PF_DEVICE_ID ||
+	    pdev->device == OTX2_CPT_PCI_VF_DEVICE_ID)
+		return true;
+
+	return false;
+}
+
+static inline void otx2_cpt_set_hw_caps(struct pci_dev *pdev,
+					unsigned long *cap_flag)
+{
+	if (!is_dev_otx2(pdev)) {
+		__set_bit(CN10K_MBOX, cap_flag);
+		__set_bit(CN10K_LMTST, cap_flag);
+	}
+}
+
+
 int otx2_cpt_send_ready_msg(struct otx2_mbox *mbox, struct pci_dev *pdev);
 int otx2_cpt_send_mbox_msg(struct otx2_mbox *mbox, struct pci_dev *pdev);
 
 int otx2_cpt_send_af_reg_requests(struct otx2_mbox *mbox,
 				  struct pci_dev *pdev);
-int otx2_cpt_add_read_af_reg(struct otx2_mbox *mbox,
-			     struct pci_dev *pdev, u64 reg, u64 *val);
+int otx2_cpt_add_read_af_reg(struct otx2_mbox *mbox, struct pci_dev *pdev,
+			     u64 reg, u64 *val, int blkaddr);
 int otx2_cpt_add_write_af_reg(struct otx2_mbox *mbox, struct pci_dev *pdev,
-			      u64 reg, u64 val);
+			      u64 reg, u64 val, int blkaddr);
 int otx2_cpt_read_af_reg(struct otx2_mbox *mbox, struct pci_dev *pdev,
-			 u64 reg, u64 *val);
+			 u64 reg, u64 *val, int blkaddr);
 int otx2_cpt_write_af_reg(struct otx2_mbox *mbox, struct pci_dev *pdev,
-			  u64 reg, u64 val);
+			  u64 reg, u64 val, int blkaddr);
 struct otx2_cptlfs_info;
 int otx2_cpt_attach_rscrs_msg(struct otx2_cptlfs_info *lfs);
 int otx2_cpt_detach_rsrcs_msg(struct otx2_cptlfs_info *lfs);
 int otx2_cpt_msix_offset_msg(struct otx2_cptlfs_info *lfs);
+int otx2_cpt_sync_mbox_msg(struct otx2_mbox *mbox);
 
 #endif /* __OTX2_CPT_COMMON_H */

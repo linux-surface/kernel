@@ -43,6 +43,7 @@ struct msm_gem_submit;
 struct msm_fence_context;
 struct msm_gem_address_space;
 struct msm_gem_vma;
+struct msm_disp_state;
 
 #define MAX_CRTCS      8
 #define MAX_PLANES     20
@@ -52,19 +53,18 @@ struct msm_gem_vma;
 
 #define FRAC_16_16(mult, div)    (((mult) << 16) / (div))
 
-struct msm_file_private {
-	rwlock_t queuelock;
-	struct list_head submitqueues;
-	int queueid;
-	struct msm_gem_address_space *aspace;
-	struct kref ref;
-};
-
 enum msm_mdp_plane_property {
 	PLANE_PROP_ZPOS,
 	PLANE_PROP_ALPHA,
 	PLANE_PROP_PREMULTIPLIED,
 	PLANE_PROP_MAX_NUM
+};
+
+enum msm_dp_controller {
+	MSM_DP_CONTROLLER_0,
+	MSM_DP_CONTROLLER_1,
+	MSM_DP_CONTROLLER_2,
+	MSM_DP_CONTROLLER_COUNT,
 };
 
 #define MSM_GPU_MAX_RINGS 4
@@ -109,24 +109,6 @@ struct msm_display_topology {
 	u32 num_dspp;
 };
 
-/**
- * struct msm_display_info - defines display properties
- * @intf_type:          DRM_MODE_ENCODER_ type
- * @capabilities:       Bitmask of display flags
- * @num_of_h_tiles:     Number of horizontal tiles in case of split interface
- * @h_tile_instance:    Controller instance used per tile. Number of elements is
- *                      based on num_of_h_tiles
- * @is_te_using_watchdog_timer:  Boolean to indicate watchdog TE is
- *				 used instead of panel TE in cmd mode panels
- */
-struct msm_display_info {
-	int intf_type;
-	uint32_t capabilities;
-	uint32_t num_of_h_tiles;
-	uint32_t h_tile_instance[MAX_H_TILES_PER_DISPLAY];
-	bool is_te_using_watchdog_timer;
-};
-
 /* Commit/Event thread specific structure */
 struct msm_drm_thread {
 	struct drm_device *dev;
@@ -151,22 +133,17 @@ struct msm_drm_private {
 	 */
 	struct hdmi *hdmi;
 
-	/* eDP is for mdp5 only, but kms has not been created
-	 * when edp_bind() and edp_init() are called. Here is the only
-	 * place to keep the edp instance.
-	 */
-	struct msm_edp *edp;
-
 	/* DSI is shared by mdp4 and mdp5 */
 	struct msm_dsi *dsi[2];
 
-	struct msm_dp *dp;
+	struct msm_dp *dp[MSM_DP_CONTROLLER_COUNT];
 
 	/* when we have more than one 'msm_gpu' these need to be an array: */
 	struct msm_gpu *gpu;
-	struct msm_file_private *lastctx;
+
 	/* gpu is only set on open(), but we need this info earlier */
 	bool is_a2xx;
+	bool has_cached_coherent;
 
 	struct drm_fb_helper *fbdev;
 
@@ -174,20 +151,35 @@ struct msm_drm_private {
 	struct msm_rd_state *hangrd;   /* debugfs to dump hanging submits */
 	struct msm_perf_state *perf;
 
-	/*
-	 * Lists of inactive GEM objects.  Every bo is either in one of the
+	/**
+	 * List of all GEM objects (mainly for debugfs, protected by obj_lock
+	 * (acquire before per GEM object lock)
+	 */
+	struct list_head objects;
+	struct mutex obj_lock;
+
+	/**
+	 * LRUs of inactive GEM objects.  Every bo is either in one of the
 	 * inactive lists (depending on whether or not it is shrinkable) or
-	 * gpu->active_list (for the gpu it is active on[1])
+	 * gpu->active_list (for the gpu it is active on[1]), or transiently
+	 * on a temporary list as the shrinker is running.
 	 *
-	 * These lists are protected by mm_lock.  If struct_mutex is involved, it
-	 * should be aquired prior to mm_lock.  One should *not* hold mm_lock in
+	 * Note that inactive_willneed also contains pinned and vmap'd bos,
+	 * but the number of pinned-but-not-active objects is small (scanout
+	 * buffers, ringbuffer, etc).
+	 *
+	 * These lists are protected by mm_lock (which should be acquired
+	 * before per GEM object lock).  One should *not* hold mm_lock in
 	 * get_pages()/vmap()/etc paths, as they can trigger the shrinker.
 	 *
 	 * [1] if someone ever added support for the old 2d cores, there could be
 	 *     more than one gpu object
 	 */
-	struct list_head inactive_willneed;  /* inactive + !shrinkable */
-	struct list_head inactive_dontneed;  /* inactive +  shrinkable */
+	struct list_head inactive_willneed;  /* inactive + potentially unpin/evictable */
+	struct list_head inactive_dontneed;  /* inactive + shrinkable */
+	struct list_head inactive_unpinned;  /* inactive + purged or unpinned */
+	long shrinkable_count;               /* write access under mm_lock */
+	long evictable_count;                /* write access under mm_lock */
 	struct mutex mm_lock;
 
 	struct workqueue_struct *wq;
@@ -227,6 +219,18 @@ struct msm_drm_private {
 	struct shrinker shrinker;
 
 	struct drm_atomic_state *pm_state;
+
+	/* For hang detection, in ms */
+	unsigned int hangcheck_period;
+
+	/**
+	 * disable_err_irq:
+	 *
+	 * Disable handling of GPU hw error interrupts, to force fallback to
+	 * sw hangcheck timer.  Written (via debugfs) by igt tests to test
+	 * the sw hangcheck mechanism.
+	 */
+	bool disable_err_irq;
 };
 
 struct msm_format {
@@ -235,8 +239,6 @@ struct msm_format {
 
 struct msm_pending_timer;
 
-int msm_atomic_prepare_fb(struct drm_plane *plane,
-			  struct drm_plane_state *new_state);
 int msm_atomic_init_pending_timer(struct msm_pending_timer *timer,
 		struct msm_kms *kms, int crtc_idx);
 void msm_atomic_destroy_pending_timer(struct msm_pending_timer *timer);
@@ -279,22 +281,25 @@ bool msm_use_mmu(struct drm_device *dev);
 int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 		struct drm_file *file);
 
+#ifdef CONFIG_DEBUG_FS
+unsigned long msm_gem_shrinker_shrink(struct drm_device *dev, unsigned long nr_to_scan);
+#endif
+
 void msm_gem_shrinker_init(struct drm_device *dev);
 void msm_gem_shrinker_cleanup(struct drm_device *dev);
 
 struct sg_table *msm_gem_prime_get_sg_table(struct drm_gem_object *obj);
-int msm_gem_prime_vmap(struct drm_gem_object *obj, struct dma_buf_map *map);
-void msm_gem_prime_vunmap(struct drm_gem_object *obj, struct dma_buf_map *map);
-int msm_gem_prime_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma);
+int msm_gem_prime_vmap(struct drm_gem_object *obj, struct iosys_map *map);
+void msm_gem_prime_vunmap(struct drm_gem_object *obj, struct iosys_map *map);
 struct drm_gem_object *msm_gem_prime_import_sg_table(struct drm_device *dev,
 		struct dma_buf_attachment *attach, struct sg_table *sg);
 int msm_gem_prime_pin(struct drm_gem_object *obj);
 void msm_gem_prime_unpin(struct drm_gem_object *obj);
 
 int msm_framebuffer_prepare(struct drm_framebuffer *fb,
-		struct msm_gem_address_space *aspace);
+		struct msm_gem_address_space *aspace, bool needs_dirtyfb);
 void msm_framebuffer_cleanup(struct drm_framebuffer *fb,
-		struct msm_gem_address_space *aspace);
+		struct msm_gem_address_space *aspace, bool needed_dirtyfb);
 uint32_t msm_framebuffer_iova(struct drm_framebuffer *fb,
 		struct msm_gem_address_space *aspace, int plane);
 struct drm_gem_object *msm_framebuffer_bo(struct drm_framebuffer *fb, int plane);
@@ -313,18 +318,18 @@ int msm_hdmi_modeset_init(struct hdmi *hdmi, struct drm_device *dev,
 void __init msm_hdmi_register(void);
 void __exit msm_hdmi_unregister(void);
 
-struct msm_edp;
-void __init msm_edp_register(void);
-void __exit msm_edp_unregister(void);
-int msm_edp_modeset_init(struct msm_edp *edp, struct drm_device *dev,
-		struct drm_encoder *encoder);
-
 struct msm_dsi;
 #ifdef CONFIG_DRM_MSM_DSI
+int dsi_dev_attach(struct platform_device *pdev);
+void dsi_dev_detach(struct platform_device *pdev);
 void __init msm_dsi_register(void);
 void __exit msm_dsi_unregister(void);
 int msm_dsi_modeset_init(struct msm_dsi *msm_dsi, struct drm_device *dev,
 			 struct drm_encoder *encoder);
+void msm_dsi_snapshot(struct msm_disp_state *disp_state, struct msm_dsi *msm_dsi);
+bool msm_dsi_is_cmd_mode(struct msm_dsi *msm_dsi);
+bool msm_dsi_is_bonded_dsi(struct msm_dsi *msm_dsi);
+bool msm_dsi_is_master_dsi(struct msm_dsi *msm_dsi);
 #else
 static inline void __init msm_dsi_register(void)
 {
@@ -338,6 +343,21 @@ static inline int msm_dsi_modeset_init(struct msm_dsi *msm_dsi,
 {
 	return -EINVAL;
 }
+static inline void msm_dsi_snapshot(struct msm_disp_state *disp_state, struct msm_dsi *msm_dsi)
+{
+}
+static inline bool msm_dsi_is_cmd_mode(struct msm_dsi *msm_dsi)
+{
+	return false;
+}
+static inline bool msm_dsi_is_bonded_dsi(struct msm_dsi *msm_dsi)
+{
+	return false;
+}
+static inline bool msm_dsi_is_master_dsi(struct msm_dsi *msm_dsi)
+{
+	return false;
+}
 #endif
 
 #ifdef CONFIG_DRM_MSM_DP
@@ -349,9 +369,14 @@ int msm_dp_display_enable(struct msm_dp *dp, struct drm_encoder *encoder);
 int msm_dp_display_disable(struct msm_dp *dp, struct drm_encoder *encoder);
 int msm_dp_display_pre_disable(struct msm_dp *dp, struct drm_encoder *encoder);
 void msm_dp_display_mode_set(struct msm_dp *dp, struct drm_encoder *encoder,
-				struct drm_display_mode *mode,
-				struct drm_display_mode *adjusted_mode);
+				const struct drm_display_mode *mode,
+				const struct drm_display_mode *adjusted_mode);
+
+struct drm_bridge *msm_dp_bridge_init(struct msm_dp *dp_display,
+					struct drm_device *dev,
+					struct drm_encoder *encoder);
 void msm_dp_irq_postinstall(struct msm_dp *dp_display);
+void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp_display);
 
 void msm_dp_debugfs_init(struct msm_dp *dp_display, struct drm_minor *minor);
 
@@ -386,12 +411,16 @@ static inline int msm_dp_display_pre_disable(struct msm_dp *dp,
 }
 static inline void msm_dp_display_mode_set(struct msm_dp *dp,
 				struct drm_encoder *encoder,
-				struct drm_display_mode *mode,
-				struct drm_display_mode *adjusted_mode)
+				const struct drm_display_mode *mode,
+				const struct drm_display_mode *adjusted_mode)
 {
 }
 
 static inline void msm_dp_irq_postinstall(struct msm_dp *dp_display)
+{
+}
+
+static inline void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp_display)
 {
 }
 
@@ -431,48 +460,43 @@ struct clk *msm_clk_get(struct platform_device *pdev, const char *name);
 
 struct clk *msm_clk_bulk_get_clock(struct clk_bulk_data *bulk, int count,
 	const char *name);
-void __iomem *msm_ioremap(struct platform_device *pdev, const char *name,
-		const char *dbgname);
-void __iomem *msm_ioremap_quiet(struct platform_device *pdev, const char *name,
-		const char *dbgname);
-void msm_writel(u32 data, void __iomem *addr);
-u32 msm_readl(const void __iomem *addr);
-void msm_rmw(void __iomem *addr, u32 mask, u32 or);
+void __iomem *msm_ioremap(struct platform_device *pdev, const char *name);
+void __iomem *msm_ioremap_size(struct platform_device *pdev, const char *name,
+		phys_addr_t *size);
+void __iomem *msm_ioremap_quiet(struct platform_device *pdev, const char *name);
 
-struct msm_gpu_submitqueue;
-int msm_submitqueue_init(struct drm_device *drm, struct msm_file_private *ctx);
-struct msm_gpu_submitqueue *msm_submitqueue_get(struct msm_file_private *ctx,
-		u32 id);
-int msm_submitqueue_create(struct drm_device *drm,
-		struct msm_file_private *ctx,
-		u32 prio, u32 flags, u32 *id);
-int msm_submitqueue_query(struct drm_device *drm, struct msm_file_private *ctx,
-		struct drm_msm_submitqueue_query *args);
-int msm_submitqueue_remove(struct msm_file_private *ctx, u32 id);
-void msm_submitqueue_close(struct msm_file_private *ctx);
+#define msm_writel(data, addr) writel((data), (addr))
+#define msm_readl(addr) readl((addr))
 
-void msm_submitqueue_destroy(struct kref *kref);
-
-static inline void __msm_file_private_destroy(struct kref *kref)
+static inline void msm_rmw(void __iomem *addr, u32 mask, u32 or)
 {
-	struct msm_file_private *ctx = container_of(kref,
-		struct msm_file_private, ref);
+	u32 val = msm_readl(addr);
 
-	msm_gem_address_space_put(ctx->aspace);
-	kfree(ctx);
+	val &= ~mask;
+	msm_writel(val | or, addr);
 }
 
-static inline void msm_file_private_put(struct msm_file_private *ctx)
-{
-	kref_put(&ctx->ref, __msm_file_private_destroy);
-}
+/**
+ * struct msm_hrtimer_work - a helper to combine an hrtimer with kthread_work
+ *
+ * @timer: hrtimer to control when the kthread work is triggered
+ * @work:  the kthread work
+ * @worker: the kthread worker the work will be scheduled on
+ */
+struct msm_hrtimer_work {
+	struct hrtimer timer;
+	struct kthread_work work;
+	struct kthread_worker *worker;
+};
 
-static inline struct msm_file_private *msm_file_private_get(
-	struct msm_file_private *ctx)
-{
-	kref_get(&ctx->ref);
-	return ctx;
-}
+void msm_hrtimer_queue_work(struct msm_hrtimer_work *work,
+			    ktime_t wakeup_time,
+			    enum hrtimer_mode mode);
+void msm_hrtimer_work_init(struct msm_hrtimer_work *work,
+			   struct kthread_worker *worker,
+			   kthread_work_func_t fn,
+			   clockid_t clock_id,
+			   enum hrtimer_mode mode);
 
 #define DBG(fmt, ...) DRM_DEBUG_DRIVER(fmt"\n", ##__VA_ARGS__)
 #define VERB(fmt, ...) if (0) DRM_DEBUG_DRIVER(fmt"\n", ##__VA_ARGS__)
@@ -487,7 +511,7 @@ static inline int align_pitch(int width, int bpp)
 /* for the generated headers: */
 #define INVALID_IDX(idx) ({BUG(); 0;})
 #define fui(x)                ({BUG(); 0;})
-#define util_float_to_half(x) ({BUG(); 0;})
+#define _mesa_float_to_half(x) ({BUG(); 0;})
 
 
 #define FIELD(val, name) (((val) & name ## __MASK) >> name ## __SHIFT)
@@ -498,7 +522,7 @@ static inline int align_pitch(int width, int bpp)
 static inline unsigned long timeout_to_jiffies(const ktime_t *timeout)
 {
 	ktime_t now = ktime_get();
-	unsigned long remaining_jiffies;
+	s64 remaining_jiffies;
 
 	if (ktime_compare(*timeout, now) < 0) {
 		remaining_jiffies = 0;
@@ -507,7 +531,7 @@ static inline unsigned long timeout_to_jiffies(const ktime_t *timeout)
 		remaining_jiffies = ktime_divns(rem, NSEC_PER_SEC / HZ);
 	}
 
-	return remaining_jiffies;
+	return clamp(remaining_jiffies, 0LL, (s64)INT_MAX);
 }
 
 #endif /* __MSM_DRV_H__ */

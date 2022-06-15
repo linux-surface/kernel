@@ -735,8 +735,14 @@ struct se_device *target_alloc_device(struct se_hba *hba, const char *name)
 
 	dev->queue_cnt = nr_cpu_ids;
 	for (i = 0; i < dev->queue_cnt; i++) {
-		INIT_LIST_HEAD(&dev->queues[i].state_list);
-		spin_lock_init(&dev->queues[i].lock);
+		struct se_device_queue *q;
+
+		q = &dev->queues[i];
+		INIT_LIST_HEAD(&q->state_list);
+		spin_lock_init(&q->lock);
+
+		init_llist_head(&q->sq.cmd_list);
+		INIT_WORK(&q->sq.work, target_queued_submit_work);
 	}
 
 	dev->se_hba = hba;
@@ -766,7 +772,14 @@ struct se_device *target_alloc_device(struct se_hba *hba, const char *name)
 	INIT_LIST_HEAD(&dev->t10_alua.lba_map_list);
 	spin_lock_init(&dev->t10_alua.lba_map_lock);
 
+	INIT_WORK(&dev->delayed_cmd_work, target_do_delayed_work);
+
 	dev->t10_wwn.t10_dev = dev;
+	/*
+	 * Use OpenFabrics IEEE Company ID: 00 14 05
+	 */
+	dev->t10_wwn.company_id = 0x001405;
+
 	dev->t10_alua.t10_dev = dev;
 
 	dev->dev_attrib.da_dev = dev;
@@ -1029,7 +1042,7 @@ int core_dev_setup_virtual_lun0(void)
 {
 	struct se_hba *hba;
 	struct se_device *dev;
-	char buf[] = "rd_pages=8,rd_nullio=1";
+	char buf[] = "rd_pages=8,rd_nullio=1,rd_dummy=1";
 	int ret;
 
 	hba = core_alloc_hba("rd_mcp", 0, HBA_FLAGS_INTERNAL_USE);

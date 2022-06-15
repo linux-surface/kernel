@@ -141,7 +141,7 @@ static uint64_t btree_csum_set(struct btree *b, struct bset *i)
 	uint64_t crc = b->key.ptr[0];
 	void *data = (void *) i + 8, *end = bset_bkey_last(i);
 
-	crc = bch_crc64_update(crc, data, end - data);
+	crc = crc64_be(crc, data, end - data);
 	return crc ^ 0xffffffffffffffffULL;
 }
 
@@ -426,7 +426,7 @@ void __bch_btree_node_write(struct btree *b, struct closure *parent)
 	do_btree_node_write(b);
 
 	atomic_long_add(set_blocks(i, block_bytes(b->c->cache)) * b->c->cache->sb.block_size,
-			&PTR_CACHE(b->c, &b->key, 0)->btree_sectors_written);
+			&b->c->cache->btree_sectors_written);
 
 	b->written += set_blocks(i, block_bytes(b->c->cache));
 }
@@ -1161,7 +1161,7 @@ static void make_btree_freeing_key(struct btree *b, struct bkey *k)
 
 	for (i = 0; i < KEY_PTRS(k); i++)
 		SET_PTR_GEN(k, i,
-			    bch_inc_gen(PTR_CACHE(b->c, &b->key, i),
+			    bch_inc_gen(b->c->cache,
 					PTR_BUCKET(b->c, &b->key, i)));
 
 	mutex_unlock(&b->c->bucket_lock);
@@ -2060,9 +2060,11 @@ int bch_btree_check(struct cache_set *c)
 		}
 	}
 
+	/*
+	 * Must wait for all threads to stop.
+	 */
 	wait_event_interruptible(check_state->wait,
-				 atomic_read(&check_state->started) == 0 ||
-				  test_bit(CACHE_SET_IO_DISABLE, &c->flags));
+				 atomic_read(&check_state->started) == 0);
 
 	for (i = 0; i < check_state->total_threads; i++) {
 		if (check_state->infos[i].result) {

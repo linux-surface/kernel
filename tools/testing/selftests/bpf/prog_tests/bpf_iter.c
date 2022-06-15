@@ -13,6 +13,7 @@
 #include "bpf_iter_tcp6.skel.h"
 #include "bpf_iter_udp4.skel.h"
 #include "bpf_iter_udp6.skel.h"
+#include "bpf_iter_unix.skel.h"
 #include "bpf_iter_test_kern1.skel.h"
 #include "bpf_iter_test_kern2.skel.h"
 #include "bpf_iter_test_kern3.skel.h"
@@ -47,7 +48,7 @@ static void do_dummy_read(struct bpf_program *prog)
 	int iter_fd, len;
 
 	link = bpf_program__attach_iter(prog, NULL);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		return;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -137,6 +138,24 @@ static void test_task(void)
 	bpf_iter_task__destroy(skel);
 }
 
+static void test_task_sleepable(void)
+{
+	struct bpf_iter_task *skel;
+
+	skel = bpf_iter_task__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "bpf_iter_task__open_and_load"))
+		return;
+
+	do_dummy_read(skel->progs.dump_task_sleepable);
+
+	ASSERT_GT(skel->bss->num_expected_failure_copy_from_user_task, 0,
+		  "num_expected_failure_copy_from_user_task");
+	ASSERT_GT(skel->bss->num_success_copy_from_user_task, 0,
+		  "num_success_copy_from_user_task");
+
+	bpf_iter_task__destroy(skel);
+}
+
 static void test_task_stack(void)
 {
 	struct bpf_iter_task_stack *skel;
@@ -147,6 +166,7 @@ static void test_task_stack(void)
 		return;
 
 	do_dummy_read(skel->progs.dump_task_stack);
+	do_dummy_read(skel->progs.get_task_user_stacks);
 
 	bpf_iter_task_stack__destroy(skel);
 }
@@ -200,7 +220,7 @@ static int do_btf_read(struct bpf_iter_task_btf *skel)
 	int ret = 0;
 
 	link = bpf_program__attach_iter(prog, NULL);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		return ret;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -312,6 +332,19 @@ static void test_udp6(void)
 	bpf_iter_udp6__destroy(skel);
 }
 
+static void test_unix(void)
+{
+	struct bpf_iter_unix *skel;
+
+	skel = bpf_iter_unix__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "bpf_iter_unix__open_and_load"))
+		return;
+
+	do_dummy_read(skel->progs.dump_unix);
+
+	bpf_iter_unix__destroy(skel);
+}
+
 /* The expected string is less than 16 bytes */
 static int do_read_with_fd(int iter_fd, const char *expected,
 			   bool read_one_char)
@@ -395,7 +428,7 @@ static void test_file_iter(void)
 		return;
 
 	link = bpf_program__attach_iter(skel1->progs.dump_task, NULL);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	/* unlink this path if it exists. */
@@ -454,12 +487,12 @@ static void test_overflow(bool test_e2big_overflow, bool ret1)
 	 * fills seq_file buffer and then the other will trigger
 	 * overflow and needs restart.
 	 */
-	map1_fd = bpf_create_map(BPF_MAP_TYPE_ARRAY, 4, 8, 1, 0);
-	if (CHECK(map1_fd < 0, "bpf_create_map",
+	map1_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, NULL, 4, 8, 1, NULL);
+	if (CHECK(map1_fd < 0, "bpf_map_create",
 		  "map_creation failed: %s\n", strerror(errno)))
 		goto out;
-	map2_fd = bpf_create_map(BPF_MAP_TYPE_ARRAY, 4, 8, 1, 0);
-	if (CHECK(map2_fd < 0, "bpf_create_map",
+	map2_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, NULL, 4, 8, 1, NULL);
+	if (CHECK(map2_fd < 0, "bpf_map_create",
 		  "map_creation failed: %s\n", strerror(errno)))
 		goto free_map1;
 
@@ -501,7 +534,7 @@ static void test_overflow(bool test_e2big_overflow, bool ret1)
 	skel->bss->map2_id = map_info.id;
 
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_map, NULL);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto free_map2;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -574,7 +607,7 @@ out:
 
 static void test_bpf_hash_map(void)
 {
-	__u32 expected_key_a = 0, expected_key_b = 0, expected_key_c = 0;
+	__u32 expected_key_a = 0, expected_key_b = 0;
 	DECLARE_LIBBPF_OPTS(bpf_iter_attach_opts, opts);
 	struct bpf_iter_bpf_hash_map *skel;
 	int err, i, len, map_fd, iter_fd;
@@ -606,14 +639,12 @@ static void test_bpf_hash_map(void)
 	opts.link_info = &linfo;
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_hash_map, &opts);
-	if (CHECK(!IS_ERR(link), "attach_iter",
-		  "attach_iter for hashmap2 unexpected succeeded\n"))
+	if (!ASSERT_ERR_PTR(link, "attach_iter"))
 		goto out;
 
 	linfo.map.map_fd = bpf_map__fd(skel->maps.hashmap3);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_hash_map, &opts);
-	if (CHECK(!IS_ERR(link), "attach_iter",
-		  "attach_iter for hashmap3 unexpected succeeded\n"))
+	if (!ASSERT_ERR_PTR(link, "attach_iter"))
 		goto out;
 
 	/* hashmap1 should be good, update map values here */
@@ -625,7 +656,6 @@ static void test_bpf_hash_map(void)
 		val = i + 4;
 		expected_key_a += key.a;
 		expected_key_b += key.b;
-		expected_key_c += key.c;
 		expected_val += val;
 
 		err = bpf_map_update_elem(map_fd, &key, &val, BPF_ANY);
@@ -635,7 +665,7 @@ static void test_bpf_hash_map(void)
 
 	linfo.map.map_fd = map_fd;
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_hash_map, &opts);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -672,7 +702,7 @@ out:
 
 static void test_bpf_percpu_hash_map(void)
 {
-	__u32 expected_key_a = 0, expected_key_b = 0, expected_key_c = 0;
+	__u32 expected_key_a = 0, expected_key_b = 0;
 	DECLARE_LIBBPF_OPTS(bpf_iter_attach_opts, opts);
 	struct bpf_iter_bpf_percpu_hash_map *skel;
 	int err, i, j, len, map_fd, iter_fd;
@@ -687,14 +717,13 @@ static void test_bpf_percpu_hash_map(void)
 	char buf[64];
 	void *val;
 
-	val = malloc(8 * bpf_num_possible_cpus());
-
 	skel = bpf_iter_bpf_percpu_hash_map__open();
 	if (CHECK(!skel, "bpf_iter_bpf_percpu_hash_map__open",
 		  "skeleton open failed\n"))
 		return;
 
 	skel->rodata->num_cpus = bpf_num_possible_cpus();
+	val = malloc(8 * bpf_num_possible_cpus());
 
 	err = bpf_iter_bpf_percpu_hash_map__load(skel);
 	if (CHECK(!skel, "bpf_iter_bpf_percpu_hash_map__load",
@@ -709,7 +738,6 @@ static void test_bpf_percpu_hash_map(void)
 		key.c = i + 3;
 		expected_key_a += key.a;
 		expected_key_b += key.b;
-		expected_key_c += key.c;
 
 		for (j = 0; j < bpf_num_possible_cpus(); j++) {
 			*(__u32 *)(val + j * 8) = i + j;
@@ -726,7 +754,7 @@ static void test_bpf_percpu_hash_map(void)
 	opts.link_info = &linfo;
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_percpu_hash_map, &opts);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -759,6 +787,7 @@ free_link:
 	bpf_link__destroy(link);
 out:
 	bpf_iter_bpf_percpu_hash_map__destroy(skel);
+	free(val);
 }
 
 static void test_bpf_array_map(void)
@@ -797,7 +826,7 @@ static void test_bpf_array_map(void)
 	opts.link_info = &linfo;
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_array_map, &opts);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -859,14 +888,13 @@ static void test_bpf_percpu_array_map(void)
 	void *val;
 	int len;
 
-	val = malloc(8 * bpf_num_possible_cpus());
-
 	skel = bpf_iter_bpf_percpu_array_map__open();
 	if (CHECK(!skel, "bpf_iter_bpf_percpu_array_map__open",
 		  "skeleton open failed\n"))
 		return;
 
 	skel->rodata->num_cpus = bpf_num_possible_cpus();
+	val = malloc(8 * bpf_num_possible_cpus());
 
 	err = bpf_iter_bpf_percpu_array_map__load(skel);
 	if (CHECK(!skel, "bpf_iter_bpf_percpu_array_map__load",
@@ -893,7 +921,7 @@ static void test_bpf_percpu_array_map(void)
 	opts.link_info = &linfo;
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_percpu_array_map, &opts);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -922,6 +950,7 @@ free_link:
 	bpf_link__destroy(link);
 out:
 	bpf_iter_bpf_percpu_array_map__destroy(skel);
+	free(val);
 }
 
 /* An iterator program deletes all local storage in a map. */
@@ -956,7 +985,7 @@ static void test_bpf_sk_storage_delete(void)
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.delete_bpf_sk_storage_map,
 					&opts);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -1074,7 +1103,7 @@ static void test_bpf_sk_storage_map(void)
 	opts.link_info = &linfo;
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_sk_storage_map, &opts);
-	if (CHECK(IS_ERR(link), "attach_iter", "attach_iter failed\n"))
+	if (!ASSERT_OK_PTR(link, "attach_iter"))
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
@@ -1127,7 +1156,7 @@ static void test_rdonly_buf_out_of_bound(void)
 	opts.link_info = &linfo;
 	opts.link_info_len = sizeof(linfo);
 	link = bpf_program__attach_iter(skel->progs.dump_bpf_hash_map, &opts);
-	if (CHECK(!IS_ERR(link), "attach_iter", "unexpected success\n"))
+	if (!ASSERT_ERR_PTR(link, "attach_iter"))
 		bpf_link__destroy(link);
 
 	bpf_iter_test_kern5__destroy(skel);
@@ -1185,8 +1214,7 @@ static void test_task_vma(void)
 	skel->links.proc_maps = bpf_program__attach_iter(
 		skel->progs.proc_maps, NULL);
 
-	if (CHECK(IS_ERR(skel->links.proc_maps), "bpf_program__attach_iter",
-		  "attach iterator failed\n")) {
+	if (!ASSERT_OK_PTR(skel->links.proc_maps, "bpf_program__attach_iter")) {
 		skel->links.proc_maps = NULL;
 		goto out;
 	}
@@ -1196,13 +1224,14 @@ static void test_task_vma(void)
 		goto out;
 
 	/* Read CMP_BUFFER_SIZE (1kB) from bpf_iter. Read in small chunks
-	 * to trigger seq_file corner cases. The expected output is much
-	 * longer than 1kB, so the while loop will terminate.
+	 * to trigger seq_file corner cases.
 	 */
 	len = 0;
 	while (len < CMP_BUFFER_SIZE) {
 		err = read_fd_into_buffer(iter_fd, task_vma_output + len,
 					  min(read_size, CMP_BUFFER_SIZE - len));
+		if (!err)
+			break;
 		if (CHECK(err < 0, "read_iter_fd", "read_iter_fd failed\n"))
 			goto out;
 		len += err;
@@ -1241,6 +1270,8 @@ void test_bpf_iter(void)
 		test_bpf_map();
 	if (test__start_subtest("task"))
 		test_task();
+	if (test__start_subtest("task_sleepable"))
+		test_task_sleepable();
 	if (test__start_subtest("task_stack"))
 		test_task_stack();
 	if (test__start_subtest("task_file"))
@@ -1257,6 +1288,8 @@ void test_bpf_iter(void)
 		test_udp4();
 	if (test__start_subtest("udp6"))
 		test_udp6();
+	if (test__start_subtest("unix"))
+		test_unix();
 	if (test__start_subtest("anon"))
 		test_anon_iter(false);
 	if (test__start_subtest("anon-read-one-char"))

@@ -9,11 +9,14 @@ KCOV_INSTRUMENT := n
 GCOV_PROFILE := n
 UBSAN_SANITIZE := n
 KASAN_SANITIZE := n
+KCSAN_SANITIZE := n
 
 obj-y	:= $(if $(CONFIG_KERNEL_UNCOMPRESSED),,decompressor.o) info.o
+obj-$(CONFIG_KERNEL_ZSTD) += clz_ctz.o
 obj-all := $(obj-y) piggy.o syms.o
 targets	:= vmlinux.lds vmlinux vmlinux.bin vmlinux.bin.gz vmlinux.bin.bz2
 targets += vmlinux.bin.xz vmlinux.bin.lzma vmlinux.bin.lzo vmlinux.bin.lz4
+targets += vmlinux.bin.zst
 targets += info.bin syms.bin vmlinux.syms $(obj-all)
 
 KBUILD_AFLAGS := $(KBUILD_AFLAGS_DECOMPRESSOR)
@@ -33,7 +36,7 @@ $(obj)/vmlinux.syms: $(obj)/vmlinux.lds $(objtree)/arch/s390/boot/startup.a $(OB
 
 quiet_cmd_dumpsyms = DUMPSYMS $<
 define cmd_dumpsyms
-	$(NM) -n -S --format=bsd "$<" | $(PERL) -ne '/(\w+)\s+(\w+)\s+[tT]\s+(\w+)/ and printf "%x %x %s\0",hex $$1,hex $$2,$$3' > "$@"
+	$(NM) -n -S --format=bsd "$<" | sed -nE 's/^0*([0-9a-fA-F]+) 0*([0-9a-fA-F]+) [tT] ([^ ]*)$$/\1 \2 \3/p' | tr '\n' '\0' > "$@"
 endef
 
 $(obj)/syms.bin: $(obj)/vmlinux.syms FORCE
@@ -55,27 +58,28 @@ OBJCOPYFLAGS_vmlinux.bin := -O binary --remove-section=.comment --remove-section
 $(obj)/vmlinux.bin: vmlinux FORCE
 	$(call if_changed,objcopy)
 
-vmlinux.bin.all-y := $(obj)/vmlinux.bin
-
 suffix-$(CONFIG_KERNEL_GZIP)  := .gz
 suffix-$(CONFIG_KERNEL_BZIP2) := .bz2
 suffix-$(CONFIG_KERNEL_LZ4)  := .lz4
 suffix-$(CONFIG_KERNEL_LZMA)  := .lzma
 suffix-$(CONFIG_KERNEL_LZO)  := .lzo
 suffix-$(CONFIG_KERNEL_XZ)  := .xz
+suffix-$(CONFIG_KERNEL_ZSTD)  := .zst
 
-$(obj)/vmlinux.bin.gz: $(vmlinux.bin.all-y) FORCE
+$(obj)/vmlinux.bin.gz: $(obj)/vmlinux.bin FORCE
 	$(call if_changed,gzip)
-$(obj)/vmlinux.bin.bz2: $(vmlinux.bin.all-y) FORCE
-	$(call if_changed,bzip2)
-$(obj)/vmlinux.bin.lz4: $(vmlinux.bin.all-y) FORCE
-	$(call if_changed,lz4)
-$(obj)/vmlinux.bin.lzma: $(vmlinux.bin.all-y) FORCE
-	$(call if_changed,lzma)
-$(obj)/vmlinux.bin.lzo: $(vmlinux.bin.all-y) FORCE
-	$(call if_changed,lzo)
-$(obj)/vmlinux.bin.xz: $(vmlinux.bin.all-y) FORCE
-	$(call if_changed,xzkern)
+$(obj)/vmlinux.bin.bz2: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,bzip2_with_size)
+$(obj)/vmlinux.bin.lz4: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,lz4_with_size)
+$(obj)/vmlinux.bin.lzma: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,lzma_with_size)
+$(obj)/vmlinux.bin.lzo: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,lzo_with_size)
+$(obj)/vmlinux.bin.xz: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,xzkern_with_size)
+$(obj)/vmlinux.bin.zst: $(obj)/vmlinux.bin FORCE
+	$(call if_changed,zstd22_with_size)
 
 OBJCOPYFLAGS_piggy.o := -I binary -O elf64-s390 -B s390:64-bit --rename-section .data=.vmlinux.bin.compressed
 $(obj)/piggy.o: $(obj)/vmlinux.bin$(suffix-y) FORCE

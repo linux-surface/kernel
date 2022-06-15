@@ -1,12 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * SPDX-License-Identifier: GPL-2.0
- *
  * Copyright © 2018 Intel Corporation
  */
 
 #include <linux/sort.h>
 
 #include "i915_selftest.h"
+#include "intel_engine_regs.h"
 #include "intel_gpu_commands.h"
 #include "intel_gt_clock_utils.h"
 #include "selftest_engine.h"
@@ -111,13 +111,15 @@ static int __measure_timestamps(struct intel_context *ce,
 		cpu_relax();
 
 	/* Run the request for a 100us, sampling timestamps before/after */
-	preempt_disable();
-	*dt = local_clock();
+	local_irq_disable();
 	write_semaphore(&sema[2], 0);
+	while (READ_ONCE(sema[1]) == 0) /* wait for the gpu to catch up */
+		cpu_relax();
+	*dt = local_clock();
 	udelay(100);
 	*dt = local_clock() - *dt;
 	write_semaphore(&sema[2], 1);
-	preempt_enable();
+	local_irq_enable();
 
 	if (i915_request_wait(rq, 0, HZ / 2) < 0) {
 		i915_request_put(rq);
@@ -172,8 +174,8 @@ static int __live_engine_timestamps(struct intel_engine_cs *engine)
 	d_ctx = trifilter(s_ctx);
 
 	d_ctx *= engine->gt->clock_frequency;
-	if (IS_ICELAKE(engine->i915))
-		d_ring *= 12500000; /* Fixed 80ns for icl ctx timestamp? */
+	if (GRAPHICS_VER(engine->i915) == 11)
+		d_ring *= 12500000; /* Fixed 80ns for GEN11 ctx timestamp? */
 	else
 		d_ring *= engine->gt->clock_frequency;
 
@@ -197,7 +199,7 @@ static int live_engine_timestamps(void *arg)
 	 * the same CS clock.
 	 */
 
-	if (INTEL_GEN(gt->i915) < 8)
+	if (GRAPHICS_VER(gt->i915) < 8)
 		return 0;
 
 	for_each_engine(engine, gt, id) {
@@ -208,6 +210,31 @@ static int live_engine_timestamps(void *arg)
 		st_engine_heartbeat_enable(engine);
 		if (err)
 			return err;
+	}
+
+	return 0;
+}
+
+static int __spin_until_busier(struct intel_engine_cs *engine, ktime_t busyness)
+{
+	ktime_t start, unused, dt;
+
+	if (!intel_engine_uses_guc(engine))
+		return 0;
+
+	/*
+	 * In GuC mode of submission, the busyness stats may get updated after
+	 * the batch starts running. Poll for a change in busyness and timeout
+	 * after 500 us.
+	 */
+	start = ktime_get();
+	while (intel_engine_get_busy_time(engine, &unused) == busyness) {
+		dt = ktime_get() - start;
+		if (dt > 10000000) {
+			pr_err("active wait timed out %lld\n", dt);
+			ENGINE_TRACE(engine, "active wait time out %lld\n", dt);
+			return -ETIME;
+		}
 	}
 
 	return 0;
@@ -231,6 +258,7 @@ static int live_engine_busy_stats(void *arg)
 	GEM_BUG_ON(intel_gt_pm_is_awake(gt));
 	for_each_engine(engine, gt, id) {
 		struct i915_request *rq;
+		ktime_t busyness, dummy;
 		ktime_t de, dt;
 		ktime_t t[2];
 
@@ -273,16 +301,23 @@ static int live_engine_busy_stats(void *arg)
 		}
 		i915_request_add(rq);
 
+		busyness = intel_engine_get_busy_time(engine, &dummy);
 		if (!igt_wait_for_spinner(&spin, rq)) {
 			intel_gt_set_wedged(engine->gt);
 			err = -ETIME;
 			goto end;
 		}
 
+		err = __spin_until_busier(engine, busyness);
+		if (err) {
+			GEM_TRACE_DUMP();
+			goto end;
+		}
+
 		ENGINE_TRACE(engine, "measuring busy time\n");
 		preempt_disable();
 		de = intel_engine_get_busy_time(engine, &t[0]);
-		udelay(100);
+		mdelay(10);
 		de = ktime_sub(intel_engine_get_busy_time(engine, &t[1]), de);
 		preempt_enable();
 		dt = ktime_sub(t[1], t[0]);

@@ -898,7 +898,6 @@ static int iqs62x_probe(struct i2c_client *client)
 	struct iqs62x_info info;
 	unsigned int val;
 	int ret, i, j;
-	u8 sw_num = 0;
 	const char *fw_name = NULL;
 
 	iqs62x = devm_kzalloc(&client->dev, sizeof(*iqs62x), GFP_KERNEL);
@@ -949,7 +948,8 @@ static int iqs62x_probe(struct i2c_client *client)
 		if (info.sw_num < iqs62x->dev_desc->sw_num)
 			continue;
 
-		sw_num = info.sw_num;
+		iqs62x->sw_num = info.sw_num;
+		iqs62x->hw_num = info.hw_num;
 
 		/*
 		 * Read each of the device's designated calibration registers,
@@ -985,7 +985,7 @@ static int iqs62x_probe(struct i2c_client *client)
 		return -EINVAL;
 	}
 
-	if (!sw_num) {
+	if (!iqs62x->sw_num) {
 		dev_err(&client->dev, "Unrecognized software number: 0x%02X\n",
 			info.sw_num);
 		return -EINVAL;
@@ -998,7 +998,7 @@ static int iqs62x_probe(struct i2c_client *client)
 
 	device_property_read_string(&client->dev, "firmware-name", &fw_name);
 
-	ret = request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+	ret = request_firmware_nowait(THIS_MODULE, FW_ACTION_UEVENT,
 				      fw_name ? : iqs62x->dev_desc->fw_name,
 				      &client->dev, GFP_KERNEL, iqs62x,
 				      iqs62x_firmware_load);

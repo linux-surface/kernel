@@ -655,12 +655,7 @@ nomenclature that instead use the order of components as seen in a 24- or
 
 .. raw:: latex
 
-    \begingroup
-    \tiny
-    \setlength{\tabcolsep}{2pt}
-
-.. tabularcolumns:: |p{2.8cm}|p{2.0cm}|p{2.0cm}|p{2.0cm}|p{2.0cm}|p{2.0cm}|p{2.0cm}|p{2.0cm}|
-
+    \small
 
 .. flat-table:: RGB Formats With 8 Bits Per Component
     :header-rows:  1
@@ -677,8 +672,8 @@ nomenclature that instead use the order of components as seen in a 24- or
       - ``V4L2_PIX_FMT_BGR24``
       - 'BGR3'
 
-      - G\ :sub:`7-0`
       - B\ :sub:`7-0`
+      - G\ :sub:`7-0`
       - R\ :sub:`7-0`
       -
     * .. _V4L2-PIX-FMT-RGB24:
@@ -765,7 +760,7 @@ nomenclature that instead use the order of components as seen in a 24- or
 
 .. raw:: latex
 
-    \endgroup
+    \normalsize
 
 
 Deprecated RGB Formats

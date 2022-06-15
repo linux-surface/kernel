@@ -205,7 +205,7 @@ static ssize_t df_v3_6_get_df_cntr_avail(struct device *dev,
 			count++;
 	}
 
-	return snprintf(buf, PAGE_SIZE,	"%i\n", count);
+	return sysfs_emit(buf, "%i\n", count);
 }
 
 /* device attr for available perfmon counters */
@@ -219,11 +219,11 @@ static void df_v3_6_query_hashes(struct amdgpu_device *adev)
 	adev->df.hash_status.hash_2m = false;
 	adev->df.hash_status.hash_1g = false;
 
-	if (adev->asic_type != CHIP_ARCTURUS)
-		return;
-
-	/* encoding for hash-enabled on Arcturus */
-	if (adev->df.funcs->get_fb_channel_number(adev) == 0xe) {
+	/* encoding for hash-enabled on Arcturus and Aldebaran */
+	if ((adev->asic_type == CHIP_ARCTURUS &&
+	     adev->df.funcs->get_fb_channel_number(adev) == 0xe) ||
+	     (adev->asic_type == CHIP_ALDEBARAN &&
+	      adev->df.funcs->get_fb_channel_number(adev) == 0x1e)) {
 		tmp = RREG32_SOC15(DF, 0, mmDF_CS_UMC_AON0_DfGlobalCtrl);
 		adev->df.hash_status.hash_64k = REG_GET_FIELD(tmp,
 						DF_CS_UMC_AON0_DfGlobalCtrl,
@@ -277,8 +277,14 @@ static u32 df_v3_6_get_fb_channel_number(struct amdgpu_device *adev)
 {
 	u32 tmp;
 
-	tmp = RREG32_SOC15(DF, 0, mmDF_CS_UMC_AON0_DramBaseAddress0);
-	tmp &= DF_CS_UMC_AON0_DramBaseAddress0__IntLvNumChan_MASK;
+	if (adev->asic_type == CHIP_ALDEBARAN) {
+		tmp = RREG32_SOC15(DF, 0, mmDF_GCM_AON0_DramMegaBaseAddress0);
+		tmp &=
+		ALDEBARAN_DF_CS_UMC_AON0_DramBaseAddress0__IntLvNumChan_MASK;
+	} else {
+		tmp = RREG32_SOC15(DF, 0, mmDF_CS_UMC_AON0_DramBaseAddress0);
+		tmp &= DF_CS_UMC_AON0_DramBaseAddress0__IntLvNumChan_MASK;
+	}
 	tmp >>= DF_CS_UMC_AON0_DramBaseAddress0__IntLvNumChan__SHIFT;
 
 	return tmp;
@@ -452,7 +458,7 @@ static int df_v3_6_pmc_add_cntr(struct amdgpu_device *adev,
 
 #define DEFERRED_ARM_MASK	(1 << 31)
 static int df_v3_6_pmc_set_deferred(struct amdgpu_device *adev,
-				    int counter_idx, uint64_t config,
+				    uint64_t config, int counter_idx,
 				    bool is_deferred)
 {
 
@@ -470,8 +476,8 @@ static int df_v3_6_pmc_set_deferred(struct amdgpu_device *adev,
 }
 
 static bool df_v3_6_pmc_is_deferred(struct amdgpu_device *adev,
-				    int counter_idx,
-				    uint64_t config)
+				    uint64_t config,
+				    int counter_idx)
 {
 	return	(df_v3_6_pmc_has_counter(adev, config, counter_idx) &&
 			(adev->df_perfmon_config_assign_mask[counter_idx]
@@ -568,6 +574,8 @@ static int df_v3_6_pmc_stop(struct amdgpu_device *adev, uint64_t config,
 		if (ret)
 			return ret;
 
+		df_v3_6_perfmon_wreg(adev, lo_base_addr, lo_val,
+							hi_base_addr, hi_val);
 
 		if (is_remove) {
 			df_v3_6_reset_perfmon_cntr(adev, config, counter_idx);
@@ -629,6 +637,36 @@ static void df_v3_6_pmc_get_count(struct amdgpu_device *adev,
 	}
 }
 
+static bool df_v3_6_query_ras_poison_mode(struct amdgpu_device *adev)
+{
+	uint32_t hw_assert_msklo, hw_assert_mskhi;
+	uint32_t v0, v1, v28, v31;
+
+	hw_assert_msklo = RREG32_SOC15(DF, 0,
+				mmDF_CS_UMC_AON0_HardwareAssertMaskLow);
+	hw_assert_mskhi = RREG32_SOC15(DF, 0,
+				mmDF_NCS_PG0_HardwareAssertMaskHigh);
+
+	v0 = REG_GET_FIELD(hw_assert_msklo,
+		DF_CS_UMC_AON0_HardwareAssertMaskLow, HWAssertMsk0);
+	v1 = REG_GET_FIELD(hw_assert_msklo,
+		DF_CS_UMC_AON0_HardwareAssertMaskLow, HWAssertMsk1);
+	v28 = REG_GET_FIELD(hw_assert_mskhi,
+		DF_NCS_PG0_HardwareAssertMaskHigh, HWAssertMsk28);
+	v31 = REG_GET_FIELD(hw_assert_mskhi,
+		DF_NCS_PG0_HardwareAssertMaskHigh, HWAssertMsk31);
+
+	if (v0 && v1 && v28 && v31)
+		return true;
+	else if (!v0 && !v1 && !v28 && !v31)
+		return false;
+	else {
+		dev_warn(adev->dev, "DF poison setting is inconsistent(%d:%d:%d:%d)!\n",
+				v0, v1, v28, v31);
+		return false;
+	}
+}
+
 const struct amdgpu_df_funcs df_v3_6_funcs = {
 	.sw_init = df_v3_6_sw_init,
 	.sw_fini = df_v3_6_sw_fini,
@@ -643,4 +681,5 @@ const struct amdgpu_df_funcs df_v3_6_funcs = {
 	.pmc_get_count = df_v3_6_pmc_get_count,
 	.get_fica = df_v3_6_get_fica,
 	.set_fica = df_v3_6_set_fica,
+	.query_ras_poison_mode = df_v3_6_query_ras_poison_mode,
 };

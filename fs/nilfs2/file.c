@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * file.c - NILFS regular file handling primitives including fsync().
+ * NILFS regular file handling primitives including fsync().
  *
  * Copyright (C) 2005-2008 Nippon Telegraph and Telephone Corporation.
  *
@@ -148,6 +148,8 @@ const struct inode_operations nilfs_file_inode_operations = {
 	.setattr	= nilfs_setattr,
 	.permission     = nilfs_permission,
 	.fiemap		= nilfs_fiemap,
+	.fileattr_get	= nilfs_fileattr_get,
+	.fileattr_set	= nilfs_fileattr_set,
 };
 
 /* end of file */

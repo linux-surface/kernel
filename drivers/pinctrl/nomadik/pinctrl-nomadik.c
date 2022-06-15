@@ -815,7 +815,7 @@ static void nmk_gpio_irq_handler(struct irq_desc *desc)
 	while (status) {
 		int bit = __ffs(status);
 
-		generic_handle_irq(irq_find_mapping(chip->irq.domain, bit));
+		generic_handle_domain_irq(chip->irq.domain, bit);
 		status &= ~BIT(bit);
 	}
 
@@ -1883,8 +1883,10 @@ static int nmk_pinctrl_probe(struct platform_device *pdev)
 	}
 
 	prcm_np = of_parse_phandle(np, "prcm", 0);
-	if (prcm_np)
+	if (prcm_np) {
 		npct->prcm_base = of_iomap(prcm_np, 0);
+		of_node_put(prcm_np);
+	}
 	if (!npct->prcm_base) {
 		if (version == PINCTRL_NMK_STN8815) {
 			dev_info(&pdev->dev,

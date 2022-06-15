@@ -25,6 +25,7 @@
 
 #include "amdgpu.h"
 #include "amdgpu_uvd.h"
+#include "amdgpu_cs.h"
 #include "soc15.h"
 #include "soc15d.h"
 #include "soc15_common.h"
@@ -338,14 +339,8 @@ err:
 static int uvd_v7_0_enc_ring_test_ib(struct amdgpu_ring *ring, long timeout)
 {
 	struct dma_fence *fence = NULL;
-	struct amdgpu_bo *bo = NULL;
+	struct amdgpu_bo *bo = ring->adev->uvd.ib_bo;
 	long r;
-
-	r = amdgpu_bo_create_reserved(ring->adev, 128 * 1024, PAGE_SIZE,
-				      AMDGPU_GEM_DOMAIN_VRAM,
-				      &bo, NULL, NULL);
-	if (r)
-		return r;
 
 	r = uvd_v7_0_enc_get_create_msg(ring, 1, bo, NULL);
 	if (r)
@@ -363,8 +358,6 @@ static int uvd_v7_0_enc_ring_test_ib(struct amdgpu_ring *ring, long timeout)
 
 error:
 	dma_fence_put(fence);
-	amdgpu_bo_unreserve(bo);
-	amdgpu_bo_unref(&bo);
 	return r;
 }
 
@@ -454,7 +447,7 @@ static int uvd_v7_0_sw_init(void *handle)
 			sprintf(ring->name, "uvd_%d", ring->me);
 			r = amdgpu_ring_init(adev, ring, 512,
 					     &adev->uvd.inst[j].irq, 0,
-					     AMDGPU_RING_PRIO_DEFAULT);
+					     AMDGPU_RING_PRIO_DEFAULT, NULL);
 			if (r)
 				return r;
 		}
@@ -475,7 +468,7 @@ static int uvd_v7_0_sw_init(void *handle)
 			}
 			r = amdgpu_ring_init(adev, ring, 512,
 					     &adev->uvd.inst[j].irq, 0,
-					     AMDGPU_RING_PRIO_DEFAULT);
+					     AMDGPU_RING_PRIO_DEFAULT, NULL);
 			if (r)
 				return r;
 		}
@@ -605,6 +598,8 @@ static int uvd_v7_0_hw_fini(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
+	cancel_delayed_work_sync(&adev->uvd.idle_work);
+
 	if (!amdgpu_sriov_vf(adev))
 		uvd_v7_0_stop(adev);
 	else {
@@ -619,6 +614,30 @@ static int uvd_v7_0_suspend(void *handle)
 {
 	int r;
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
+
+	/*
+	 * Proper cleanups before halting the HW engine:
+	 *   - cancel the delayed idle work
+	 *   - enable powergating
+	 *   - enable clockgating
+	 *   - disable dpm
+	 *
+	 * TODO: to align with the VCN implementation, move the
+	 * jobs for clockgating/powergating/dpm setting to
+	 * ->set_powergating_state().
+	 */
+	cancel_delayed_work_sync(&adev->uvd.idle_work);
+
+	if (adev->pm.dpm_enabled) {
+		amdgpu_dpm_enable_uvd(adev, false);
+	} else {
+		amdgpu_asic_set_uvd_clocks(adev, 0, 0);
+		/* shutdown the UVD block */
+		amdgpu_device_ip_set_powergating_state(adev, AMD_IP_BLOCK_TYPE_UVD,
+						       AMD_PG_STATE_GATE);
+		amdgpu_device_ip_set_clockgating_state(adev, AMD_IP_BLOCK_TYPE_UVD,
+						       AMD_CG_STATE_GATE);
+	}
 
 	r = uvd_v7_0_hw_fini(adev);
 	if (r)
@@ -1257,14 +1276,15 @@ static int uvd_v7_0_ring_test_ring(struct amdgpu_ring *ring)
  * uvd_v7_0_ring_patch_cs_in_place - Patch the IB for command submission.
  *
  * @p: the CS parser with the IBs
- * @ib_idx: which IB to patch
+ * @job: which job this ib is in
+ * @ib: which IB to patch
  *
  */
 static int uvd_v7_0_ring_patch_cs_in_place(struct amdgpu_cs_parser *p,
-					   uint32_t ib_idx)
+					   struct amdgpu_job *job,
+					   struct amdgpu_ib *ib)
 {
-	struct amdgpu_ring *ring = to_amdgpu_ring(p->entity->rq->sched);
-	struct amdgpu_ib *ib = &p->job->ibs[ib_idx];
+	struct amdgpu_ring *ring = to_amdgpu_ring(job->base.sched);
 	unsigned i;
 
 	/* No patching necessary for the first instance */
@@ -1272,12 +1292,12 @@ static int uvd_v7_0_ring_patch_cs_in_place(struct amdgpu_cs_parser *p,
 		return 0;
 
 	for (i = 0; i < ib->length_dw; i += 2) {
-		uint32_t reg = amdgpu_get_ib_value(p, ib_idx, i);
+		uint32_t reg = amdgpu_ib_get_value(ib, i);
 
 		reg -= p->adev->reg_offset[UVD_HWIP][0][1];
 		reg += p->adev->reg_offset[UVD_HWIP][1][1];
 
-		amdgpu_set_ib_value(p, ib_idx, i, reg);
+		amdgpu_ib_set_value(ib, i, reg);
 	}
 	return 0;
 }

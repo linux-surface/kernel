@@ -17,7 +17,7 @@ maintainers:
   - Sameer Pujar <spujar@nvidia.com>
 
 allOf:
-  - $ref: audio-graph-port.yaml#
+  - $ref: name-prefix.yaml#
 
 properties:
   $nodename:
@@ -28,6 +28,7 @@ properties:
       - const: nvidia,tegra210-dmic
       - items:
           - enum:
+              - nvidia,tegra234-dmic
               - nvidia,tegra194-dmic
               - nvidia,tegra186-dmic
           - const: nvidia,tegra210-dmic
@@ -52,22 +53,20 @@ properties:
 
   sound-name-prefix:
     pattern: "^DMIC[1-9]$"
-    $ref: /schemas/types.yaml#/definitions/string
-    description:
-      used as prefix for sink/source names of the component. Must be a
-      unique string among multiple instances of the same component.
-      The name can be "DMIC1" or "DMIC2" ... "DMICx", where x depends
-      on the maximum available instances on a Tegra SoC.
 
   ports:
-    type: object
+    $ref: /schemas/graph.yaml#/properties/ports
     properties:
       port@0:
+        $ref: audio-graph-port.yaml#
+        unevaluatedProperties: false
         description: |
           DMIC ACIF (Audio Client Interface) port connected to the
           corresponding AHUB (Audio Hub) ACIF port.
 
       port@1:
+        $ref: audio-graph-port.yaml#
+        unevaluatedProperties: false
         description: |
           DMIC DAP (Digital Audio Port) interface which can be connected
           to external audio codec for capture.
@@ -80,7 +79,7 @@ required:
   - assigned-clocks
   - assigned-clock-parents
 
-unevaluatedProperties: false
+additionalProperties: false
 
 examples:
   - |

@@ -82,10 +82,9 @@ extern bool static_key_initialized;
 				    "%s(): static key '%pS' used before call to jump_label_init()", \
 				    __func__, (key))
 
-#ifdef CONFIG_JUMP_LABEL
-
 struct static_key {
 	atomic_t enabled;
+#ifdef CONFIG_JUMP_LABEL
 /*
  * Note:
  *   To make anonymous unions work with old compilers, the static
@@ -104,13 +103,9 @@ struct static_key {
 		struct jump_entry *entries;
 		struct static_key_mod *next;
 	};
+#endif	/* CONFIG_JUMP_LABEL */
 };
 
-#else
-struct static_key {
-	atomic_t enabled;
-};
-#endif	/* CONFIG_JUMP_LABEL */
 #endif /* __ASSEMBLY__ */
 
 #ifdef CONFIG_JUMP_LABEL
@@ -171,9 +166,21 @@ static inline bool jump_entry_is_init(const struct jump_entry *entry)
 	return (unsigned long)entry->key & 2UL;
 }
 
-static inline void jump_entry_set_init(struct jump_entry *entry)
+static inline void jump_entry_set_init(struct jump_entry *entry, bool set)
 {
-	entry->key |= 2;
+	if (set)
+		entry->key |= 2;
+	else
+		entry->key &= ~2;
+}
+
+static inline int jump_entry_size(struct jump_entry *entry)
+{
+#ifdef JUMP_LABEL_NOP_SIZE
+	return JUMP_LABEL_NOP_SIZE;
+#else
+	return arch_jump_entry_size(entry);
+#endif
 }
 
 #endif
@@ -239,10 +246,10 @@ extern void static_key_disable_cpuslocked(struct static_key *key);
  */
 #define STATIC_KEY_INIT_TRUE					\
 	{ .enabled = { 1 },					\
-	  { .entries = (void *)JUMP_TYPE_TRUE } }
+	  { .type = JUMP_TYPE_TRUE } }
 #define STATIC_KEY_INIT_FALSE					\
 	{ .enabled = { 0 },					\
-	  { .entries = (void *)JUMP_TYPE_FALSE } }
+	  { .type = JUMP_TYPE_FALSE } }
 
 #else  /* !CONFIG_JUMP_LABEL */
 
@@ -382,6 +389,21 @@ struct static_key_false {
 		[0 ... (count) - 1] = STATIC_KEY_FALSE_INIT,	\
 	}
 
+#define _DEFINE_STATIC_KEY_1(name)	DEFINE_STATIC_KEY_TRUE(name)
+#define _DEFINE_STATIC_KEY_0(name)	DEFINE_STATIC_KEY_FALSE(name)
+#define DEFINE_STATIC_KEY_MAYBE(cfg, name)			\
+	__PASTE(_DEFINE_STATIC_KEY_, IS_ENABLED(cfg))(name)
+
+#define _DEFINE_STATIC_KEY_RO_1(name)	DEFINE_STATIC_KEY_TRUE_RO(name)
+#define _DEFINE_STATIC_KEY_RO_0(name)	DEFINE_STATIC_KEY_FALSE_RO(name)
+#define DEFINE_STATIC_KEY_MAYBE_RO(cfg, name)			\
+	__PASTE(_DEFINE_STATIC_KEY_RO_, IS_ENABLED(cfg))(name)
+
+#define _DECLARE_STATIC_KEY_1(name)	DECLARE_STATIC_KEY_TRUE(name)
+#define _DECLARE_STATIC_KEY_0(name)	DECLARE_STATIC_KEY_FALSE(name)
+#define DECLARE_STATIC_KEY_MAYBE(cfg, name)			\
+	__PASTE(_DECLARE_STATIC_KEY_, IS_ENABLED(cfg))(name)
+
 extern bool ____wrong_branch_error(void);
 
 #define static_key_enabled(x)							\
@@ -481,6 +503,10 @@ extern bool ____wrong_branch_error(void);
 #define static_branch_unlikely(x)	unlikely_notrace(static_key_enabled(&(x)->key))
 
 #endif /* CONFIG_JUMP_LABEL */
+
+#define static_branch_maybe(config, x)					\
+	(IS_ENABLED(config) ? static_branch_likely(x)			\
+			    : static_branch_unlikely(x))
 
 /*
  * Advanced usage; refcount, branch is enabled when: count != 0

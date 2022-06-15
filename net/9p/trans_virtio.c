@@ -99,7 +99,7 @@ static unsigned int rest_of_page(void *data)
  * @client: client instance
  *
  * This reclaims a channel by freeing its resources and
- * reseting its inuse flag.
+ * resetting its inuse flag.
  *
  */
 
@@ -463,7 +463,7 @@ req_retry_pinned:
 	 * For example TREAD have 11.
 	 * 11 is the read/write header = PDU Header(7) + IO Size (4).
 	 * Arrange in such a way that server places header in the
-	 * alloced memory and payload onto the user buffer.
+	 * allocated memory and payload onto the user buffer.
 	 */
 	in = pack_sg_list(chan->sg, out,
 			  VIRTQUEUE_NUM, req->rc.sdata, in_hdr_len);
@@ -610,7 +610,7 @@ static int p9_virtio_probe(struct virtio_device *vdev)
 	chan->vc_wq = kmalloc(sizeof(wait_queue_head_t), GFP_KERNEL);
 	if (!chan->vc_wq) {
 		err = -ENOMEM;
-		goto out_free_tag;
+		goto out_remove_file;
 	}
 	init_waitqueue_head(chan->vc_wq);
 	chan->ring_bufs_avail = 1;
@@ -628,6 +628,8 @@ static int p9_virtio_probe(struct virtio_device *vdev)
 
 	return 0;
 
+out_remove_file:
+	sysfs_remove_file(&vdev->dev.kobj, &dev_attr_mount_tag.attr);
 out_free_tag:
 	kfree(tag);
 out_free_vq:
@@ -646,7 +648,7 @@ fail:
  * @args: args passed from sys_mount() for per-transport options (unused)
  *
  * This sets up a transport channel for 9p communication.  Right now
- * we only match the first available channel, but eventually we couldlook up
+ * we only match the first available channel, but eventually we could look up
  * alternate channels by matching devname versus a virtio_config entry.
  * We use a simple reference count mechanism to ensure that only a single
  * mount has a channel open at a time.
@@ -719,7 +721,7 @@ static void p9_virtio_remove(struct virtio_device *vdev)
 
 	mutex_unlock(&virtio_9p_lock);
 
-	vdev->config->reset(vdev);
+	virtio_reset_device(vdev);
 	vdev->config->del_vqs(vdev);
 
 	sysfs_remove_file(&(vdev->dev.kobj), &dev_attr_mount_tag.attr);
@@ -760,7 +762,7 @@ static struct p9_trans_module p9_virtio_trans = {
 	.cancelled = p9_virtio_cancelled,
 	/*
 	 * We leave one entry for input and one entry for response
-	 * headers. We also skip one more entry to accomodate, address
+	 * headers. We also skip one more entry to accommodate, address
 	 * that are not at page boundary, that can result in an extra
 	 * page in zero copy.
 	 */
@@ -792,6 +794,7 @@ static void __exit p9_virtio_cleanup(void)
 
 module_init(p9_virtio_init);
 module_exit(p9_virtio_cleanup);
+MODULE_ALIAS_9P("virtio");
 
 MODULE_DEVICE_TABLE(virtio, id_table);
 MODULE_AUTHOR("Eric Van Hensbergen <ericvh@gmail.com>");

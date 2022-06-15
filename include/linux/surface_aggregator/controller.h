@@ -6,7 +6,7 @@
  * managing access and communication to and from the SSAM EC, as well as main
  * communication structures and definitions.
  *
- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #ifndef _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H
@@ -344,16 +344,16 @@ struct ssam_request_spec_md {
  * request has been fully completed. The required transport buffer will be
  * allocated on the stack.
  *
- * The generated function is defined as ``int name(struct ssam_controller
- * *ctrl)``, returning the status of the request, which is zero on success and
- * negative on failure. The ``ctrl`` parameter is the controller via which the
- * request is being sent.
+ * The generated function is defined as ``static int name(struct
+ * ssam_controller *ctrl)``, returning the status of the request, which is
+ * zero on success and negative on failure. The ``ctrl`` parameter is the
+ * controller via which the request is being sent.
  *
  * Refer to ssam_request_sync_onstack() for more details on the behavior of
  * the generated function.
  */
 #define SSAM_DEFINE_SYNC_REQUEST_N(name, spec...)				\
-	int name(struct ssam_controller *ctrl)					\
+	static int name(struct ssam_controller *ctrl)				\
 	{									\
 		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
 		struct ssam_request rqst;					\
@@ -383,17 +383,17 @@ struct ssam_request_spec_md {
  * returning once the request has been fully completed. The required transport
  * buffer will be allocated on the stack.
  *
- * The generated function is defined as ``int name(struct ssam_controller
- * *ctrl, const atype *arg)``, returning the status of the request, which is
- * zero on success and negative on failure. The ``ctrl`` parameter is the
- * controller via which the request is sent. The request argument is specified
- * via the ``arg`` pointer.
+ * The generated function is defined as ``static int name(struct
+ * ssam_controller *ctrl, const atype *arg)``, returning the status of the
+ * request, which is zero on success and negative on failure. The ``ctrl``
+ * parameter is the controller via which the request is sent. The request
+ * argument is specified via the ``arg`` pointer.
  *
  * Refer to ssam_request_sync_onstack() for more details on the behavior of
  * the generated function.
  */
 #define SSAM_DEFINE_SYNC_REQUEST_W(name, atype, spec...)			\
-	int name(struct ssam_controller *ctrl, const atype *arg)		\
+	static int name(struct ssam_controller *ctrl, const atype *arg)		\
 	{									\
 		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
 		struct ssam_request rqst;					\
@@ -424,17 +424,17 @@ struct ssam_request_spec_md {
  * request itself, returning once the request has been fully completed. The
  * required transport buffer will be allocated on the stack.
  *
- * The generated function is defined as ``int name(struct ssam_controller
- * *ctrl, rtype *ret)``, returning the status of the request, which is zero on
- * success and negative on failure. The ``ctrl`` parameter is the controller
- * via which the request is sent. The request's return value is written to the
- * memory pointed to by the ``ret`` parameter.
+ * The generated function is defined as ``static int name(struct
+ * ssam_controller *ctrl, rtype *ret)``, returning the status of the request,
+ * which is zero on success and negative on failure. The ``ctrl`` parameter is
+ * the controller via which the request is sent. The request's return value is
+ * written to the memory pointed to by the ``ret`` parameter.
  *
  * Refer to ssam_request_sync_onstack() for more details on the behavior of
  * the generated function.
  */
 #define SSAM_DEFINE_SYNC_REQUEST_R(name, rtype, spec...)			\
-	int name(struct ssam_controller *ctrl, rtype *ret)			\
+	static int name(struct ssam_controller *ctrl, rtype *ret)		\
 	{									\
 		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
 		struct ssam_request rqst;					\
@@ -483,17 +483,17 @@ struct ssam_request_spec_md {
  * returning once the request has been fully completed. The required transport
  * buffer will be allocated on the stack.
  *
- * The generated function is defined as ``int name(struct ssam_controller
- * *ctrl, u8 tid, u8 iid)``, returning the status of the request, which is
- * zero on success and negative on failure. The ``ctrl`` parameter is the
- * controller via which the request is sent, ``tid`` the target ID for the
- * request, and ``iid`` the instance ID.
+ * The generated function is defined as ``static int name(struct
+ * ssam_controller *ctrl, u8 tid, u8 iid)``, returning the status of the
+ * request, which is zero on success and negative on failure. The ``ctrl``
+ * parameter is the controller via which the request is sent, ``tid`` the
+ * target ID for the request, and ``iid`` the instance ID.
  *
  * Refer to ssam_request_sync_onstack() for more details on the behavior of
  * the generated function.
  */
 #define SSAM_DEFINE_SYNC_REQUEST_MD_N(name, spec...)				\
-	int name(struct ssam_controller *ctrl, u8 tid, u8 iid)			\
+	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid)		\
 	{									\
 		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 		struct ssam_request rqst;					\
@@ -524,18 +524,18 @@ struct ssam_request_spec_md {
  * the request itself, returning once the request has been fully completed.
  * The required transport buffer will be allocated on the stack.
  *
- * The generated function is defined as ``int name(struct ssam_controller
- * *ctrl, u8 tid, u8 iid, const atype *arg)``, returning the status of the
- * request, which is zero on success and negative on failure. The ``ctrl``
- * parameter is the controller via which the request is sent, ``tid`` the
- * target ID for the request, and ``iid`` the instance ID. The request argument
- * is specified via the ``arg`` pointer.
+ * The generated function is defined as ``static int name(struct
+ * ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg)``, returning the
+ * status of the request, which is zero on success and negative on failure.
+ * The ``ctrl`` parameter is the controller via which the request is sent,
+ * ``tid`` the target ID for the request, and ``iid`` the instance ID. The
+ * request argument is specified via the ``arg`` pointer.
  *
  * Refer to ssam_request_sync_onstack() for more details on the behavior of
  * the generated function.
  */
 #define SSAM_DEFINE_SYNC_REQUEST_MD_W(name, atype, spec...)			\
-	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg)\
+	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg) \
 	{									\
 		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 		struct ssam_request rqst;					\
@@ -567,18 +567,18 @@ struct ssam_request_spec_md {
  * execution of the request itself, returning once the request has been fully
  * completed. The required transport buffer will be allocated on the stack.
  *
- * The generated function is defined as ``int name(struct ssam_controller
- * *ctrl, u8 tid, u8 iid, rtype *ret)``, returning the status of the request,
- * which is zero on success and negative on failure. The ``ctrl`` parameter is
- * the controller via which the request is sent, ``tid`` the target ID for the
- * request, and ``iid`` the instance ID. The request's return value is written
- * to the memory pointed to by the ``ret`` parameter.
+ * The generated function is defined as ``static int name(struct
+ * ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret)``, returning the status
+ * of the request, which is zero on success and negative on failure. The
+ * ``ctrl`` parameter is the controller via which the request is sent, ``tid``
+ * the target ID for the request, and ``iid`` the instance ID. The request's
+ * return value is written to the memory pointed to by the ``ret`` parameter.
  *
  * Refer to ssam_request_sync_onstack() for more details on the behavior of
  * the generated function.
  */
 #define SSAM_DEFINE_SYNC_REQUEST_MD_R(name, rtype, spec...)			\
-	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret)	\
+	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret) \
 	{									\
 		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 		struct ssam_request rqst;					\
@@ -792,8 +792,22 @@ enum ssam_event_mask {
 #define SSAM_EVENT_REGISTRY_KIP	\
 	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_KIP, 0x02, 0x27, 0x28)
 
-#define SSAM_EVENT_REGISTRY_REG \
-	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, 0x02, 0x01, 0x02)
+#define SSAM_EVENT_REGISTRY_REG(tid)\
+	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, tid, 0x01, 0x02)
+
+/**
+ * enum ssam_event_notifier_flags - Flags for event notifiers.
+ * @SSAM_EVENT_NOTIFIER_OBSERVER:
+ *	The corresponding notifier acts as observer. Registering a notifier
+ *	with this flag set will not attempt to enable any event. Equally,
+ *	unregistering will not attempt to disable any event. Note that a
+ *	notifier with this flag may not even correspond to a certain event at
+ *	all, only to a specific event target category. Event matching will not
+ *	be influenced by this flag.
+ */
+enum ssam_event_notifier_flags {
+	SSAM_EVENT_NOTIFIER_OBSERVER = BIT(0),
+};
 
 /**
  * struct ssam_event_notifier - Notifier block for SSAM events.
@@ -803,6 +817,7 @@ enum ssam_event_mask {
  * @event.id:    ID specifying the event.
  * @event.mask:  Flags determining how events are matched to the notifier.
  * @event.flags: Flags used for enabling the event.
+ * @flags:       Notifier flags (see &enum ssam_event_notifier_flags).
  */
 struct ssam_event_notifier {
 	struct ssam_notifier_block base;
@@ -813,6 +828,8 @@ struct ssam_event_notifier {
 		enum ssam_event_mask mask;
 		u8 flags;
 	} event;
+
+	unsigned long flags;
 };
 
 int ssam_notifier_register(struct ssam_controller *ctrl,
@@ -820,5 +837,13 @@ int ssam_notifier_register(struct ssam_controller *ctrl,
 
 int ssam_notifier_unregister(struct ssam_controller *ctrl,
 			     struct ssam_event_notifier *n);
+
+int ssam_controller_event_enable(struct ssam_controller *ctrl,
+				 struct ssam_event_registry reg,
+				 struct ssam_event_id id, u8 flags);
+
+int ssam_controller_event_disable(struct ssam_controller *ctrl,
+				  struct ssam_event_registry reg,
+				  struct ssam_event_id id, u8 flags);
 
 #endif /* _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H */

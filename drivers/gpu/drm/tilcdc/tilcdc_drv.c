@@ -20,7 +20,6 @@
 #include <drm/drm_fourcc.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
-#include <drm/drm_irq.h>
 #include <drm/drm_mm.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
@@ -60,8 +59,6 @@ void tilcdc_module_cleanup(struct tilcdc_module *mod)
 {
 	list_del(&mod->list);
 }
-
-static struct of_device_id tilcdc_of_match[];
 
 static int tilcdc_atomic_check(struct drm_device *dev,
 			       struct drm_atomic_state *state)
@@ -124,6 +121,39 @@ static int cpufreq_transition(struct notifier_block *nb,
 }
 #endif
 
+static irqreturn_t tilcdc_irq(int irq, void *arg)
+{
+	struct drm_device *dev = arg;
+	struct tilcdc_drm_private *priv = dev->dev_private;
+
+	return tilcdc_crtc_irq(priv->crtc);
+}
+
+static int tilcdc_irq_install(struct drm_device *dev, unsigned int irq)
+{
+	struct tilcdc_drm_private *priv = dev->dev_private;
+	int ret;
+
+	ret = request_irq(irq, tilcdc_irq, 0, dev->driver->name, dev);
+	if (ret)
+		return ret;
+
+	priv->irq_enabled = false;
+
+	return 0;
+}
+
+static void tilcdc_irq_uninstall(struct drm_device *dev)
+{
+	struct tilcdc_drm_private *priv = dev->dev_private;
+
+	if (!priv->irq_enabled)
+		return;
+
+	free_irq(priv->irq, dev);
+	priv->irq_enabled = false;
+}
+
 /*
  * DRM operations:
  */
@@ -145,7 +175,7 @@ static void tilcdc_fini(struct drm_device *dev)
 		drm_dev_unregister(dev);
 
 	drm_kms_helper_poll_fini(dev);
-	drm_irq_uninstall(dev);
+	tilcdc_irq_uninstall(dev);
 	drm_mode_config_cleanup(dev);
 
 	if (priv->clk)
@@ -154,10 +184,8 @@ static void tilcdc_fini(struct drm_device *dev)
 	if (priv->mmio)
 		iounmap(priv->mmio);
 
-	if (priv->wq) {
-		flush_workqueue(priv->wq);
+	if (priv->wq)
 		destroy_workqueue(priv->wq);
-	}
 
 	dev->dev_private = NULL;
 
@@ -336,7 +364,12 @@ static int tilcdc_init(const struct drm_driver *ddrv, struct device *dev)
 		goto init_failed;
 	}
 
-	ret = drm_irq_install(ddev, platform_get_irq(pdev, 0));
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0)
+		goto init_failed;
+	priv->irq = ret;
+
+	ret = tilcdc_irq_install(ddev, priv->irq);
 	if (ret < 0) {
 		dev_err(dev, "failed to install IRQ handler\n");
 		goto init_failed;
@@ -358,13 +391,6 @@ init_failed:
 	tilcdc_fini(ddev);
 
 	return ret;
-}
-
-static irqreturn_t tilcdc_irq(int irq, void *arg)
-{
-	struct drm_device *dev = arg;
-	struct tilcdc_drm_private *priv = dev->dev_private;
-	return tilcdc_crtc_irq(priv->crtc);
 }
 
 #if defined(CONFIG_DEBUG_FS)
@@ -454,7 +480,6 @@ DEFINE_DRM_GEM_CMA_FOPS(fops);
 
 static const struct drm_driver tilcdc_driver = {
 	.driver_features    = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
-	.irq_handler        = tilcdc_irq,
 	DRM_GEM_CMA_DRIVER_OPS,
 #ifdef CONFIG_DEBUG_FS
 	.debugfs_init       = tilcdc_debugfs_init,
@@ -560,7 +585,7 @@ static int tilcdc_pdev_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct of_device_id tilcdc_of_match[] = {
+static const struct of_device_id tilcdc_of_match[] = {
 		{ .compatible = "ti,am33xx-tilcdc", },
 		{ .compatible = "ti,da850-tilcdc", },
 		{ },
@@ -579,6 +604,9 @@ static struct platform_driver tilcdc_platform_driver = {
 
 static int __init tilcdc_drm_init(void)
 {
+	if (drm_firmware_drivers_only())
+		return -ENODEV;
+
 	DBG("init");
 	tilcdc_panel_init();
 	return platform_driver_register(&tilcdc_platform_driver);

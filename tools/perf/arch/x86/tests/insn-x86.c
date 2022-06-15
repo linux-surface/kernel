@@ -96,13 +96,12 @@ static int get_branch(const char *branch_str)
 static int test_data_item(struct test_data *dat, int x86_64)
 {
 	struct intel_pt_insn intel_pt_insn;
+	int op, branch, ret;
 	struct insn insn;
-	int op, branch;
 
-	insn_init(&insn, dat->data, MAX_INSN_SIZE, x86_64);
-	insn_get_length(&insn);
-
-	if (!insn_complete(&insn)) {
+	ret = insn_decode(&insn, dat->data, MAX_INSN_SIZE,
+			  x86_64 ? INSN_MODE_64 : INSN_MODE_32);
+	if (ret < 0) {
 		pr_debug("Failed to decode: %s\n", dat->asm_rep);
 		return -1;
 	}
@@ -174,7 +173,7 @@ static int test_data_set(struct test_data *dat_set, int x86_64)
  * verbose (-v) option to see all the instructions and whether or not they
  * decoded successfully.
  */
-int test__insn_x86(struct test *test __maybe_unused, int subtest __maybe_unused)
+int test__insn_x86(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	int ret = 0;
 

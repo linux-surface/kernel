@@ -56,10 +56,10 @@
 # define DISABLE_PTI		(1 << (X86_FEATURE_PTI & 31))
 #endif
 
-#ifdef CONFIG_IOMMU_SUPPORT
-# define DISABLE_ENQCMD	0
+#ifdef CONFIG_INTEL_IOMMU_SVM
+# define DISABLE_ENQCMD		0
 #else
-# define DISABLE_ENQCMD (1 << (X86_FEATURE_ENQCMD & 31))
+# define DISABLE_ENQCMD		(1 << (X86_FEATURE_ENQCMD & 31))
 #endif
 
 #ifdef CONFIG_X86_SGX

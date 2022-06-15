@@ -394,7 +394,7 @@ void maar_init(void)
 	}
 }
 
-#ifndef CONFIG_NEED_MULTIPLE_NODES
+#ifndef CONFIG_NUMA
 void __init paging_init(void)
 {
 	unsigned long max_zone_pfns[MAX_NR_ZONES];
@@ -454,9 +454,6 @@ void __init mem_init(void)
 	BUILD_BUG_ON(IS_ENABLED(CONFIG_32BIT) && (_PFN_SHIFT > PAGE_SHIFT));
 
 #ifdef CONFIG_HIGHMEM
-#ifdef CONFIG_DISCONTIGMEM
-#error "CONFIG_HIGHMEM and CONFIG_DISCONTIGMEM dont work together yet"
-#endif
 	max_mapnr = highend_pfn ? highend_pfn : max_low_pfn;
 #else
 	max_mapnr = max_low_pfn;
@@ -467,7 +464,6 @@ void __init mem_init(void)
 	memblock_free_all();
 	setup_zero_pages();	/* Setup zeroed pages.  */
 	mem_init_free_highmem();
-	mem_init_print_info(NULL);
 
 #ifdef CONFIG_64BIT
 	if ((unsigned long) &_text > (unsigned long) CKSEG0)
@@ -477,7 +473,7 @@ void __init mem_init(void)
 				0x80000000 - 4, KCORE_TEXT);
 #endif
 }
-#endif /* !CONFIG_NEED_MULTIPLE_NODES */
+#endif /* !CONFIG_NUMA */
 
 void free_init_pages(const char *what, unsigned long begin, unsigned long end)
 {
@@ -523,17 +519,9 @@ static int __init pcpu_cpu_distance(unsigned int from, unsigned int to)
 	return node_distance(cpu_to_node(from), cpu_to_node(to));
 }
 
-static void * __init pcpu_fc_alloc(unsigned int cpu, size_t size,
-				       size_t align)
+static int __init pcpu_cpu_to_node(int cpu)
 {
-	return memblock_alloc_try_nid(size, align, __pa(MAX_DMA_ADDRESS),
-				      MEMBLOCK_ALLOC_ACCESSIBLE,
-				      cpu_to_node(cpu));
-}
-
-static void __init pcpu_fc_free(void *ptr, size_t size)
-{
-	memblock_free_early(__pa(ptr), size);
+	return cpu_to_node(cpu);
 }
 
 void __init setup_per_cpu_areas(void)
@@ -549,7 +537,7 @@ void __init setup_per_cpu_areas(void)
 	rc = pcpu_embed_first_chunk(PERCPU_MODULE_RESERVE,
 				    PERCPU_DYNAMIC_RESERVE, PAGE_SIZE,
 				    pcpu_cpu_distance,
-				    pcpu_fc_alloc, pcpu_fc_free);
+				    pcpu_cpu_to_node);
 	if (rc < 0)
 		panic("Failed to initialize percpu areas.");
 

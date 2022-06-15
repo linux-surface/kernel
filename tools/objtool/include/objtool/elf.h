@@ -38,7 +38,6 @@ struct section {
 	Elf_Data *data;
 	char *name;
 	int idx;
-	unsigned int len;
 	bool changed, text, rodata, noinstr;
 };
 
@@ -55,8 +54,12 @@ struct symbol {
 	unsigned long offset;
 	unsigned int len;
 	struct symbol *pfunc, *cfunc, *alias;
-	bool uaccess_safe;
-	bool static_call_tramp;
+	u8 uaccess_safe      : 1;
+	u8 static_call_tramp : 1;
+	u8 retpoline_thunk   : 1;
+	u8 fentry            : 1;
+	u8 profiling_func    : 1;
+	struct list_head pv_target;
 };
 
 struct reloc {
@@ -70,7 +73,7 @@ struct reloc {
 	struct symbol *sym;
 	unsigned long offset;
 	unsigned int type;
-	int addend;
+	long addend;
 	int idx;
 	bool jump_table_start;
 };
@@ -83,12 +86,20 @@ struct elf {
 	int fd;
 	bool changed;
 	char *name;
+	unsigned int text_size;
 	struct list_head sections;
-	DECLARE_HASHTABLE(symbol_hash, ELF_HASH_BITS);
-	DECLARE_HASHTABLE(symbol_name_hash, ELF_HASH_BITS);
-	DECLARE_HASHTABLE(section_hash, ELF_HASH_BITS);
-	DECLARE_HASHTABLE(section_name_hash, ELF_HASH_BITS);
-	DECLARE_HASHTABLE(reloc_hash, ELF_HASH_BITS);
+
+	int symbol_bits;
+	int symbol_name_bits;
+	int section_bits;
+	int section_name_bits;
+	int reloc_bits;
+
+	struct hlist_head *symbol_hash;
+	struct hlist_head *symbol_name_hash;
+	struct hlist_head *section_hash;
+	struct hlist_head *section_name_hash;
+	struct hlist_head *reloc_hash;
 };
 
 #define OFFSET_STRIDE_BITS	4
@@ -122,8 +133,13 @@ static inline u32 reloc_hash(struct reloc *reloc)
 
 struct elf *elf_open_read(const char *name, int flags);
 struct section *elf_create_section(struct elf *elf, const char *name, unsigned int sh_flags, size_t entsize, int nr);
-struct section *elf_create_reloc_section(struct elf *elf, struct section *base, int reltype);
-void elf_add_reloc(struct elf *elf, struct reloc *reloc);
+
+int elf_add_reloc(struct elf *elf, struct section *sec, unsigned long offset,
+		  unsigned int type, struct symbol *sym, long addend);
+int elf_add_reloc_to_insn(struct elf *elf, struct section *sec,
+			  unsigned long offset, unsigned int type,
+			  struct section *insn_sec, unsigned long insn_off);
+
 int elf_write_insn(struct elf *elf, struct section *sec,
 		   unsigned long offset, unsigned int len,
 		   const char *insn);
@@ -136,13 +152,11 @@ struct symbol *find_func_by_offset(struct section *sec, unsigned long offset);
 struct symbol *find_symbol_by_offset(struct section *sec, unsigned long offset);
 struct symbol *find_symbol_by_name(const struct elf *elf, const char *name);
 struct symbol *find_symbol_containing(const struct section *sec, unsigned long offset);
+int find_symbol_hole_containing(const struct section *sec, unsigned long offset);
 struct reloc *find_reloc_by_dest(const struct elf *elf, struct section *sec, unsigned long offset);
 struct reloc *find_reloc_by_dest_range(const struct elf *elf, struct section *sec,
 				     unsigned long offset, unsigned int len);
 struct symbol *find_func_containing(struct section *sec, unsigned long offset);
-void insn_to_reloc_sym_addend(struct section *sec, unsigned long offset,
-			      struct reloc *reloc);
-int elf_rebuild_reloc_section(struct elf *elf, struct section *sec);
 
 #define for_each_sec(file, sec)						\
 	list_for_each_entry(sec, &file->elf->sections, list)

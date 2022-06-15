@@ -136,9 +136,13 @@ static void dpp3_power_on_gamcor_lut(
 	struct dcn3_dpp *dpp = TO_DCN30_DPP(dpp_base);
 
 	if (dpp_base->ctx->dc->debug.enable_mem_low_power.bits.cm) {
-		REG_UPDATE(CM_MEM_PWR_CTRL, GAMCOR_MEM_PWR_FORCE, power_on ? 0 : 3);
-		if (power_on)
+		if (power_on) {
+			REG_UPDATE(CM_MEM_PWR_CTRL, GAMCOR_MEM_PWR_FORCE, 0);
 			REG_WAIT(CM_MEM_PWR_STATUS, GAMCOR_MEM_PWR_STATE, 0, 1, 5);
+		} else {
+			dpp_base->ctx->dc->optimized_required = true;
+			dpp_base->deferred_reg_writes.bits.disable_gamcor = true;
+		}
 	} else
 		REG_SET(CM_MEM_PWR_CTRL, 0,
 				GAMCOR_MEM_PWR_DIS, power_on == true ? 0:1);
@@ -240,7 +244,7 @@ bool dpp3_program_gamcor_lut(
 		next_mode = LUT_RAM_A;
 
 	dpp3_power_on_gamcor_lut(dpp_base, true);
-	dpp3_configure_gamcor_lut(dpp_base, next_mode == LUT_RAM_A ? true:false);
+	dpp3_configure_gamcor_lut(dpp_base, next_mode == LUT_RAM_A);
 
 	if (next_mode == LUT_RAM_B) {
 		gam_regs.start_cntl_b = REG(CM_GAMCOR_RAMB_START_CNTL_B);
@@ -295,7 +299,7 @@ bool dpp3_program_gamcor_lut(
 	cm_helper_program_gamcor_xfer_func(dpp_base->ctx, params, &gam_regs);
 
 	dpp3_program_gammcor_lut(dpp_base, params->rgb_resulted, params->hw_points_num,
-			next_mode == LUT_RAM_A ? true:false);
+				 next_mode == LUT_RAM_A);
 
 	//select Gamma LUT to use for next frame
 	REG_UPDATE(CM_GAMCOR_CONTROL, CM_GAMCOR_SELECT, next_mode == LUT_RAM_A ? 0:1);
@@ -404,6 +408,6 @@ void dpp3_cm_set_gamut_remap(
 			gamut_mode = 1;
 
 		//follow dcn2 approach for now - using only coefficient set A
-		program_gamut_remap(dpp, arr_reg_val, GAMUT_REMAP_COEFF);
+		program_gamut_remap(dpp, arr_reg_val, gamut_mode);
 	}
 }

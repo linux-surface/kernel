@@ -540,6 +540,15 @@ static const struct dmi_system_id video_dmi_table[] = {
 		DMI_MATCH(DMI_PRODUCT_NAME, "Vostro V131"),
 		},
 	},
+	{
+	 .callback = video_set_report_key_events,
+	 .driver_data = (void *)((uintptr_t)REPORT_BRIGHTNESS_KEY_EVENTS),
+	 .ident = "Dell Vostro 3350",
+	 .matches = {
+		DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+		DMI_MATCH(DMI_PRODUCT_NAME, "Vostro 3350"),
+		},
+	},
 	/*
 	 * Some machines change the brightness themselves when a brightness
 	 * hotkey gets pressed, despite us telling them not to. In this case
@@ -1392,7 +1401,7 @@ acpi_video_get_next_level(struct acpi_video_device *device,
 				break;
 		}
 	}
-	/* Ajust level_current to closest available level */
+	/* Adjust level_current to closest available level */
 	level_current += delta;
 	for (i = ACPI_VIDEO_FIRST_LEVEL; i < device->brightness->count; i++) {
 		l = device->brightness->levels[i];
@@ -1555,7 +1564,7 @@ acpi_video_bus_get_devices(struct acpi_video_bus *video,
 
 /*
  * Win8 requires setting bit2 of _DOS to let firmware know it shouldn't
- * preform any automatic brightness change on receiving a notification.
+ * perform any automatic brightness change on receiving a notification.
  */
 static int acpi_video_bus_start_devices(struct acpi_video_bus *video)
 {
@@ -1619,8 +1628,6 @@ static void acpi_video_bus_notify(struct acpi_device *device, u32 event)
 		input_report_key(input, keycode, 0);
 		input_sync(input);
 	}
-
-	return;
 }
 
 static void brightness_switch_event(struct acpi_video_device *video_device,
@@ -1690,8 +1697,6 @@ static void acpi_video_device_notify(acpi_handle handle, u32 event, void *data)
 		input_report_key(input, keycode, 0);
 		input_sync(input);
 	}
-
-	return;
 }
 
 static int acpi_video_resume(struct notifier_block *nb,
@@ -1728,13 +1733,12 @@ acpi_video_bus_match(acpi_handle handle, u32 level, void *context,
 {
 	struct acpi_device *device = context;
 	struct acpi_device *sibling;
-	int result;
 
 	if (handle == device->handle)
 		return AE_CTRL_TERMINATE;
 
-	result = acpi_bus_get_device(handle, &sibling);
-	if (result)
+	sibling = acpi_fetch_acpi_dev(handle);
+	if (!sibling)
 		return AE_OK;
 
 	if (!strcmp(acpi_device_name(sibling), ACPI_VIDEO_BUS_NAME))
@@ -2182,6 +2186,30 @@ static bool dmi_is_desktop(void)
 	return false;
 }
 
+/*
+ * We're seeing a lot of bogus backlight interfaces on newer machines
+ * without a LCD such as desktops, servers and HDMI sticks. Checking the
+ * lcd flag fixes this, enable this by default on any machines which are:
+ * 1.  Win8 ready (where we also prefer the native backlight driver, so
+ *     normally the acpi_video code should not register there anyways); *and*
+ * 2.1 Report a desktop/server DMI chassis-type, or
+ * 2.2 Are an ACPI-reduced-hardware platform (and thus won't use the EC for
+       backlight control)
+ */
+static bool should_check_lcd_flag(void)
+{
+	if (!acpi_osi_is_win8())
+		return false;
+
+	if (dmi_is_desktop())
+		return true;
+
+	if (acpi_reduced_hardware())
+		return true;
+
+	return false;
+}
+
 int acpi_video_register(void)
 {
 	int ret = 0;
@@ -2195,19 +2223,8 @@ int acpi_video_register(void)
 		goto leave;
 	}
 
-	/*
-	 * We're seeing a lot of bogus backlight interfaces on newer machines
-	 * without a LCD such as desktops, servers and HDMI sticks. Checking
-	 * the lcd flag fixes this, so enable this on any machines which are
-	 * win8 ready (where we also prefer the native backlight driver, so
-	 * normally the acpi_video code should not register there anyways).
-	 */
-	if (only_lcd == -1) {
-		if (dmi_is_desktop() && acpi_osi_is_win8())
-			only_lcd = true;
-		else
-			only_lcd = false;
-	}
+	if (only_lcd == -1)
+		only_lcd = should_check_lcd_flag();
 
 	dmi_check_system(video_dmi_table);
 
@@ -2295,8 +2312,6 @@ static void __exit acpi_video_exit(void)
 {
 	acpi_video_detect_exit();
 	acpi_video_unregister();
-
-	return;
 }
 
 module_init(acpi_video_init);

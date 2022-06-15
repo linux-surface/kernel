@@ -18,6 +18,7 @@
 #include <linux/rtc.h>
 #include <linux/bcd.h>
 #include <linux/math64.h>
+#include <linux/property.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/mfd/tps65910.h>
@@ -466,6 +467,6 @@ static struct platform_driver tps65910_rtc_driver = {
 };
 
 module_platform_driver(tps65910_rtc_driver);
-MODULE_ALIAS("platform:rtc-tps65910");
+MODULE_ALIAS("platform:tps65910-rtc");
 MODULE_AUTHOR("Venu Byravarasu <vbyravarasu@nvidia.com>");
 MODULE_LICENSE("GPL");

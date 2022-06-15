@@ -32,6 +32,7 @@
 #include <asm/irq.h>
 #include <asm/msr.h>
 
+#include "intel_hfi.h"
 #include "thermal_interrupt.h"
 
 /* How long to wait between reporting thermal events */
@@ -475,6 +476,13 @@ static int thermal_throttle_online(unsigned int cpu)
 	INIT_DELAYED_WORK(&state->package_throttle.therm_work, throttle_active_work);
 	INIT_DELAYED_WORK(&state->core_throttle.therm_work, throttle_active_work);
 
+	/*
+	 * The first CPU coming online will enable the HFI. Usually this causes
+	 * hardware to issue an HFI thermal interrupt. Such interrupt will reach
+	 * the CPU once we enable the thermal vector in the local APIC.
+	 */
+	intel_hfi_online(cpu);
+
 	/* Unmask the thermal vector after the above workqueues are initialized. */
 	l = apic_read(APIC_LVTTHMR);
 	apic_write(APIC_LVTTHMR, l & ~APIC_LVT_MASKED);
@@ -492,6 +500,8 @@ static int thermal_throttle_offline(unsigned int cpu)
 	l = apic_read(APIC_LVTTHMR);
 	apic_write(APIC_LVTTHMR, l | APIC_LVT_MASKED);
 
+	intel_hfi_offline(cpu);
+
 	cancel_delayed_work_sync(&state->package_throttle.therm_work);
 	cancel_delayed_work_sync(&state->core_throttle.therm_work);
 
@@ -508,6 +518,8 @@ static __init int thermal_throttle_init_device(void)
 
 	if (!atomic_read(&therm_throt_en))
 		return 0;
+
+	intel_hfi_init();
 
 	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "x86/therm:online",
 				thermal_throttle_online,
@@ -569,13 +581,18 @@ static void notify_thresholds(__u64 msr_val)
 		platform_thermal_notify(msr_val);
 }
 
+void __weak notify_hwp_interrupt(void)
+{
+	wrmsrl_safe(MSR_HWP_STATUS, 0);
+}
+
 /* Thermal transition interrupt handler */
 void intel_thermal_interrupt(void)
 {
 	__u64 msr_val;
 
 	if (static_cpu_has(X86_FEATURE_HWP))
-		wrmsrl_safe(MSR_HWP_STATUS, 0);
+		notify_hwp_interrupt();
 
 	rdmsrl(MSR_IA32_THERM_STATUS, msr_val);
 
@@ -603,6 +620,10 @@ void intel_thermal_interrupt(void)
 					PACKAGE_THERM_STATUS_POWER_LIMIT,
 					POWER_LIMIT_EVENT,
 					PACKAGE_LEVEL);
+
+		if (this_cpu_has(X86_FEATURE_HFI))
+			intel_hfi_process_event(msr_val &
+						PACKAGE_THERM_STATUS_HFI_UPDATED);
 	}
 }
 
@@ -621,6 +642,17 @@ bool x86_thermal_enabled(void)
 	return atomic_read(&therm_throt_en);
 }
 
+void __init therm_lvt_init(void)
+{
+	/*
+	 * This function is only called on boot CPU. Save the init thermal
+	 * LVT value on BSP and use that value to restore APs' thermal LVT
+	 * entry BIOS programmed later
+	 */
+	if (intel_thermal_supported(&boot_cpu_data))
+		lvtthmr_init = apic_read(APIC_LVTTHMR);
+}
+
 void intel_init_thermal(struct cpuinfo_x86 *c)
 {
 	unsigned int cpu = smp_processor_id();
@@ -629,10 +661,6 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 
 	if (!intel_thermal_supported(c))
 		return;
-
-	/* On the BSP? */
-	if (c == &boot_cpu_data)
-		lvtthmr_init = apic_read(APIC_LVTTHMR);
 
 	/*
 	 * First check if its enabled already, in which case there might
@@ -705,6 +733,12 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 			wrmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT,
 			      l | (PACKAGE_THERM_INT_LOW_ENABLE
 				| PACKAGE_THERM_INT_HIGH_ENABLE), h);
+
+		if (cpu_has(c, X86_FEATURE_HFI)) {
+			rdmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT, l, h);
+			wrmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT,
+			      l | PACKAGE_THERM_INT_HFI_ENABLE, h);
+		}
 	}
 
 	rdmsr(MSR_IA32_MISC_ENABLE, l, h);

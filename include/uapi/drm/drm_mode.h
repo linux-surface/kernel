@@ -312,16 +312,48 @@ struct drm_mode_set_plane {
 	__u32 src_w;
 };
 
+/**
+ * struct drm_mode_get_plane - Get plane metadata.
+ *
+ * Userspace can perform a GETPLANE ioctl to retrieve information about a
+ * plane.
+ *
+ * To retrieve the number of formats supported, set @count_format_types to zero
+ * and call the ioctl. @count_format_types will be updated with the value.
+ *
+ * To retrieve these formats, allocate an array with the memory needed to store
+ * @count_format_types formats. Point @format_type_ptr to this array and call
+ * the ioctl again (with @count_format_types still set to the value returned in
+ * the first ioctl call).
+ */
 struct drm_mode_get_plane {
+	/**
+	 * @plane_id: Object ID of the plane whose information should be
+	 * retrieved. Set by caller.
+	 */
 	__u32 plane_id;
 
+	/** @crtc_id: Object ID of the current CRTC. */
 	__u32 crtc_id;
+	/** @fb_id: Object ID of the current fb. */
 	__u32 fb_id;
 
+	/**
+	 * @possible_crtcs: Bitmask of CRTC's compatible with the plane. CRTC's
+	 * are created and they receive an index, which corresponds to their
+	 * position in the bitmask. Bit N corresponds to
+	 * :ref:`CRTC index<crtc_index>` N.
+	 */
 	__u32 possible_crtcs;
+	/** @gamma_size: Never used. */
 	__u32 gamma_size;
 
+	/** @count_format_types: Number of formats. */
 	__u32 count_format_types;
+	/**
+	 * @format_type_ptr: Pointer to ``__u32`` array of formats that are
+	 * supported by the plane. These formats do not require modifiers.
+	 */
 	__u64 format_type_ptr;
 };
 
@@ -388,6 +420,7 @@ enum drm_mode_subconnector {
 #define DRM_MODE_CONNECTOR_DPI		17
 #define DRM_MODE_CONNECTOR_WRITEBACK	18
 #define DRM_MODE_CONNECTOR_SPI		19
+#define DRM_MODE_CONNECTOR_USB		20
 
 /**
  * struct drm_mode_get_connector - Get connector metadata.
@@ -412,9 +445,10 @@ enum drm_mode_subconnector {
  *
  * **Force-probing a connector**
  *
- * If the @count_modes field is set to zero, the kernel will perform a forced
- * probe on the connector to refresh the connector status, modes and EDID.
- * A forced-probe can be slow, might cause flickering and the ioctl will block.
+ * If the @count_modes field is set to zero and the DRM client is the current
+ * DRM master, the kernel will perform a forced probe on the connector to
+ * refresh the connector status, modes and EDID. A forced-probe can be slow,
+ * might cause flickering and the ioctl will block.
  *
  * User-space needs to force-probe connectors to ensure their metadata is
  * up-to-date at startup and after receiving a hot-plug event. User-space
@@ -507,22 +541,74 @@ struct drm_mode_get_connector {
  */
 #define DRM_MODE_PROP_ATOMIC        0x80000000
 
+/**
+ * struct drm_mode_property_enum - Description for an enum/bitfield entry.
+ * @value: numeric value for this enum entry.
+ * @name: symbolic name for this enum entry.
+ *
+ * See struct drm_property_enum for details.
+ */
 struct drm_mode_property_enum {
 	__u64 value;
 	char name[DRM_PROP_NAME_LEN];
 };
 
+/**
+ * struct drm_mode_get_property - Get property metadata.
+ *
+ * User-space can perform a GETPROPERTY ioctl to retrieve information about a
+ * property. The same property may be attached to multiple objects, see
+ * "Modeset Base Object Abstraction".
+ *
+ * The meaning of the @values_ptr field changes depending on the property type.
+ * See &drm_property.flags for more details.
+ *
+ * The @enum_blob_ptr and @count_enum_blobs fields are only meaningful when the
+ * property has the type &DRM_MODE_PROP_ENUM or &DRM_MODE_PROP_BITMASK. For
+ * backwards compatibility, the kernel will always set @count_enum_blobs to
+ * zero when the property has the type &DRM_MODE_PROP_BLOB. User-space must
+ * ignore these two fields if the property has a different type.
+ *
+ * User-space is expected to retrieve values and enums by performing this ioctl
+ * at least twice: the first time to retrieve the number of elements, the
+ * second time to retrieve the elements themselves.
+ *
+ * To retrieve the number of elements, set @count_values and @count_enum_blobs
+ * to zero, then call the ioctl. @count_values will be updated with the number
+ * of elements. If the property has the type &DRM_MODE_PROP_ENUM or
+ * &DRM_MODE_PROP_BITMASK, @count_enum_blobs will be updated as well.
+ *
+ * To retrieve the elements themselves, allocate an array for @values_ptr and
+ * set @count_values to its capacity. If the property has the type
+ * &DRM_MODE_PROP_ENUM or &DRM_MODE_PROP_BITMASK, allocate an array for
+ * @enum_blob_ptr and set @count_enum_blobs to its capacity. Calling the ioctl
+ * again will fill the arrays.
+ */
 struct drm_mode_get_property {
-	__u64 values_ptr; /* values and blob lengths */
-	__u64 enum_blob_ptr; /* enum and blob id ptrs */
+	/** @values_ptr: Pointer to a ``__u64`` array. */
+	__u64 values_ptr;
+	/** @enum_blob_ptr: Pointer to a struct drm_mode_property_enum array. */
+	__u64 enum_blob_ptr;
 
+	/**
+	 * @prop_id: Object ID of the property which should be retrieved. Set
+	 * by the caller.
+	 */
 	__u32 prop_id;
+	/**
+	 * @flags: ``DRM_MODE_PROP_*`` bitfield. See &drm_property.flags for
+	 * a definition of the flags.
+	 */
 	__u32 flags;
+	/**
+	 * @name: Symbolic property name. User-space should use this field to
+	 * recognize properties.
+	 */
 	char name[DRM_PROP_NAME_LEN];
 
+	/** @count_values: Number of elements in @values_ptr. */
 	__u32 count_values;
-	/* This is only used to count enum values, not blobs. The _blobs is
-	 * simply because of a historical reason, i.e. backwards compat. */
+	/** @count_enum_blobs: Number of elements in @enum_blob_ptr. */
 	__u32 count_enum_blobs;
 };
 
@@ -577,41 +663,73 @@ struct drm_mode_fb_cmd {
 #define DRM_MODE_FB_INTERLACED	(1<<0) /* for interlaced framebuffers */
 #define DRM_MODE_FB_MODIFIERS	(1<<1) /* enables ->modifer[] */
 
+/**
+ * struct drm_mode_fb_cmd2 - Frame-buffer metadata.
+ *
+ * This struct holds frame-buffer metadata. There are two ways to use it:
+ *
+ * - User-space can fill this struct and perform a &DRM_IOCTL_MODE_ADDFB2
+ *   ioctl to register a new frame-buffer. The new frame-buffer object ID will
+ *   be set by the kernel in @fb_id.
+ * - User-space can set @fb_id and perform a &DRM_IOCTL_MODE_GETFB2 ioctl to
+ *   fetch metadata about an existing frame-buffer.
+ *
+ * In case of planar formats, this struct allows up to 4 buffer objects with
+ * offsets and pitches per plane. The pitch and offset order is dictated by the
+ * format FourCC as defined by ``drm_fourcc.h``, e.g. NV12 is described as:
+ *
+ *     YUV 4:2:0 image with a plane of 8 bit Y samples followed by an
+ *     interleaved U/V plane containing 8 bit 2x2 subsampled colour difference
+ *     samples.
+ *
+ * So it would consist of a Y plane at ``offsets[0]`` and a UV plane at
+ * ``offsets[1]``.
+ *
+ * To accommodate tiled, compressed, etc formats, a modifier can be specified.
+ * For more information see the "Format Modifiers" section. Note that even
+ * though it looks like we have a modifier per-plane, we in fact do not. The
+ * modifier for each plane must be identical. Thus all combinations of
+ * different data layouts for multi-plane formats must be enumerated as
+ * separate modifiers.
+ *
+ * All of the entries in @handles, @pitches, @offsets and @modifier must be
+ * zero when unused. Warning, for @offsets and @modifier zero can't be used to
+ * figure out whether the entry is used or not since it's a valid value (a zero
+ * offset is common, and a zero modifier is &DRM_FORMAT_MOD_LINEAR).
+ */
 struct drm_mode_fb_cmd2 {
+	/** @fb_id: Object ID of the frame-buffer. */
 	__u32 fb_id;
+	/** @width: Width of the frame-buffer. */
 	__u32 width;
+	/** @height: Height of the frame-buffer. */
 	__u32 height;
-	__u32 pixel_format; /* fourcc code from drm_fourcc.h */
-	__u32 flags; /* see above flags */
+	/**
+	 * @pixel_format: FourCC format code, see ``DRM_FORMAT_*`` constants in
+	 * ``drm_fourcc.h``.
+	 */
+	__u32 pixel_format;
+	/**
+	 * @flags: Frame-buffer flags (see &DRM_MODE_FB_INTERLACED and
+	 * &DRM_MODE_FB_MODIFIERS).
+	 */
+	__u32 flags;
 
-	/*
-	 * In case of planar formats, this ioctl allows up to 4
-	 * buffer objects with offsets and pitches per plane.
-	 * The pitch and offset order is dictated by the fourcc,
-	 * e.g. NV12 (https://fourcc.org/yuv.php#NV12) is described as:
-	 *
-	 *   YUV 4:2:0 image with a plane of 8 bit Y samples
-	 *   followed by an interleaved U/V plane containing
-	 *   8 bit 2x2 subsampled colour difference samples.
-	 *
-	 * So it would consist of Y as offsets[0] and UV as
-	 * offsets[1].  Note that offsets[0] will generally
-	 * be 0 (but this is not required).
-	 *
-	 * To accommodate tiled, compressed, etc formats, a
-	 * modifier can be specified.  The default value of zero
-	 * indicates "native" format as specified by the fourcc.
-	 * Vendor specific modifier token.  Note that even though
-	 * it looks like we have a modifier per-plane, we in fact
-	 * do not. The modifier for each plane must be identical.
-	 * Thus all combinations of different data layouts for
-	 * multi plane formats must be enumerated as separate
-	 * modifiers.
+	/**
+	 * @handles: GEM buffer handle, one per plane. Set to 0 if the plane is
+	 * unused. The same handle can be used for multiple planes.
 	 */
 	__u32 handles[4];
-	__u32 pitches[4]; /* pitch for each plane */
-	__u32 offsets[4]; /* offset of each plane */
-	__u64 modifier[4]; /* ie, tiling, compress */
+	/** @pitches: Pitch (aka. stride) in bytes, one per plane. */
+	__u32 pitches[4];
+	/** @offsets: Offset into the buffer in bytes, one per plane. */
+	__u32 offsets[4];
+	/**
+	 * @modifier: Format modifier, one per plane. See ``DRM_FORMAT_MOD_*``
+	 * constants in ``drm_fourcc.h``. All planes must use the same
+	 * modifier. Ignored unless &DRM_MODE_FB_MODIFIERS is set in @flags.
+	 */
+	__u64 modifier[4];
 };
 
 #define DRM_MODE_FB_DIRTY_ANNOTATE_COPY 0x01
@@ -990,7 +1108,7 @@ struct drm_format_modifier {
 };
 
 /**
- * struct drm_mode_create_blob - Create New block property
+ * struct drm_mode_create_blob - Create New blob property
  *
  * Create a new 'blob' data property, copying length bytes from data pointer,
  * and returning new blob ID.
@@ -1024,6 +1142,10 @@ struct drm_mode_destroy_blob {
  * struct drm_mode_create_lease - Create lease
  *
  * Lease mode resources, creating another drm_master.
+ *
+ * The @object_ids array must reference at least one CRTC, one connector and
+ * one plane if &DRM_CLIENT_CAP_UNIVERSAL_PLANES is enabled. Alternatively,
+ * the lease can be completely empty.
  */
 struct drm_mode_create_lease {
 	/** @object_ids: Pointer to array of object ids (__u32) */

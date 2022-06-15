@@ -36,6 +36,7 @@
 #include <net/ip6_checksum.h>
 #include <asm/unaligned.h>
 #include <trace/events/napi.h>
+#include <linux/kconfig.h>
 
 /*
  * We maintain a small pool of fully-sized skbs, to make sure the
@@ -389,7 +390,8 @@ void netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 	static atomic_t ip_ident;
 	struct ipv6hdr *ip6h;
 
-	WARN_ON_ONCE(!irqs_disabled());
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+		WARN_ON_ONCE(!irqs_disabled());
 
 	udp_len = len + sizeof(*udph);
 	if (np->ipv6)
@@ -428,7 +430,7 @@ void netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 		ip6h = ipv6_hdr(skb);
 
 		/* ip6h->version = 6; ip6h->priority = 0; */
-		put_unaligned(0x60, (unsigned char *)ip6h);
+		*(unsigned char *)ip6h = 0x60;
 		ip6h->flow_lbl[0] = 0;
 		ip6h->flow_lbl[1] = 0;
 		ip6h->flow_lbl[2] = 0;
@@ -456,7 +458,7 @@ void netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 		iph = ip_hdr(skb);
 
 		/* iph->version = 4; iph->ihl = 5; */
-		put_unaligned(0x45, (unsigned char *)iph);
+		*(unsigned char *)iph = 0x45;
 		iph->tos      = 0;
 		put_unaligned(htons(ip_len), &(iph->tot_len));
 		iph->id       = htons(atomic_inc_return(&ip_ident));
@@ -774,7 +776,7 @@ put_noaddr:
 	err = __netpoll_setup(np, ndev);
 	if (err)
 		goto put;
-
+	netdev_tracker_alloc(ndev, &np->dev_tracker, GFP_KERNEL);
 	rtnl_unlock();
 	return 0;
 
@@ -851,7 +853,7 @@ void netpoll_cleanup(struct netpoll *np)
 	if (!np->dev)
 		goto out;
 	__netpoll_cleanup(np);
-	dev_put(np->dev);
+	dev_put_track(np->dev, &np->dev_tracker);
 	np->dev = NULL;
 out:
 	rtnl_unlock();

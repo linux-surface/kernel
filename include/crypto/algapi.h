@@ -7,9 +7,13 @@
 #ifndef _CRYPTO_ALGAPI_H
 #define _CRYPTO_ALGAPI_H
 
+#include <linux/align.h>
 #include <linux/crypto.h>
+#include <linux/kconfig.h>
 #include <linux/list.h>
-#include <linux/kernel.h>
+#include <linux/types.h>
+
+#include <asm/unaligned.h>
 
 /*
  * Maximum values for blocksize and alignmask, used to allocate
@@ -24,6 +28,7 @@
 struct crypto_aead;
 struct crypto_instance;
 struct module;
+struct notifier_block;
 struct rtattr;
 struct seq_file;
 struct sk_buff;
@@ -96,6 +101,15 @@ struct scatter_walk {
 	unsigned int offset;
 };
 
+struct crypto_attr_alg {
+	char name[CRYPTO_MAX_ALG_NAME];
+};
+
+struct crypto_attr_type {
+	u32 type;
+	u32 mask;
+};
+
 void crypto_mod_put(struct crypto_alg *alg);
 
 int crypto_register_template(struct crypto_template *tmpl);
@@ -118,7 +132,6 @@ void *crypto_spawn_tfm2(struct crypto_spawn *spawn);
 struct crypto_attr_type *crypto_get_attr_type(struct rtattr **tb);
 int crypto_check_attr_type(struct rtattr **tb, u32 type, u32 *mask_ret);
 const char *crypto_attr_alg_name(struct rtattr *rta);
-int crypto_attr_u32(struct rtattr *rta, u32 *num);
 int crypto_inst_setname(struct crypto_instance *inst, const char *name,
 			struct crypto_alg *alg);
 
@@ -143,9 +156,11 @@ static inline void crypto_xor(u8 *dst, const u8 *src, unsigned int size)
 	    (size % sizeof(unsigned long)) == 0) {
 		unsigned long *d = (unsigned long *)dst;
 		unsigned long *s = (unsigned long *)src;
+		unsigned long l;
 
 		while (size > 0) {
-			*d++ ^= *s++;
+			l = get_unaligned(d) ^ get_unaligned(s++);
+			put_unaligned(l, d++);
 			size -= sizeof(unsigned long);
 		}
 	} else {
@@ -162,9 +177,11 @@ static inline void crypto_xor_cpy(u8 *dst, const u8 *src1, const u8 *src2,
 		unsigned long *d = (unsigned long *)dst;
 		unsigned long *s1 = (unsigned long *)src1;
 		unsigned long *s2 = (unsigned long *)src2;
+		unsigned long l;
 
 		while (size > 0) {
-			*d++ = *s1++ ^ *s2++;
+			l = get_unaligned(s1++) ^ get_unaligned(s2++);
+			put_unaligned(l, d++);
 			size -= sizeof(unsigned long);
 		}
 	} else {

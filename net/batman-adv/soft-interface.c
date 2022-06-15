@@ -11,6 +11,7 @@
 #include <linux/byteorder/generic.h>
 #include <linux/cache.h>
 #include <linux/compiler.h>
+#include <linux/container_of.h>
 #include <linux/cpumask.h>
 #include <linux/errno.h>
 #include <linux/etherdevice.h>
@@ -19,14 +20,12 @@
 #include <linux/if_ether.h>
 #include <linux/if_vlan.h>
 #include <linux/jiffies.h>
-#include <linux/kernel.h>
 #include <linux/kref.h>
 #include <linux/list.h>
 #include <linux/lockdep.h>
 #include <linux/netdevice.h>
 #include <linux/netlink.h>
 #include <linux/percpu.h>
-#include <linux/printk.h>
 #include <linux/random.h>
 #include <linux/rculist.h>
 #include <linux/rcupdate.h>
@@ -37,6 +36,7 @@
 #include <linux/stddef.h>
 #include <linux/string.h>
 #include <linux/types.h>
+#include <net/net_namespace.h>
 #include <net/netlink.h>
 #include <uapi/linux/batadv_packet.h>
 #include <uapi/linux/batman_adv.h>
@@ -134,7 +134,7 @@ static int batadv_interface_set_mac_addr(struct net_device *dev, void *p)
 		return -EADDRNOTAVAIL;
 
 	ether_addr_copy(old_addr, dev->dev_addr);
-	ether_addr_copy(dev->dev_addr, addr->sa_data);
+	eth_hw_addr_set(dev, addr->sa_data);
 
 	/* only modify transtable if it has been initialized before */
 	if (atomic_read(&bat_priv->mesh_state) != BATADV_MESH_ACTIVE)
@@ -191,13 +191,14 @@ static netdev_tx_t batadv_interface_tx(struct sk_buff *skb,
 	struct vlan_ethhdr *vhdr;
 	unsigned int header_len = 0;
 	int data_len = skb->len, ret;
-	unsigned long brd_delay = 1;
+	unsigned long brd_delay = 0;
 	bool do_bcast = false, client_added;
 	unsigned short vid;
 	u32 seqno;
 	int gw_mode;
 	enum batadv_forw_mode forw_mode = BATADV_FORW_SINGLE;
 	struct batadv_orig_node *mcast_single_orig = NULL;
+	int mcast_is_routable = 0;
 	int network_offset = ETH_HLEN;
 	__be16 proto;
 
@@ -300,7 +301,8 @@ static netdev_tx_t batadv_interface_tx(struct sk_buff *skb,
 send:
 		if (do_bcast && !is_broadcast_ether_addr(ethhdr->h_dest)) {
 			forw_mode = batadv_mcast_forw_mode(bat_priv, skb,
-							   &mcast_single_orig);
+							   &mcast_single_orig,
+							   &mcast_is_routable);
 			if (forw_mode == BATADV_FORW_NONE)
 				goto dropped;
 
@@ -330,7 +332,7 @@ send:
 
 		bcast_packet = (struct batadv_bcast_packet *)skb->data;
 		bcast_packet->version = BATADV_COMPAT_VERSION;
-		bcast_packet->ttl = BATADV_TTL;
+		bcast_packet->ttl = BATADV_TTL - 1;
 
 		/* batman packet type: broadcast */
 		bcast_packet->packet_type = BATADV_BCAST;
@@ -346,13 +348,7 @@ send:
 		seqno = atomic_inc_return(&bat_priv->bcast_seqno);
 		bcast_packet->seqno = htonl(seqno);
 
-		batadv_add_bcast_packet_to_list(bat_priv, skb, brd_delay, true);
-
-		/* a copy is stored in the bcast list, therefore removing
-		 * the original skb.
-		 */
-		consume_skb(skb);
-
+		batadv_send_bcast_packet(bat_priv, skb, brd_delay, true);
 	/* unicast packet */
 	} else {
 		/* DHCP packets going to a server will use the GW feature */
@@ -365,7 +361,8 @@ send:
 			ret = batadv_mcast_forw_send_orig(bat_priv, skb, vid,
 							  mcast_single_orig);
 		} else if (forw_mode == BATADV_FORW_SOME) {
-			ret = batadv_mcast_forw_send(bat_priv, skb, vid);
+			ret = batadv_mcast_forw_send(bat_priv, skb, vid,
+						     mcast_is_routable);
 		} else {
 			if (batadv_dat_snoop_outgoing_arp_request(bat_priv,
 								  skb))
@@ -389,10 +386,8 @@ dropped:
 dropped_freed:
 	batadv_inc_counter(bat_priv, BATADV_CNT_TX_DROPPED);
 end:
-	if (mcast_single_orig)
-		batadv_orig_node_put(mcast_single_orig);
-	if (primary_if)
-		batadv_hardif_put(primary_if);
+	batadv_orig_node_put(mcast_single_orig);
+	batadv_hardif_put(primary_if);
 	return NETDEV_TX_OK;
 }
 
@@ -507,7 +502,7 @@ out:
  *  after rcu grace period
  * @ref: kref pointer of the vlan object
  */
-static void batadv_softif_vlan_release(struct kref *ref)
+void batadv_softif_vlan_release(struct kref *ref)
 {
 	struct batadv_softif_vlan *vlan;
 
@@ -518,19 +513,6 @@ static void batadv_softif_vlan_release(struct kref *ref)
 	spin_unlock_bh(&vlan->bat_priv->softif_vlan_list_lock);
 
 	kfree_rcu(vlan, rcu);
-}
-
-/**
- * batadv_softif_vlan_put() - decrease the vlan object refcounter and
- *  possibly release it
- * @vlan: the vlan object to release
- */
-void batadv_softif_vlan_put(struct batadv_softif_vlan *vlan)
-{
-	if (!vlan)
-		return;
-
-	kref_put(&vlan->refcount, batadv_softif_vlan_release);
 }
 
 /**
@@ -848,18 +830,16 @@ static int batadv_softif_slave_add(struct net_device *dev,
 				   struct netlink_ext_ack *extack)
 {
 	struct batadv_hard_iface *hard_iface;
-	struct net *net = dev_net(dev);
 	int ret = -EINVAL;
 
 	hard_iface = batadv_hardif_get_by_netdev(slave_dev);
 	if (!hard_iface || hard_iface->soft_iface)
 		goto out;
 
-	ret = batadv_hardif_enable_interface(hard_iface, net, dev->name);
+	ret = batadv_hardif_enable_interface(hard_iface, dev);
 
 out:
-	if (hard_iface)
-		batadv_hardif_put(hard_iface);
+	batadv_hardif_put(hard_iface);
 	return ret;
 }
 
@@ -885,8 +865,7 @@ static int batadv_softif_slave_del(struct net_device *dev,
 	ret = 0;
 
 out:
-	if (hard_iface)
-		batadv_hardif_put(hard_iface);
+	batadv_hardif_put(hard_iface);
 	return ret;
 }
 
@@ -1090,38 +1069,6 @@ static int batadv_softif_newlink(struct net *src_net, struct net_device *dev,
 	}
 
 	return register_netdevice(dev);
-}
-
-/**
- * batadv_softif_create() - Create and register soft interface
- * @net: the applicable net namespace
- * @name: name of the new soft interface
- *
- * Return: newly allocated soft_interface, NULL on errors
- */
-struct net_device *batadv_softif_create(struct net *net, const char *name)
-{
-	struct net_device *soft_iface;
-	int ret;
-
-	soft_iface = alloc_netdev(sizeof(struct batadv_priv), name,
-				  NET_NAME_UNKNOWN, batadv_softif_init_early);
-	if (!soft_iface)
-		return NULL;
-
-	dev_net_set(soft_iface, net);
-
-	soft_iface->rtnl_link_ops = &batadv_link_ops;
-
-	ret = register_netdevice(soft_iface);
-	if (ret < 0) {
-		pr_err("Unable to register the batman interface '%s': %i\n",
-		       name, ret);
-		free_netdev(soft_iface);
-		return NULL;
-	}
-
-	return soft_iface;
 }
 
 /**

@@ -54,12 +54,17 @@ static struct hw_x_point coordinates_x[MAX_HW_POINTS + 2];
  * just multiply with 2^gamma which can be computed once, and save the result so we
  * recursively compute all the values.
  */
-										/*sRGB	 709 2.2 2.4 P3*/
-static const int32_t gamma_numerator01[] = { 31308,	180000,	0,	0,	0};
-static const int32_t gamma_numerator02[] = { 12920,	4500,	0,	0,	0};
-static const int32_t gamma_numerator03[] = { 55,	99,		0,	0,	0};
-static const int32_t gamma_numerator04[] = { 55,	99,		0,	0,	0};
-static const int32_t gamma_numerator05[] = { 2400,	2200,	2200, 2400, 2600};
+
+/*
+ * Regamma coefficients are used for both regamma and degamma. Degamma
+ * coefficients are calculated in our formula using the regamma coefficients.
+ */
+									 /*sRGB     709     2.2 2.4 P3*/
+static const int32_t numerator01[] = { 31308,   180000, 0,  0,  0};
+static const int32_t numerator02[] = { 12920,   4500,   0,  0,  0};
+static const int32_t numerator03[] = { 55,      99,     0,  0,  0};
+static const int32_t numerator04[] = { 55,      99,     0,  0,  0};
+static const int32_t numerator05[] = { 2400,    2200,   2200, 2400, 2600};
 
 /* one-time setup of X points */
 void setup_x_points_distribution(void)
@@ -288,7 +293,8 @@ struct dividers {
 };
 
 
-static bool build_coefficients(struct gamma_coefficients *coefficients, enum dc_transfer_func_predefined type)
+static bool build_coefficients(struct gamma_coefficients *coefficients,
+		enum dc_transfer_func_predefined type)
 {
 
 	uint32_t i = 0;
@@ -312,15 +318,15 @@ static bool build_coefficients(struct gamma_coefficients *coefficients, enum dc_
 
 	do {
 		coefficients->a0[i] = dc_fixpt_from_fraction(
-			gamma_numerator01[index], 10000000);
+			numerator01[index], 10000000);
 		coefficients->a1[i] = dc_fixpt_from_fraction(
-			gamma_numerator02[index], 1000);
+			numerator02[index], 1000);
 		coefficients->a2[i] = dc_fixpt_from_fraction(
-			gamma_numerator03[index], 1000);
+			numerator03[index], 1000);
 		coefficients->a3[i] = dc_fixpt_from_fraction(
-			gamma_numerator04[index], 1000);
+			numerator04[index], 1000);
 		coefficients->user_gamma[i] = dc_fixpt_from_fraction(
-			gamma_numerator05[index], 1000);
+			numerator05[index], 1000);
 
 		++i;
 	} while (i != ARRAY_SIZE(coefficients->a0));
@@ -942,7 +948,7 @@ static void hermite_spline_eetf(struct fixed31_32 input_x,
 static bool build_freesync_hdr(struct pwl_float_data_ex *rgb_regamma,
 		uint32_t hw_points_num,
 		const struct hw_x_point *coordinate_x,
-		const struct freesync_hdr_tf_params *fs_params,
+		const struct hdr_tm_params *fs_params,
 		struct calculate_buffer *cal_buffer)
 {
 	uint32_t i;
@@ -1685,7 +1691,7 @@ static void apply_degamma_for_user_regamma(struct pwl_float_data_ex *rgb_regamma
 	struct pwl_float_data_ex *rgb = rgb_regamma;
 	const struct hw_x_point *coord_x = coordinates_x;
 
-	build_coefficients(&coeff, TRANSFER_FUNCTION_SRGB);
+	build_coefficients(&coeff, true);
 
 	i = 0;
 	while (i != hw_points_num + 1) {
@@ -2027,7 +2033,7 @@ rgb_user_alloc_fail:
 static bool calculate_curve(enum dc_transfer_func_predefined trans,
 				struct dc_transfer_func_distributed_points *points,
 				struct pwl_float_data_ex *rgb_regamma,
-				const struct freesync_hdr_tf_params *fs_params,
+				const struct hdr_tm_params *fs_params,
 				uint32_t sdr_ref_white_level,
 				struct calculate_buffer *cal_buffer)
 {
@@ -2106,7 +2112,7 @@ static bool calculate_curve(enum dc_transfer_func_predefined trans,
 
 bool mod_color_calculate_regamma_params(struct dc_transfer_func *output_tf,
 		const struct dc_gamma *ramp, bool mapUserRamp, bool canRomBeUsed,
-		const struct freesync_hdr_tf_params *fs_params,
+		const struct hdr_tm_params *fs_params,
 		struct calculate_buffer *cal_buffer)
 {
 	struct dc_transfer_func_distributed_points *tf_pts = &output_tf->tf_pts;

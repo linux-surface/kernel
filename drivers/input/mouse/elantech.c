@@ -517,6 +517,19 @@ static void elantech_report_trackpoint(struct psmouse *psmouse,
 	case 0x16008020U:
 	case 0x26800010U:
 	case 0x36808000U:
+
+		/*
+		 * This firmware misreport coordinates for trackpoint
+		 * occasionally. Discard packets outside of [-127, 127] range
+		 * to prevent cursor jumps.
+		 */
+		if (packet[4] == 0x80 || packet[5] == 0x80 ||
+		    packet[1] >> 7 == packet[4] >> 7 ||
+		    packet[2] >> 7 == packet[5] >> 7) {
+			elantech_debug("discarding packet [%6ph]\n", packet);
+			break;
+
+		}
 		x = packet[4] - (int)((packet[1]^0x80) << 1);
 		y = (int)((packet[2]^0x80) << 1) - packet[5];
 
@@ -1575,7 +1588,13 @@ static const struct dmi_system_id no_hw_res_dmi_table[] = {
  */
 static int elantech_change_report_id(struct psmouse *psmouse)
 {
-	unsigned char param[2] = { 0x10, 0x03 };
+	/*
+	 * NOTE: the code is expecting to receive param[] as an array of 3
+	 * items (see __ps2_command()), even if in this case only 2 are
+	 * actually needed. Make sure the array size is 3 to avoid potential
+	 * stack out-of-bound accesses.
+	 */
+	unsigned char param[3] = { 0x10, 0x03 };
 
 	if (elantech_write_reg_params(psmouse, 0x7, param) ||
 	    elantech_read_reg_params(psmouse, 0x7, param) ||
@@ -1885,8 +1904,6 @@ static int elantech_create_smbus(struct psmouse *psmouse,
 	};
 	unsigned int idx = 0;
 
-	smbus_board.properties = i2c_props;
-
 	i2c_props[idx++] = PROPERTY_ENTRY_U32("touchscreen-size-x",
 						   info->x_max + 1);
 	i2c_props[idx++] = PROPERTY_ENTRY_U32("touchscreen-size-y",
@@ -1917,6 +1934,10 @@ static int elantech_create_smbus(struct psmouse *psmouse,
 
 	if (elantech_is_buttonpad(info))
 		i2c_props[idx++] = PROPERTY_ENTRY_BOOL("elan,clickpad");
+
+	smbus_board.fwnode = fwnode_create_software_node(i2c_props, NULL);
+	if (IS_ERR(smbus_board.fwnode))
+		return PTR_ERR(smbus_board.fwnode);
 
 	return psmouse_smbus_init(psmouse, &smbus_board, NULL, 0, false,
 				  leave_breadcrumbs);

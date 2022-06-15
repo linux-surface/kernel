@@ -22,10 +22,13 @@ place where this information is gathered.
    unshare
    spec_ctrl
    accelerators/ocxl
+   ebpf/index
    ioctl/index
    iommu
    media/index
    sysfs-platform_profile
+   vduse
+   futex2
 
 .. only::  subproject and html
 

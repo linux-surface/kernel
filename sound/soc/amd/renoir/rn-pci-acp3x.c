@@ -20,7 +20,7 @@ static int acp_power_gating;
 module_param(acp_power_gating, int, 0644);
 MODULE_PARM_DESC(acp_power_gating, "Enable acp power gating");
 
-/**
+/*
  * dmic_acpi_check = -1 - Use ACPI/DMI method to detect the DMIC hardware presence at runtime
  *                 =  0 - Skip the DMIC device creation and return probe failure
  *                 =  1 - Force DMIC support
@@ -212,9 +212,14 @@ static int snd_rn_acp_probe(struct pci_dev *pci,
 	acpi_integer dmic_status;
 #endif
 	const struct dmi_system_id *dmi_id;
-	unsigned int irqflags;
+	unsigned int irqflags, flag;
 	int ret, index;
 	u32 addr;
+
+	/* Return if acp config flag is defined */
+	flag = snd_amd_acp_find_config(pci);
+	if (flag)
+		return -ENODEV;
 
 	/* Renoir device check */
 	if (pci->revision != 0x01)
@@ -382,6 +387,8 @@ static const struct dev_pm_ops rn_acp_pm = {
 	.runtime_resume =  snd_rn_acp_resume,
 	.suspend = snd_rn_acp_suspend,
 	.resume =	snd_rn_acp_resume,
+	.restore =	snd_rn_acp_resume,
+	.poweroff =	snd_rn_acp_suspend,
 };
 
 static void snd_rn_acp_remove(struct pci_dev *pci)

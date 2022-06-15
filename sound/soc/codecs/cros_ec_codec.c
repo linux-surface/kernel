@@ -94,7 +94,7 @@ static int send_ec_host_command(struct cros_ec_device *ec_dev, uint32_t cmd,
 	if (ret < 0)
 		goto error;
 
-	if (insize)
+	if (in && insize)
 		memcpy(in, msg->data, insize);
 
 	ret = 0;
@@ -283,8 +283,8 @@ static int i2s_rx_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	struct ec_param_ec_codec_i2s_rx p;
 	enum ec_codec_i2s_rx_daifmt daifmt;
 
-	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBS_CFS:
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_CBC_CFC:
 		break;
 	default:
 		return -EINVAL;

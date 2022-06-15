@@ -55,7 +55,7 @@ static void exynos_irq_mask(struct irq_data *irqd)
 	struct exynos_irq_chip *our_chip = to_exynos_irq_chip(chip);
 	struct samsung_pin_bank *bank = irq_data_get_irq_chip_data(irqd);
 	unsigned long reg_mask = our_chip->eint_mask + bank->eint_offset;
-	unsigned long mask;
+	unsigned int mask;
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&bank->slock, flags);
@@ -83,7 +83,7 @@ static void exynos_irq_unmask(struct irq_data *irqd)
 	struct exynos_irq_chip *our_chip = to_exynos_irq_chip(chip);
 	struct samsung_pin_bank *bank = irq_data_get_irq_chip_data(irqd);
 	unsigned long reg_mask = our_chip->eint_mask + bank->eint_offset;
-	unsigned long mask;
+	unsigned int mask;
 	unsigned long flags;
 
 	/*
@@ -246,7 +246,8 @@ static irqreturn_t exynos_eint_gpio_irq(int irq, void *data)
 {
 	struct samsung_pinctrl_drv_data *d = data;
 	struct samsung_pin_bank *bank = d->pin_banks;
-	unsigned int svc, group, pin, virq;
+	unsigned int svc, group, pin;
+	int ret;
 
 	svc = readl(bank->eint_base + EXYNOS_SVC_OFFSET);
 	group = EXYNOS_SVC_GROUP(svc);
@@ -256,10 +257,10 @@ static irqreturn_t exynos_eint_gpio_irq(int irq, void *data)
 		return IRQ_HANDLED;
 	bank += (group - 1);
 
-	virq = irq_linear_revmap(bank->irq_domain, pin);
-	if (!virq)
+	ret = generic_handle_domain_irq(bank->irq_domain, pin);
+	if (ret)
 		return IRQ_NONE;
-	generic_handle_irq(virq);
+
 	return IRQ_HANDLED;
 }
 
@@ -343,7 +344,8 @@ static int exynos_wkup_irq_set_wake(struct irq_data *irqd, unsigned int on)
 	struct samsung_pin_bank *bank = irq_data_get_irq_chip_data(irqd);
 	unsigned long bit = 1UL << (2 * bank->eint_offset + irqd->hwirq);
 
-	pr_info("wake %s for irq %d\n", on ? "enabled" : "disabled", irqd->irq);
+	pr_info("wake %s for irq %u (%s-%lu)\n", on ? "enabled" : "disabled",
+		irqd->irq, bank->name, irqd->hwirq);
 
 	if (!on)
 		*our_chip->eint_wake_mask_value |= bit;
@@ -464,6 +466,10 @@ static const struct of_device_id exynos_wkup_irq_ids[] = {
 			.data = &exynos4210_wkup_irq_chip },
 	{ .compatible = "samsung,exynos7-wakeup-eint",
 			.data = &exynos7_wkup_irq_chip },
+	{ .compatible = "samsung,exynos850-wakeup-eint",
+			.data = &exynos7_wkup_irq_chip },
+	{ .compatible = "samsung,exynosautov9-wakeup-eint",
+			.data = &exynos7_wkup_irq_chip },
 	{ }
 };
 
@@ -473,24 +479,22 @@ static void exynos_irq_eint0_15(struct irq_desc *desc)
 	struct exynos_weint_data *eintd = irq_desc_get_handler_data(desc);
 	struct samsung_pin_bank *bank = eintd->bank;
 	struct irq_chip *chip = irq_desc_get_chip(desc);
-	int eint_irq;
 
 	chained_irq_enter(chip, desc);
 
-	eint_irq = irq_linear_revmap(bank->irq_domain, eintd->irq);
-	generic_handle_irq(eint_irq);
+	generic_handle_domain_irq(bank->irq_domain, eintd->irq);
 
 	chained_irq_exit(chip, desc);
 }
 
-static inline void exynos_irq_demux_eint(unsigned long pend,
+static inline void exynos_irq_demux_eint(unsigned int pend,
 						struct irq_domain *domain)
 {
 	unsigned int irq;
 
 	while (pend) {
 		irq = fls(pend) - 1;
-		generic_handle_irq(irq_find_mapping(domain, irq));
+		generic_handle_domain_irq(domain, irq);
 		pend &= ~(1 << irq);
 	}
 }
@@ -500,8 +504,8 @@ static void exynos_irq_demux_eint16_31(struct irq_desc *desc)
 {
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	struct exynos_muxed_weint_data *eintd = irq_desc_get_handler_data(desc);
-	unsigned long pend;
-	unsigned long mask;
+	unsigned int pend;
+	unsigned int mask;
 	int i;
 
 	chained_irq_enter(chip, desc);

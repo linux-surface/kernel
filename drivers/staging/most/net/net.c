@@ -67,7 +67,7 @@ struct net_dev_context {
 	struct list_head list;
 };
 
-static struct list_head net_devices = LIST_HEAD_INIT(net_devices);
+static LIST_HEAD(net_devices);
 static DEFINE_MUTEX(probe_disc_mt); /* ch->linked = true, most_nd_open */
 static DEFINE_SPINLOCK(list_lock); /* list_head, ch->linked = false, dev_hold */
 static struct most_component comp;
@@ -539,9 +539,9 @@ static void __exit most_net_exit(void)
 
 /**
  * on_netinfo - callback for HDM to be informed about HW's MAC
- * @param iface - most interface instance
- * @param link_stat - link status
- * @param mac_addr - MAC address
+ * @iface: most interface instance
+ * @link_stat: link status
+ * @mac_addr: MAC address
  */
 static void on_netinfo(struct most_interface *iface,
 		       unsigned char link_stat, unsigned char *mac_addr)
@@ -564,7 +564,7 @@ static void on_netinfo(struct most_interface *iface,
 	if (m && is_valid_ether_addr(m)) {
 		if (!is_valid_ether_addr(dev->dev_addr)) {
 			netdev_info(dev, "set mac %pM\n", m);
-			ether_addr_copy(dev->dev_addr, m);
+			eth_hw_addr_set(dev, m);
 			netif_dormant_off(dev);
 		} else if (!ether_addr_equal(dev->dev_addr, m)) {
 			netdev_warn(dev, "reject mac %pM\n", m);

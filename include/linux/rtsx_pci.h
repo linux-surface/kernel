@@ -1095,7 +1095,7 @@ struct pcr_ops {
 	unsigned int	(*cd_deglitch)(struct rtsx_pcr *pcr);
 	int		(*conv_clk_and_div_n)(int clk, int dir);
 	void		(*fetch_vendor_settings)(struct rtsx_pcr *pcr);
-	void		(*force_power_down)(struct rtsx_pcr *pcr, u8 pm_state);
+	void		(*force_power_down)(struct rtsx_pcr *pcr, u8 pm_state, bool runtime);
 	void		(*stop_cmd)(struct rtsx_pcr *pcr);
 
 	void (*set_aspm)(struct rtsx_pcr *pcr, bool enable);
@@ -1109,6 +1109,7 @@ struct pcr_ops {
 };
 
 enum PDEV_STAT  {PDEV_STAT_IDLE, PDEV_STAT_RUN};
+enum ASPM_MODE  {ASPM_MODE_CFG, ASPM_MODE_REG};
 
 #define ASPM_L1_1_EN			BIT(0)
 #define ASPM_L1_2_EN			BIT(1)
@@ -1200,8 +1201,6 @@ struct rtsx_pcr {
 	unsigned int			card_exist;
 
 	struct delayed_work		carddet_work;
-	struct delayed_work		idle_work;
-	struct delayed_work		rtd3_work;
 
 	spinlock_t			lock;
 	struct mutex			pcr_mutex;
@@ -1211,7 +1210,6 @@ struct rtsx_pcr {
 	unsigned int			cur_clock;
 	bool				remove_pci;
 	bool				msi_en;
-	bool				is_runtime_suspended;
 
 #define EXTRA_CAPS_SD_SDR50		(1 << 0)
 #define EXTRA_CAPS_SD_SDR104		(1 << 1)
@@ -1234,6 +1232,7 @@ struct rtsx_pcr {
 	u8				card_drive_sel;
 #define ASPM_L1_EN			0x02
 	u8				aspm_en;
+	enum ASPM_MODE			aspm_mode;
 	bool				aspm_enabled;
 
 #define PCR_MS_PMOS			(1 << 0)

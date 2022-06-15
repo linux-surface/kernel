@@ -64,6 +64,14 @@ int acrn_vm_destroy(struct acrn_vm *vm)
 	    test_and_set_bit(ACRN_VM_FLAG_DESTROYED, &vm->flags))
 		return 0;
 
+	ret = hcall_destroy_vm(vm->vmid);
+	if (ret < 0) {
+		dev_err(acrn_dev.this_device,
+			"Failed to destroy VM %u\n", vm->vmid);
+		clear_bit(ACRN_VM_FLAG_DESTROYED, &vm->flags);
+		return ret;
+	}
+
 	/* Remove from global VM list */
 	write_lock_bh(&acrn_vm_list_lock);
 	list_del_init(&vm->list);
@@ -78,14 +86,6 @@ int acrn_vm_destroy(struct acrn_vm *vm)
 		vm->monitor_page = NULL;
 	}
 
-	ret = hcall_destroy_vm(vm->vmid);
-	if (ret < 0) {
-		dev_err(acrn_dev.this_device,
-			"Failed to destroy VM %u\n", vm->vmid);
-		clear_bit(ACRN_VM_FLAG_DESTROYED, &vm->flags);
-		return ret;
-	}
-
 	acrn_vm_all_ram_unmap(vm);
 
 	dev_dbg(acrn_dev.this_device, "VM %u destroyed.\n", vm->vmid);
@@ -94,7 +94,7 @@ int acrn_vm_destroy(struct acrn_vm *vm)
 }
 
 /**
- * acrn_inject_msi() - Inject a MSI interrupt into a User VM
+ * acrn_msi_inject() - Inject a MSI interrupt into a User VM
  * @vm:		User VM
  * @msi_addr:	The MSI address
  * @msi_data:	The MSI data

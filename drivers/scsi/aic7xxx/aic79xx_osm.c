@@ -572,8 +572,7 @@ ahd_linux_info(struct Scsi_Host *host)
 /*
  * Queue an SCB to the controller.
  */
-static int
-ahd_linux_queue_lck(struct scsi_cmnd * cmd, void (*scsi_done) (struct scsi_cmnd *))
+static int ahd_linux_queue_lck(struct scsi_cmnd *cmd)
 {
 	struct	 ahd_softc *ahd;
 	struct	 ahd_linux_device *dev = scsi_transport_device_data(cmd->device);
@@ -581,7 +580,6 @@ ahd_linux_queue_lck(struct scsi_cmnd * cmd, void (*scsi_done) (struct scsi_cmnd 
 
 	ahd = *(struct ahd_softc **)cmd->device->host->hostdata;
 
-	cmd->scsi_done = scsi_done;
 	cmd->result = CAM_REQ_INPROG << 16;
 	rtn = ahd_linux_run_command(ahd, dev, cmd);
 
@@ -757,11 +755,7 @@ ahd_linux_biosparam(struct scsi_device *sdev, struct block_device *bdev,
 static int
 ahd_linux_abort(struct scsi_cmnd *cmd)
 {
-	int error;
-	
-	error = ahd_linux_queue_abort_cmd(cmd);
-
-	return error;
+	return ahd_linux_queue_abort_cmd(cmd);
 }
 
 /*
@@ -1928,7 +1922,7 @@ ahd_linux_handle_scsi_status(struct ahd_softc *ahd,
 			memcpy(cmd->sense_buffer,
 			       ahd_get_sense_buf(ahd, scb)
 			       + sense_offset, sense_size);
-			cmd->result |= (DRIVER_SENSE << 24);
+			set_status_byte(cmd, SAM_STAT_CHECK_CONDITION);
 
 #ifdef AHD_DEBUG
 			if (ahd_debug & AHD_SHOW_SENSE) {
@@ -2018,6 +2012,7 @@ ahd_linux_queue_cmd_complete(struct ahd_softc *ahd, struct scsi_cmnd *cmd)
 	int new_status = DID_OK;
 	int do_fallback = 0;
 	int scsi_status;
+	struct scsi_sense_data *sense;
 
 	/*
 	 * Map CAM error codes into Linux Error codes.  We
@@ -2041,18 +2036,12 @@ ahd_linux_queue_cmd_complete(struct ahd_softc *ahd, struct scsi_cmnd *cmd)
 		switch(scsi_status) {
 		case SAM_STAT_COMMAND_TERMINATED:
 		case SAM_STAT_CHECK_CONDITION:
-			if ((cmd->result >> 24) != DRIVER_SENSE) {
+			sense = (struct scsi_sense_data *)
+				cmd->sense_buffer;
+			if (sense->extra_len >= 5 &&
+			    (sense->add_sense_code == 0x47
+			     || sense->add_sense_code == 0x48))
 				do_fallback = 1;
-			} else {
-				struct scsi_sense_data *sense;
-				
-				sense = (struct scsi_sense_data *)
-					cmd->sense_buffer;
-				if (sense->extra_len >= 5 &&
-				    (sense->add_sense_code == 0x47
-				     || sense->add_sense_code == 0x48))
-					do_fallback = 1;
-			}
 			break;
 		default:
 			break;
@@ -2116,7 +2105,7 @@ ahd_linux_queue_cmd_complete(struct ahd_softc *ahd, struct scsi_cmnd *cmd)
 
 	ahd_cmd_set_transaction_status(cmd, new_status);
 
-	cmd->scsi_done(cmd);
+	scsi_done(cmd);
 }
 
 static void

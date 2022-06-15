@@ -853,10 +853,10 @@ stop_reset:
 	sh_msiof_spi_stop(p, rx);
 stop_dma:
 	if (tx)
-		dmaengine_terminate_all(p->ctlr->dma_tx);
+		dmaengine_terminate_sync(p->ctlr->dma_tx);
 no_dma_tx:
 	if (rx)
-		dmaengine_terminate_all(p->ctlr->dma_rx);
+		dmaengine_terminate_sync(p->ctlr->dma_rx);
 	sh_msiof_write(p, SIIER, 0);
 	return ret;
 }
@@ -1426,4 +1426,3 @@ module_platform_driver(sh_msiof_spi_drv);
 MODULE_DESCRIPTION("SuperH MSIOF SPI Controller Interface Driver");
 MODULE_AUTHOR("Magnus Damm");
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("platform:spi_sh_msiof");

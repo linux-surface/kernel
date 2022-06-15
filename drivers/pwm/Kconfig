@@ -272,7 +272,7 @@ config PWM_IQS620A
 
 config PWM_JZ4740
 	tristate "Ingenic JZ47xx PWM support"
-	depends on MIPS
+	depends on MIPS || COMPILE_TEST
 	depends on COMMON_CLK
 	select MFD_SYSCON
 	help
@@ -284,7 +284,8 @@ config PWM_JZ4740
 
 config PWM_KEEMBAY
 	tristate "Intel Keem Bay PWM driver"
-	depends on ARCH_KEEMBAY || (ARM64 && COMPILE_TEST)
+	depends on ARCH_KEEMBAY || COMPILE_TEST
+	depends on COMMON_CLK && HAS_IOMEM
 	help
 	  The platform driver for Intel Keem Bay PWM controller.
 
@@ -393,6 +394,14 @@ config PWM_MXS
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-mxs.
 
+config PWM_NTXEC
+	tristate "Netronix embedded controller PWM support"
+	depends on MFD_NTXEC
+	help
+	  Say yes here if you want to support the PWM output of the embedded
+	  controller found in certain e-book readers designed by the original
+	  design manufacturer Netronix.
+
 config PWM_OMAP_DMTIMER
 	tristate "OMAP Dual-Mode Timer PWM support"
 	depends on OF
@@ -422,6 +431,15 @@ config PWM_PXA
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-pxa.
+
+config PWM_RASPBERRYPI_POE
+	tristate "Raspberry Pi Firwmware PoE Hat PWM support"
+	# Make sure not 'y' when RASPBERRYPI_FIRMWARE is 'm'. This can only
+	# happen when COMPILE_TEST=y, hence the added !RASPBERRYPI_FIRMWARE.
+	depends on RASPBERRYPI_FIRMWARE || (COMPILE_TEST && !RASPBERRYPI_FIRMWARE)
+	help
+	  Enable Raspberry Pi firmware controller PWM bus used to control the
+	  official RPI PoE hat
 
 config PWM_RCAR
 	tristate "Renesas R-Car PWM support"
@@ -458,7 +476,9 @@ config PWM_SAMSUNG
 	depends on PLAT_SAMSUNG || ARCH_S5PV210 || ARCH_EXYNOS || COMPILE_TEST
 	depends on HAS_IOMEM
 	help
-	  Generic PWM framework driver for Samsung.
+	  Generic PWM framework driver for Samsung S3C24xx, S3C64xx, S5Pv210
+	  and Exynos SoCs.
+	  Choose Y here only if you build for such Samsung SoC.
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-samsung.
@@ -600,6 +620,15 @@ config PWM_TWL_LED
 
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-twl-led.
+
+config PWM_VISCONTI
+	tristate "Toshiba Visconti PWM support"
+	depends on ARCH_VISCONTI || COMPILE_TEST
+	help
+	  PWM Subsystem driver support for Toshiba Visconti SoCs.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called pwm-visconti.
 
 config PWM_VT8500
 	tristate "vt8500 PWM support"

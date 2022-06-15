@@ -17,14 +17,13 @@
 #include <ctype.h>
 #include <string.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <errno.h>
 #include "modpost.h"
 #include "../../include/linux/license.h"
 
 /* Are we using CONFIG_MODVERSIONS? */
 static int modversions = 0;
-/* Warn about undefined symbols? (do so if we have vmlinux) */
-static int have_vmlinux = 0;
 /* Is CONFIG_MODULE_SRCVERSION_ALL set? */
 static int all_versions = 0;
 /* If we are modposting external module set to 1 */
@@ -40,6 +39,13 @@ static int ignore_missing_files;
 static int allow_missing_ns_imports;
 
 static bool error_occurred;
+
+/*
+ * Cut off the warnings when there are too many. This typically occurs when
+ * vmlinux is missing. ('make modules' without building vmlinux.)
+ */
+#define MAX_UNRESOLVED_REPORTS	10
+static unsigned int nr_unresolved;
 
 enum export {
 	export_plain,
@@ -82,6 +88,14 @@ modpost_log(enum loglevel loglevel, const char *fmt, ...)
 		exit(1);
 	if (loglevel == LOG_ERROR)
 		error_occurred = true;
+}
+
+static inline bool strends(const char *str, const char *postfix)
+{
+	if (strlen(str) < strlen(postfix))
+		return false;
+
+	return strcmp(str + strlen(str) - strlen(postfix), postfix) == 0;
 }
 
 void *do_nofail(void *ptr, const char *expr)
@@ -177,9 +191,6 @@ static struct module *new_module(const char *modname)
 	mod->next = modules;
 	modules = mod;
 
-	if (mod->is_vmlinux)
-		have_vmlinux = 1;
-
 	return mod;
 }
 
@@ -202,7 +213,7 @@ struct symbol {
 
 static struct symbol *symbolhash[SYMBOL_HASH_SIZE];
 
-/* This is based on the hash agorithm from gdbm, via tdb */
+/* This is based on the hash algorithm from gdbm, via tdb */
 static inline unsigned int tdb_hash(const char *name)
 {
 	unsigned value;	/* Used to compute the hash value.  */
@@ -647,6 +658,11 @@ static int ignore_undef_symbol(struct elf_info *info, const char *symname)
 		    strstarts(symname, "_savevr_") ||
 		    strcmp(symname, ".TOC.") == 0)
 			return 1;
+
+	if (info->hdr->e_machine == EM_S390)
+		/* Expoline thunks are linked on all kernel modules during final link of .ko */
+		if (strstarts(symname, "__s390_indirect_jump_r"))
+			return 1;
 	/* Do not ignore this symbol */
 	return 0;
 }
@@ -658,8 +674,11 @@ static void handle_modversion(const struct module *mod,
 	unsigned int crc;
 
 	if (sym->st_shndx == SHN_UNDEF) {
-		warn("EXPORT symbol \"%s\" [%s%s] version generation failed, symbol will not be versioned.\n",
-		     symname, mod->name, mod->is_vmlinux ? "" : ".ko");
+		warn("EXPORT symbol \"%s\" [%s%s] version generation failed, symbol will not be versioned.\n"
+		     "Is \"%s\" prototyped in <asm/asm-prototypes.h>?\n",
+		     symname, mod->name, mod->is_vmlinux ? "" : ".ko",
+		     symname);
+
 		return;
 	}
 
@@ -819,8 +838,10 @@ static int match(const char *sym, const char * const pat[])
 {
 	const char *p;
 	while (*pat) {
+		const char *endp;
+
 		p = *pat++;
-		const char *endp = p + strlen(p) - 1;
+		endp = p + strlen(p) - 1;
 
 		/* "*foo*" */
 		if (*p == '*' && *endp == '*') {
@@ -926,7 +947,7 @@ static void check_section(const char *modname, struct elf_info *elf,
 		".kprobes.text", ".cpuidle.text", ".noinstr.text"
 #define OTHER_TEXT_SECTIONS ".ref.text", ".head.text", ".spinlock.text", \
 		".fixup", ".entry.text", ".exception.text", ".text.*", \
-		".coldtext"
+		".coldtext", ".softirqentry.text"
 
 #define INIT_SECTIONS      ".init.*"
 #define MEM_INIT_SECTIONS  ".meminit.*"
@@ -985,7 +1006,7 @@ enum mismatch {
 };
 
 /**
- * Describe how to match sections on different criterias:
+ * Describe how to match sections on different criteria:
  *
  * @fromsec: Array of sections to be matched.
  *
@@ -993,12 +1014,12 @@ enum mismatch {
  * this array is forbidden (black-list).  Can be empty.
  *
  * @good_tosec: Relocations applied to a section in @fromsec must be
- * targetting sections in this array (white-list).  Can be empty.
+ * targeting sections in this array (white-list).  Can be empty.
  *
  * @mismatch: Type of mismatch.
  *
  * @symbol_white_list: Do not match a relocation to a symbol in this list
- * even if it is targetting a section in @bad_to_sec.
+ * even if it is targeting a section in @bad_to_sec.
  *
  * @handler: Specific handler to call when a match is found.  If NULL,
  * default_mismatch_handler() will be called.
@@ -1816,6 +1837,14 @@ static int addend_mips_rel(struct elf_info *elf, Elf_Shdr *sechdr, Elf_Rela *r)
 	return 0;
 }
 
+#ifndef EM_RISCV
+#define EM_RISCV		243
+#endif
+
+#ifndef R_RISCV_SUB32
+#define R_RISCV_SUB32		39
+#endif
+
 static void section_rela(const char *modname, struct elf_info *elf,
 			 Elf_Shdr *sechdr)
 {
@@ -1852,6 +1881,13 @@ static void section_rela(const char *modname, struct elf_info *elf,
 		r_sym = ELF_R_SYM(r.r_info);
 #endif
 		r.r_addend = TO_NATIVE(rela->r_addend);
+		switch (elf->hdr->e_machine) {
+		case EM_RISCV:
+			if (!strcmp("__ex_table", fromsec) &&
+			    ELF_R_TYPE(r.r_info) == R_RISCV_SUB32)
+				continue;
+			break;
+		}
 		sym = elf->symtab_start + r_sym;
 		/* Skip special sections */
 		if (is_shndx_special(sym->st_shndx))
@@ -1960,9 +1996,9 @@ static char *remove_dot(char *s)
 		if (m && (s[n + m] == '.' || s[n + m] == 0))
 			s[n] = 0;
 
-		/* strip trailing .lto */
-		if (strends(s, ".lto"))
-			s[strlen(s) - 4] = '\0';
+		/* strip trailing .prelink */
+		if (strends(s, ".prelink"))
+			s[strlen(s) - 8] = '\0';
 	}
 	return s;
 }
@@ -1986,9 +2022,9 @@ static void read_symbols(const char *modname)
 		/* strip trailing .o */
 		tmp = NOFAIL(strdup(modname));
 		tmp[strlen(tmp) - 2] = '\0';
-		/* strip trailing .lto */
-		if (strends(tmp, ".lto"))
-			tmp[strlen(tmp) - 4] = '\0';
+		/* strip trailing .prelink */
+		if (strends(tmp, ".prelink"))
+			tmp[strlen(tmp) - 8] = '\0';
 		mod = new_module(tmp);
 		free(tmp);
 	}
@@ -2055,7 +2091,7 @@ static void read_symbols(const char *modname)
 	if (!mod->is_vmlinux) {
 		version = get_modinfo(&info, "version");
 		if (version || all_versions)
-			get_src_version(modname, mod->srcversion,
+			get_src_version(mod->name, mod->srcversion,
 					sizeof(mod->srcversion) - 1);
 	}
 
@@ -2141,7 +2177,7 @@ static void check_exports(struct module *mod)
 		const char *basename;
 		exp = find_symbol(s->name);
 		if (!exp || exp->module == mod) {
-			if (have_vmlinux && !s->weak)
+			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS)
 				modpost_log(warn_unresolved ? LOG_WARN : LOG_ERROR,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);
@@ -2191,10 +2227,12 @@ static void add_header(struct buffer *b, struct module *mod)
 	 */
 	buf_printf(b, "#define INCLUDE_VERMAGIC\n");
 	buf_printf(b, "#include <linux/build-salt.h>\n");
+	buf_printf(b, "#include <linux/elfnote-lto.h>\n");
 	buf_printf(b, "#include <linux/vermagic.h>\n");
 	buf_printf(b, "#include <linux/compiler.h>\n");
 	buf_printf(b, "\n");
 	buf_printf(b, "BUILD_SALT;\n");
+	buf_printf(b, "BUILD_LTO_INFO;\n");
 	buf_printf(b, "\n");
 	buf_printf(b, "MODULE_INFO(vermagic, VERMAGIC_STRING);\n");
 	buf_printf(b, "MODULE_INFO(name, KBUILD_MODNAME);\n");
@@ -2423,19 +2461,6 @@ fail:
 	fatal("parse error in symbol dump file\n");
 }
 
-/* For normal builds always dump all symbols.
- * For external modules only dump symbols
- * that are not read from kernel Module.symvers.
- **/
-static int dump_sym(struct symbol *sym)
-{
-	if (!external_module)
-		return 1;
-	if (sym->module->from_dump)
-		return 0;
-	return 1;
-}
-
 static void write_dump(const char *fname)
 {
 	struct buffer buf = { };
@@ -2446,7 +2471,7 @@ static void write_dump(const char *fname)
 	for (n = 0; n < SYMBOL_HASH_SIZE ; n++) {
 		symbol = symbolhash[n];
 		while (symbol) {
-			if (dump_sym(symbol)) {
+			if (!symbol->module->from_dump) {
 				namespace = symbol->namespace;
 				buf_printf(&buf, "0x%08x\t%s\t%s\t%s\t%s\n",
 					   symbol->crc, symbol->name,
@@ -2558,13 +2583,6 @@ int main(int argc, char **argv)
 	if (files_source)
 		read_symbols_from_files(files_source);
 
-	/*
-	 * When there's no vmlinux, don't print warnings about
-	 * unresolved symbols (since there'll be too many ;)
-	 */
-	if (!have_vmlinux)
-		warn("Symbol info of vmlinux is missing. Unresolved symbol check will be entirely skipped.\n");
-
 	for (mod = modules; mod; mod = mod->next) {
 		char fname[PATH_MAX];
 
@@ -2607,6 +2625,10 @@ int main(int argc, char **argv)
 				      export_str(s->export));
 		}
 	}
+
+	if (nr_unresolved > MAX_UNRESOLVED_REPORTS)
+		warn("suppressed %u unresolved symbol warnings because there were too many)\n",
+		     nr_unresolved - MAX_UNRESOLVED_REPORTS);
 
 	free(buf.p);
 

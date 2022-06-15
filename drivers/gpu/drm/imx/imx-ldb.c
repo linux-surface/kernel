@@ -197,6 +197,11 @@ static void imx_ldb_encoder_enable(struct drm_encoder *encoder)
 	int dual = ldb->ldb_ctrl & LDB_SPLIT_MODE_EN;
 	int mux = drm_of_encoder_active_port_id(imx_ldb_ch->child, encoder);
 
+	if (mux < 0 || mux >= ARRAY_SIZE(ldb->clk_sel)) {
+		dev_warn(ldb->dev, "%s: invalid mux %d\n", __func__, mux);
+		return;
+	}
+
 	drm_panel_prepare(imx_ldb_ch->panel);
 
 	if (dual) {
@@ -255,6 +260,11 @@ imx_ldb_encoder_atomic_mode_set(struct drm_encoder *encoder,
 	int mux = drm_of_encoder_active_port_id(imx_ldb_ch->child, encoder);
 	u32 bus_format = imx_ldb_ch->bus_format;
 
+	if (mux < 0 || mux >= ARRAY_SIZE(ldb->clk_sel)) {
+		dev_warn(ldb->dev, "%s: invalid mux %d\n", __func__, mux);
+		return;
+	}
+
 	if (mode->clock > 170000) {
 		dev_warn(ldb->dev,
 			 "%s: mode exceeds 170 MHz pixel clock\n", __func__);
@@ -262,6 +272,11 @@ imx_ldb_encoder_atomic_mode_set(struct drm_encoder *encoder,
 	if (mode->clock > 85000 && !dual) {
 		dev_warn(ldb->dev,
 			 "%s: mode exceeds 85 MHz pixel clock\n", __func__);
+	}
+
+	if (!IS_ALIGNED(mode->hdisplay, 8)) {
+		dev_warn(ldb->dev,
+			 "%s: hdisplay does not align to 8 byte\n", __func__);
 	}
 
 	if (dual) {
@@ -450,10 +465,8 @@ static int imx_ldb_register(struct drm_device *drm,
 
 	if (imx_ldb_ch->bridge) {
 		ret = drm_bridge_attach(encoder, imx_ldb_ch->bridge, NULL, 0);
-		if (ret) {
-			DRM_ERROR("Failed to initialize bridge with drm\n");
+		if (ret)
 			return ret;
-		}
 	} else {
 		/*
 		 * We want to add the connector whenever there is no bridge
@@ -559,6 +572,8 @@ static int imx_ldb_panel_ddc(struct device *dev,
 		edidp = of_get_property(child, "edid", &edid_len);
 		if (edidp) {
 			channel->edid = kmemdup(edidp, edid_len, GFP_KERNEL);
+			if (!channel->edid)
+				return -ENOMEM;
 		} else if (!channel->panel) {
 			/* fallback to display-timings node */
 			ret = of_get_drm_display_mode(child,
@@ -583,7 +598,7 @@ static int imx_ldb_bind(struct device *dev, struct device *master, void *data)
 		struct imx_ldb_channel *channel = &imx_ldb->channel[i];
 
 		if (!channel->ldb)
-			break;
+			continue;
 
 		ret = imx_ldb_register(drm, channel);
 		if (ret)

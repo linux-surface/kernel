@@ -59,6 +59,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/usb/gadget.h>
 #include <linux/module.h>
+#include <linux/dmapool.h>
 #include <linux/iopoll.h>
 
 #include "core.h"
@@ -154,7 +155,7 @@ static struct cdns3_request *cdns3_next_priv_request(struct list_head *list)
 }
 
 /**
- * select_ep - selects endpoint
+ * cdns3_select_ep - selects endpoint
  * @priv_dev:  extended gadget object
  * @ep: endpoint address
  */
@@ -190,29 +191,13 @@ dma_addr_t cdns3_trb_virt_to_dma(struct cdns3_endpoint *priv_ep,
 	return priv_ep->trb_pool_dma + offset;
 }
 
-static int cdns3_ring_size(struct cdns3_endpoint *priv_ep)
-{
-	switch (priv_ep->type) {
-	case USB_ENDPOINT_XFER_ISOC:
-		return TRB_ISO_RING_SIZE;
-	case USB_ENDPOINT_XFER_CONTROL:
-		return TRB_CTRL_RING_SIZE;
-	default:
-		if (priv_ep->use_streams)
-			return TRB_STREAM_RING_SIZE;
-		else
-			return TRB_RING_SIZE;
-	}
-}
-
 static void cdns3_free_trb_pool(struct cdns3_endpoint *priv_ep)
 {
 	struct cdns3_device *priv_dev = priv_ep->cdns3_dev;
 
 	if (priv_ep->trb_pool) {
-		dma_free_coherent(priv_dev->sysdev,
-				  cdns3_ring_size(priv_ep),
-				  priv_ep->trb_pool, priv_ep->trb_pool_dma);
+		dma_pool_free(priv_dev->eps_dma_pool,
+			      priv_ep->trb_pool, priv_ep->trb_pool_dma);
 		priv_ep->trb_pool = NULL;
 	}
 }
@@ -226,7 +211,7 @@ static void cdns3_free_trb_pool(struct cdns3_endpoint *priv_ep)
 int cdns3_allocate_trb_pool(struct cdns3_endpoint *priv_ep)
 {
 	struct cdns3_device *priv_dev = priv_ep->cdns3_dev;
-	int ring_size = cdns3_ring_size(priv_ep);
+	int ring_size = TRB_RING_SIZE;
 	int num_trbs = ring_size / TRB_SIZE;
 	struct cdns3_trb *link_trb;
 
@@ -234,10 +219,10 @@ int cdns3_allocate_trb_pool(struct cdns3_endpoint *priv_ep)
 		cdns3_free_trb_pool(priv_ep);
 
 	if (!priv_ep->trb_pool) {
-		priv_ep->trb_pool = dma_alloc_coherent(priv_dev->sysdev,
-						       ring_size,
-						       &priv_ep->trb_pool_dma,
-						       GFP_DMA32 | GFP_ATOMIC);
+		priv_ep->trb_pool = dma_pool_alloc(priv_dev->eps_dma_pool,
+						   GFP_DMA32 | GFP_ATOMIC,
+						   &priv_ep->trb_pool_dma);
+
 		if (!priv_ep->trb_pool)
 			return -ENOMEM;
 
@@ -352,19 +337,6 @@ static void cdns3_ep_inc_deq(struct cdns3_endpoint *priv_ep)
 	cdns3_ep_inc_trb(&priv_ep->dequeue, &priv_ep->ccs, priv_ep->num_trbs);
 }
 
-static void cdns3_move_deq_to_next_trb(struct cdns3_request *priv_req)
-{
-	struct cdns3_endpoint *priv_ep = priv_req->priv_ep;
-	int current_trb = priv_req->start_trb;
-
-	while (current_trb != priv_req->end_trb) {
-		cdns3_ep_inc_deq(priv_ep);
-		current_trb = priv_ep->dequeue;
-	}
-
-	cdns3_ep_inc_deq(priv_ep);
-}
-
 /**
  * cdns3_allow_enable_l1 - enable/disable permits to transition to L1.
  * @priv_dev: Extended gadget object
@@ -445,9 +417,7 @@ static int cdns3_start_all_request(struct cdns3_device *priv_dev,
 		if (ret)
 			return ret;
 
-		list_del(&request->list);
-		list_add_tail(&request->list,
-			      &priv_ep->pending_req_list);
+		list_move_tail(&request->list, &priv_ep->pending_req_list);
 		if (request->stream_id != 0 || (priv_ep->flags & EP_TDLCHK_EN))
 			break;
 	}
@@ -499,7 +469,7 @@ static void __cdns3_descmiss_copy_data(struct usb_request *request,
 }
 
 /**
- * cdns3_wa2_descmiss_copy_data copy data from internal requests to
+ * cdns3_wa2_descmiss_copy_data - copy data from internal requests to
  * request queued by class driver.
  * @priv_ep: extended endpoint object
  * @request: request object
@@ -834,9 +804,15 @@ void cdns3_gadget_giveback(struct cdns3_endpoint *priv_ep,
 					priv_ep->dir);
 
 	if ((priv_req->flags & REQUEST_UNALIGNED) &&
-	    priv_ep->dir == USB_DIR_OUT && !request->status)
+	    priv_ep->dir == USB_DIR_OUT && !request->status) {
+		/* Make DMA buffer CPU accessible */
+		dma_sync_single_for_cpu(priv_dev->sysdev,
+			priv_req->aligned_buf->dma,
+			priv_req->aligned_buf->size,
+			priv_req->aligned_buf->dir);
 		memcpy(request->buf, priv_req->aligned_buf->buf,
 		       request->length);
+	}
 
 	priv_req->flags &= ~(REQUEST_PENDING | REQUEST_UNALIGNED);
 	/* All TRBs have finished, clear the counter */
@@ -898,8 +874,8 @@ static void cdns3_free_aligned_request_buf(struct work_struct *work)
 			 * interrupts.
 			 */
 			spin_unlock_irqrestore(&priv_dev->lock, flags);
-			dma_free_coherent(priv_dev->sysdev, buf->size,
-					  buf->buf, buf->dma);
+			dma_free_noncoherent(priv_dev->sysdev, buf->size,
+					  buf->buf, buf->dma, buf->dir);
 			kfree(buf);
 			spin_lock_irqsave(&priv_dev->lock, flags);
 		}
@@ -926,10 +902,13 @@ static int cdns3_prepare_aligned_request_buf(struct cdns3_request *priv_req)
 			return -ENOMEM;
 
 		buf->size = priv_req->request.length;
+		buf->dir = usb_endpoint_dir_in(priv_ep->endpoint.desc) ?
+			DMA_TO_DEVICE : DMA_FROM_DEVICE;
 
-		buf->buf = dma_alloc_coherent(priv_dev->sysdev,
+		buf->buf = dma_alloc_noncoherent(priv_dev->sysdev,
 					      buf->size,
 					      &buf->dma,
+					      buf->dir,
 					      GFP_ATOMIC);
 		if (!buf->buf) {
 			kfree(buf);
@@ -951,9 +930,16 @@ static int cdns3_prepare_aligned_request_buf(struct cdns3_request *priv_req)
 	}
 
 	if (priv_ep->dir == USB_DIR_IN) {
+		/* Make DMA buffer CPU accessible */
+		dma_sync_single_for_cpu(priv_dev->sysdev,
+			buf->dma, buf->size, buf->dir);
 		memcpy(buf->buf, priv_req->request.buf,
 		       priv_req->request.length);
 	}
+
+	/* Transfer DMA buffer ownership back to device */
+	dma_sync_single_for_device(priv_dev->sysdev,
+			buf->dma, buf->size, buf->dir);
 
 	priv_req->flags |= REQUEST_UNALIGNED;
 	trace_cdns3_prepare_aligned_request(priv_req);
@@ -1099,6 +1085,19 @@ static int cdns3_ep_run_stream_transfer(struct cdns3_endpoint *priv_ep,
 	__cdns3_gadget_wakeup(priv_dev);
 
 	return 0;
+}
+
+static void cdns3_rearm_drdy_if_needed(struct cdns3_endpoint *priv_ep)
+{
+	struct cdns3_device *priv_dev = priv_ep->cdns3_dev;
+
+	if (priv_dev->dev_ver < DEV_VER_V3)
+		return;
+
+	if (readl(&priv_dev->regs->ep_sts) & EP_STS_TRBERR) {
+		writel(EP_STS_TRBERR, &priv_dev->regs->ep_sts);
+		writel(EP_CMD_DRDY, &priv_dev->regs->ep_cmd);
+	}
 }
 
 /**
@@ -1352,6 +1351,7 @@ static int cdns3_ep_run_transfer(struct cdns3_endpoint *priv_ep,
 		/*clearing TRBERR and EP_STS_DESCMIS before seting DRDY*/
 		writel(EP_STS_TRBERR | EP_STS_DESCMIS, &priv_dev->regs->ep_sts);
 		writel(EP_CMD_DRDY, &priv_dev->regs->ep_cmd);
+		cdns3_rearm_drdy_if_needed(priv_ep);
 		trace_cdns3_doorbell_epx(priv_ep->name,
 					 readl(&priv_dev->regs->ep_traddr));
 	}
@@ -1504,10 +1504,11 @@ static void cdns3_transfer_completed(struct cdns3_device *priv_dev,
 
 		trb = priv_ep->trb_pool + priv_ep->dequeue;
 
-		/* Request was dequeued and TRB was changed to TRB_LINK. */
-		if (TRB_FIELD_TO_TYPE(le32_to_cpu(trb->control)) == TRB_LINK) {
+		/* The TRB was changed as link TRB, and the request was handled at ep_dequeue */
+		while (TRB_FIELD_TO_TYPE(le32_to_cpu(trb->control)) == TRB_LINK) {
 			trace_cdns3_complete_trb(priv_ep, trb);
-			cdns3_move_deq_to_next_trb(priv_req);
+			cdns3_ep_inc_deq(priv_ep);
+			trb = priv_ep->trb_pool + priv_ep->dequeue;
 		}
 
 		if (!request->stream_id) {
@@ -1834,7 +1835,7 @@ __must_hold(&priv_dev->lock)
 }
 
 /**
- * cdns3_device_irq_handler- interrupt handler for device part of controller
+ * cdns3_device_irq_handler - interrupt handler for device part of controller
  *
  * @irq: irq number for cdns3 core device
  * @data: structure of cdns3
@@ -1878,7 +1879,7 @@ static irqreturn_t cdns3_device_irq_handler(int irq, void *data)
 }
 
 /**
- * cdns3_device_thread_irq_handler- interrupt handler for device part
+ * cdns3_device_thread_irq_handler - interrupt handler for device part
  * of controller
  *
  * @irq: irq number for cdns3 core device
@@ -2006,7 +2007,7 @@ static void cdns3_configure_dmult(struct cdns3_device *priv_dev,
 		else
 			mask = BIT(priv_ep->num);
 
-		if (priv_ep->type != USB_ENDPOINT_XFER_ISOC) {
+		if (priv_ep->type != USB_ENDPOINT_XFER_ISOC  && !priv_ep->dir) {
 			cdns3_set_register_bit(&regs->tdl_from_trb, mask);
 			cdns3_set_register_bit(&regs->tdl_beh, mask);
 			cdns3_set_register_bit(&regs->tdl_beh2, mask);
@@ -2021,7 +2022,7 @@ static void cdns3_configure_dmult(struct cdns3_device *priv_dev,
 }
 
 /**
- * cdns3_ep_config Configure hardware endpoint
+ * cdns3_ep_config - Configure hardware endpoint
  * @priv_ep: extended endpoint object
  * @enable: set EP_CFG_ENABLE bit in ep_cfg register.
  */
@@ -2045,15 +2046,13 @@ int cdns3_ep_config(struct cdns3_endpoint *priv_ep, bool enable)
 	case USB_ENDPOINT_XFER_INT:
 		ep_cfg = EP_CFG_EPTYPE(USB_ENDPOINT_XFER_INT);
 
-		if ((priv_dev->dev_ver == DEV_VER_V2 && !priv_ep->dir) ||
-		    priv_dev->dev_ver > DEV_VER_V2)
+		if (priv_dev->dev_ver >= DEV_VER_V2 && !priv_ep->dir)
 			ep_cfg |= EP_CFG_TDL_CHK;
 		break;
 	case USB_ENDPOINT_XFER_BULK:
 		ep_cfg = EP_CFG_EPTYPE(USB_ENDPOINT_XFER_BULK);
 
-		if ((priv_dev->dev_ver == DEV_VER_V2  && !priv_ep->dir) ||
-		    priv_dev->dev_ver > DEV_VER_V2)
+		if (priv_dev->dev_ver >= DEV_VER_V2 && !priv_ep->dir)
 			ep_cfg |= EP_CFG_TDL_CHK;
 		break;
 	default:
@@ -2222,7 +2221,7 @@ usb_ep *cdns3_gadget_match_ep(struct usb_gadget *gadget,
 }
 
 /**
- * cdns3_gadget_ep_alloc_request Allocates request
+ * cdns3_gadget_ep_alloc_request - Allocates request
  * @ep: endpoint object associated with request
  * @gfp_flags: gfp flags
  *
@@ -2245,7 +2244,7 @@ struct usb_request *cdns3_gadget_ep_alloc_request(struct usb_ep *ep,
 }
 
 /**
- * cdns3_gadget_ep_free_request Free memory occupied by request
+ * cdns3_gadget_ep_free_request - Free memory occupied by request
  * @ep: endpoint object associated with request
  * @request: request to free memory
  */
@@ -2262,7 +2261,7 @@ void cdns3_gadget_ep_free_request(struct usb_ep *ep,
 }
 
 /**
- * cdns3_gadget_ep_enable Enable endpoint
+ * cdns3_gadget_ep_enable - Enable endpoint
  * @ep: endpoint object
  * @desc: endpoint descriptor
  *
@@ -2397,7 +2396,7 @@ exit:
 }
 
 /**
- * cdns3_gadget_ep_disable Disable endpoint
+ * cdns3_gadget_ep_disable - Disable endpoint
  * @ep: endpoint object
  *
  * Returns 0 on success, error code elsewhere
@@ -2487,7 +2486,7 @@ static int cdns3_gadget_ep_disable(struct usb_ep *ep)
 }
 
 /**
- * cdns3_gadget_ep_queue Transfer data on endpoint
+ * __cdns3_gadget_ep_queue - Transfer data on endpoint
  * @ep: endpoint object
  * @request: request object
  * @gfp_flags: gfp flags
@@ -2587,7 +2586,7 @@ static int cdns3_gadget_ep_queue(struct usb_ep *ep, struct usb_request *request,
 }
 
 /**
- * cdns3_gadget_ep_dequeue Remove request from transfer queue
+ * cdns3_gadget_ep_dequeue - Remove request from transfer queue
  * @ep: endpoint object associated with request
  * @request: request object
  *
@@ -2654,7 +2653,7 @@ not_found:
 }
 
 /**
- * __cdns3_gadget_ep_set_halt Sets stall on selected endpoint
+ * __cdns3_gadget_ep_set_halt - Sets stall on selected endpoint
  * Should be called after acquiring spin_lock and selecting ep
  * @priv_ep: endpoint object to set stall on.
  */
@@ -2675,7 +2674,7 @@ void __cdns3_gadget_ep_set_halt(struct cdns3_endpoint *priv_ep)
 }
 
 /**
- * __cdns3_gadget_ep_clear_halt Clears stall on selected endpoint
+ * __cdns3_gadget_ep_clear_halt - Clears stall on selected endpoint
  * Should be called after acquiring spin_lock and selecting ep
  * @priv_ep: endpoint object to clear stall on
  */
@@ -2685,6 +2684,7 @@ int __cdns3_gadget_ep_clear_halt(struct cdns3_endpoint *priv_ep)
 	struct usb_request *request;
 	struct cdns3_request *priv_req;
 	struct cdns3_trb *trb = NULL;
+	struct cdns3_trb trb_tmp;
 	int ret;
 	int val;
 
@@ -2694,8 +2694,10 @@ int __cdns3_gadget_ep_clear_halt(struct cdns3_endpoint *priv_ep)
 	if (request) {
 		priv_req = to_cdns3_request(request);
 		trb = priv_req->trb;
-		if (trb)
+		if (trb) {
+			trb_tmp = *trb;
 			trb->control = trb->control ^ cpu_to_le32(TRB_CYCLE);
+		}
 	}
 
 	writel(EP_CMD_CSTALL | EP_CMD_EPRST, &priv_dev->regs->ep_cmd);
@@ -2710,7 +2712,7 @@ int __cdns3_gadget_ep_clear_halt(struct cdns3_endpoint *priv_ep)
 
 	if (request) {
 		if (trb)
-			trb->control = trb->control ^ cpu_to_le32(TRB_CYCLE);
+			*trb = trb_tmp;
 
 		cdns3_rearm_transfer(priv_ep, 1);
 	}
@@ -2720,7 +2722,7 @@ int __cdns3_gadget_ep_clear_halt(struct cdns3_endpoint *priv_ep)
 }
 
 /**
- * cdns3_gadget_ep_set_halt Sets/clears stall on selected endpoint
+ * cdns3_gadget_ep_set_halt - Sets/clears stall on selected endpoint
  * @ep: endpoint object to set/clear stall on
  * @value: 1 for set stall, 0 for clear stall
  *
@@ -2766,7 +2768,7 @@ static const struct usb_ep_ops cdns3_gadget_ep_ops = {
 };
 
 /**
- * cdns3_gadget_get_frame Returns number of actual ITP frame
+ * cdns3_gadget_get_frame - Returns number of actual ITP frame
  * @gadget: gadget object
  *
  * Returns number of actual ITP frame
@@ -2875,7 +2877,7 @@ static void cdns3_gadget_config(struct cdns3_device *priv_dev)
 }
 
 /**
- * cdns3_gadget_udc_start Gadget start
+ * cdns3_gadget_udc_start - Gadget start
  * @gadget: gadget object
  * @driver: driver which operates on this gadget
  *
@@ -2921,7 +2923,7 @@ static int cdns3_gadget_udc_start(struct usb_gadget *gadget,
 }
 
 /**
- * cdns3_gadget_udc_stop Stops gadget
+ * cdns3_gadget_udc_stop - Stops gadget
  * @gadget: gadget object
  *
  * Returns 0
@@ -2984,7 +2986,7 @@ static void cdns3_free_all_eps(struct cdns3_device *priv_dev)
 }
 
 /**
- * cdns3_init_eps Initializes software endpoints of gadget
+ * cdns3_init_eps - Initializes software endpoints of gadget
  * @priv_dev: extended gadget object
  *
  * Returns 0 on success, error code elsewhere
@@ -3103,9 +3105,10 @@ static void cdns3_gadget_exit(struct cdns *cdns)
 		struct cdns3_aligned_buf *buf;
 
 		buf = cdns3_next_align_buf(&priv_dev->aligned_buf_list);
-		dma_free_coherent(priv_dev->sysdev, buf->size,
+		dma_free_noncoherent(priv_dev->sysdev, buf->size,
 				  buf->buf,
-				  buf->dma);
+				  buf->dma,
+				  buf->dir);
 
 		list_del(&buf->list);
 		kfree(buf);
@@ -3113,6 +3116,7 @@ static void cdns3_gadget_exit(struct cdns *cdns)
 
 	dma_free_coherent(priv_dev->sysdev, 8, priv_dev->setup_buf,
 			  priv_dev->setup_dma);
+	dma_pool_destroy(priv_dev->eps_dma_pool);
 
 	kfree(priv_dev->zlp_buf);
 	usb_put_gadget(&priv_dev->gadget);
@@ -3185,6 +3189,14 @@ static int cdns3_gadget_start(struct cdns *cdns)
 	/* initialize endpoint container */
 	INIT_LIST_HEAD(&priv_dev->gadget.ep_list);
 	INIT_LIST_HEAD(&priv_dev->aligned_buf_list);
+	priv_dev->eps_dma_pool = dma_pool_create("cdns3_eps_dma_pool",
+						 priv_dev->sysdev,
+						 TRB_RING_SIZE, 8, 0);
+	if (!priv_dev->eps_dma_pool) {
+		dev_err(priv_dev->dev, "Failed to create TRB dma pool\n");
+		ret = -ENOMEM;
+		goto err1;
+	}
 
 	ret = cdns3_init_eps(priv_dev);
 	if (ret) {
@@ -3235,6 +3247,8 @@ err3:
 err2:
 	cdns3_free_all_eps(priv_dev);
 err1:
+	dma_pool_destroy(priv_dev->eps_dma_pool);
+
 	usb_put_gadget(&priv_dev->gadget);
 	cdns->gadget_dev = NULL;
 	return ret;
@@ -3255,8 +3269,10 @@ static int __cdns3_gadget_init(struct cdns *cdns)
 	pm_runtime_get_sync(cdns->dev);
 
 	ret = cdns3_gadget_start(cdns);
-	if (ret)
+	if (ret) {
+		pm_runtime_put_sync(cdns->dev);
 		return ret;
+	}
 
 	/*
 	 * Because interrupt line can be shared with other components in
@@ -3304,6 +3320,8 @@ static int cdns3_gadget_resume(struct cdns *cdns, bool hibernated)
 		return 0;
 
 	cdns3_gadget_config(priv_dev);
+	if (hibernated)
+		writel(USB_CONF_DEVEN, &priv_dev->regs->usb_conf);
 
 	return 0;
 }

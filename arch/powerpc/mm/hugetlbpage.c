@@ -106,7 +106,8 @@ static int __hugepte_alloc(struct mm_struct *mm, hugepd_t *hpdp,
  * At this point we do the placement change only for BOOK3S 64. This would
  * possibly work on other subarchs.
  */
-pte_t *huge_pte_alloc(struct mm_struct *mm, unsigned long addr, unsigned long sz)
+pte_t *huge_pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,
+		      unsigned long addr, unsigned long sz)
 {
 	pgd_t *pg;
 	p4d_t *p4;
@@ -228,17 +229,22 @@ static int __init pseries_alloc_bootmem_huge_page(struct hstate *hstate)
 	m->hstate = hstate;
 	return 1;
 }
+
+bool __init hugetlb_node_alloc_supported(void)
+{
+	return false;
+}
 #endif
 
 
-int __init alloc_bootmem_huge_page(struct hstate *h)
+int __init alloc_bootmem_huge_page(struct hstate *h, int nid)
 {
 
 #ifdef CONFIG_PPC_BOOK3S_64
 	if (firmware_has_feature(FW_FEATURE_LPAR) && !radix_enabled())
 		return pseries_alloc_bootmem_huge_page(h);
 #endif
-	return __alloc_bootmem_huge_page(h);
+	return __alloc_bootmem_huge_page(h, nid);
 }
 
 #ifndef CONFIG_PPC_BOOK3S_64
@@ -536,20 +542,26 @@ retry:
 	return page;
 }
 
-#ifdef CONFIG_PPC_MM_SLICES
+#ifdef HAVE_ARCH_HUGETLB_UNMAPPED_AREA
+static inline int file_to_psize(struct file *file)
+{
+	struct hstate *hstate = hstate_file(file);
+	return shift_to_mmu_psize(huge_page_shift(hstate));
+}
+
 unsigned long hugetlb_get_unmapped_area(struct file *file, unsigned long addr,
 					unsigned long len, unsigned long pgoff,
 					unsigned long flags)
 {
-	struct hstate *hstate = hstate_file(file);
-	int mmu_psize = shift_to_mmu_psize(huge_page_shift(hstate));
-
 #ifdef CONFIG_PPC_RADIX_MMU
 	if (radix_enabled())
 		return radix__hugetlb_get_unmapped_area(file, addr, len,
 						       pgoff, flags);
 #endif
-	return slice_get_unmapped_area(addr, len, flags, mmu_psize, 1);
+#ifdef CONFIG_PPC_MM_SLICES
+	return slice_get_unmapped_area(addr, len, flags, file_to_psize(file), 1);
+#endif
+	BUG();
 }
 #endif
 
@@ -652,10 +664,7 @@ static int __init hugetlbpage_init(void)
 		configured = true;
 	}
 
-	if (configured) {
-		if (IS_ENABLED(CONFIG_HUGETLB_PAGE_SIZE_VARIABLE))
-			hugetlbpage_init_default();
-	} else
+	if (!configured)
 		pr_info("Failed to initialize. Disabling HugeTLB");
 
 	return 0;

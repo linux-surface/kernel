@@ -483,6 +483,7 @@ static int tpm_cr50_i2c_tis_recv(struct tpm_chip *chip, u8 *buf, size_t buf_len)
 	expected = be32_to_cpup((__be32 *)(buf + 2));
 	if (expected > buf_len) {
 		dev_err(&chip->dev, "Buffer too small to receive i2c data\n");
+		rc = -E2BIG;
 		goto out_err;
 	}
 
@@ -627,6 +628,19 @@ static bool tpm_cr50_i2c_req_canceled(struct tpm_chip *chip, u8 status)
 	return status == TPM_STS_COMMAND_READY;
 }
 
+static bool tpm_cr50_i2c_is_firmware_power_managed(struct device *dev)
+{
+	u8 val;
+	int ret;
+
+	/* This flag should default true when the device property is not present */
+	ret = device_property_read_u8(dev, "firmware-power-managed", &val);
+	if (ret)
+		return true;
+
+	return val;
+}
+
 static const struct tpm_class_ops cr50_i2c = {
 	.flags = TPM_OPS_AUTO_STARTUP,
 	.status = &tpm_cr50_i2c_tis_status,
@@ -637,12 +651,6 @@ static const struct tpm_class_ops cr50_i2c = {
 	.req_complete_val = TPM_STS_DATA_AVAIL | TPM_STS_VALID,
 	.req_canceled = &tpm_cr50_i2c_req_canceled,
 };
-
-static const struct i2c_device_id cr50_i2c_table[] = {
-	{"cr50_i2c", 0},
-	{}
-};
-MODULE_DEVICE_TABLE(i2c, cr50_i2c_table);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id cr50_i2c_acpi_id[] = {
@@ -669,8 +677,7 @@ MODULE_DEVICE_TABLE(of, of_cr50_i2c_match);
  * - 0:		Success.
  * - -errno:	A POSIX error code.
  */
-static int tpm_cr50_i2c_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static int tpm_cr50_i2c_probe(struct i2c_client *client)
 {
 	struct tpm_i2c_cr50_priv_data *priv;
 	struct device *dev = &client->dev;
@@ -692,7 +699,8 @@ static int tpm_cr50_i2c_probe(struct i2c_client *client,
 
 	/* cr50 is a TPM 2.0 chip */
 	chip->flags |= TPM_CHIP_FLAG_TPM2;
-	chip->flags |= TPM_CHIP_FLAG_FIRMWARE_POWER_MANAGED;
+	if (tpm_cr50_i2c_is_firmware_power_managed(dev))
+		chip->flags |= TPM_CHIP_FLAG_FIRMWARE_POWER_MANAGED;
 
 	/* Default timeouts */
 	chip->timeout_a = msecs_to_jiffies(TIS_SHORT_TIMEOUT);
@@ -705,14 +713,14 @@ static int tpm_cr50_i2c_probe(struct i2c_client *client,
 
 	if (client->irq > 0) {
 		rc = devm_request_irq(dev, client->irq, tpm_cr50_i2c_int_handler,
-				      IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				      IRQF_TRIGGER_FALLING | IRQF_ONESHOT |
+				      IRQF_NO_AUTOEN,
 				      dev->driver->name, chip);
 		if (rc < 0) {
 			dev_err(dev, "Failed to probe IRQ %d\n", client->irq);
 			return rc;
 		}
 
-		disable_irq(client->irq);
 		priv->irq = client->irq;
 	} else {
 		dev_warn(dev, "No IRQ, will use %ums delay for TPM ready\n",
@@ -773,8 +781,7 @@ static int tpm_cr50_i2c_remove(struct i2c_client *client)
 static SIMPLE_DEV_PM_OPS(cr50_i2c_pm, tpm_pm_suspend, tpm_pm_resume);
 
 static struct i2c_driver cr50_i2c_driver = {
-	.id_table = cr50_i2c_table,
-	.probe = tpm_cr50_i2c_probe,
+	.probe_new = tpm_cr50_i2c_probe,
 	.remove = tpm_cr50_i2c_remove,
 	.driver = {
 		.name = "cr50_i2c",

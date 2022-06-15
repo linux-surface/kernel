@@ -22,6 +22,39 @@
 #include <sound/soc-link.h>
 #include <linux/pm_runtime.h>
 
+static int snd_soc_compr_components_open(struct snd_compr_stream *cstream)
+{
+	struct snd_soc_pcm_runtime *rtd = cstream->private_data;
+	struct snd_soc_component *component;
+	int ret = 0;
+	int i;
+
+	for_each_rtd_components(rtd, i, component) {
+		ret = snd_soc_component_module_get_when_open(component, cstream);
+		if (ret < 0)
+			break;
+
+		ret = snd_soc_component_compr_open(component, cstream);
+		if (ret < 0)
+			break;
+	}
+
+	return ret;
+}
+
+static void snd_soc_compr_components_free(struct snd_compr_stream *cstream,
+					  int rollback)
+{
+	struct snd_soc_pcm_runtime *rtd = cstream->private_data;
+	struct snd_soc_component *component;
+	int i;
+
+	for_each_rtd_components(rtd, i, component) {
+		snd_soc_component_compr_free(component, cstream, rollback);
+		snd_soc_component_module_put_when_close(component, cstream, rollback);
+	}
+}
+
 static int soc_compr_clean(struct snd_compr_stream *cstream, int rollback)
 {
 	struct snd_soc_pcm_runtime *rtd = cstream->private_data;
@@ -44,7 +77,7 @@ static int soc_compr_clean(struct snd_compr_stream *cstream, int rollback)
 
 	snd_soc_link_compr_shutdown(cstream, rollback);
 
-	snd_soc_component_compr_free(cstream, rollback);
+	snd_soc_compr_components_free(cstream, rollback);
 
 	snd_soc_dai_compr_shutdown(cpu_dai, cstream, rollback);
 
@@ -80,7 +113,7 @@ static int soc_compr_open(struct snd_compr_stream *cstream)
 	if (ret < 0)
 		goto err;
 
-	ret = snd_soc_component_compr_open(cstream);
+	ret = snd_soc_compr_components_open(cstream);
 	if (ret < 0)
 		goto err;
 
@@ -115,9 +148,7 @@ static int soc_compr_open_fe(struct snd_compr_stream *cstream)
 	ret = dpcm_path_get(fe, stream, &list);
 	if (ret < 0)
 		goto be_err;
-	else if (ret == 0)
-		dev_dbg(fe->dev, "Compress ASoC: %s no valid %s route\n",
-			fe->dai_link->name, stream ? "capture" : "playback");
+
 	/* calculate valid and active FE <-> BE dpcms */
 	dpcm_process_paths(fe, stream, &list, 1);
 	fe->dpcm[stream].runtime = fe_substream->runtime;
@@ -139,7 +170,7 @@ static int soc_compr_open_fe(struct snd_compr_stream *cstream)
 	if (ret < 0)
 		goto out;
 
-	ret = snd_soc_component_compr_open(cstream);
+	ret = snd_soc_compr_components_open(cstream);
 	if (ret < 0)
 		goto open_err;
 
@@ -153,14 +184,16 @@ static int soc_compr_open_fe(struct snd_compr_stream *cstream)
 	fe->dpcm[stream].state = SND_SOC_DPCM_STATE_OPEN;
 	fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_NO;
 
+	mutex_lock_nested(&fe->card->pcm_mutex, fe->card->pcm_subclass);
 	snd_soc_runtime_activate(fe, stream);
+	mutex_unlock(&fe->card->pcm_mutex);
 
 	mutex_unlock(&fe->card->mutex);
 
 	return 0;
 
 machine_err:
-	snd_soc_component_compr_free(cstream, 1);
+	snd_soc_compr_components_free(cstream, 1);
 open_err:
 	snd_soc_dai_compr_shutdown(cpu_dai, cstream, 1);
 out:
@@ -177,19 +210,18 @@ static int soc_compr_free_fe(struct snd_compr_stream *cstream)
 	struct snd_soc_dai *cpu_dai = asoc_rtd_to_cpu(fe, 0);
 	struct snd_soc_dpcm *dpcm;
 	int stream = cstream->direction; /* SND_COMPRESS_xxx is same as SNDRV_PCM_STREAM_xxx */
-	int ret;
 
 	mutex_lock_nested(&fe->card->mutex, SND_SOC_CARD_CLASS_RUNTIME);
 
+	mutex_lock_nested(&fe->card->pcm_mutex, fe->card->pcm_subclass);
 	snd_soc_runtime_deactivate(fe, stream);
+	mutex_unlock(&fe->card->pcm_mutex);
 
 	fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_FE;
 
-	ret = dpcm_be_dai_hw_free(fe, stream);
-	if (ret < 0)
-		dev_err(fe->dev, "Compressed ASoC: hw_free failed: %d\n", ret);
+	dpcm_be_dai_hw_free(fe, stream);
 
-	ret = dpcm_be_dai_shutdown(fe, stream);
+	dpcm_be_dai_shutdown(fe, stream);
 
 	/* mark FE's links ready to prune */
 	for_each_dpcm_be(fe, stream, dpcm)
@@ -206,7 +238,7 @@ static int soc_compr_free_fe(struct snd_compr_stream *cstream)
 
 	snd_soc_link_compr_shutdown(cstream, 0);
 
-	snd_soc_component_compr_free(cstream, 0);
+	snd_soc_compr_components_free(cstream, 0);
 
 	snd_soc_dai_compr_shutdown(cpu_dai, cstream, 0);
 
@@ -535,6 +567,11 @@ int snd_soc_new_compress(struct snd_soc_pcm_runtime *rtd, int num)
 		return -EINVAL;
 	}
 
+	if (!codec_dai) {
+		dev_err(rtd->card->dev, "Missing codec\n");
+		return -EINVAL;
+	}
+
 	/* check client and interface hw capabilities */
 	if (snd_soc_dai_stream_valid(codec_dai, SNDRV_PCM_STREAM_PLAYBACK) &&
 	    snd_soc_dai_stream_valid(cpu_dai,   SNDRV_PCM_STREAM_PLAYBACK))
@@ -605,7 +642,6 @@ int snd_soc_new_compress(struct snd_soc_pcm_runtime *rtd, int num)
 		break;
 	}
 
-	mutex_init(&compr->lock);
 	ret = snd_compress_new(rtd->card->snd_card, num, direction,
 				new_name, compr);
 	if (ret < 0) {

@@ -57,8 +57,6 @@
  *			Basically, get_target_freq will run
  *			devfreq_dev_profile.get_dev_status() to get the
  *			status of the device (load = busy_time / total_time).
- *			If no_central_polling is set, this callback is called
- *			only with update_devfreq() notified by OPP.
  * @event_handler:      Callback for devfreq core framework to notify events
  *                      to governors. Events include per device governor
  *                      init and exit, opp changes out of devfreq, suspend
@@ -86,11 +84,17 @@ void devfreq_update_interval(struct devfreq *devfreq, unsigned int *delay);
 int devfreq_add_governor(struct devfreq_governor *governor);
 int devfreq_remove_governor(struct devfreq_governor *governor);
 
+int devm_devfreq_add_governor(struct device *dev,
+			      struct devfreq_governor *governor);
+
 int devfreq_update_status(struct devfreq *devfreq, unsigned long freq);
 int devfreq_update_target(struct devfreq *devfreq, unsigned long freq);
 
 static inline int devfreq_update_stats(struct devfreq *df)
 {
+	if (!df->profile->get_dev_status)
+		return -EINVAL;
+
 	return df->profile->get_dev_status(df->dev.parent, &df->last_status);
 }
 #endif /* _GOVERNOR_H */

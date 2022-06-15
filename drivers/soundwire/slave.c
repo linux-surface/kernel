@@ -39,12 +39,12 @@ int sdw_slave_add(struct sdw_bus *bus,
 
 	if (id->unique_id == SDW_IGNORED_UNIQUE_ID) {
 		/* name shall be sdw:link:mfg:part:class */
-		dev_set_name(&slave->dev, "sdw:%x:%x:%x:%x",
+		dev_set_name(&slave->dev, "sdw:%01x:%04x:%04x:%02x",
 			     bus->link_id, id->mfg_id, id->part_id,
 			     id->class_id);
 	} else {
 		/* name shall be sdw:link:mfg:part:class:unique */
-		dev_set_name(&slave->dev, "sdw:%x:%x:%x:%x:%x",
+		dev_set_name(&slave->dev, "sdw:%01x:%04x:%04x:%02x:%01x",
 			     bus->link_id, id->mfg_id, id->part_id,
 			     id->class_id, id->unique_id);
 	}
@@ -88,6 +88,7 @@ int sdw_slave_add(struct sdw_bus *bus,
 
 	return ret;
 }
+EXPORT_SYMBOL(sdw_slave_add);
 
 #if IS_ENABLED(CONFIG_ACPI)
 
@@ -95,7 +96,7 @@ static bool find_slave(struct sdw_bus *bus,
 		       struct acpi_device *adev,
 		       struct sdw_slave_id *id)
 {
-	unsigned long long addr;
+	u64 addr;
 	unsigned int link_id;
 	acpi_status status;
 
@@ -107,6 +108,12 @@ static bool find_slave(struct sdw_bus *bus,
 			status);
 		return false;
 	}
+
+	if (bus->ops->override_adr)
+		addr = bus->ops->override_adr(bus, addr);
+
+	if (!addr)
+		return false;
 
 	/* Extract link id from ADR, Bit 51 to 48 (included) */
 	link_id = SDW_DISCO_LINK_ID(addr);

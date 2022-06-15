@@ -18,7 +18,7 @@
 
 #ifdef CONFIG_MMU
 
-static DEFINE_STATIC_KEY_FALSE(use_asid_allocator);
+DEFINE_STATIC_KEY_FALSE(use_asid_allocator);
 
 static unsigned long asid_bits;
 static unsigned long num_asids;
@@ -192,7 +192,7 @@ static void set_mm_asid(struct mm_struct *mm, unsigned int cpu)
 switch_mm_fast:
 	csr_write(CSR_SATP, virt_to_pfn(mm->pgd) |
 		  ((cntx & asid_mask) << SATP_ASID_SHIFT) |
-		  SATP_MODE);
+		  satp_mode);
 
 	if (need_flush_tlb)
 		local_flush_tlb_all();
@@ -201,7 +201,7 @@ switch_mm_fast:
 static void set_mm_noasid(struct mm_struct *mm)
 {
 	/* Switch the page table and blindly nuke entire local TLB */
-	csr_write(CSR_SATP, virt_to_pfn(mm->pgd) | SATP_MODE);
+	csr_write(CSR_SATP, virt_to_pfn(mm->pgd) | satp_mode);
 	local_flush_tlb_all();
 }
 
@@ -213,7 +213,7 @@ static inline void set_mm(struct mm_struct *mm, unsigned int cpu)
 		set_mm_noasid(mm);
 }
 
-static int asids_init(void)
+static int __init asids_init(void)
 {
 	unsigned long old;
 
@@ -233,8 +233,10 @@ static int asids_init(void)
 	local_flush_tlb_all();
 
 	/* Pre-compute ASID details */
-	num_asids = 1 << asid_bits;
-	asid_mask = num_asids - 1;
+	if (asid_bits) {
+		num_asids = 1 << asid_bits;
+		asid_mask = num_asids - 1;
+	}
 
 	/*
 	 * Use ASID allocator only if number of HW ASIDs are
@@ -243,8 +245,7 @@ static int asids_init(void)
 	if (num_asids > (2 * num_possible_cpus())) {
 		atomic_long_set(&current_version, num_asids);
 
-		context_asid_map = kcalloc(BITS_TO_LONGS(num_asids),
-				   sizeof(*context_asid_map), GFP_KERNEL);
+		context_asid_map = bitmap_zalloc(num_asids, GFP_KERNEL);
 		if (!context_asid_map)
 			panic("Failed to allocate bitmap for %lu ASIDs\n",
 			      num_asids);
@@ -256,7 +257,7 @@ static int asids_init(void)
 		pr_info("ASID allocator using %lu bits (%lu entries)\n",
 			asid_bits, num_asids);
 	} else {
-		pr_info("ASID allocator disabled\n");
+		pr_info("ASID allocator disabled (%lu bits)\n", asid_bits);
 	}
 
 	return 0;
@@ -280,11 +281,12 @@ static inline void set_mm(struct mm_struct *mm, unsigned int cpu)
  * cache flush to be performed before execution resumes on each hart.  This
  * actually performs that local instruction cache flush, which implicitly only
  * refers to the current hart.
+ *
+ * The "cpu" argument must be the current local CPU number.
  */
-static inline void flush_icache_deferred(struct mm_struct *mm)
+static inline void flush_icache_deferred(struct mm_struct *mm, unsigned int cpu)
 {
 #ifdef CONFIG_SMP
-	unsigned int cpu = smp_processor_id();
 	cpumask_t *mask = &mm->context.icache_stale_mask;
 
 	if (cpumask_test_cpu(cpu, mask)) {
@@ -320,5 +322,5 @@ void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 
 	set_mm(next, cpu);
 
-	flush_icache_deferred(next);
+	flush_icache_deferred(next, cpu);
 }

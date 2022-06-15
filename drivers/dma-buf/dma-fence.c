@@ -15,6 +15,7 @@
 #include <linux/atomic.h>
 #include <linux/dma-fence.h>
 #include <linux/sched/signal.h>
+#include <linux/seq_file.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/dma_fence.h>
@@ -123,7 +124,9 @@ static const struct dma_fence_ops dma_fence_stub_ops = {
 /**
  * dma_fence_get_stub - return a signaled fence
  *
- * Return a stub fence which is already signaled.
+ * Return a stub fence which is already signaled. The fence's
+ * timestamp corresponds to the first time after boot this
+ * function is called.
  */
 struct dma_fence *dma_fence_get_stub(void)
 {
@@ -140,6 +143,29 @@ struct dma_fence *dma_fence_get_stub(void)
 	return dma_fence_get(&dma_fence_stub);
 }
 EXPORT_SYMBOL(dma_fence_get_stub);
+
+/**
+ * dma_fence_allocate_private_stub - return a private, signaled fence
+ *
+ * Return a newly allocated and signaled stub fence.
+ */
+struct dma_fence *dma_fence_allocate_private_stub(void)
+{
+	struct dma_fence *fence;
+
+	fence = kzalloc(sizeof(*fence), GFP_KERNEL);
+	if (fence == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	dma_fence_init(fence,
+		       &dma_fence_stub_ops,
+		       &dma_fence_stub_lock,
+		       0, 0);
+	dma_fence_signal(fence);
+
+	return fence;
+}
+EXPORT_SYMBOL(dma_fence_allocate_private_stub);
 
 /**
  * dma_fence_context_alloc - allocate an array of fence contexts
@@ -591,20 +617,17 @@ EXPORT_SYMBOL(dma_fence_enable_sw_signaling);
  * @cb: the callback to register
  * @func: the function to call
  *
+ * Add a software callback to the fence. The caller should keep a reference to
+ * the fence.
+ *
  * @cb will be initialized by dma_fence_add_callback(), no initialization
  * by the caller is required. Any number of callbacks can be registered
  * to a fence, but a callback can only be registered to one fence at a time.
  *
- * Note that the callback can be called from an atomic context.  If
- * fence is already signaled, this function will return -ENOENT (and
+ * If fence is already signaled, this function will return -ENOENT (and
  * *not* call the callback).
  *
- * Add a software callback to the fence. Same restrictions apply to
- * refcount as it does to dma_fence_wait(), however the caller doesn't need to
- * keep a refcount to fence afterward dma_fence_add_callback() has returned:
- * when software access is enabled, the creator of the fence is required to keep
- * the fence alive until after it signals with dma_fence_signal(). The callback
- * itself can be called from irq context.
+ * Note that the callback can be called from an atomic context or irq context.
  *
  * Returns 0 in case of success, -ENOENT if the fence is already signaled
  * and -EINVAL in case of error.
@@ -884,6 +907,22 @@ err_free_cb:
 	return ret;
 }
 EXPORT_SYMBOL(dma_fence_wait_any_timeout);
+
+/**
+ * dma_fence_describe - Dump fence describtion into seq_file
+ * @fence: the 6fence to describe
+ * @seq: the seq_file to put the textual description into
+ *
+ * Dump a textual description of the fence and it's state into the seq_file.
+ */
+void dma_fence_describe(struct dma_fence *fence, struct seq_file *seq)
+{
+	seq_printf(seq, "%s %s seq %llu %ssignalled\n",
+		   fence->ops->get_driver_name(fence),
+		   fence->ops->get_timeline_name(fence), fence->seqno,
+		   dma_fence_is_signaled(fence) ? "" : "un");
+}
+EXPORT_SYMBOL(dma_fence_describe);
 
 /**
  * dma_fence_init - Initialize a custom fence.

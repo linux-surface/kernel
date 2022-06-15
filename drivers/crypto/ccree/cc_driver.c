@@ -103,7 +103,8 @@ MODULE_DEVICE_TABLE(of, arm_ccree_dev_of_match);
 static void init_cc_cache_params(struct cc_drvdata *drvdata)
 {
 	struct device *dev = drvdata_to_dev(drvdata);
-	u32 cache_params, ace_const, val, mask;
+	u32 cache_params, ace_const, val;
+	u64 mask;
 
 	/* compute CC_AXIM_CACHE_PARAMS */
 	cache_params = cc_ioread(drvdata, CC_REG(AXIM_CACHE_PARAMS));
@@ -352,10 +353,8 @@ static int init_cc_resources(struct platform_device *plat_dev)
 	req_mem_cc_regs = platform_get_resource(plat_dev, IORESOURCE_MEM, 0);
 	/* Map registers space */
 	new_drvdata->cc_base = devm_ioremap_resource(dev, req_mem_cc_regs);
-	if (IS_ERR(new_drvdata->cc_base)) {
-		dev_err(dev, "Failed to ioremap registers");
+	if (IS_ERR(new_drvdata->cc_base))
 		return PTR_ERR(new_drvdata->cc_base);
-	}
 
 	dev_dbg(dev, "Got MEM resource (%s): %pR\n", req_mem_cc_regs->name,
 		req_mem_cc_regs);

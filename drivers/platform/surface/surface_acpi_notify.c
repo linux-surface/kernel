@@ -770,7 +770,8 @@ static acpi_status san_consumer_setup(acpi_handle handle, u32 lvl,
 		return AE_OK;
 
 	/* Ignore ACPI devices that are not present. */
-	if (acpi_bus_get_device(handle, &adev) != 0)
+	adev = acpi_fetch_acpi_dev(handle);
+	if (!adev)
 		return AE_OK;
 
 	san_consumer_dbg(&pdev->dev, handle, "creating device link\n");
@@ -798,7 +799,7 @@ static int san_consumer_links_setup(struct platform_device *pdev)
 
 static int san_probe(struct platform_device *pdev)
 {
-	acpi_handle san = ACPI_HANDLE(&pdev->dev);
+	struct acpi_device *san = ACPI_COMPANION(&pdev->dev);
 	struct ssam_controller *ctrl;
 	struct san_data *data;
 	acpi_status astatus;
@@ -821,7 +822,8 @@ static int san_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, data);
 
-	astatus = acpi_install_address_space_handler(san, ACPI_ADR_SPACE_GSBUS,
+	astatus = acpi_install_address_space_handler(san->handle,
+						     ACPI_ADR_SPACE_GSBUS,
 						     &san_opreg_handler, NULL,
 						     &data->info);
 	if (ACPI_FAILURE(astatus))
@@ -835,7 +837,7 @@ static int san_probe(struct platform_device *pdev)
 	if (status)
 		goto err_install_dev;
 
-	acpi_walk_dep_device_list(san);
+	acpi_dev_clear_dependencies(san);
 	return 0;
 
 err_install_dev:

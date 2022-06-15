@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+/* SPDX-License-Identifier: ISC */
 /* Copyright (C) 2020 MediaTek Inc. */
 
 #ifndef __MT7915_TESTMODE_H
@@ -94,6 +94,12 @@ enum {
 	RF_OPER_ICAP,
 	RF_OPER_ICAP_OVERLAP,
 	RF_OPER_WIFI_SPECTRUM,
+};
+
+enum {
+	TAM_ARB_OP_MODE_NORMAL = 1,
+	TAM_ARB_OP_MODE_TEST,
+	TAM_ARB_OP_MODE_FORCE_SU = 5,
 };
 
 #endif

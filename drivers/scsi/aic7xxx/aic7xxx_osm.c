@@ -518,8 +518,7 @@ ahc_linux_info(struct Scsi_Host *host)
 /*
  * Queue an SCB to the controller.
  */
-static int
-ahc_linux_queue_lck(struct scsi_cmnd * cmd, void (*scsi_done) (struct scsi_cmnd *))
+static int ahc_linux_queue_lck(struct scsi_cmnd *cmd)
 {
 	struct	 ahc_softc *ahc;
 	struct	 ahc_linux_device *dev = scsi_transport_device_data(cmd->device);
@@ -530,7 +529,6 @@ ahc_linux_queue_lck(struct scsi_cmnd * cmd, void (*scsi_done) (struct scsi_cmnd 
 
 	ahc_lock(ahc, &flags);
 	if (ahc->platform_data->qfrozen == 0) {
-		cmd->scsi_done = scsi_done;
 		cmd->result = CAM_REQ_INPROG << 16;
 		rtn = ahc_linux_run_command(ahc, dev, cmd);
 	}
@@ -1838,7 +1836,6 @@ ahc_linux_handle_scsi_status(struct ahc_softc *ahc,
 			if (sense_size < SCSI_SENSE_BUFFERSIZE)
 				memset(&cmd->sense_buffer[sense_size], 0,
 				       SCSI_SENSE_BUFFERSIZE - sense_size);
-			cmd->result |= (DRIVER_SENSE << 24);
 #ifdef AHC_DEBUG
 			if (ahc_debug & AHC_SHOW_SENSE) {
 				int i;
@@ -1987,7 +1984,7 @@ ahc_linux_queue_cmd_complete(struct ahc_softc *ahc, struct scsi_cmnd *cmd)
 		ahc_cmd_set_transaction_status(cmd, new_status);
 	}
 
-	cmd->scsi_done(cmd);
+	scsi_done(cmd);
 }
 
 static void

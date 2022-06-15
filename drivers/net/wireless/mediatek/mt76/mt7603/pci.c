@@ -7,7 +7,7 @@
 #include "mt7603.h"
 
 static const struct pci_device_id mt76pci_device_table[] = {
-	{ PCI_DEVICE(0x14c3, 0x7603) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MEDIATEK, 0x7603) },
 	{ },
 };
 
@@ -28,7 +28,7 @@ mt76pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_set_master(pdev);
 
-	ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
+	ret = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
 	if (ret)
 		return ret;
 

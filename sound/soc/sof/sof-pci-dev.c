@@ -50,22 +50,55 @@ static const struct dmi_system_id sof_tplg_table[] = {
 		},
 		.driver_data = "sof-tgl-rt5682-ssp0-max98373-ssp2.tplg",
 	},
+	{
+		.callback = sof_tplg_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Intel Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Alder Lake Client Platform"),
+			DMI_MATCH(DMI_OEM_STRING, "AUDIO-ADL_MAX98373_ALC5682I_I2S"),
+		},
+		.driver_data = "sof-adl-rt5682-ssp0-max98373-ssp2.tplg",
+	},
+	{
+		.callback = sof_tplg_cb,
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "Google_Brya"),
+			DMI_MATCH(DMI_OEM_STRING, "AUDIO-MAX98390_ALC5682I_I2S"),
+		},
+		.driver_data = "sof-adl-max98390-ssp2-rt5682-ssp0.tplg",
+	},
+	{
+		.callback = sof_tplg_cb,
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "Google_Brya"),
+			DMI_MATCH(DMI_OEM_STRING, "AUDIO_AMP-MAX98360_ALC5682VS_I2S_2WAY"),
+		},
+		.driver_data = "sof-adl-max98360a-rt5682-2way.tplg",
+	},
+	{
+		.callback = sof_tplg_cb,
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "Google_Brya"),
+			DMI_MATCH(DMI_OEM_STRING, "AUDIO-AUDIO_MAX98357_ALC5682I_I2S_2WAY"),
+		},
+		.driver_data = "sof-adl-max98357a-rt5682-2way.tplg",
+	},
+	{
+		.callback = sof_tplg_cb,
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "Google_Brya"),
+			DMI_MATCH(DMI_OEM_STRING, "AUDIO-MAX98360_ALC5682I_I2S_AMP_SSP2"),
+		},
+		.driver_data = "sof-adl-max98357a-rt5682.tplg",
+	},
 	{}
 };
 
 static const struct dmi_system_id community_key_platforms[] = {
 	{
-		.ident = "Up Squared",
+		.ident = "Up boards",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "AAEON"),
-			DMI_MATCH(DMI_BOARD_NAME, "UP-APL01"),
-		}
-	},
-	{
-		.ident = "Up Extreme",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "AAEON"),
-			DMI_MATCH(DMI_BOARD_NAME, "UP-WHL01"),
 		}
 	},
 	{
@@ -116,14 +149,16 @@ int sof_pci_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 	const struct sof_dev_desc *desc =
 		(const struct sof_dev_desc *)pci_id->driver_data;
 	struct snd_sof_pdata *sof_pdata;
-	const struct snd_sof_dsp_ops *ops;
 	int ret;
 
 	dev_dbg(&pci->dev, "PCI DSP detected");
 
-	/* get ops for platform */
-	ops = desc->ops;
-	if (!ops) {
+	if (!desc) {
+		dev_err(dev, "error: no matching PCI descriptor\n");
+		return -ENODEV;
+	}
+
+	if (!desc->ops) {
 		dev_err(dev, "error: no matching PCI descriptor ops\n");
 		return -ENODEV;
 	}
@@ -141,7 +176,7 @@ int sof_pci_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 		return ret;
 
 	sof_pdata->name = pci_name(pci);
-	sof_pdata->desc = (struct sof_dev_desc *)pci_id->driver_data;
+	sof_pdata->desc = desc;
 	sof_pdata->dev = dev;
 	sof_pdata->fw_filename = desc->default_fw_filename;
 
@@ -184,25 +219,13 @@ int sof_pci_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 	if (sof_override_tplg_name)
 		sof_pdata->tplg_filename = sof_override_tplg_name;
 
-#if IS_ENABLED(CONFIG_SND_SOC_SOF_PROBE_WORK_QUEUE)
-	/* set callback to enable runtime_pm */
+	/* set callback to be called on successful device probe to enable runtime_pm */
 	sof_pdata->sof_probe_complete = sof_pci_probe_complete;
-#endif
+
 	/* call sof helper for DSP hardware probe */
 	ret = snd_sof_device_probe(dev, sof_pdata);
-	if (ret) {
-		dev_err(dev, "error: failed to probe DSP hardware!\n");
-		goto release_regions;
-	}
-
-#if !IS_ENABLED(CONFIG_SND_SOC_SOF_PROBE_WORK_QUEUE)
-	sof_pci_probe_complete(dev);
-#endif
-
-	return ret;
-
-release_regions:
-	pci_release_regions(pci);
+	if (ret)
+		pci_release_regions(pci);
 
 	return ret;
 }

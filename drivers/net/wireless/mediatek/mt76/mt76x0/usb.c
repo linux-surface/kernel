@@ -32,7 +32,8 @@ static struct usb_device_id mt76x0_device_table[] = {
 	{ USB_DEVICE(0x20f4, 0x806b) },	/* TRENDnet TEW-806UBH  */
 	{ USB_DEVICE(0x7392, 0xc711) }, /* Devolo Wifi ac Stick */
 	{ USB_DEVICE(0x0df6, 0x0079) }, /* Sitecom Europe B.V. ac  Stick */
-	{ USB_DEVICE(0x2357, 0x0123) }, /* TP-LINK T2UHP */
+	{ USB_DEVICE(0x2357, 0x0123) }, /* TP-LINK T2UHP_US_v1 */
+	{ USB_DEVICE(0x2357, 0x010b) }, /* TP-LINK T2UHP_UN_v1 */
 	/* TP-LINK Archer T1U */
 	{ USB_DEVICE(0x2357, 0x0105), .driver_info = 1, },
 	/* MT7630U */
@@ -140,6 +141,7 @@ static const struct ieee80211_ops mt76x0u_ops = {
 	.set_tim = mt76_set_tim,
 	.release_buffered_frames = mt76_release_buffered_frames,
 	.get_antenna = mt76_get_antenna,
+	.set_sar_specs = mt76x0_set_sar_specs,
 };
 
 static int mt76x0u_init_hardware(struct mt76x02_dev *dev, bool reset)
@@ -243,7 +245,7 @@ static int mt76x0u_probe(struct usb_interface *usb_intf,
 	usb_set_intfdata(usb_intf, dev);
 
 	mt76x02u_init_mcu(mdev);
-	ret = mt76u_init(mdev, usb_intf, false);
+	ret = mt76u_init(mdev, usb_intf);
 	if (ret)
 		goto err;
 

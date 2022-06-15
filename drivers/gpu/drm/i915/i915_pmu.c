@@ -8,8 +8,10 @@
 
 #include "gt/intel_engine.h"
 #include "gt/intel_engine_pm.h"
+#include "gt/intel_engine_regs.h"
 #include "gt/intel_engine_user.h"
 #include "gt/intel_gt_pm.h"
+#include "gt/intel_gt_regs.h"
 #include "gt/intel_rc6.h"
 #include "gt/intel_rps.h"
 
@@ -210,8 +212,8 @@ static void init_rc6(struct i915_pmu *pmu)
 	struct drm_i915_private *i915 = container_of(pmu, typeof(*i915), pmu);
 	intel_wakeref_t wakeref;
 
-	with_intel_runtime_pm(i915->gt.uncore->rpm, wakeref) {
-		pmu->sample[__I915_SAMPLE_RC6].cur = __get_rc6(&i915->gt);
+	with_intel_runtime_pm(to_gt(i915)->uncore->rpm, wakeref) {
+		pmu->sample[__I915_SAMPLE_RC6].cur = __get_rc6(to_gt(i915));
 		pmu->sample[__I915_SAMPLE_RC6_LAST_REPORTED].cur =
 					pmu->sample[__I915_SAMPLE_RC6].cur;
 		pmu->sleep_last = ktime_get_raw();
@@ -222,7 +224,7 @@ static void park_rc6(struct drm_i915_private *i915)
 {
 	struct i915_pmu *pmu = &i915->pmu;
 
-	pmu->sample[__I915_SAMPLE_RC6].cur = __get_rc6(&i915->gt);
+	pmu->sample[__I915_SAMPLE_RC6].cur = __get_rc6(to_gt(i915));
 	pmu->sleep_last = ktime_get_raw();
 }
 
@@ -287,7 +289,7 @@ static bool exclusive_mmio_access(const struct drm_i915_private *i915)
 	 * risk a machine hang. For a fun history lesson dig out the old
 	 * userspace intel_gpu_top and run it on Ivybridge or Haswell!
 	 */
-	return IS_GEN(i915, 7);
+	return GRAPHICS_VER(i915) == 7;
 }
 
 static void engine_sample(struct intel_engine_cs *engine, unsigned int period_ns)
@@ -407,7 +409,7 @@ frequency_sample(struct intel_gt *gt, unsigned int period_ns)
 
 	if (pmu->enable & config_mask(I915_PMU_REQUESTED_FREQUENCY)) {
 		add_sample_mult(&pmu->sample[__I915_SAMPLE_FREQ_REQ],
-				intel_gpu_freq(rps, rps->cur_freq),
+				intel_rps_get_requested_frequency(rps),
 				period_ns / 1000);
 	}
 
@@ -419,7 +421,7 @@ static enum hrtimer_restart i915_sample(struct hrtimer *hrtimer)
 	struct drm_i915_private *i915 =
 		container_of(hrtimer, struct drm_i915_private, pmu.timer);
 	struct i915_pmu *pmu = &i915->pmu;
-	struct intel_gt *gt = &i915->gt;
+	struct intel_gt *gt = to_gt(i915);
 	unsigned int period_ns;
 	ktime_t now;
 
@@ -463,7 +465,7 @@ engine_event_status(struct intel_engine_cs *engine,
 	case I915_SAMPLE_WAIT:
 		break;
 	case I915_SAMPLE_SEMA:
-		if (INTEL_GEN(engine->i915) < 6)
+		if (GRAPHICS_VER(engine->i915) < 6)
 			return -ENODEV;
 		break;
 	default:
@@ -476,6 +478,8 @@ engine_event_status(struct intel_engine_cs *engine,
 static int
 config_status(struct drm_i915_private *i915, u64 config)
 {
+	struct intel_gt *gt = to_gt(i915);
+
 	switch (config) {
 	case I915_PMU_ACTUAL_FREQUENCY:
 		if (IS_VALLEYVIEW(i915) || IS_CHERRYVIEW(i915))
@@ -483,13 +487,13 @@ config_status(struct drm_i915_private *i915, u64 config)
 			return -ENODEV;
 		fallthrough;
 	case I915_PMU_REQUESTED_FREQUENCY:
-		if (INTEL_GEN(i915) < 6)
+		if (GRAPHICS_VER(i915) < 6)
 			return -ENODEV;
 		break;
 	case I915_PMU_INTERRUPTS:
 		break;
 	case I915_PMU_RC6_RESIDENCY:
-		if (!HAS_RC6(i915))
+		if (!gt->rc6.supported)
 			return -ENODEV;
 		break;
 	case I915_PMU_SOFTWARE_GT_AWAKE_TIME:
@@ -599,10 +603,10 @@ static u64 __i915_pmu_event_read(struct perf_event *event)
 			val = READ_ONCE(pmu->irq_count);
 			break;
 		case I915_PMU_RC6_RESIDENCY:
-			val = get_rc6(&i915->gt);
+			val = get_rc6(to_gt(i915));
 			break;
 		case I915_PMU_SOFTWARE_GT_AWAKE_TIME:
-			val = ktime_to_ns(intel_gt_get_awake_time(&i915->gt));
+			val = ktime_to_ns(intel_gt_get_awake_time(to_gt(i915)));
 			break;
 		}
 	}
@@ -834,15 +838,13 @@ static ssize_t i915_pmu_event_show(struct device *dev,
 	return sprintf(buf, "config=0x%lx\n", eattr->val);
 }
 
-static ssize_t
-i915_pmu_get_attr_cpumask(struct device *dev,
-			  struct device_attribute *attr,
-			  char *buf)
+static ssize_t cpumask_show(struct device *dev,
+			    struct device_attribute *attr, char *buf)
 {
 	return cpumap_print_to_pagebuf(true, buf, &i915_pmu_cpumask);
 }
 
-static DEVICE_ATTR(cpumask, 0444, i915_pmu_get_attr_cpumask, NULL);
+static DEVICE_ATTR_RO(cpumask);
 
 static struct attribute *i915_cpumask_attrs[] = {
 	&dev_attr_cpumask.attr,
@@ -1088,7 +1090,7 @@ static int i915_pmu_cpu_offline(unsigned int cpu, struct hlist_node *node)
 
 static enum cpuhp_state cpuhp_slot = CPUHP_INVALID;
 
-void i915_pmu_init(void)
+int i915_pmu_init(void)
 {
 	int ret;
 
@@ -1101,6 +1103,8 @@ void i915_pmu_init(void)
 			  ret);
 	else
 		cpuhp_slot = ret;
+
+	return 0;
 }
 
 void i915_pmu_exit(void)
@@ -1124,7 +1128,7 @@ static void i915_pmu_unregister_cpuhp_state(struct i915_pmu *pmu)
 
 static bool is_igp(struct drm_i915_private *i915)
 {
-	struct pci_dev *pdev = i915->drm.pdev;
+	struct pci_dev *pdev = to_pci_dev(i915->drm.dev);
 
 	/* IGP is 0000:00:02.0 */
 	return pci_domain_nr(pdev->bus) == 0 &&
@@ -1145,7 +1149,7 @@ void i915_pmu_register(struct drm_i915_private *i915)
 
 	int ret = -ENOMEM;
 
-	if (INTEL_GEN(i915) <= 2) {
+	if (GRAPHICS_VER(i915) <= 2) {
 		drm_info(&i915->drm, "PMU not supported for this GPU.");
 		return;
 	}

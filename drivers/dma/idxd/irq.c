@@ -6,6 +6,7 @@
 #include <linux/pci.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/dmaengine.h>
+#include <linux/delay.h>
 #include <uapi/linux/idxd.h>
 #include "../dmaengine.h"
 #include "idxd.h"
@@ -22,12 +23,15 @@ struct idxd_fault {
 	struct idxd_device *idxd;
 };
 
-static int irq_process_work_list(struct idxd_irq_entry *irq_entry,
-				 enum irq_work_type wtype,
-				 int *processed, u64 data);
-static int irq_process_pending_llist(struct idxd_irq_entry *irq_entry,
-				     enum irq_work_type wtype,
-				     int *processed, u64 data);
+struct idxd_resubmit {
+	struct work_struct work;
+	struct idxd_desc *desc;
+};
+
+struct idxd_int_handle_revoke {
+	struct work_struct work;
+	struct idxd_device *idxd;
+};
 
 static void idxd_device_reinit(struct work_struct *work)
 {
@@ -45,13 +49,13 @@ static void idxd_device_reinit(struct work_struct *work)
 		goto out;
 
 	for (i = 0; i < idxd->max_wqs; i++) {
-		struct idxd_wq *wq = &idxd->wqs[i];
+		struct idxd_wq *wq = idxd->wqs[i];
 
 		if (wq->state == IDXD_WQ_ENABLED) {
 			rc = idxd_wq_enable(wq);
 			if (rc < 0) {
 				dev_warn(dev, "Unable to re-enable wq %s\n",
-					 dev_name(&wq->conf_dev));
+					 dev_name(wq_confdev(wq)));
 			}
 		}
 	}
@@ -59,56 +63,163 @@ static void idxd_device_reinit(struct work_struct *work)
 	return;
 
  out:
-	idxd_device_wqs_clear_state(idxd);
+	idxd_device_clear_state(idxd);
 }
 
-static void idxd_device_fault_work(struct work_struct *work)
+/*
+ * The function sends a drain descriptor for the interrupt handle. The drain ensures
+ * all descriptors with this interrupt handle is flushed and the interrupt
+ * will allow the cleanup of the outstanding descriptors.
+ */
+static void idxd_int_handle_revoke_drain(struct idxd_irq_entry *ie)
 {
-	struct idxd_fault *fault = container_of(work, struct idxd_fault, work);
-	struct idxd_irq_entry *ie;
-	int i;
-	int processed;
-	int irqcnt = fault->idxd->num_wq_irqs + 1;
+	struct idxd_wq *wq = ie_to_wq(ie);
+	struct idxd_device *idxd = wq->idxd;
+	struct device *dev = &idxd->pdev->dev;
+	struct dsa_hw_desc desc = {};
+	void __iomem *portal;
+	int rc;
 
-	for (i = 1; i < irqcnt; i++) {
-		ie = &fault->idxd->irq_entries[i];
-		irq_process_work_list(ie, IRQ_WORK_PROCESS_FAULT,
-				      &processed, fault->addr);
-		if (processed)
-			break;
+	/* Issue a simple drain operation with interrupt but no completion record */
+	desc.flags = IDXD_OP_FLAG_RCI;
+	desc.opcode = DSA_OPCODE_DRAIN;
+	desc.priv = 1;
 
-		irq_process_pending_llist(ie, IRQ_WORK_PROCESS_FAULT,
-					  &processed, fault->addr);
-		if (processed)
-			break;
+	if (ie->pasid != INVALID_IOASID)
+		desc.pasid = ie->pasid;
+	desc.int_handle = ie->int_handle;
+	portal = idxd_wq_portal_addr(wq);
+
+	/*
+	 * The wmb() makes sure that the descriptor is all there before we
+	 * issue.
+	 */
+	wmb();
+	if (wq_dedicated(wq)) {
+		iosubmit_cmds512(portal, &desc, 1);
+	} else {
+		rc = idxd_enqcmds(wq, portal, &desc);
+		/* This should not fail unless hardware failed. */
+		if (rc < 0)
+			dev_warn(dev, "Failed to submit drain desc on wq %d\n", wq->id);
+	}
+}
+
+static void idxd_abort_invalid_int_handle_descs(struct idxd_irq_entry *ie)
+{
+	LIST_HEAD(flist);
+	struct idxd_desc *d, *t;
+	struct llist_node *head;
+
+	spin_lock(&ie->list_lock);
+	head = llist_del_all(&ie->pending_llist);
+	if (head) {
+		llist_for_each_entry_safe(d, t, head, llnode)
+			list_add_tail(&d->list, &ie->work_list);
 	}
 
-	kfree(fault);
+	list_for_each_entry_safe(d, t, &ie->work_list, list) {
+		if (d->completion->status == DSA_COMP_INT_HANDLE_INVAL)
+			list_move_tail(&d->list, &flist);
+	}
+	spin_unlock(&ie->list_lock);
+
+	list_for_each_entry_safe(d, t, &flist, list) {
+		list_del(&d->list);
+		idxd_dma_complete_txd(d, IDXD_COMPLETE_ABORT, true);
+	}
 }
 
-static int idxd_device_schedule_fault_process(struct idxd_device *idxd,
-					      u64 fault_addr)
+static void idxd_int_handle_revoke(struct work_struct *work)
 {
-	struct idxd_fault *fault;
+	struct idxd_int_handle_revoke *revoke =
+		container_of(work, struct idxd_int_handle_revoke, work);
+	struct idxd_device *idxd = revoke->idxd;
+	struct pci_dev *pdev = idxd->pdev;
+	struct device *dev = &pdev->dev;
+	int i, new_handle, rc;
 
-	fault = kmalloc(sizeof(*fault), GFP_ATOMIC);
-	if (!fault)
-		return -ENOMEM;
+	if (!idxd->request_int_handles) {
+		kfree(revoke);
+		dev_warn(dev, "Unexpected int handle refresh interrupt.\n");
+		return;
+	}
 
-	fault->addr = fault_addr;
-	fault->idxd = idxd;
-	INIT_WORK(&fault->work, idxd_device_fault_work);
-	queue_work(idxd->wq, &fault->work);
-	return 0;
-}
+	/*
+	 * The loop attempts to acquire new interrupt handle for all interrupt
+	 * vectors that supports a handle. If a new interrupt handle is acquired and the
+	 * wq is kernel type, the driver will kill the percpu_ref to pause all
+	 * ongoing descriptor submissions. The interrupt handle is then changed.
+	 * After change, the percpu_ref is revived and all the pending submissions
+	 * are woken to try again. A drain is sent to for the interrupt handle
+	 * at the end to make sure all invalid int handle descriptors are processed.
+	 */
+	for (i = 1; i < idxd->irq_cnt; i++) {
+		struct idxd_irq_entry *ie = idxd_get_ie(idxd, i);
+		struct idxd_wq *wq = ie_to_wq(ie);
 
-irqreturn_t idxd_irq_handler(int vec, void *data)
-{
-	struct idxd_irq_entry *irq_entry = data;
-	struct idxd_device *idxd = irq_entry->idxd;
+		if (ie->int_handle == INVALID_INT_HANDLE)
+			continue;
 
-	idxd_mask_msix_vector(idxd, irq_entry->id);
-	return IRQ_WAKE_THREAD;
+		rc = idxd_device_request_int_handle(idxd, i, &new_handle, IDXD_IRQ_MSIX);
+		if (rc < 0) {
+			dev_warn(dev, "get int handle %d failed: %d\n", i, rc);
+			/*
+			 * Failed to acquire new interrupt handle. Kill the WQ
+			 * and release all the pending submitters. The submitters will
+			 * get error return code and handle appropriately.
+			 */
+			ie->int_handle = INVALID_INT_HANDLE;
+			idxd_wq_quiesce(wq);
+			idxd_abort_invalid_int_handle_descs(ie);
+			continue;
+		}
+
+		/* No change in interrupt handle, nothing needs to be done */
+		if (ie->int_handle == new_handle)
+			continue;
+
+		if (wq->state != IDXD_WQ_ENABLED || wq->type != IDXD_WQT_KERNEL) {
+			/*
+			 * All the MSIX interrupts are allocated at once during probe.
+			 * Therefore we need to update all interrupts even if the WQ
+			 * isn't supporting interrupt operations.
+			 */
+			ie->int_handle = new_handle;
+			continue;
+		}
+
+		mutex_lock(&wq->wq_lock);
+		reinit_completion(&wq->wq_resurrect);
+
+		/* Kill percpu_ref to pause additional descriptor submissions */
+		percpu_ref_kill(&wq->wq_active);
+
+		/* Wait for all submitters quiesce before we change interrupt handle */
+		wait_for_completion(&wq->wq_dead);
+
+		ie->int_handle = new_handle;
+
+		/* Revive percpu ref and wake up all the waiting submitters */
+		percpu_ref_reinit(&wq->wq_active);
+		complete_all(&wq->wq_resurrect);
+		mutex_unlock(&wq->wq_lock);
+
+		/*
+		 * The delay here is to wait for all possible MOVDIR64B that
+		 * are issued before percpu_ref_kill() has happened to have
+		 * reached the PCIe domain before the drain is issued. The driver
+		 * needs to ensure that the drain descriptor issued does not pass
+		 * all the other issued descriptors that contain the invalid
+		 * interrupt handle in order to ensure that the drain descriptor
+		 * interrupt will allow the cleanup of all the descriptors with
+		 * invalid interrupt handle.
+		 */
+		if (wq_dedicated(wq))
+			udelay(100);
+		idxd_int_handle_revoke_drain(ie);
+	}
+	kfree(revoke);
 }
 
 static int process_misc_interrupts(struct idxd_device *idxd, u32 cause)
@@ -119,37 +230,59 @@ static int process_misc_interrupts(struct idxd_device *idxd, u32 cause)
 	int i;
 	bool err = false;
 
+	if (cause & IDXD_INTC_HALT_STATE)
+		goto halt;
+
 	if (cause & IDXD_INTC_ERR) {
-		spin_lock_bh(&idxd->dev_lock);
+		spin_lock(&idxd->dev_lock);
 		for (i = 0; i < 4; i++)
 			idxd->sw_err.bits[i] = ioread64(idxd->reg_base +
 					IDXD_SWERR_OFFSET + i * sizeof(u64));
-		iowrite64(IDXD_SWERR_ACK, idxd->reg_base + IDXD_SWERR_OFFSET);
+
+		iowrite64(idxd->sw_err.bits[0] & IDXD_SWERR_ACK,
+			  idxd->reg_base + IDXD_SWERR_OFFSET);
 
 		if (idxd->sw_err.valid && idxd->sw_err.wq_idx_valid) {
 			int id = idxd->sw_err.wq_idx;
-			struct idxd_wq *wq = &idxd->wqs[id];
+			struct idxd_wq *wq = idxd->wqs[id];
 
 			if (wq->type == IDXD_WQT_USER)
-				wake_up_interruptible(&wq->idxd_cdev.err_queue);
+				wake_up_interruptible(&wq->err_queue);
 		} else {
 			int i;
 
 			for (i = 0; i < idxd->max_wqs; i++) {
-				struct idxd_wq *wq = &idxd->wqs[i];
+				struct idxd_wq *wq = idxd->wqs[i];
 
 				if (wq->type == IDXD_WQT_USER)
-					wake_up_interruptible(&wq->idxd_cdev.err_queue);
+					wake_up_interruptible(&wq->err_queue);
 			}
 		}
 
-		spin_unlock_bh(&idxd->dev_lock);
+		spin_unlock(&idxd->dev_lock);
 		val |= IDXD_INTC_ERR;
 
 		for (i = 0; i < 4; i++)
 			dev_warn(dev, "err[%d]: %#16.16llx\n",
 				 i, idxd->sw_err.bits[i]);
 		err = true;
+	}
+
+	if (cause & IDXD_INTC_INT_HANDLE_REVOKED) {
+		struct idxd_int_handle_revoke *revoke;
+
+		val |= IDXD_INTC_INT_HANDLE_REVOKED;
+
+		revoke = kzalloc(sizeof(*revoke), GFP_ATOMIC);
+		if (revoke) {
+			revoke->idxd = idxd;
+			INIT_WORK(&revoke->work, idxd_int_handle_revoke);
+			queue_work(idxd->wq, &revoke->work);
+
+		} else {
+			dev_err(dev, "Failed to allocate work for int handle revoke\n");
+			idxd_wqs_quiesce(idxd);
+		}
 	}
 
 	if (cause & IDXD_INTC_CMD) {
@@ -163,11 +296,8 @@ static int process_misc_interrupts(struct idxd_device *idxd, u32 cause)
 	}
 
 	if (cause & IDXD_INTC_PERFMON_OVFL) {
-		/*
-		 * Driver does not utilize perfmon counter overflow interrupt
-		 * yet.
-		 */
 		val |= IDXD_INTC_PERFMON_OVFL;
+		perfmon_counter_overflow(idxd);
 	}
 
 	val ^= cause;
@@ -178,15 +308,7 @@ static int process_misc_interrupts(struct idxd_device *idxd, u32 cause)
 	if (!err)
 		return 0;
 
-	/*
-	 * This case should rarely happen and typically is due to software
-	 * programming error by the driver.
-	 */
-	if (idxd->sw_err.valid &&
-	    idxd->sw_err.desc_valid &&
-	    idxd->sw_err.fault_addr)
-		idxd_device_schedule_fault_process(idxd, idxd->sw_err.fault_addr);
-
+halt:
 	gensts.bits = ioread32(idxd->reg_base + IDXD_GENSTATS_OFFSET);
 	if (gensts.state == IDXD_DEVICE_STATE_HALT) {
 		idxd->state = IDXD_DEV_HALTED;
@@ -199,13 +321,16 @@ static int process_misc_interrupts(struct idxd_device *idxd, u32 cause)
 			INIT_WORK(&idxd->work, idxd_device_reinit);
 			queue_work(idxd->wq, &idxd->work);
 		} else {
-			spin_lock_bh(&idxd->dev_lock);
-			idxd_device_wqs_clear_state(idxd);
+			idxd->state = IDXD_DEV_HALTED;
+			idxd_wqs_quiesce(idxd);
+			idxd_wqs_unmap_portal(idxd);
+			spin_lock(&idxd->dev_lock);
+			idxd_device_clear_state(idxd);
 			dev_err(&idxd->pdev->dev,
 				"idxd halted, need %s.\n",
 				gensts.reset_type == IDXD_DEVICE_RESET_FLR ?
 				"FLR" : "system reset");
-			spin_unlock_bh(&idxd->dev_lock);
+			spin_unlock(&idxd->dev_lock);
 			return -ENXIO;
 		}
 	}
@@ -216,7 +341,7 @@ static int process_misc_interrupts(struct idxd_device *idxd, u32 cause)
 irqreturn_t idxd_misc_thread(int vec, void *data)
 {
 	struct idxd_irq_entry *irq_entry = data;
-	struct idxd_device *idxd = irq_entry->idxd;
+	struct idxd_device *idxd = ie_to_idxd(irq_entry);
 	int rc;
 	u32 cause;
 
@@ -233,122 +358,126 @@ irqreturn_t idxd_misc_thread(int vec, void *data)
 			iowrite32(cause, idxd->reg_base + IDXD_INTCAUSE_OFFSET);
 	}
 
-	idxd_unmask_msix_vector(idxd, irq_entry->id);
 	return IRQ_HANDLED;
 }
 
-static inline bool match_fault(struct idxd_desc *desc, u64 fault_addr)
+static void idxd_int_handle_resubmit_work(struct work_struct *work)
 {
-	/*
-	 * Completion address can be bad as well. Check fault address match for descriptor
-	 * and completion address.
-	 */
-	if ((u64)desc->hw == fault_addr || (u64)desc->completion == fault_addr) {
-		struct idxd_device *idxd = desc->wq->idxd;
-		struct device *dev = &idxd->pdev->dev;
+	struct idxd_resubmit *irw = container_of(work, struct idxd_resubmit, work);
+	struct idxd_desc *desc = irw->desc;
+	struct idxd_wq *wq = desc->wq;
+	int rc;
 
-		dev_warn(dev, "desc with fault address: %#llx\n", fault_addr);
-		return true;
+	desc->completion->status = 0;
+	rc = idxd_submit_desc(wq, desc);
+	if (rc < 0) {
+		dev_dbg(&wq->idxd->pdev->dev, "Failed to resubmit desc %d to wq %d.\n",
+			desc->id, wq->id);
+		/*
+		 * If the error is not -EAGAIN, it means the submission failed due to wq
+		 * has been killed instead of ENQCMDS failure. Here the driver needs to
+		 * notify the submitter of the failure by reporting abort status.
+		 *
+		 * -EAGAIN comes from ENQCMDS failure. idxd_submit_desc() will handle the
+		 * abort.
+		 */
+		if (rc != -EAGAIN) {
+			desc->completion->status = IDXD_COMP_DESC_ABORT;
+			idxd_dma_complete_txd(desc, IDXD_COMPLETE_ABORT, false);
+		}
+		idxd_free_desc(wq, desc);
 	}
-
-	return false;
+	kfree(irw);
 }
 
-static inline void complete_desc(struct idxd_desc *desc, enum idxd_complete_type reason)
+bool idxd_queue_int_handle_resubmit(struct idxd_desc *desc)
 {
-	idxd_dma_complete_txd(desc, reason);
-	idxd_free_desc(desc->wq, desc);
+	struct idxd_wq *wq = desc->wq;
+	struct idxd_device *idxd = wq->idxd;
+	struct idxd_resubmit *irw;
+
+	irw = kzalloc(sizeof(*irw), GFP_KERNEL);
+	if (!irw)
+		return false;
+
+	irw->desc = desc;
+	INIT_WORK(&irw->work, idxd_int_handle_resubmit_work);
+	queue_work(idxd->wq, &irw->work);
+	return true;
 }
 
-static int irq_process_pending_llist(struct idxd_irq_entry *irq_entry,
-				     enum irq_work_type wtype,
-				     int *processed, u64 data)
+static void irq_process_pending_llist(struct idxd_irq_entry *irq_entry)
 {
 	struct idxd_desc *desc, *t;
 	struct llist_node *head;
-	int queued = 0;
-	unsigned long flags;
-	enum idxd_complete_type reason;
 
-	*processed = 0;
 	head = llist_del_all(&irq_entry->pending_llist);
 	if (!head)
-		goto out;
-
-	if (wtype == IRQ_WORK_NORMAL)
-		reason = IDXD_COMPLETE_NORMAL;
-	else
-		reason = IDXD_COMPLETE_DEV_FAIL;
+		return;
 
 	llist_for_each_entry_safe(desc, t, head, llnode) {
-		if (desc->completion->status) {
-			if ((desc->completion->status & DSA_COMP_STATUS_MASK) != DSA_COMP_SUCCESS)
-				match_fault(desc, data);
-			complete_desc(desc, reason);
-			(*processed)++;
+		u8 status = desc->completion->status & DSA_COMP_STATUS_MASK;
+
+		if (status) {
+			/*
+			 * Check against the original status as ABORT is software defined
+			 * and 0xff, which DSA_COMP_STATUS_MASK can mask out.
+			 */
+			if (unlikely(desc->completion->status == IDXD_COMP_DESC_ABORT)) {
+				idxd_dma_complete_txd(desc, IDXD_COMPLETE_ABORT, true);
+				continue;
+			}
+
+			idxd_dma_complete_txd(desc, IDXD_COMPLETE_NORMAL, true);
 		} else {
-			spin_lock_irqsave(&irq_entry->list_lock, flags);
+			spin_lock(&irq_entry->list_lock);
 			list_add_tail(&desc->list,
 				      &irq_entry->work_list);
-			spin_unlock_irqrestore(&irq_entry->list_lock, flags);
-			queued++;
+			spin_unlock(&irq_entry->list_lock);
 		}
 	}
-
- out:
-	return queued;
 }
 
-static int irq_process_work_list(struct idxd_irq_entry *irq_entry,
-				 enum irq_work_type wtype,
-				 int *processed, u64 data)
+static void irq_process_work_list(struct idxd_irq_entry *irq_entry)
 {
-	int queued = 0;
-	unsigned long flags;
 	LIST_HEAD(flist);
 	struct idxd_desc *desc, *n;
-	enum idxd_complete_type reason;
-
-	*processed = 0;
-	if (wtype == IRQ_WORK_NORMAL)
-		reason = IDXD_COMPLETE_NORMAL;
-	else
-		reason = IDXD_COMPLETE_DEV_FAIL;
 
 	/*
 	 * This lock protects list corruption from access of list outside of the irq handler
 	 * thread.
 	 */
-	spin_lock_irqsave(&irq_entry->list_lock, flags);
+	spin_lock(&irq_entry->list_lock);
 	if (list_empty(&irq_entry->work_list)) {
-		spin_unlock_irqrestore(&irq_entry->list_lock, flags);
-		return 0;
+		spin_unlock(&irq_entry->list_lock);
+		return;
 	}
 
 	list_for_each_entry_safe(desc, n, &irq_entry->work_list, list) {
 		if (desc->completion->status) {
-			list_del(&desc->list);
-			(*processed)++;
-			list_add_tail(&desc->list, &flist);
-		} else {
-			queued++;
+			list_move_tail(&desc->list, &flist);
 		}
 	}
 
-	spin_unlock_irqrestore(&irq_entry->list_lock, flags);
+	spin_unlock(&irq_entry->list_lock);
 
 	list_for_each_entry(desc, &flist, list) {
-		if ((desc->completion->status & DSA_COMP_STATUS_MASK) != DSA_COMP_SUCCESS)
-			match_fault(desc, data);
-		complete_desc(desc, reason);
-	}
+		/*
+		 * Check against the original status as ABORT is software defined
+		 * and 0xff, which DSA_COMP_STATUS_MASK can mask out.
+		 */
+		if (unlikely(desc->completion->status == IDXD_COMP_DESC_ABORT)) {
+			idxd_dma_complete_txd(desc, IDXD_COMPLETE_ABORT, true);
+			continue;
+		}
 
-	return queued;
+		idxd_dma_complete_txd(desc, IDXD_COMPLETE_NORMAL, true);
+	}
 }
 
-static int idxd_desc_process(struct idxd_irq_entry *irq_entry)
+irqreturn_t idxd_wq_thread(int irq, void *data)
 {
-	int rc, processed, total = 0;
+	struct idxd_irq_entry *irq_entry = data;
 
 	/*
 	 * There are two lists we are processing. The pending_llist is where
@@ -367,33 +496,9 @@ static int idxd_desc_process(struct idxd_irq_entry *irq_entry)
 	 *    and process the completed entries.
 	 * 4. If the entry is still waiting on hardware, list_add_tail() to
 	 *    the work_list.
-	 * 5. Repeat until no more descriptors.
 	 */
-	do {
-		rc = irq_process_work_list(irq_entry, IRQ_WORK_NORMAL,
-					   &processed, 0);
-		total += processed;
-		if (rc != 0)
-			continue;
-
-		rc = irq_process_pending_llist(irq_entry, IRQ_WORK_NORMAL,
-					       &processed, 0);
-		total += processed;
-	} while (rc != 0);
-
-	return total;
-}
-
-irqreturn_t idxd_wq_thread(int irq, void *data)
-{
-	struct idxd_irq_entry *irq_entry = data;
-	int processed;
-
-	processed = idxd_desc_process(irq_entry);
-	idxd_unmask_msix_vector(irq_entry->idxd, irq_entry->id);
-
-	if (processed == 0)
-		return IRQ_NONE;
+	irq_process_work_list(irq_entry);
+	irq_process_pending_llist(irq_entry);
 
 	return IRQ_HANDLED;
 }

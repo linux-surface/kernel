@@ -501,8 +501,31 @@ static int mn_hlist_invalidate_range_start(
 						"");
 				WARN_ON(mmu_notifier_range_blockable(range) ||
 					_ret != -EAGAIN);
+				/*
+				 * We call all the notifiers on any EAGAIN,
+				 * there is no way for a notifier to know if
+				 * its start method failed, thus a start that
+				 * does EAGAIN can't also do end.
+				 */
+				WARN_ON(ops->invalidate_range_end);
 				ret = _ret;
 			}
+		}
+	}
+
+	if (ret) {
+		/*
+		 * Must be non-blocking to get here.  If there are multiple
+		 * notifiers and one or more failed start, any that succeeded
+		 * start are expecting their end to be called.  Do so now.
+		 */
+		hlist_for_each_entry_rcu(subscription, &subscriptions->list,
+					 hlist, srcu_read_lock_held(&srcu)) {
+			if (!subscription->ops->invalidate_range_end)
+				continue;
+
+			subscription->ops->invalidate_range_end(subscription,
+								range);
 		}
 	}
 	srcu_read_unlock(&srcu, id);
@@ -1013,6 +1036,18 @@ int mmu_interval_notifier_insert_locked(
 }
 EXPORT_SYMBOL_GPL(mmu_interval_notifier_insert_locked);
 
+static bool
+mmu_interval_seq_released(struct mmu_notifier_subscriptions *subscriptions,
+			  unsigned long seq)
+{
+	bool ret;
+
+	spin_lock(&subscriptions->lock);
+	ret = subscriptions->invalidate_seq != seq;
+	spin_unlock(&subscriptions->lock);
+	return ret;
+}
+
 /**
  * mmu_interval_notifier_remove - Remove a interval notifier
  * @interval_sub: Interval subscription to unregister
@@ -1060,7 +1095,7 @@ void mmu_interval_notifier_remove(struct mmu_interval_notifier *interval_sub)
 	lock_map_release(&__mmu_notifier_invalidate_range_start_map);
 	if (seq)
 		wait_event(subscriptions->wq,
-			   READ_ONCE(subscriptions->invalidate_seq) != seq);
+			   mmu_interval_seq_released(subscriptions, seq));
 
 	/* pairs with mmgrab in mmu_interval_notifier_insert() */
 	mmdrop(mm);

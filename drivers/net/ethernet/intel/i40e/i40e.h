@@ -66,6 +66,8 @@
 #define I40E_FDIR_RING_COUNT		32
 #define I40E_MAX_AQ_BUF_SIZE		4096
 #define I40E_AQ_LEN			256
+#define I40E_MIN_ARQ_LEN		1
+#define I40E_MIN_ASQ_LEN		2
 #define I40E_AQ_WORK_LIMIT		66 /* max number of VFs + a little */
 #define I40E_MAX_USER_PRIORITY		8
 #define I40E_DEFAULT_TRAFFIC_CLASS	BIT(0)
@@ -142,6 +144,8 @@ enum i40e_state_t {
 	__I40E_VIRTCHNL_OP_PENDING,
 	__I40E_RECOVERY_MODE,
 	__I40E_VF_RESETS_DISABLED,	/* disable resets during i40e_remove */
+	__I40E_IN_REMOVE,
+	__I40E_VFS_RELEASING,
 	/* This must be last as it determines the size of the BITMAP */
 	__I40E_STATE_SIZE__,
 };
@@ -158,6 +162,7 @@ enum i40e_vsi_state_t {
 	__I40E_VSI_OVERFLOW_PROMISC,
 	__I40E_VSI_REINIT_REQUESTED,
 	__I40E_VSI_DOWN_REQUESTED,
+	__I40E_VSI_RELEASING,
 	/* This must be last as it determines the size of the BITMAP */
 	__I40E_VSI_STATE_SIZE__,
 };
@@ -170,7 +175,6 @@ enum i40e_interrupt_policy {
 
 struct i40e_lump_tracking {
 	u16 num_entries;
-	u16 search_hint;
 	u16 list[0];
 #define I40E_PILE_VALID_BIT  0x8000
 #define I40E_IWARP_IRQ_PILE_ID  (I40E_PILE_VALID_BIT - 2)
@@ -425,12 +429,14 @@ struct i40e_channel {
 	struct i40e_vsi *parent_vsi;
 };
 
+struct i40e_ptp_pins_settings;
+
 static inline bool i40e_is_channel_macvlan(struct i40e_channel *ch)
 {
 	return !!ch->fwd;
 }
 
-static inline u8 *i40e_channel_mac(struct i40e_channel *ch)
+static inline const u8 *i40e_channel_mac(struct i40e_channel *ch)
 {
 	if (i40e_is_channel_macvlan(ch))
 		return ch->fwd->netdev->dev_addr;
@@ -641,12 +647,83 @@ struct i40e_pf {
 	struct i40e_rx_pb_config pb_cfg; /* Current Rx packet buffer config */
 	struct i40e_dcbx_config tmp_cfg;
 
+/* GPIO defines used by PTP */
+#define I40E_SDP3_2			18
+#define I40E_SDP3_3			19
+#define I40E_GPIO_4			20
+#define I40E_LED2_0			26
+#define I40E_LED2_1			27
+#define I40E_LED3_0			28
+#define I40E_LED3_1			29
+#define I40E_GLGEN_GPIO_SET_SDP_DATA_HI \
+	(1 << I40E_GLGEN_GPIO_SET_SDP_DATA_SHIFT)
+#define I40E_GLGEN_GPIO_SET_DRV_SDP_DATA \
+	(1 << I40E_GLGEN_GPIO_SET_DRIVE_SDP_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_PRT_NUM_0 \
+	(0 << I40E_GLGEN_GPIO_CTL_PRT_NUM_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_PRT_NUM_1 \
+	(1 << I40E_GLGEN_GPIO_CTL_PRT_NUM_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_RESERVED	BIT(2)
+#define I40E_GLGEN_GPIO_CTL_PRT_NUM_NA_Z \
+	(1 << I40E_GLGEN_GPIO_CTL_PRT_NUM_NA_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_DIR_OUT \
+	(1 << I40E_GLGEN_GPIO_CTL_PIN_DIR_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_TRI_DRV_HI \
+	(1 << I40E_GLGEN_GPIO_CTL_TRI_CTL_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_OUT_HI_RST \
+	(1 << I40E_GLGEN_GPIO_CTL_OUT_CTL_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_TIMESYNC_0 \
+	(3 << I40E_GLGEN_GPIO_CTL_PIN_FUNC_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_TIMESYNC_1 \
+	(4 << I40E_GLGEN_GPIO_CTL_PIN_FUNC_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_NOT_FOR_PHY_CONN \
+	(0x3F << I40E_GLGEN_GPIO_CTL_PHY_PIN_NAME_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_OUT_DEFAULT \
+	(1 << I40E_GLGEN_GPIO_CTL_OUT_DEFAULT_SHIFT)
+#define I40E_GLGEN_GPIO_CTL_PORT_0_IN_TIMESYNC_0 \
+	(I40E_GLGEN_GPIO_CTL_NOT_FOR_PHY_CONN | \
+	 I40E_GLGEN_GPIO_CTL_TIMESYNC_0 | \
+	 I40E_GLGEN_GPIO_CTL_RESERVED | I40E_GLGEN_GPIO_CTL_PRT_NUM_0)
+#define I40E_GLGEN_GPIO_CTL_PORT_1_IN_TIMESYNC_0 \
+	(I40E_GLGEN_GPIO_CTL_NOT_FOR_PHY_CONN | \
+	 I40E_GLGEN_GPIO_CTL_TIMESYNC_0 | \
+	 I40E_GLGEN_GPIO_CTL_RESERVED | I40E_GLGEN_GPIO_CTL_PRT_NUM_1)
+#define I40E_GLGEN_GPIO_CTL_PORT_0_OUT_TIMESYNC_1 \
+	(I40E_GLGEN_GPIO_CTL_NOT_FOR_PHY_CONN | \
+	 I40E_GLGEN_GPIO_CTL_TIMESYNC_1 | I40E_GLGEN_GPIO_CTL_OUT_HI_RST | \
+	 I40E_GLGEN_GPIO_CTL_TRI_DRV_HI | I40E_GLGEN_GPIO_CTL_DIR_OUT | \
+	 I40E_GLGEN_GPIO_CTL_RESERVED | I40E_GLGEN_GPIO_CTL_PRT_NUM_0)
+#define I40E_GLGEN_GPIO_CTL_PORT_1_OUT_TIMESYNC_1 \
+	(I40E_GLGEN_GPIO_CTL_NOT_FOR_PHY_CONN | \
+	 I40E_GLGEN_GPIO_CTL_TIMESYNC_1 | I40E_GLGEN_GPIO_CTL_OUT_HI_RST | \
+	 I40E_GLGEN_GPIO_CTL_TRI_DRV_HI | I40E_GLGEN_GPIO_CTL_DIR_OUT | \
+	 I40E_GLGEN_GPIO_CTL_RESERVED | I40E_GLGEN_GPIO_CTL_PRT_NUM_1)
+#define I40E_GLGEN_GPIO_CTL_LED_INIT \
+	(I40E_GLGEN_GPIO_CTL_PRT_NUM_NA_Z | \
+	 I40E_GLGEN_GPIO_CTL_DIR_OUT | \
+	 I40E_GLGEN_GPIO_CTL_TRI_DRV_HI | \
+	 I40E_GLGEN_GPIO_CTL_OUT_HI_RST | \
+	 I40E_GLGEN_GPIO_CTL_OUT_DEFAULT | \
+	 I40E_GLGEN_GPIO_CTL_NOT_FOR_PHY_CONN)
+#define I40E_PRTTSYN_AUX_1_INSTNT \
+	(1 << I40E_PRTTSYN_AUX_1_INSTNT_SHIFT)
+#define I40E_PRTTSYN_AUX_0_OUT_ENABLE \
+	(1 << I40E_PRTTSYN_AUX_0_OUT_ENA_SHIFT)
+#define I40E_PRTTSYN_AUX_0_OUT_CLK_MOD	(3 << I40E_PRTTSYN_AUX_0_OUTMOD_SHIFT)
+#define I40E_PRTTSYN_AUX_0_OUT_ENABLE_CLK_MOD \
+	(I40E_PRTTSYN_AUX_0_OUT_ENABLE | I40E_PRTTSYN_AUX_0_OUT_CLK_MOD)
+#define I40E_PTP_HALF_SECOND		500000000LL /* nano seconds */
+#define I40E_PTP_2_SEC_DELAY		2
+
 	struct ptp_clock *ptp_clock;
 	struct ptp_clock_info ptp_caps;
 	struct sk_buff *ptp_tx_skb;
 	unsigned long ptp_tx_start;
 	struct hwtstamp_config tstamp_config;
 	struct timespec64 ptp_prev_hw_time;
+	struct work_struct ptp_pps_work;
+	struct work_struct ptp_extts0_work;
+	struct work_struct ptp_extts1_work;
 	ktime_t ptp_reset_start;
 	struct mutex tmreg_lock; /* Used to protect the SYSTIME registers. */
 	u32 ptp_adj_mult;
@@ -654,10 +731,14 @@ struct i40e_pf {
 	u32 tx_hwtstamp_skipped;
 	u32 rx_hwtstamp_cleared;
 	u32 latch_event_flags;
+	u64 ptp_pps_start;
+	u32 pps_delay;
 	spinlock_t ptp_rx_lock; /* Used to protect Rx timestamp registers. */
+	struct ptp_pin_desc ptp_pin[3];
 	unsigned long latch_events[4];
 	bool ptp_tx;
 	bool ptp_rx;
+	struct i40e_ptp_pins_settings *ptp_pins;
 	u16 rss_table_size; /* HW RSS table size */
 	u32 max_bw;
 	u32 min_bw;
@@ -767,12 +848,16 @@ struct i40e_vsi {
 	struct rtnl_link_stats64 net_stats_offsets;
 	struct i40e_eth_stats eth_stats;
 	struct i40e_eth_stats eth_stats_offsets;
-	u32 tx_restart;
-	u32 tx_busy;
+	u64 tx_restart;
+	u64 tx_busy;
 	u64 tx_linearize;
 	u64 tx_force_wb;
-	u32 rx_buf_failed;
-	u32 rx_page_failed;
+	u64 rx_buf_failed;
+	u64 rx_page_failed;
+	u64 rx_page_reuse;
+	u64 rx_page_alloc;
+	u64 rx_page_waive;
+	u64 rx_page_busy;
 
 	/* These are containers of ring pointers, allocated at run-time */
 	struct i40e_ring **rx_rings;
@@ -866,6 +951,8 @@ struct i40e_vsi {
 struct i40e_netdev_priv {
 	struct i40e_vsi *vsi;
 };
+
+extern struct ida i40e_client_ida;
 
 /* struct that defines an interrupt vector */
 struct i40e_q_vector {
@@ -1141,7 +1228,6 @@ static inline bool i40e_is_sw_dcb(struct i40e_pf *pf)
 	return !!(pf->flags & I40E_FLAG_DISABLE_FW_LLDP);
 }
 
-void i40e_set_lldp_forwarding(struct i40e_pf *pf, bool enable);
 #ifdef CONFIG_I40E_DCB
 void i40e_dcbnl_flush_apps(struct i40e_pf *pf,
 			   struct i40e_dcbx_config *old_cfg,
@@ -1165,6 +1251,8 @@ void i40e_ptp_save_hw_time(struct i40e_pf *pf);
 void i40e_ptp_restore_hw_time(struct i40e_pf *pf);
 void i40e_ptp_init(struct i40e_pf *pf);
 void i40e_ptp_stop(struct i40e_pf *pf);
+int i40e_ptp_alloc_pins(struct i40e_pf *pf);
+int i40e_update_adq_vsi_queues(struct i40e_vsi *vsi, int vsi_offset);
 int i40e_is_vsi_uplink_mode_veb(struct i40e_vsi *vsi);
 i40e_status i40e_get_partition_bw_setting(struct i40e_pf *pf);
 i40e_status i40e_set_partition_bw_setting(struct i40e_pf *pf);

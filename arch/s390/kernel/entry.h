@@ -5,6 +5,7 @@
 #include <linux/percpu.h>
 #include <linux/types.h>
 #include <linux/signal.h>
+#include <asm/extable.h>
 #include <asm/ptrace.h>
 #include <asm/idle.h>
 
@@ -26,40 +27,15 @@ void do_dat_exception(struct pt_regs *regs);
 void do_secure_storage_access(struct pt_regs *regs);
 void do_non_secure_storage_access(struct pt_regs *regs);
 void do_secure_storage_violation(struct pt_regs *regs);
-
-void addressing_exception(struct pt_regs *regs);
-void data_exception(struct pt_regs *regs);
-void default_trap_handler(struct pt_regs *regs);
-void divide_exception(struct pt_regs *regs);
-void execute_exception(struct pt_regs *regs);
-void hfp_divide_exception(struct pt_regs *regs);
-void hfp_overflow_exception(struct pt_regs *regs);
-void hfp_significance_exception(struct pt_regs *regs);
-void hfp_sqrt_exception(struct pt_regs *regs);
-void hfp_underflow_exception(struct pt_regs *regs);
-void illegal_op(struct pt_regs *regs);
-void operand_exception(struct pt_regs *regs);
-void overflow_exception(struct pt_regs *regs);
-void privileged_op(struct pt_regs *regs);
-void space_switch_exception(struct pt_regs *regs);
-void special_op_exception(struct pt_regs *regs);
-void specification_exception(struct pt_regs *regs);
-void transaction_exception(struct pt_regs *regs);
-void translation_exception(struct pt_regs *regs);
-void vector_exception(struct pt_regs *regs);
-void monitor_event_exception(struct pt_regs *regs);
-
 void do_report_trap(struct pt_regs *regs, int si_signo, int si_code, char *str);
 void kernel_stack_overflow(struct pt_regs * regs);
-void do_signal(struct pt_regs *regs);
 void handle_signal32(struct ksignal *ksig, sigset_t *oldset,
 		     struct pt_regs *regs);
-void do_notify_resume(struct pt_regs *regs);
 
 void __init init_IRQ(void);
 void do_io_irq(struct pt_regs *regs);
 void do_ext_irq(struct pt_regs *regs);
-void do_restart(void);
+void do_restart(void *arg);
 void __init startup_init(void);
 void die(struct pt_regs *regs, const char *str);
 int setup_profiling_timer(unsigned int multiplier);
@@ -86,5 +62,15 @@ unsigned long stack_alloc(void);
 void stack_free(unsigned long stack);
 
 extern char kprobes_insn_page[];
+
+extern char _samode31[], _eamode31[];
+extern char _stext_amode31[], _etext_amode31[];
+extern struct exception_table_entry _start_amode31_ex_table[];
+extern struct exception_table_entry _stop_amode31_ex_table[];
+
+#define __amode31_data __section(".amode31.data")
+#define __amode31_ref __section(".amode31.refs")
+extern long _start_amode31_refs[], _end_amode31_refs[];
+extern unsigned long __amode31_base;
 
 #endif /* _ENTRY_H */

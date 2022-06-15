@@ -37,7 +37,7 @@
 
 #define CCI_PMU_CNTR_SIZE(model)	((model)->cntr_size)
 #define CCI_PMU_CNTR_BASE(model, idx)	((idx) * CCI_PMU_CNTR_SIZE(model))
-#define CCI_PMU_CNTR_MASK		((1ULL << 32) -1)
+#define CCI_PMU_CNTR_MASK		((1ULL << 32) - 1)
 #define CCI_PMU_CNTR_LAST(cci_pmu)	(cci_pmu->num_cntrs - 1)
 
 #define CCI_PMU_MAX_HW_CNTRS(model) \
@@ -306,7 +306,7 @@ static ssize_t cci400_pmu_cycle_event_show(struct device *dev,
 {
 	struct dev_ext_attribute *eattr = container_of(attr,
 				struct dev_ext_attribute, attr);
-	return snprintf(buf, PAGE_SIZE, "config=0x%lx\n", (unsigned long)eattr->var);
+	return sysfs_emit(buf, "config=0x%lx\n", (unsigned long)eattr->var);
 }
 
 static int cci400_get_event_idx(struct cci_pmu *cci_pmu,
@@ -525,8 +525,8 @@ static ssize_t cci5xx_pmu_global_event_show(struct device *dev,
 	struct dev_ext_attribute *eattr = container_of(attr,
 					struct dev_ext_attribute, attr);
 	/* Global events have single fixed source code */
-	return snprintf(buf, PAGE_SIZE, "event=0x%lx,source=0x%x\n",
-				(unsigned long)eattr->var, CCI5xx_PORT_GLOBAL);
+	return sysfs_emit(buf, "event=0x%lx,source=0x%x\n",
+			  (unsigned long)eattr->var, CCI5xx_PORT_GLOBAL);
 }
 
 /*
@@ -696,7 +696,7 @@ static ssize_t cci_pmu_format_show(struct device *dev,
 {
 	struct dev_ext_attribute *eattr = container_of(attr,
 				struct dev_ext_attribute, attr);
-	return snprintf(buf, PAGE_SIZE, "%s\n", (char *)eattr->var);
+	return sysfs_emit(buf, "%s\n", (char *)eattr->var);
 }
 
 static ssize_t cci_pmu_event_show(struct device *dev,
@@ -705,8 +705,8 @@ static ssize_t cci_pmu_event_show(struct device *dev,
 	struct dev_ext_attribute *eattr = container_of(attr,
 				struct dev_ext_attribute, attr);
 	/* source parameter is mandatory for normal PMU events */
-	return snprintf(buf, PAGE_SIZE, "source=?,event=0x%lx\n",
-					 (unsigned long)eattr->var);
+	return sysfs_emit(buf, "source=?,event=0x%lx\n",
+			  (unsigned long)eattr->var);
 }
 
 static int pmu_is_valid_counter(struct cci_pmu *cci_pmu, int idx)
@@ -806,7 +806,7 @@ static int pmu_get_event_idx(struct cci_pmu_hw_events *hw, struct perf_event *ev
 		return cci_pmu->model->get_event_idx(cci_pmu, hw, cci_event);
 
 	/* Generic code to find an unused idx from the mask */
-	for(idx = 0; idx <= CCI_PMU_CNTR_LAST(cci_pmu); idx++)
+	for (idx = 0; idx <= CCI_PMU_CNTR_LAST(cci_pmu); idx++)
 		if (!test_and_set_bit(idx, hw->used_mask))
 			return idx;
 
@@ -1096,7 +1096,7 @@ static void cci_pmu_enable(struct pmu *pmu)
 {
 	struct cci_pmu *cci_pmu = to_cci_pmu(pmu);
 	struct cci_pmu_hw_events *hw_events = &cci_pmu->hw_events;
-	int enabled = bitmap_weight(hw_events->used_mask, cci_pmu->num_cntrs);
+	bool enabled = !bitmap_empty(hw_events->used_mask, cci_pmu->num_cntrs);
 	unsigned long flags;
 
 	if (!enabled)

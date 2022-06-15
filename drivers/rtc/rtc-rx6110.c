@@ -422,7 +422,7 @@ static struct regmap_config regmap_i2c_config = {
 static int rx6110_i2c_probe(struct i2c_client *client,
 			    const struct i2c_device_id *id)
 {
-	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
+	struct i2c_adapter *adapter = client->adapter;
 	struct rx6110_data *rx6110;
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA
@@ -447,6 +447,12 @@ static int rx6110_i2c_probe(struct i2c_client *client,
 	return rx6110_probe(rx6110, &client->dev);
 }
 
+static const struct acpi_device_id rx6110_i2c_acpi_match[] = {
+	{ "SECC6110" },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, rx6110_i2c_acpi_match);
+
 static const struct i2c_device_id rx6110_i2c_id[] = {
 	{ "rx6110", 0 },
 	{ }
@@ -456,6 +462,7 @@ MODULE_DEVICE_TABLE(i2c, rx6110_i2c_id);
 static struct i2c_driver rx6110_i2c_driver = {
 	.driver = {
 		.name = RX6110_DRIVER_NAME,
+		.acpi_match_table = rx6110_i2c_acpi_match,
 	},
 	.probe		= rx6110_i2c_probe,
 	.id_table	= rx6110_i2c_id,

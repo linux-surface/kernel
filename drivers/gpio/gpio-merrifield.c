@@ -359,12 +359,8 @@ static void mrfld_irq_handler(struct irq_desc *desc)
 		/* Only interrupts that are enabled */
 		pending &= enabled;
 
-		for_each_set_bit(gpio, &pending, 32) {
-			unsigned int irq;
-
-			irq = irq_find_mapping(gc->irq.domain, base + gpio);
-			generic_handle_irq(irq);
-		}
+		for_each_set_bit(gpio, &pending, 32)
+			generic_handle_domain_irq(gc->irq.domain, base + gpio);
 	}
 
 	chained_irq_exit(irqchip, desc);
@@ -413,6 +409,9 @@ static int mrfld_gpio_add_pin_ranges(struct gpio_chip *chip)
 	int retval;
 
 	pinctrl_dev_name = mrfld_gpio_get_pinctrl_dev_name(priv);
+	if (!pinctrl_dev_name)
+		return -ENOMEM;
+
 	for (i = 0; i < ARRAY_SIZE(mrfld_gpio_ranges); i++) {
 		range = &mrfld_gpio_ranges[i];
 		retval = gpiochip_add_pin_range(&priv->chip, pinctrl_dev_name,

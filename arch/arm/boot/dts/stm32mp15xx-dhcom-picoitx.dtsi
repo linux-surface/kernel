@@ -57,22 +57,22 @@
 
 &gpioc {
 	gpio-line-names = "", "", "", "",
-			  "", "", "In1", "",
+			  "", "", "PicoITX-In1", "",
 			  "", "", "", "",
 			  "", "", "", "";
 };
 
 &gpiod {
 	gpio-line-names = "", "", "", "",
-			  "", "", "", "",
-			  "", "", "", "Out1",
-			  "Out2", "", "", "";
+			  "", "", "DHCOM-B", "",
+			  "", "", "", "PicoITX-Out1",
+			  "PicoITX-Out2", "", "", "";
 };
 
 &gpiog {
-	gpio-line-names = "In2", "", "", "",
+	gpio-line-names = "PicoITX-In2", "", "", "",
 			  "", "", "", "",
-			  "", "", "", "",
+			  "DHCOM-L", "", "", "",
 			  "", "", "", "";
 };
 
@@ -105,12 +105,16 @@
 &usart3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&usart3_pins_a>;
+	/delete-property/dmas;
+	/delete-property/dma-names;
 	status = "okay";
 };
 
 &uart8 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart8_pins_a &uart8_rtscts_pins_a>;
+	/delete-property/dmas;
+	/delete-property/dma-names;
 	status = "okay";
 };
 

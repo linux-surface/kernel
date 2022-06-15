@@ -33,6 +33,7 @@
 #include <rdma/ib_verbs.h>
 #include <linux/mlx5/fs.h>
 #include "en.h"
+#include "en/params.h"
 #include "ipoib.h"
 
 #define IB_DEFAULT_Q_KEY   0xb1b
@@ -49,7 +50,7 @@ static const struct net_device_ops mlx5i_netdev_ops = {
 	.ndo_init                = mlx5i_dev_init,
 	.ndo_uninit              = mlx5i_dev_cleanup,
 	.ndo_change_mtu          = mlx5i_change_mtu,
-	.ndo_do_ioctl            = mlx5i_ioctl,
+	.ndo_eth_ioctl            = mlx5i_ioctl,
 };
 
 /* IPoIB mlx5 netdev profile */
@@ -66,7 +67,7 @@ static void mlx5i_build_nic_params(struct mlx5_core_dev *mdev,
 		MLX5E_PARAMS_MINIMUM_LOG_RQ_SIZE :
 		MLX5I_PARAMS_DEFAULT_LOG_RQ_SIZE;
 
-	params->lro_en = false;
+	params->packet_merge.type = MLX5E_PACKET_MERGE_NONE;
 	params->hard_mtu = MLX5_IB_GRH_BYTES + MLX5_IPOIB_HARD_LEN;
 	params->tunneled_offload_en = false;
 }
@@ -109,14 +110,14 @@ void mlx5i_cleanup(struct mlx5e_priv *priv)
 
 static void mlx5i_grp_sw_update_stats(struct mlx5e_priv *priv)
 {
-	struct mlx5e_sw_stats s = { 0 };
+	struct rtnl_link_stats64 s = {};
 	int i, j;
 
-	for (i = 0; i < priv->max_nch; i++) {
+	for (i = 0; i < priv->stats_nch; i++) {
 		struct mlx5e_channel_stats *channel_stats;
 		struct mlx5e_rq_stats *rq_stats;
 
-		channel_stats = &priv->channel_stats[i];
+		channel_stats = priv->channel_stats[i];
 		rq_stats = &channel_stats->rq;
 
 		s.rx_packets += rq_stats->packets;
@@ -127,11 +128,17 @@ static void mlx5i_grp_sw_update_stats(struct mlx5e_priv *priv)
 
 			s.tx_packets           += sq_stats->packets;
 			s.tx_bytes             += sq_stats->bytes;
-			s.tx_queue_dropped     += sq_stats->dropped;
+			s.tx_dropped           += sq_stats->dropped;
 		}
 	}
 
-	memcpy(&priv->stats.sw, &s, sizeof(s));
+	memset(&priv->stats.sw, 0, sizeof(s));
+
+	priv->stats.sw.rx_packets = s.rx_packets;
+	priv->stats.sw.rx_bytes = s.rx_bytes;
+	priv->stats.sw.tx_packets = s.tx_packets;
+	priv->stats.sw.tx_bytes = s.tx_bytes;
+	priv->stats.sw.tx_queue_dropped = s.tx_dropped;
 }
 
 void mlx5i_get_stats(struct net_device *dev, struct rtnl_link_stats64 *stats)
@@ -218,7 +225,7 @@ void mlx5i_uninit_underlay_qp(struct mlx5e_priv *priv)
 
 int mlx5i_create_underlay_qp(struct mlx5e_priv *priv)
 {
-	unsigned char *dev_addr = priv->netdev->dev_addr;
+	const unsigned char *dev_addr = priv->netdev->dev_addr;
 	u32 out[MLX5_ST_SZ_DW(create_qp_out)] = {};
 	u32 in[MLX5_ST_SZ_DW(create_qp_in)] = {};
 	struct mlx5i_priv *ipriv = priv->ppriv;
@@ -233,6 +240,7 @@ int mlx5i_create_underlay_qp(struct mlx5e_priv *priv)
 	}
 
 	qpc = MLX5_ADDR_OF(create_qp_in, in, qpc);
+	MLX5_SET(qpc, qpc, ts_format, mlx5_get_qp_default_ts(priv->mdev));
 	MLX5_SET(qpc, qpc, st, MLX5_QP_ST_UD);
 	MLX5_SET(qpc, qpc, pm_state, MLX5_QP_PM_MIGRATED);
 	MLX5_SET(qpc, qpc, ulp_stateless_offload_mode,
@@ -312,8 +320,7 @@ static void mlx5i_cleanup_tx(struct mlx5e_priv *priv)
 
 static int mlx5i_create_flow_steering(struct mlx5e_priv *priv)
 {
-	struct ttc_params ttc_params = {};
-	int tt, err;
+	int err;
 
 	priv->fs.ns = mlx5_get_flow_namespace(priv->mdev,
 					       MLX5_FLOW_NAMESPACE_KERNEL);
@@ -328,33 +335,17 @@ static int mlx5i_create_flow_steering(struct mlx5e_priv *priv)
 		priv->netdev->hw_features &= ~NETIF_F_NTUPLE;
 	}
 
-	mlx5e_set_ttc_basic_params(priv, &ttc_params);
-	mlx5e_set_inner_ttc_ft_params(&ttc_params);
-	for (tt = 0; tt < MLX5E_NUM_INDIR_TIRS; tt++)
-		ttc_params.indir_tirn[tt] = priv->inner_indir_tir[tt].tirn;
-
-	err = mlx5e_create_inner_ttc_table(priv, &ttc_params, &priv->fs.inner_ttc);
+	err = mlx5e_create_ttc_table(priv);
 	if (err) {
-		netdev_err(priv->netdev, "Failed to create inner ttc table, err=%d\n",
+		netdev_err(priv->netdev, "Failed to create ttc table, err=%d\n",
 			   err);
 		goto err_destroy_arfs_tables;
 	}
 
-	mlx5e_set_ttc_ft_params(&ttc_params);
-	for (tt = 0; tt < MLX5E_NUM_INDIR_TIRS; tt++)
-		ttc_params.indir_tirn[tt] = priv->indir_tir[tt].tirn;
-
-	err = mlx5e_create_ttc_table(priv, &ttc_params, &priv->fs.ttc);
-	if (err) {
-		netdev_err(priv->netdev, "Failed to create ttc table, err=%d\n",
-			   err);
-		goto err_destroy_inner_ttc_table;
-	}
+	mlx5e_ethtool_init_steering(priv);
 
 	return 0;
 
-err_destroy_inner_ttc_table:
-	mlx5e_destroy_inner_ttc_table(priv, &priv->fs.inner_ttc);
 err_destroy_arfs_tables:
 	mlx5e_arfs_destroy_tables(priv);
 
@@ -363,15 +354,19 @@ err_destroy_arfs_tables:
 
 static void mlx5i_destroy_flow_steering(struct mlx5e_priv *priv)
 {
-	mlx5e_destroy_ttc_table(priv, &priv->fs.ttc);
-	mlx5e_destroy_inner_ttc_table(priv, &priv->fs.inner_ttc);
+	mlx5e_destroy_ttc_table(priv);
 	mlx5e_arfs_destroy_tables(priv);
+	mlx5e_ethtool_cleanup_steering(priv);
 }
 
 static int mlx5i_init_rx(struct mlx5e_priv *priv)
 {
 	struct mlx5_core_dev *mdev = priv->mdev;
 	int err;
+
+	priv->rx_res = mlx5e_rx_res_alloc();
+	if (!priv->rx_res)
+		return -ENOMEM;
 
 	mlx5e_create_q_counters(priv);
 
@@ -381,52 +376,38 @@ static int mlx5i_init_rx(struct mlx5e_priv *priv)
 		goto err_destroy_q_counters;
 	}
 
-	err = mlx5e_create_indirect_rqt(priv);
+	err = mlx5e_rx_res_init(priv->rx_res, priv->mdev, 0,
+				priv->max_nch, priv->drop_rq.rqn,
+				&priv->channels.params.packet_merge,
+				priv->channels.params.num_channels);
 	if (err)
 		goto err_close_drop_rq;
 
-	err = mlx5e_create_direct_rqts(priv, priv->direct_tir);
-	if (err)
-		goto err_destroy_indirect_rqts;
-
-	err = mlx5e_create_indirect_tirs(priv, true);
-	if (err)
-		goto err_destroy_direct_rqts;
-
-	err = mlx5e_create_direct_tirs(priv, priv->direct_tir);
-	if (err)
-		goto err_destroy_indirect_tirs;
-
 	err = mlx5i_create_flow_steering(priv);
 	if (err)
-		goto err_destroy_direct_tirs;
+		goto err_destroy_rx_res;
 
 	return 0;
 
-err_destroy_direct_tirs:
-	mlx5e_destroy_direct_tirs(priv, priv->direct_tir);
-err_destroy_indirect_tirs:
-	mlx5e_destroy_indirect_tirs(priv);
-err_destroy_direct_rqts:
-	mlx5e_destroy_direct_rqts(priv, priv->direct_tir);
-err_destroy_indirect_rqts:
-	mlx5e_destroy_rqt(priv, &priv->indir_rqt);
+err_destroy_rx_res:
+	mlx5e_rx_res_destroy(priv->rx_res);
 err_close_drop_rq:
 	mlx5e_close_drop_rq(&priv->drop_rq);
 err_destroy_q_counters:
 	mlx5e_destroy_q_counters(priv);
+	mlx5e_rx_res_free(priv->rx_res);
+	priv->rx_res = NULL;
 	return err;
 }
 
 static void mlx5i_cleanup_rx(struct mlx5e_priv *priv)
 {
 	mlx5i_destroy_flow_steering(priv);
-	mlx5e_destroy_direct_tirs(priv, priv->direct_tir);
-	mlx5e_destroy_indirect_tirs(priv);
-	mlx5e_destroy_direct_rqts(priv, priv->direct_tir);
-	mlx5e_destroy_rqt(priv, &priv->indir_rqt);
+	mlx5e_rx_res_destroy(priv->rx_res);
 	mlx5e_close_drop_rq(&priv->drop_rq);
 	mlx5e_destroy_q_counters(priv);
+	mlx5e_rx_res_free(priv->rx_res);
+	priv->rx_res = NULL;
 }
 
 /* The stats groups order is opposite to the update_stats() order calls */
@@ -475,28 +456,19 @@ static const struct mlx5e_profile mlx5i_nic_profile = {
 static int mlx5i_change_mtu(struct net_device *netdev, int new_mtu)
 {
 	struct mlx5e_priv *priv = mlx5i_epriv(netdev);
-	struct mlx5e_channels new_channels = {};
-	struct mlx5e_params *params;
+	struct mlx5e_params new_params;
 	int err = 0;
 
 	mutex_lock(&priv->state_lock);
 
-	params = &priv->channels.params;
+	new_params = priv->channels.params;
+	new_params.sw_mtu = new_mtu;
 
-	if (!test_bit(MLX5E_STATE_OPENED, &priv->state)) {
-		params->sw_mtu = new_mtu;
-		netdev->mtu = params->sw_mtu;
-		goto out;
-	}
-
-	new_channels.params = *params;
-	new_channels.params.sw_mtu = new_mtu;
-
-	err = mlx5e_safe_switch_channels(priv, &new_channels, NULL, NULL);
+	err = mlx5e_safe_switch_params(priv, &new_params, NULL, NULL, true);
 	if (err)
 		goto out;
 
-	netdev->mtu = new_channels.params.sw_mtu;
+	netdev->mtu = new_params.sw_mtu;
 
 out:
 	mutex_unlock(&priv->state_lock);
@@ -507,11 +479,13 @@ int mlx5i_dev_init(struct net_device *dev)
 {
 	struct mlx5e_priv    *priv   = mlx5i_epriv(dev);
 	struct mlx5i_priv    *ipriv  = priv->ppriv;
+	u8 addr_mod[3];
 
 	/* Set dev address using underlay QP */
-	dev->dev_addr[1] = (ipriv->qpn >> 16) & 0xff;
-	dev->dev_addr[2] = (ipriv->qpn >>  8) & 0xff;
-	dev->dev_addr[3] = (ipriv->qpn) & 0xff;
+	addr_mod[0] = (ipriv->qpn >> 16) & 0xff;
+	addr_mod[1] = (ipriv->qpn >>  8) & 0xff;
+	addr_mod[2] = (ipriv->qpn) & 0xff;
+	dev_addr_mod(dev, 1, addr_mod, sizeof(addr_mod));
 
 	/* Add QPN to net-device mapping to HT */
 	mlx5i_pkey_add_qpn(dev, ipriv->qpn);
@@ -694,6 +668,7 @@ static int mlx5i_check_required_hca_cap(struct mlx5_core_dev *mdev)
 static void mlx5_rdma_netdev_free(struct net_device *netdev)
 {
 	struct mlx5e_priv *priv = mlx5i_epriv(netdev);
+	struct mlx5_core_dev *mdev = priv->mdev;
 	struct mlx5i_priv *ipriv = priv->ppriv;
 	const struct mlx5e_profile *profile = priv->profile;
 
@@ -702,13 +677,13 @@ static void mlx5_rdma_netdev_free(struct net_device *netdev)
 
 	if (!ipriv->sub_interface) {
 		mlx5i_pkey_qpn_ht_cleanup(netdev);
-		mlx5e_destroy_mdev_resources(priv->mdev);
+		mlx5e_destroy_mdev_resources(mdev);
 	}
 }
 
 static bool mlx5_is_sub_interface(struct mlx5_core_dev *mdev)
 {
-	return mdev->mlx5e_res.pdn != 0;
+	return mdev->mlx5e_res.hw_objs.pdn != 0;
 }
 
 static const struct mlx5e_profile *mlx5_get_profile(struct mlx5_core_dev *mdev)
@@ -718,7 +693,7 @@ static const struct mlx5e_profile *mlx5_get_profile(struct mlx5_core_dev *mdev)
 	return &mlx5i_nic_profile;
 }
 
-static int mlx5_rdma_setup_rn(struct ib_device *ibdev, u8 port_num,
+static int mlx5_rdma_setup_rn(struct ib_device *ibdev, u32 port_num,
 			      struct net_device *netdev, void *param)
 {
 	struct mlx5_core_dev *mdev = (struct mlx5_core_dev *)param;
@@ -745,7 +720,7 @@ static int mlx5_rdma_setup_rn(struct ib_device *ibdev, u8 port_num,
 			goto destroy_ht;
 	}
 
-	err = mlx5e_priv_init(epriv, netdev, mdev);
+	err = mlx5e_priv_init(epriv, prof, netdev, mdev);
 	if (err)
 		goto destroy_mdev_resources;
 

@@ -10,13 +10,13 @@
 #include <linux/atomic.h>
 #include <linux/bitops.h>
 #include <linux/byteorder/generic.h>
+#include <linux/container_of.h>
 #include <linux/errno.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
 #include <linux/gfp.h>
 #include <linux/if_ether.h>
 #include <linux/jiffies.h>
-#include <linux/kernel.h>
 #include <linux/kref.h>
 #include <linux/minmax.h>
 #include <linux/netdevice.h>
@@ -486,14 +486,11 @@ static void batadv_v_elp_neigh_update(struct batadv_priv *bat_priv,
 	hardif_neigh->bat_v.elp_interval = ntohl(elp_packet->elp_interval);
 
 hardif_free:
-	if (hardif_neigh)
-		batadv_hardif_neigh_put(hardif_neigh);
+	batadv_hardif_neigh_put(hardif_neigh);
 neigh_free:
-	if (neigh)
-		batadv_neigh_node_put(neigh);
+	batadv_neigh_node_put(neigh);
 orig_free:
-	if (orig_neigh)
-		batadv_orig_node_put(orig_neigh);
+	batadv_orig_node_put(orig_neigh);
 }
 
 /**

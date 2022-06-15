@@ -634,7 +634,7 @@ static const struct qib_hwerror_msgs qib_7220_hwerror_msgs[] = {
 	QLOGIC_IB_HWE_MSG(QLOGIC_IB_HWE_PCIECPLTIMEOUT,
 			  "PCIe completion timeout"),
 	/*
-	 * In practice, it's unlikely wthat we'll see PCIe PLL, or bus
+	 * In practice, it's unlikely that we'll see PCIe PLL, or bus
 	 * parity or memory parity error failures, because most likely we
 	 * won't be able to talk to the core of the chip.  Nonetheless, we
 	 * might see them, if they are in parts of the PCIe core that aren't
@@ -2236,7 +2236,7 @@ static void qib_7220_tidtemplate(struct qib_devdata *dd)
 }
 
 /**
- * qib_init_7220_get_base_info - set chip-specific flags for user code
+ * qib_7220_get_base_info - set chip-specific flags for user code
  * @rcd: the qlogic_ib ctxt
  * @kinfo: qib_base_info pointer
  *
@@ -2988,7 +2988,7 @@ done:
  * the utility.  Names need to be 12 chars or less (w/o newline), for proper
  * display by utility.
  * Non-error counters are first.
- * Start of "error" conters is indicated by a leading "E " on the first
+ * Start of "error" counters is indicated by a leading "E " on the first
  * "error" counter, and doesn't count in label length.
  * The EgrOvfl list needs to be last so we truncate them at the configured
  * context count for the device.
@@ -3742,7 +3742,7 @@ static int qib_7220_ib_updown(struct qib_pportdata *ppd, int ibup, u64 ibcs)
 /*
  * Does read/modify/write to appropriate registers to
  * set output and direction bits selected by mask.
- * these are in their canonical postions (e.g. lsb of
+ * these are in their canonical positions (e.g. lsb of
  * dir will end up in D48 of extctrl on existing chips).
  * returns contents of GP Inputs.
  */
@@ -4411,7 +4411,7 @@ static void writescratch(struct qib_devdata *dd, u32 val)
 
 #define VALID_TS_RD_REG_MASK 0xBF
 /**
- * qib_7220_tempsense_read - read register of temp sensor via TWSI
+ * qib_7220_tempsense_rd - read register of temp sensor via TWSI
  * @dd: the qlogic_ib device
  * @regnum: register to read from
  *

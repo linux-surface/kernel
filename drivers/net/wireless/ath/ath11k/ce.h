@@ -101,6 +101,7 @@ struct ce_attr {
 	unsigned int dest_nentries;
 
 	void (*recv_cb)(struct ath11k_base *, struct sk_buff *);
+	void (*send_cb)(struct ath11k_base *, struct sk_buff *);
 };
 
 #define CE_DESC_RING_ALIGN 8
@@ -144,7 +145,7 @@ struct ath11k_ce_ring {
 	u32 hal_ring_id;
 
 	/* keep last */
-	struct sk_buff *skb[0];
+	struct sk_buff *skb[];
 };
 
 struct ath11k_ce_pipe {
@@ -154,7 +155,7 @@ struct ath11k_ce_pipe {
 	unsigned int buf_sz;
 	unsigned int rx_buf_needed;
 
-	void (*send_cb)(struct ath11k_ce_pipe *);
+	void (*send_cb)(struct ath11k_base *, struct sk_buff *);
 	void (*recv_cb)(struct ath11k_base *, struct sk_buff *);
 
 	struct tasklet_struct intr_tq;
@@ -173,6 +174,7 @@ struct ath11k_ce {
 
 extern const struct ce_attr ath11k_host_ce_config_ipq8074[];
 extern const struct ce_attr ath11k_host_ce_config_qca6390[];
+extern const struct ce_attr ath11k_host_ce_config_qcn9074[];
 
 void ath11k_ce_cleanup_pipes(struct ath11k_base *ab);
 void ath11k_ce_rx_replenish_retry(struct timer_list *t);

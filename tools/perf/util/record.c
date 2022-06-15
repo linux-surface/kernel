@@ -25,12 +25,12 @@
  */
 static struct evsel *evsel__read_sampler(struct evsel *evsel, struct evlist *evlist)
 {
-	struct evsel *leader = evsel->leader;
+	struct evsel *leader = evsel__leader(evsel);
 
 	if (evsel__is_aux_event(leader) || arch_topdown_sample_read(leader) ||
 	    is_mem_loads_aux_event(leader)) {
 		evlist__for_each_entry(evlist, evsel) {
-			if (evsel->leader == leader && evsel != evsel->leader)
+			if (evsel__leader(evsel) == leader && evsel != evsel__leader(evsel))
 				return evsel;
 		}
 	}
@@ -53,7 +53,7 @@ static u64 evsel__config_term_mask(struct evsel *evsel)
 static void evsel__config_leader_sampling(struct evsel *evsel, struct evlist *evlist)
 {
 	struct perf_event_attr *attr = &evsel->core.attr;
-	struct evsel *leader = evsel->leader;
+	struct evsel *leader = evsel__leader(evsel);
 	struct evsel *read_sampler;
 	u64 term_types, freq_mask;
 
@@ -106,7 +106,7 @@ void evlist__config(struct evlist *evlist, struct record_opts *opts, struct call
 	if (opts->group)
 		evlist__set_leader(evlist);
 
-	if (evlist->core.cpus->map[0] < 0)
+	if (perf_cpu_map__cpu(evlist->core.user_requested_cpus, 0).cpu < 0)
 		opts->no_inherit = true;
 
 	use_comm_exec = perf_can_comm_exec();
@@ -157,9 +157,15 @@ static int get_max_rate(unsigned int *rate)
 static int record_opts__config_freq(struct record_opts *opts)
 {
 	bool user_freq = opts->user_freq != UINT_MAX;
+	bool user_interval = opts->user_interval != ULLONG_MAX;
 	unsigned int max_rate;
 
-	if (opts->user_interval != ULLONG_MAX)
+	if (user_interval && user_freq) {
+		pr_err("cannot set frequency and period at the same time\n");
+		return -1;
+	}
+
+	if (user_interval)
 		opts->default_interval = opts->user_interval;
 	if (user_freq)
 		opts->freq = opts->user_freq;
@@ -223,7 +229,8 @@ bool evlist__can_select_event(struct evlist *evlist, const char *str)
 {
 	struct evlist *temp_evlist;
 	struct evsel *evsel;
-	int err, fd, cpu;
+	int err, fd;
+	struct perf_cpu cpu = { .cpu = 0 };
 	bool ret = false;
 	pid_t pid = -1;
 
@@ -237,17 +244,19 @@ bool evlist__can_select_event(struct evlist *evlist, const char *str)
 
 	evsel = evlist__last(temp_evlist);
 
-	if (!evlist || perf_cpu_map__empty(evlist->core.cpus)) {
+	if (!evlist || perf_cpu_map__empty(evlist->core.user_requested_cpus)) {
 		struct perf_cpu_map *cpus = perf_cpu_map__new(NULL);
 
-		cpu =  cpus ? cpus->map[0] : 0;
+		if (cpus)
+			cpu =  perf_cpu_map__cpu(cpus, 0);
+
 		perf_cpu_map__put(cpus);
 	} else {
-		cpu = evlist->core.cpus->map[0];
+		cpu = perf_cpu_map__cpu(evlist->core.user_requested_cpus, 0);
 	}
 
 	while (1) {
-		fd = sys_perf_event_open(&evsel->core.attr, pid, cpu, -1,
+		fd = sys_perf_event_open(&evsel->core.attr, pid, cpu.cpu, -1,
 					 perf_event_open_cloexec_flag());
 		if (fd < 0) {
 			if (pid == -1 && errno == EACCES) {

@@ -29,9 +29,9 @@ struct map {
 	u64			reloc;
 
 	/* ip -> dso rip */
-	u64			(*map_ip)(struct map *, u64);
+	u64			(*map_ip)(const struct map *, u64);
 	/* dso rip -> ip */
-	u64			(*unmap_ip)(struct map *, u64);
+	u64			(*unmap_ip)(const struct map *, u64);
 
 	struct dso		*dso;
 	refcount_t		refcnt;
@@ -44,20 +44,12 @@ struct kmap *__map__kmap(struct map *map);
 struct kmap *map__kmap(struct map *map);
 struct maps *map__kmaps(struct map *map);
 
-static inline u64 map__map_ip(struct map *map, u64 ip)
-{
-	return ip - map->start + map->pgoff;
-}
-
-static inline u64 map__unmap_ip(struct map *map, u64 ip)
-{
-	return ip + map->start - map->pgoff;
-}
-
-static inline u64 identity__map_ip(struct map *map __maybe_unused, u64 ip)
-{
-	return ip;
-}
+/* ip -> dso rip */
+u64 map__map_ip(const struct map *map, u64 ip);
+/* dso rip -> ip */
+u64 map__unmap_ip(const struct map *map, u64 ip);
+/* Returns ip */
+u64 identity__map_ip(const struct map *map __maybe_unused, u64 ip);
 
 static inline size_t map__size(const struct map *map)
 {
@@ -75,7 +67,7 @@ struct thread;
 
 /* map__for_each_symbol - iterate over the symbols in the given map
  *
- * @map: the 'struct map *' in which symbols itereated
+ * @map: the 'struct map *' in which symbols are iterated
  * @pos: the 'struct symbol *' to use as a loop cursor
  * @n: the 'struct rb_node *' to use as a temporary storage
  * Note: caller must ensure map->dso is not NULL (map is loaded).
@@ -86,7 +78,7 @@ struct thread;
 /* map__for_each_symbol_with_name - iterate over the symbols in the given map
  *                                  that have the given name
  *
- * @map: the 'struct map *' in which symbols itereated
+ * @map: the 'struct map *' in which symbols are iterated
  * @sym_name: the symbol name
  * @pos: the 'struct symbol *' to use as a loop cursor
  */
@@ -159,6 +151,8 @@ static inline bool __map__is_kmodule(const struct map *map)
 }
 
 bool map__has_symbols(const struct map *map);
+
+bool map__contains_symbol(const struct map *map, const struct symbol *sym);
 
 #define ENTRY_TRAMPOLINE_NAME "__entry_SYSCALL_64_trampoline"
 

@@ -8,13 +8,14 @@
  * Copyright 2008, Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (c) 2016        Intel Deutschland GmbH
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  */
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/if_arp.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
+#include <linux/kcov.h>
 #include <net/mac80211.h>
 #include <net/ieee80211_radiotap.h>
 #include "ieee80211_i.h"
@@ -461,6 +462,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_do
 	sdata_unlock(sdata);
 
 	cancel_work_sync(&sdata->csa_finalize_work);
+	cancel_work_sync(&sdata->color_change_finalize_work);
 
 	cancel_delayed_work_sync(&sdata->dfs_cac_timer_work);
 
@@ -475,14 +477,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_do
 				   GFP_KERNEL);
 	}
 
-	/* APs need special treatment */
 	if (sdata->vif.type == NL80211_IFTYPE_AP) {
-		struct ieee80211_sub_if_data *vlan, *tmpsdata;
-
-		/* down all dependent devices, that is VLANs */
-		list_for_each_entry_safe(vlan, tmpsdata, &sdata->u.ap.vlans,
-					 u.vlan.list)
-			dev_close(vlan->dev);
 		WARN_ON(!list_empty(&sdata->u.ap.vlans));
 	} else if (sdata->vif.type == NL80211_IFTYPE_AP_VLAN) {
 		/* remove all packets in parent bc_buf pointing to this dev */
@@ -557,6 +552,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_do
 		 */
 		ieee80211_free_keys(sdata, true);
 		skb_queue_purge(&sdata->skb_queue);
+		skb_queue_purge(&sdata->status_queue);
 	}
 
 	spin_lock_irqsave(&local->queue_stop_reason_lock, flags);
@@ -592,7 +588,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_do
 	 */
 	if (local->suspended) {
 		WARN_ON(local->wowlan);
-		WARN_ON(rtnl_dereference(local->monitor_sdata));
+		WARN_ON(rcu_access_pointer(local->monitor_sdata));
 		return;
 	}
 
@@ -636,9 +632,47 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_do
 		ieee80211_add_virtual_monitor(local);
 }
 
+static void ieee80211_stop_mbssid(struct ieee80211_sub_if_data *sdata)
+{
+	struct ieee80211_sub_if_data *tx_sdata, *non_tx_sdata, *tmp_sdata;
+	struct ieee80211_vif *tx_vif = sdata->vif.mbssid_tx_vif;
+
+	if (!tx_vif)
+		return;
+
+	tx_sdata = vif_to_sdata(tx_vif);
+	sdata->vif.mbssid_tx_vif = NULL;
+
+	list_for_each_entry_safe(non_tx_sdata, tmp_sdata,
+				 &tx_sdata->local->interfaces, list) {
+		if (non_tx_sdata != sdata && non_tx_sdata != tx_sdata &&
+		    non_tx_sdata->vif.mbssid_tx_vif == tx_vif &&
+		    ieee80211_sdata_running(non_tx_sdata)) {
+			non_tx_sdata->vif.mbssid_tx_vif = NULL;
+			dev_close(non_tx_sdata->wdev.netdev);
+		}
+	}
+
+	if (sdata != tx_sdata && ieee80211_sdata_running(tx_sdata)) {
+		tx_sdata->vif.mbssid_tx_vif = NULL;
+		dev_close(tx_sdata->wdev.netdev);
+	}
+}
+
 static int ieee80211_stop(struct net_device *dev)
 {
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+
+	/* close dependent VLAN and MBSSID interfaces before locking wiphy */
+	if (sdata->vif.type == NL80211_IFTYPE_AP) {
+		struct ieee80211_sub_if_data *vlan, *tmpsdata;
+
+		list_for_each_entry_safe(vlan, tmpsdata, &sdata->u.ap.vlans,
+					 u.vlan.list)
+			dev_close(vlan->dev);
+
+		ieee80211_stop_mbssid(sdata);
+	}
 
 	wiphy_lock(sdata->local->hw.wiphy);
 	ieee80211_do_stop(sdata, true);
@@ -676,16 +710,12 @@ static void ieee80211_set_multicast_list(struct net_device *dev)
  */
 static void ieee80211_teardown_sdata(struct ieee80211_sub_if_data *sdata)
 {
-	int i;
-
 	/* free extra data */
 	ieee80211_free_keys(sdata, false);
 
 	ieee80211_debugfs_remove_netdev(sdata);
 
-	for (i = 0; i < IEEE80211_FRAGMENT_MAX; i++)
-		__skb_queue_purge(&sdata->fragments[i].skb_list);
-	sdata->fragment_next = 0;
+	ieee80211_destroy_frag_cache(&sdata->frags);
 
 	if (ieee80211_vif_is_mesh(&sdata->vif))
 		ieee80211_mesh_teardown_sdata(sdata);
@@ -759,6 +789,64 @@ static const struct net_device_ops ieee80211_monitorif_ops = {
 	.ndo_get_stats64	= ieee80211_get_stats64,
 };
 
+static int ieee80211_netdev_fill_forward_path(struct net_device_path_ctx *ctx,
+					      struct net_device_path *path)
+{
+	struct ieee80211_sub_if_data *sdata;
+	struct ieee80211_local *local;
+	struct sta_info *sta;
+	int ret = -ENOENT;
+
+	sdata = IEEE80211_DEV_TO_SUB_IF(ctx->dev);
+	local = sdata->local;
+
+	if (!local->ops->net_fill_forward_path)
+		return -EOPNOTSUPP;
+
+	rcu_read_lock();
+	switch (sdata->vif.type) {
+	case NL80211_IFTYPE_AP_VLAN:
+		sta = rcu_dereference(sdata->u.vlan.sta);
+		if (sta)
+			break;
+		if (sdata->wdev.use_4addr)
+			goto out;
+		if (is_multicast_ether_addr(ctx->daddr))
+			goto out;
+		sta = sta_info_get_bss(sdata, ctx->daddr);
+		break;
+	case NL80211_IFTYPE_AP:
+		if (is_multicast_ether_addr(ctx->daddr))
+			goto out;
+		sta = sta_info_get(sdata, ctx->daddr);
+		break;
+	case NL80211_IFTYPE_STATION:
+		if (sdata->wdev.wiphy->flags & WIPHY_FLAG_SUPPORTS_TDLS) {
+			sta = sta_info_get(sdata, ctx->daddr);
+			if (sta && test_sta_flag(sta, WLAN_STA_TDLS_PEER)) {
+				if (!test_sta_flag(sta, WLAN_STA_TDLS_PEER_AUTH))
+					goto out;
+
+				break;
+			}
+		}
+
+		sta = sta_info_get(sdata, sdata->u.mgd.bssid);
+		break;
+	default:
+		goto out;
+	}
+
+	if (!sta)
+		goto out;
+
+	ret = drv_net_fill_forward_path(local, sdata, &sta->sta, ctx, path);
+out:
+	rcu_read_unlock();
+
+	return ret;
+}
+
 static const struct net_device_ops ieee80211_dataif_8023_ops = {
 	.ndo_open		= ieee80211_open,
 	.ndo_stop		= ieee80211_stop,
@@ -768,6 +856,7 @@ static const struct net_device_ops ieee80211_dataif_8023_ops = {
 	.ndo_set_mac_address	= ieee80211_change_mac,
 	.ndo_select_queue	= ieee80211_netdev_select_queue,
 	.ndo_get_stats64	= ieee80211_get_stats64,
+	.ndo_fill_forward_path	= ieee80211_netdev_fill_forward_path,
 };
 
 static bool ieee80211_iftype_supports_hdr_offload(enum nl80211_iftype iftype)
@@ -807,7 +896,8 @@ static bool ieee80211_set_sdata_offload_flags(struct ieee80211_sub_if_data *sdat
 	    ieee80211_iftype_supports_hdr_offload(sdata->vif.type)) {
 		flags |= IEEE80211_OFFLOAD_DECAP_ENABLED;
 
-		if (local->monitors)
+		if (local->monitors &&
+		    !ieee80211_hw_check(&local->hw, SUPPORTS_CONC_MON_RX_DECAP))
 			flags &= ~IEEE80211_OFFLOAD_DECAP_ENABLED;
 	} else {
 		flags &= ~IEEE80211_OFFLOAD_DECAP_ENABLED;
@@ -930,6 +1020,7 @@ int ieee80211_add_virtual_monitor(struct ieee80211_local *local)
 		return 0;
 
 	ASSERT_RTNL();
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	if (local->monitor_sdata)
 		return 0;
@@ -983,6 +1074,7 @@ int ieee80211_add_virtual_monitor(struct ieee80211_local *local)
 	}
 
 	skb_queue_head_init(&sdata->skb_queue);
+	skb_queue_head_init(&sdata->status_queue);
 	INIT_WORK(&sdata->work, ieee80211_iface_work);
 
 	return 0;
@@ -996,6 +1088,7 @@ void ieee80211_del_virtual_monitor(struct ieee80211_local *local)
 		return;
 
 	ASSERT_RTNL();
+	lockdep_assert_wiphy(local->hw.wiphy);
 
 	mutex_lock(&local->iflist_mtx);
 
@@ -1105,9 +1198,7 @@ int ieee80211_do_open(struct wireless_dev *wdev, bool coming_up)
 	 * this interface, if it has the special null one.
 	 */
 	if (dev && is_zero_ether_addr(dev->dev_addr)) {
-		memcpy(dev->dev_addr,
-		       local->hw.wiphy->perm_addr,
-		       ETH_ALEN);
+		eth_hw_addr_set(dev, local->hw.wiphy->perm_addr);
 		memcpy(dev->perm_addr, dev->dev_addr, ETH_ALEN);
 
 		if (!is_valid_ether_addr(dev->dev_addr)) {
@@ -1318,13 +1409,158 @@ static void ieee80211_if_setup_no_queue(struct net_device *dev)
 	dev->priv_flags |= IFF_NO_QUEUE;
 }
 
+static void ieee80211_iface_process_skb(struct ieee80211_local *local,
+					struct ieee80211_sub_if_data *sdata,
+					struct sk_buff *skb)
+{
+	struct ieee80211_mgmt *mgmt = (void *)skb->data;
+
+	if (ieee80211_is_action(mgmt->frame_control) &&
+	    mgmt->u.action.category == WLAN_CATEGORY_BACK) {
+		struct sta_info *sta;
+		int len = skb->len;
+
+		mutex_lock(&local->sta_mtx);
+		sta = sta_info_get_bss(sdata, mgmt->sa);
+		if (sta) {
+			switch (mgmt->u.action.u.addba_req.action_code) {
+			case WLAN_ACTION_ADDBA_REQ:
+				ieee80211_process_addba_request(local, sta,
+								mgmt, len);
+				break;
+			case WLAN_ACTION_ADDBA_RESP:
+				ieee80211_process_addba_resp(local, sta,
+							     mgmt, len);
+				break;
+			case WLAN_ACTION_DELBA:
+				ieee80211_process_delba(sdata, sta,
+							mgmt, len);
+				break;
+			default:
+				WARN_ON(1);
+				break;
+			}
+		}
+		mutex_unlock(&local->sta_mtx);
+	} else if (ieee80211_is_action(mgmt->frame_control) &&
+		   mgmt->u.action.category == WLAN_CATEGORY_VHT) {
+		switch (mgmt->u.action.u.vht_group_notif.action_code) {
+		case WLAN_VHT_ACTION_OPMODE_NOTIF: {
+			struct ieee80211_rx_status *status;
+			enum nl80211_band band;
+			struct sta_info *sta;
+			u8 opmode;
+
+			status = IEEE80211_SKB_RXCB(skb);
+			band = status->band;
+			opmode = mgmt->u.action.u.vht_opmode_notif.operating_mode;
+
+			mutex_lock(&local->sta_mtx);
+			sta = sta_info_get_bss(sdata, mgmt->sa);
+
+			if (sta)
+				ieee80211_vht_handle_opmode(sdata, sta, opmode,
+							    band);
+
+			mutex_unlock(&local->sta_mtx);
+			break;
+		}
+		case WLAN_VHT_ACTION_GROUPID_MGMT:
+			ieee80211_process_mu_groups(sdata, mgmt);
+			break;
+		default:
+			WARN_ON(1);
+			break;
+		}
+	} else if (ieee80211_is_action(mgmt->frame_control) &&
+		   mgmt->u.action.category == WLAN_CATEGORY_S1G) {
+		switch (mgmt->u.action.u.s1g.action_code) {
+		case WLAN_S1G_TWT_TEARDOWN:
+		case WLAN_S1G_TWT_SETUP:
+			ieee80211_s1g_rx_twt_action(sdata, skb);
+			break;
+		default:
+			break;
+		}
+	} else if (ieee80211_is_ext(mgmt->frame_control)) {
+		if (sdata->vif.type == NL80211_IFTYPE_STATION)
+			ieee80211_sta_rx_queued_ext(sdata, skb);
+		else
+			WARN_ON(1);
+	} else if (ieee80211_is_data_qos(mgmt->frame_control)) {
+		struct ieee80211_hdr *hdr = (void *)mgmt;
+		struct sta_info *sta;
+
+		/*
+		 * So the frame isn't mgmt, but frame_control
+		 * is at the right place anyway, of course, so
+		 * the if statement is correct.
+		 *
+		 * Warn if we have other data frame types here,
+		 * they must not get here.
+		 */
+		WARN_ON(hdr->frame_control &
+				cpu_to_le16(IEEE80211_STYPE_NULLFUNC));
+		WARN_ON(!(hdr->seq_ctrl &
+				cpu_to_le16(IEEE80211_SCTL_FRAG)));
+		/*
+		 * This was a fragment of a frame, received while
+		 * a block-ack session was active. That cannot be
+		 * right, so terminate the session.
+		 */
+		mutex_lock(&local->sta_mtx);
+		sta = sta_info_get_bss(sdata, mgmt->sa);
+		if (sta) {
+			u16 tid = ieee80211_get_tid(hdr);
+
+			__ieee80211_stop_rx_ba_session(
+				sta, tid, WLAN_BACK_RECIPIENT,
+				WLAN_REASON_QSTA_REQUIRE_SETUP,
+				true);
+		}
+		mutex_unlock(&local->sta_mtx);
+	} else switch (sdata->vif.type) {
+	case NL80211_IFTYPE_STATION:
+		ieee80211_sta_rx_queued_mgmt(sdata, skb);
+		break;
+	case NL80211_IFTYPE_ADHOC:
+		ieee80211_ibss_rx_queued_mgmt(sdata, skb);
+		break;
+	case NL80211_IFTYPE_MESH_POINT:
+		if (!ieee80211_vif_is_mesh(&sdata->vif))
+			break;
+		ieee80211_mesh_rx_queued_mgmt(sdata, skb);
+		break;
+	default:
+		WARN(1, "frame for unexpected interface type");
+		break;
+	}
+}
+
+static void ieee80211_iface_process_status(struct ieee80211_sub_if_data *sdata,
+					   struct sk_buff *skb)
+{
+	struct ieee80211_mgmt *mgmt = (void *)skb->data;
+
+	if (ieee80211_is_action(mgmt->frame_control) &&
+	    mgmt->u.action.category == WLAN_CATEGORY_S1G) {
+		switch (mgmt->u.action.u.s1g.action_code) {
+		case WLAN_S1G_TWT_TEARDOWN:
+		case WLAN_S1G_TWT_SETUP:
+			ieee80211_s1g_status_twt_action(sdata, skb);
+			break;
+		default:
+			break;
+		}
+	}
+}
+
 static void ieee80211_iface_work(struct work_struct *work)
 {
 	struct ieee80211_sub_if_data *sdata =
 		container_of(work, struct ieee80211_sub_if_data, work);
 	struct ieee80211_local *local = sdata->local;
 	struct sk_buff *skb;
-	struct sta_info *sta;
 
 	if (!ieee80211_sdata_running(sdata))
 		return;
@@ -1337,118 +1573,24 @@ static void ieee80211_iface_work(struct work_struct *work)
 
 	/* first process frames */
 	while ((skb = skb_dequeue(&sdata->skb_queue))) {
-		struct ieee80211_mgmt *mgmt = (void *)skb->data;
-
 		kcov_remote_start_common(skb_get_kcov_handle(skb));
-		if (ieee80211_is_action(mgmt->frame_control) &&
-		    mgmt->u.action.category == WLAN_CATEGORY_BACK) {
-			int len = skb->len;
 
-			mutex_lock(&local->sta_mtx);
-			sta = sta_info_get_bss(sdata, mgmt->sa);
-			if (sta) {
-				switch (mgmt->u.action.u.addba_req.action_code) {
-				case WLAN_ACTION_ADDBA_REQ:
-					ieee80211_process_addba_request(
-							local, sta, mgmt, len);
-					break;
-				case WLAN_ACTION_ADDBA_RESP:
-					ieee80211_process_addba_resp(local, sta,
-								     mgmt, len);
-					break;
-				case WLAN_ACTION_DELBA:
-					ieee80211_process_delba(sdata, sta,
-								mgmt, len);
-					break;
-				default:
-					WARN_ON(1);
-					break;
-				}
-			}
-			mutex_unlock(&local->sta_mtx);
-		} else if (ieee80211_is_action(mgmt->frame_control) &&
-			   mgmt->u.action.category == WLAN_CATEGORY_VHT) {
-			switch (mgmt->u.action.u.vht_group_notif.action_code) {
-			case WLAN_VHT_ACTION_OPMODE_NOTIF: {
-				struct ieee80211_rx_status *status;
-				enum nl80211_band band;
-				u8 opmode;
-
-				status = IEEE80211_SKB_RXCB(skb);
-				band = status->band;
-				opmode = mgmt->u.action.u.vht_opmode_notif.operating_mode;
-
-				mutex_lock(&local->sta_mtx);
-				sta = sta_info_get_bss(sdata, mgmt->sa);
-
-				if (sta)
-					ieee80211_vht_handle_opmode(sdata, sta,
-								    opmode,
-								    band);
-
-				mutex_unlock(&local->sta_mtx);
-				break;
-			}
-			case WLAN_VHT_ACTION_GROUPID_MGMT:
-				ieee80211_process_mu_groups(sdata, mgmt);
-				break;
-			default:
-				WARN_ON(1);
-				break;
-			}
-		} else if (ieee80211_is_ext(mgmt->frame_control)) {
-			if (sdata->vif.type == NL80211_IFTYPE_STATION)
-				ieee80211_sta_rx_queued_ext(sdata, skb);
-			else
-				WARN_ON(1);
-		} else if (ieee80211_is_data_qos(mgmt->frame_control)) {
-			struct ieee80211_hdr *hdr = (void *)mgmt;
-			/*
-			 * So the frame isn't mgmt, but frame_control
-			 * is at the right place anyway, of course, so
-			 * the if statement is correct.
-			 *
-			 * Warn if we have other data frame types here,
-			 * they must not get here.
-			 */
-			WARN_ON(hdr->frame_control &
-					cpu_to_le16(IEEE80211_STYPE_NULLFUNC));
-			WARN_ON(!(hdr->seq_ctrl &
-					cpu_to_le16(IEEE80211_SCTL_FRAG)));
-			/*
-			 * This was a fragment of a frame, received while
-			 * a block-ack session was active. That cannot be
-			 * right, so terminate the session.
-			 */
-			mutex_lock(&local->sta_mtx);
-			sta = sta_info_get_bss(sdata, mgmt->sa);
-			if (sta) {
-				u16 tid = ieee80211_get_tid(hdr);
-
-				__ieee80211_stop_rx_ba_session(
-					sta, tid, WLAN_BACK_RECIPIENT,
-					WLAN_REASON_QSTA_REQUIRE_SETUP,
-					true);
-			}
-			mutex_unlock(&local->sta_mtx);
-		} else switch (sdata->vif.type) {
-		case NL80211_IFTYPE_STATION:
-			ieee80211_sta_rx_queued_mgmt(sdata, skb);
-			break;
-		case NL80211_IFTYPE_ADHOC:
-			ieee80211_ibss_rx_queued_mgmt(sdata, skb);
-			break;
-		case NL80211_IFTYPE_MESH_POINT:
-			if (!ieee80211_vif_is_mesh(&sdata->vif))
-				break;
-			ieee80211_mesh_rx_queued_mgmt(sdata, skb);
-			break;
-		default:
-			WARN(1, "frame for unexpected interface type");
-			break;
-		}
+		if (skb->protocol == cpu_to_be16(ETH_P_TDLS))
+			ieee80211_process_tdls_channel_switch(sdata, skb);
+		else
+			ieee80211_iface_process_skb(local, sdata, skb);
 
 		kfree_skb(skb);
+		kcov_remote_stop();
+	}
+
+	/* process status queue */
+	while ((skb = skb_dequeue(&sdata->status_queue))) {
+		kcov_remote_start_common(skb_get_kcov_handle(skb));
+
+		ieee80211_iface_process_status(sdata, skb);
+		kfree_skb(skb);
+
 		kcov_remote_stop();
 	}
 
@@ -1515,9 +1657,11 @@ static void ieee80211_setup_sdata(struct ieee80211_sub_if_data *sdata,
 	}
 
 	skb_queue_head_init(&sdata->skb_queue);
+	skb_queue_head_init(&sdata->status_queue);
 	INIT_WORK(&sdata->work, ieee80211_iface_work);
 	INIT_WORK(&sdata->recalc_smps, ieee80211_recalc_smps_work);
 	INIT_WORK(&sdata->csa_finalize_work, ieee80211_csa_finalize_work);
+	INIT_WORK(&sdata->color_change_finalize_work, ieee80211_color_change_finalize_work);
 	INIT_LIST_HEAD(&sdata->assigned_chanctx_list);
 	INIT_LIST_HEAD(&sdata->reserved_chanctx_list);
 
@@ -1593,6 +1737,9 @@ static int ieee80211_runtime_change_iftype(struct ieee80211_sub_if_data *sdata,
 
 	switch (sdata->vif.type) {
 	case NL80211_IFTYPE_AP:
+		if (!list_empty(&sdata->u.ap.vlans))
+			return -EBUSY;
+		break;
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_ADHOC:
 	case NL80211_IFTYPE_OCB:
@@ -1905,9 +2052,9 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 
 		ieee80211_assign_perm_addr(local, ndev->perm_addr, type);
 		if (is_valid_ether_addr(params->macaddr))
-			memcpy(ndev->dev_addr, params->macaddr, ETH_ALEN);
+			eth_hw_addr_set(ndev, params->macaddr);
 		else
-			memcpy(ndev->dev_addr, ndev->perm_addr, ETH_ALEN);
+			eth_hw_addr_set(ndev, ndev->perm_addr);
 		SET_NETDEV_DEV(ndev, wiphy_dev(local->hw.wiphy));
 
 		/* don't use IEEE80211_DEV_TO_SUB_IF -- it checks too much */
@@ -1928,8 +2075,7 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 	sdata->wdev.wiphy = local->hw.wiphy;
 	sdata->local = local;
 
-	for (i = 0; i < IEEE80211_FRAGMENT_MAX; i++)
-		skb_queue_head_init(&sdata->fragments[i].skb_list);
+	ieee80211_init_frag_cache(&sdata->frags);
 
 	INIT_LIST_HEAD(&sdata->key_list);
 
@@ -1962,6 +2108,9 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 		}
 	}
 
+	for (i = 0; i < IEEE80211_NUM_ACS; i++)
+		init_airtime_info(&sdata->airtime[i], &local->airtime[i]);
+
 	ieee80211_set_default_queues(sdata);
 
 	sdata->ap_power_level = IEEE80211_UNSET_POWER_LEVEL;
@@ -1983,9 +2132,16 @@ int ieee80211_if_add(struct ieee80211_local *local, const char *name,
 
 		netdev_set_default_ethtool_ops(ndev, &ieee80211_ethtool_ops);
 
-		/* MTU range: 256 - 2304 */
+		/* MTU range is normally 256 - 2304, where the upper limit is
+		 * the maximum MSDU size. Monitor interfaces send and receive
+		 * MPDU and A-MSDU frames which may be much larger so we do
+		 * not impose an upper limit in that case.
+		 */
 		ndev->min_mtu = 256;
-		ndev->max_mtu = local->hw.max_mtu;
+		if (type == NL80211_IFTYPE_MONITOR)
+			ndev->max_mtu = 0;
+		else
+			ndev->max_mtu = local->hw.max_mtu;
 
 		ret = cfg80211_register_netdevice(ndev);
 		if (ret) {

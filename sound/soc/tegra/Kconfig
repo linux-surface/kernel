@@ -108,6 +108,54 @@ config SND_SOC_TEGRA210_ADMAIF
 	  channel. Buffer size is configurable for each ADMAIIF channel.
 	  Say Y or M if you want to add support for Tegra210 ADMAIF module.
 
+config SND_SOC_TEGRA210_MVC
+	tristate "Tegra210 MVC module"
+	help
+	  Config to enable the digital Master Volume Controller (MVC) which
+	  provides gain or attenuation to a digital signal path. It can be
+	  used in input or output signal path. It can be used either for
+	  per-stream volume control or for master volume control.
+	  Say Y or M if you want to add support for Tegra210 MVC module.
+
+config SND_SOC_TEGRA210_SFC
+	tristate "Tegra210 SFC module"
+	help
+	  Config to enable the Sampling Frequency Converter (SFC) which
+	  converts the sampling frequency of input signal to another
+	  frequency. It supports sampling frequency conversion of streams
+	  upto 2 channels (stereo).
+	  Say Y or M if you want to add support for Tegra210 SFC module.
+
+config SND_SOC_TEGRA210_AMX
+	tristate "Tegra210 AMX module"
+	help
+	  Config to enable the Audio Multiplexer (AMX) which can multiplex
+	  four input streams (each of up to 16 channels) and generate
+	  output stream (of up to 16 channels). A byte RAM helps to form an
+	  output frame by any combination of bytes from the input frames.
+	  Say Y or M if you want to add support for Tegra210 AMX module.
+
+config SND_SOC_TEGRA210_ADX
+	tristate "Tegra210 ADX module"
+	help
+	  Config to enable the Audio Demultiplexer (ADX) which takes an
+	  input stream (up to 16 channels) and demultiplexes it into four
+	  output streams (each of up to 16 channels). A byte RAM helps to
+	  form output frames by any combination of bytes from the input
+	  frame. Its design is identical to that of byte RAM in the AMX
+	  except that the data flow direction is reversed.
+	  Say Y or M if you want to add support for Tegra210 ADX module.
+
+config SND_SOC_TEGRA210_MIXER
+	tristate "Tegra210 Mixer module"
+	help
+	  Config to enable the Mixer module which can help to mix multiple
+	  audio streams. It supports mixing of upto 10 input streams,
+	  where each stream can contain maximum of 8 channels. It supports
+	  5 output each of which can be a mix of any combination of 10
+	  input streams.
+	  Say Y or M if you want to add support for Tegra210 Mixer module.
+
 config SND_SOC_TEGRA_AUDIO_GRAPH_CARD
 	tristate "Audio Graph Card based Tegra driver"
 	depends on SND_AUDIO_GRAPH_CARD
@@ -117,9 +165,13 @@ config SND_SOC_TEGRA_AUDIO_GRAPH_CARD
 	  few things for Tegra audio. Most of the code is re-used from
 	  audio graph driver and the same DT bindings are used.
 
+config SND_SOC_TEGRA_MACHINE_DRV
+	tristate
+
 config SND_SOC_TEGRA_RT5640
 	tristate "SoC Audio support for Tegra boards using an RT5640 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_RT5640
 	help
 	  Say Y or M here if you want to add support for SoC audio on Tegra
@@ -128,6 +180,7 @@ config SND_SOC_TEGRA_RT5640
 config SND_SOC_TEGRA_WM8753
 	tristate "SoC Audio support for Tegra boards using a WM8753 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_WM8753
 	help
 	  Say Y or M here if you want to add support for SoC audio on Tegra
@@ -136,6 +189,7 @@ config SND_SOC_TEGRA_WM8753
 config SND_SOC_TEGRA_WM8903
 	tristate "SoC Audio support for Tegra boards using a WM8903 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_WM8903
 	help
 	  Say Y or M here if you want to add support for SoC audio on Tegra
@@ -145,6 +199,7 @@ config SND_SOC_TEGRA_WM8903
 config SND_SOC_TEGRA_WM9712
 	tristate "SoC Audio support for Tegra boards using a WM9712 codec"
 	depends on GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_TEGRA20_AC97
 	select SND_SOC_WM9712
 	help
@@ -154,6 +209,7 @@ config SND_SOC_TEGRA_WM9712
 config SND_SOC_TEGRA_TRIMSLICE
 	tristate "SoC Audio support for TrimSlice board"
 	depends on I2C
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_TLV320AIC23_I2C
 	help
 	  Say Y or M here if you want to add support for SoC audio on the
@@ -162,6 +218,7 @@ config SND_SOC_TEGRA_TRIMSLICE
 config SND_SOC_TEGRA_ALC5632
 	tristate "SoC Audio support for Tegra boards using an ALC5632 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_ALC5632
 	help
 	  Say Y or M here if you want to add support for SoC audio on the
@@ -170,6 +227,7 @@ config SND_SOC_TEGRA_ALC5632
 config SND_SOC_TEGRA_MAX98090
 	tristate "SoC Audio support for Tegra boards using a MAX98090 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_MAX98090
 	help
 	  Say Y or M here if you want to add support for SoC audio on Tegra
@@ -178,6 +236,7 @@ config SND_SOC_TEGRA_MAX98090
 config SND_SOC_TEGRA_RT5677
 	tristate "SoC Audio support for Tegra boards using a RT5677 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_RT5677
 	help
 	  Say Y or M here if you want to add support for SoC audio on Tegra
@@ -186,6 +245,7 @@ config SND_SOC_TEGRA_RT5677
 config SND_SOC_TEGRA_SGTL5000
 	tristate "SoC Audio support for Tegra boards using a SGTL5000 codec"
 	depends on I2C && GPIOLIB
+	select SND_SOC_TEGRA_MACHINE_DRV
 	select SND_SOC_SGTL5000
 	help
 	  Say Y or M here if you want to add support for SoC audio on Tegra

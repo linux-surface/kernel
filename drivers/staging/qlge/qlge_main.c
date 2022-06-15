@@ -321,8 +321,8 @@ int qlge_get_mac_addr_reg(struct qlge_adapter *qdev, u32 type, u16 index,
 /* Set up a MAC, multicast or VLAN address for the
  * inbound frame matching.
  */
-static int qlge_set_mac_addr_reg(struct qlge_adapter *qdev, u8 *addr, u32 type,
-				 u16 index)
+static int qlge_set_mac_addr_reg(struct qlge_adapter *qdev, const u8 *addr,
+				 u32 type, u16 index)
 {
 	u32 offset = 0;
 	int status = 0;
@@ -441,7 +441,7 @@ static int qlge_set_mac_addr(struct qlge_adapter *qdev, int set)
 	status = qlge_sem_spinlock(qdev, SEM_MAC_ADDR_MASK);
 	if (status)
 		return status;
-	status = qlge_set_mac_addr_reg(qdev, (u8 *)addr,
+	status = qlge_set_mac_addr_reg(qdev, (const u8 *)addr,
 				       MAC_ADDR_TYPE_CAM_MAC,
 				       qdev->func * MAX_CQ);
 	qlge_sem_unlock(qdev, SEM_MAC_ADDR_MASK);
@@ -724,9 +724,7 @@ static int qlge_get_8000_flash_params(struct qlge_adapter *qdev)
 		goto exit;
 	}
 
-	memcpy(qdev->ndev->dev_addr,
-	       mac_addr,
-	       qdev->ndev->addr_len);
+	eth_hw_addr_set(qdev->ndev, mac_addr);
 
 exit:
 	qlge_sem_unlock(qdev, SEM_FLASH_MASK);
@@ -774,9 +772,7 @@ static int qlge_get_8012_flash_params(struct qlge_adapter *qdev)
 		goto exit;
 	}
 
-	memcpy(qdev->ndev->dev_addr,
-	       qdev->flash.flash_params_8012.mac_addr,
-	       qdev->ndev->addr_len);
+	eth_hw_addr_set(qdev->ndev, qdev->flash.flash_params_8012.mac_addr);
 
 exit:
 	qlge_sem_unlock(qdev, SEM_FLASH_MASK);
@@ -1389,7 +1385,7 @@ static void qlge_categorize_rx_err(struct qlge_adapter *qdev, u8 rx_err,
 	}
 }
 
-/**
+/*
  * qlge_update_mac_hdr_len - helper routine to update the mac header length
  * based on vlan tags if present
  */
@@ -2235,7 +2231,7 @@ static void qlge_vlan_mode(struct net_device *ndev, netdev_features_t features)
 	}
 }
 
-/**
+/*
  * qlge_update_hw_vlan_features - helper routine to reinitialize the adapter
  * based on the features to enable/disable hardware vlan accel
  */
@@ -2796,12 +2792,8 @@ static int qlge_init_bq(struct qlge_bq *bq)
 
 	bq->base = dma_alloc_coherent(&qdev->pdev->dev, QLGE_BQ_SIZE,
 				      &bq->base_dma, GFP_ATOMIC);
-	if (!bq->base) {
-		netif_err(qdev, ifup, qdev->ndev,
-			  "ring %u %s allocation failed.\n", rx_ring->cq_id,
-			  bq_type_name[bq->type]);
+	if (!bq->base)
 		return -ENOMEM;
-	}
 
 	bq->queue = kmalloc_array(QLGE_BQ_LEN, sizeof(struct qlge_bq_desc),
 				  GFP_KERNEL);
@@ -3815,8 +3807,7 @@ static int qlge_adapter_down(struct qlge_adapter *qdev)
 
 	qlge_tx_ring_clean(qdev);
 
-	/* Call netif_napi_del() from common point.
-	*/
+	/* Call netif_napi_del() from common point. */
 	for (i = 0; i < qdev->rss_ring_count; i++)
 		netif_napi_del(&qdev->rx_ring[i].napi);
 
@@ -4219,14 +4210,14 @@ static int qlge_set_mac_address(struct net_device *ndev, void *p)
 
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
-	memcpy(ndev->dev_addr, addr->sa_data, ndev->addr_len);
+	eth_hw_addr_set(ndev, addr->sa_data);
 	/* Update local copy of current mac address. */
 	memcpy(qdev->current_mac_addr, ndev->dev_addr, ndev->addr_len);
 
 	status = qlge_sem_spinlock(qdev, SEM_MAC_ADDR_MASK);
 	if (status)
 		return status;
-	status = qlge_set_mac_addr_reg(qdev, (u8 *)ndev->dev_addr,
+	status = qlge_set_mac_addr_reg(qdev, (const u8 *)ndev->dev_addr,
 				       MAC_ADDR_TYPE_CAM_MAC,
 				       qdev->func * MAX_CQ);
 	if (status)
@@ -4550,9 +4541,10 @@ static int qlge_probe(struct pci_dev *pdev,
 	struct net_device *ndev = NULL;
 	struct devlink *devlink;
 	static int cards_found;
-	int err = 0;
+	int err;
 
-	devlink = devlink_alloc(&qlge_devlink_ops, sizeof(struct qlge_adapter));
+	devlink = devlink_alloc(&qlge_devlink_ops, sizeof(struct qlge_adapter),
+				&pdev->dev);
 	if (!devlink)
 		return -ENOMEM;
 
@@ -4561,8 +4553,10 @@ static int qlge_probe(struct pci_dev *pdev,
 	ndev = alloc_etherdev_mq(sizeof(struct qlge_netdev_priv),
 				 min(MAX_CPUS,
 				     netif_get_num_default_rss_queues()));
-	if (!ndev)
+	if (!ndev) {
+		err = -ENOMEM;
 		goto devlink_free;
+	}
 
 	ndev_priv = netdev_priv(ndev);
 	ndev_priv->qdev = qdev;
@@ -4611,16 +4605,13 @@ static int qlge_probe(struct pci_dev *pdev,
 	err = register_netdev(ndev);
 	if (err) {
 		dev_err(&pdev->dev, "net device registration failed.\n");
-		qlge_release_all(pdev);
-		pci_disable_device(pdev);
-		goto netdev_free;
+		goto cleanup_pdev;
 	}
 
-	err = devlink_register(devlink, &pdev->dev);
+	err = qlge_health_create_reporters(qdev);
 	if (err)
-		goto netdev_free;
+		goto unregister_netdev;
 
-	qlge_health_create_reporters(qdev);
 	/* Start up the timer to trigger EEH if
 	 * the bus goes dead
 	 */
@@ -4630,8 +4621,14 @@ static int qlge_probe(struct pci_dev *pdev,
 	qlge_display_dev_info(ndev);
 	atomic_set(&qdev->lb_count, 0);
 	cards_found++;
+	devlink_register(devlink);
 	return 0;
 
+unregister_netdev:
+	unregister_netdev(ndev);
+cleanup_pdev:
+	qlge_release_all(pdev);
+	pci_disable_device(pdev);
 netdev_free:
 	free_netdev(ndev);
 devlink_free:
@@ -4656,13 +4653,13 @@ static void qlge_remove(struct pci_dev *pdev)
 	struct net_device *ndev = qdev->ndev;
 	struct devlink *devlink = priv_to_devlink(qdev);
 
+	devlink_unregister(devlink);
 	del_timer_sync(&qdev->timer);
 	qlge_cancel_all_work_sync(qdev);
 	unregister_netdev(ndev);
 	qlge_release_all(pdev);
 	pci_disable_device(pdev);
 	devlink_health_reporter_destroy(qdev->reporter);
-	devlink_unregister(devlink);
 	devlink_free(devlink);
 	free_netdev(ndev);
 }

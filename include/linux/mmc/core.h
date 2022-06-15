@@ -164,9 +164,8 @@ struct mmc_request {
 	int			tag;
 
 #ifdef CONFIG_MMC_CRYPTO
-	bool			crypto_enabled;
+	const struct bio_crypt_ctx *crypto_ctx;
 	int			crypto_key_slot;
-	u32			data_unit_num;
 #endif
 };
 
@@ -176,7 +175,7 @@ void mmc_wait_for_req(struct mmc_host *host, struct mmc_request *mrq);
 int mmc_wait_for_cmd(struct mmc_host *host, struct mmc_command *cmd,
 		int retries);
 
-int mmc_hw_reset(struct mmc_host *host);
+int mmc_hw_reset(struct mmc_card *card);
 int mmc_sw_reset(struct mmc_host *host);
 void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card);
 

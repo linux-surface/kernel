@@ -159,7 +159,7 @@ struct rk_nfc_nand_chip {
 	u32 timing;
 
 	u8 nsels;
-	u8 sels[0];
+	u8 sels[];
 	/* Nothing after this field. */
 };
 
@@ -1403,7 +1403,6 @@ static int rk_nfc_probe(struct platform_device *pdev)
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
-		dev_err(dev, "no NFC irq resource\n");
 		ret = -EINVAL;
 		goto clk_disable;
 	}

@@ -129,6 +129,9 @@
 #define REG_MCU_TST_CFG		0x84
 #define VAL_FW_TRIGGER		0x1
 
+#define REG_PMC_DBG_CTRL1	0xa8
+#define BITS_PMC_BT_IQK_STS	GENMASK(22, 21)
+
 #define REG_EFUSE_ACCESS	0x00CF
 #define EFUSE_ACCESS_ON		0x69
 #define EFUSE_ACCESS_OFF	0x00
@@ -358,9 +361,12 @@
 #define REG_AGGR_BREAK_TIME	0x051A
 #define REG_SLOT		0x051B
 #define REG_TX_PTCL_CTRL	0x0520
+#define BIT_DIS_EDCCA		BIT(15)
 #define BIT_SIFS_BK_EN		BIT(12)
 #define REG_TXPAUSE		0x0522
+#define BIT_AC_QUEUE		GENMASK(7, 0)
 #define REG_RD_CTRL		0x0524
+#define BIT_EDCCA_MSK_CNTDOWN_EN BIT(11)
 #define BIT_DIS_TXOP_CFE	BIT(10)
 #define BIT_DIS_LSIG_CFE	BIT(9)
 #define BIT_DIS_STBC_CFE	BIT(8)
@@ -402,6 +408,7 @@
 #define BIT_MFBEN		BIT(22)
 #define BIT_DISCHKPPDLLEN	BIT(21)
 #define BIT_PKTCTL_DLEN		BIT(20)
+#define BIT_DISGCLK		BIT(19)
 #define BIT_TIM_PARSER_EN	BIT(18)
 #define BIT_BC_MD_EN		BIT(17)
 #define BIT_UC_MD_EN		BIT(16)
@@ -516,6 +523,7 @@
 #define BIT_RFE_BUF_EN		BIT(3)
 
 #define REG_ANAPAR_XTAL_0	0x1040
+#define BIT_XCAP_0		GENMASK(23, 10)
 #define REG_CPU_DMEM_CON	0x1080
 #define BIT_WL_PLATFORM_RST	BIT(16)
 #define BIT_WL_SECURITY_CLK	BIT(15)
@@ -534,6 +542,7 @@
 #define BIT_DDMACH0_OWN		BIT(31)
 #define BIT_DDMACH0_CHKSUM_EN	BIT(29)
 #define BIT_DDMACH0_CHKSUM_STS	BIT(27)
+#define BIT_DDMACH0_DDMA_MODE	BIT(26)
 #define BIT_DDMACH0_RESET_CHKSUM_STS BIT(25)
 #define BIT_DDMACH0_CHKSUM_CONT	BIT(24)
 #define BIT_MASK_DDMACH0_DLEN	0x3ffff
@@ -634,6 +643,9 @@
 
 #define REG_HRCV_MSG	0x1cf
 
+#define REG_EDCCA_REPORT	0x2d38
+#define BIT_EDCCA_FLAG		BIT(24)
+
 #define REG_IGN_GNTBT4	0x4160
 
 #define RF_MODE		0x00
@@ -642,21 +654,30 @@
 #define RF_WLSEL	0x02
 #define RF_DTXLOK	0x08
 #define RF_CFGCH	0x18
+#define BIT_BAND	GENMASK(18, 16)
 #define RF_RCK		0x1d
 #define RF_LUTWA	0x33
 #define RF_LUTWD1	0x3e
 #define RF_LUTWD0	0x3f
+#define BIT_GAIN_EXT	BIT(12)
+#define BIT_DATA_L	GENMASK(11, 0)
 #define RF_T_METER	0x42
 #define RF_BSPAD	0x54
 #define RF_GAINTX	0x56
 #define RF_TXATANK	0x64
 #define RF_TRXIQ	0x66
 #define RF_RXIQGEN	0x8d
+#define RF_SYN_PFD	0xb0
 #define RF_XTALX2	0xb8
+#define RF_SYN_CTRL	0xbb
 #define RF_MALSEL	0xbe
+#define RF_SYN_AAC	0xc9
+#define RF_AAC_CTRL	0xca
+#define RF_FAST_LCK	0xcc
 #define RF_RCKD		0xde
 #define RF_TXADBG	0xde
 #define RF_LUTDBG	0xdf
+#define BIT_TXA_TANK	BIT(4)
 #define RF_LUTWE2	0xee
 #define RF_LUTWE	0xef
 

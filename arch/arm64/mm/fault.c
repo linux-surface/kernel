@@ -99,6 +99,8 @@ static void mem_abort_decode(unsigned int esr)
 	pr_alert("  EA = %lu, S1PTW = %lu\n",
 		 (esr & ESR_ELx_EA) >> ESR_ELx_EA_SHIFT,
 		 (esr & ESR_ELx_S1PTW) >> ESR_ELx_S1PTW_SHIFT);
+	pr_alert("  FSC = 0x%02x: %s\n", (esr & ESR_ELx_FSC),
+		 esr_to_fault_info(esr)->name);
 
 	if (esr_is_data_abort(esr))
 		data_abort_decode(esr);
@@ -232,13 +234,17 @@ static bool is_el1_instruction_abort(unsigned int esr)
 	return ESR_ELx_EC(esr) == ESR_ELx_EC_IABT_CUR;
 }
 
+static bool is_el1_data_abort(unsigned int esr)
+{
+	return ESR_ELx_EC(esr) == ESR_ELx_EC_DABT_CUR;
+}
+
 static inline bool is_el1_permission_fault(unsigned long addr, unsigned int esr,
 					   struct pt_regs *regs)
 {
-	unsigned int ec       = ESR_ELx_EC(esr);
 	unsigned int fsc_type = esr & ESR_ELx_FSC_TYPE;
 
-	if (ec != ESR_ELx_EC_DABT_CUR && ec != ESR_ELx_EC_IABT_CUR)
+	if (!is_el1_data_abort(esr) && !is_el1_instruction_abort(esr))
 		return false;
 
 	if (fsc_type == ESR_ELx_FSC_PERM)
@@ -258,7 +264,7 @@ static bool __kprobes is_spurious_el1_translation_fault(unsigned long addr,
 	unsigned long flags;
 	u64 par, dfsc;
 
-	if (ESR_ELx_EC(esr) != ESR_ELx_EC_DABT_CUR ||
+	if (!is_el1_data_abort(esr) ||
 	    (esr & ESR_ELx_FSC_TYPE) != ESR_ELx_FSC_FAULT)
 		return false;
 
@@ -291,36 +297,25 @@ static void die_kernel_fault(const char *msg, unsigned long addr,
 	pr_alert("Unable to handle kernel %s at virtual address %016lx\n", msg,
 		 addr);
 
+	kasan_non_canonical_hook(addr);
+
 	mem_abort_decode(esr);
 
 	show_pte(addr);
 	die("Oops", regs, esr);
 	bust_spinlocks(0);
-	do_exit(SIGKILL);
+	make_task_dead(SIGKILL);
 }
 
 #ifdef CONFIG_KASAN_HW_TAGS
 static void report_tag_fault(unsigned long addr, unsigned int esr,
 			     struct pt_regs *regs)
 {
-	static bool reported;
-	bool is_write;
-
-	if (READ_ONCE(reported))
-		return;
-
-	/*
-	 * This is used for KASAN tests and assumes that no MTE faults
-	 * happened before running the tests.
-	 */
-	if (mte_report_once())
-		WRITE_ONCE(reported, true);
-
 	/*
 	 * SAS bits aren't set for all faults reported in EL1, so we can't
 	 * find out access size.
 	 */
-	is_write = !!(esr & ESR_ELx_WNR);
+	bool is_write = !!(esr & ESR_ELx_WNR);
 	kasan_report(addr, 0, is_write, regs->pc);
 }
 #else
@@ -346,10 +341,9 @@ static void do_tag_recovery(unsigned long addr, unsigned int esr,
 
 static bool is_el1_mte_sync_tag_check_fault(unsigned int esr)
 {
-	unsigned int ec = ESR_ELx_EC(esr);
 	unsigned int fsc = esr & ESR_ELx_FSC;
 
-	if (ec != ESR_ELx_EC_DABT_CUR)
+	if (!is_el1_data_abort(esr))
 		return false;
 
 	if (fsc == ESR_ELx_FSC_MTE)
@@ -504,7 +498,7 @@ static vm_fault_t __do_page_fault(struct mm_struct *mm, unsigned long addr,
 	 */
 	if (!(vma->vm_flags & vm_flags))
 		return VM_FAULT_BADACCESS;
-	return handle_mm_fault(vma, addr & PAGE_MASK, mm_flags, regs);
+	return handle_mm_fault(vma, addr, mm_flags, regs);
 }
 
 static bool is_el0_instruction_abort(unsigned int esr)
@@ -527,7 +521,7 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 	const struct fault_info *inf;
 	struct mm_struct *mm = current->mm;
 	vm_fault_t fault;
-	unsigned long vm_flags = VM_ACCESS_FLAGS;
+	unsigned long vm_flags;
 	unsigned int mm_flags = FAULT_FLAG_DEFAULT;
 	unsigned long addr = untagged_addr(far);
 
@@ -544,12 +538,28 @@ static int __kprobes do_page_fault(unsigned long far, unsigned int esr,
 	if (user_mode(regs))
 		mm_flags |= FAULT_FLAG_USER;
 
+	/*
+	 * vm_flags tells us what bits we must have in vma->vm_flags
+	 * for the fault to be benign, __do_page_fault() would check
+	 * vma->vm_flags & vm_flags and returns an error if the
+	 * intersection is empty
+	 */
 	if (is_el0_instruction_abort(esr)) {
+		/* It was exec fault */
 		vm_flags = VM_EXEC;
 		mm_flags |= FAULT_FLAG_INSTRUCTION;
 	} else if (is_write_abort(esr)) {
+		/* It was write fault */
 		vm_flags = VM_WRITE;
 		mm_flags |= FAULT_FLAG_WRITE;
+	} else {
+		/* It was read fault */
+		vm_flags = VM_READ;
+		/* Write implies read */
+		vm_flags |= VM_WRITE;
+		/* If EPAN is absent then exec implies read */
+		if (!cpus_have_const_cap(ARM64_HAS_EPAN))
+			vm_flags |= VM_EXEC;
 	}
 
 	if (is_ttbr0_addr(addr) && is_el1_permission_fault(addr, esr, regs)) {
@@ -598,10 +608,8 @@ retry:
 	}
 
 	if (fault & VM_FAULT_RETRY) {
-		if (mm_flags & FAULT_FLAG_ALLOW_RETRY) {
-			mm_flags |= FAULT_FLAG_TRIED;
-			goto retry;
-		}
+		mm_flags |= FAULT_FLAG_TRIED;
+		goto retry;
 	}
 	mmap_read_unlock(mm);
 
@@ -805,11 +813,8 @@ void do_mem_abort(unsigned long far, unsigned int esr, struct pt_regs *regs)
 	if (!inf->fn(far, esr, regs))
 		return;
 
-	if (!user_mode(regs)) {
-		pr_alert("Unhandled fault at 0x%016lx\n", addr);
-		mem_abort_decode(esr);
-		show_pte(addr);
-	}
+	if (!user_mode(regs))
+		die_kernel_fault(inf->name, addr, esr, regs);
 
 	/*
 	 * At this point we have an unrecognized fault type whose tag bits may
@@ -819,13 +824,6 @@ void do_mem_abort(unsigned long far, unsigned int esr, struct pt_regs *regs)
 	arm64_notify_die(inf->name, regs, inf->sig, inf->code, addr, esr);
 }
 NOKPROBE_SYMBOL(do_mem_abort);
-
-void do_el0_irq_bp_hardening(void)
-{
-	/* PC has already been checked in entry.S */
-	arm64_apply_bp_hardening();
-}
-NOKPROBE_SYMBOL(do_el0_irq_bp_hardening);
 
 void do_sp_pc_abort(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
@@ -905,3 +903,29 @@ void do_debug_exception(unsigned long addr_if_watchpoint, unsigned int esr,
 	debug_exception_exit(regs);
 }
 NOKPROBE_SYMBOL(do_debug_exception);
+
+/*
+ * Used during anonymous page fault handling.
+ */
+struct page *alloc_zeroed_user_highpage_movable(struct vm_area_struct *vma,
+						unsigned long vaddr)
+{
+	gfp_t flags = GFP_HIGHUSER_MOVABLE | __GFP_ZERO;
+
+	/*
+	 * If the page is mapped with PROT_MTE, initialise the tags at the
+	 * point of allocation and page zeroing as this is usually faster than
+	 * separate DC ZVA and STGM.
+	 */
+	if (vma->vm_flags & VM_MTE)
+		flags |= __GFP_ZEROTAGS;
+
+	return alloc_page_vma(flags, vma, vaddr);
+}
+
+void tag_clear_highpage(struct page *page)
+{
+	mte_zero_clear_page_tags(page_address(page));
+	page_kasan_tag_reset(page);
+	set_bit(PG_mte_tagged, &page->flags);
+}

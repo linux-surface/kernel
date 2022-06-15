@@ -2094,7 +2094,7 @@ static int dsi_vc_send_long(struct dsi_data *dsi, int vc,
 	u8 b1, b2, b3, b4;
 
 	if (dsi->debug_write)
-		DSSDBG("dsi_vc_send_long, %d bytes\n", msg->tx_len);
+		DSSDBG("dsi_vc_send_long, %zu bytes\n", msg->tx_len);
 
 	/* len + header */
 	if (dsi->vc[vc].tx_fifo_size * 32 * 4 < msg->tx_len + 4) {
@@ -2149,11 +2149,12 @@ static int dsi_vc_send_short(struct dsi_data *dsi, int vc,
 			     const struct mipi_dsi_msg *msg)
 {
 	struct mipi_dsi_packet pkt;
+	int ret;
 	u32 r;
 
-	r = mipi_dsi_create_packet(&pkt, msg);
-	if (r < 0)
-		return r;
+	ret = mipi_dsi_create_packet(&pkt, msg);
+	if (ret < 0)
+		return ret;
 
 	WARN_ON(!dsi_bus_is_locked(dsi));
 
@@ -2389,7 +2390,7 @@ static int dsi_vc_generic_read(struct omap_dss_device *dssdev, int vc,
 
 	return 0;
 err:
-	DSSERR("%s(vc %d, reqlen %d) failed\n", __func__,  vc, msg->tx_len);
+	DSSERR("%s(vc %d, reqlen %zu) failed\n", __func__,  vc, msg->tx_len);
 	return r;
 }
 
@@ -4326,7 +4327,8 @@ static int omap_dsi_register_te_irq(struct dsi_data *dsi,
 	irq_set_status_flags(te_irq, IRQ_NOAUTOEN);
 
 	err = request_threaded_irq(te_irq, NULL, omap_dsi_te_irq_handler,
-				   IRQF_TRIGGER_RISING, "TE", dsi);
+				   IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				   "TE", dsi);
 	if (err) {
 		dev_err(dsi->dev, "request irq failed with %d\n", err);
 		gpiod_put(dsi->te_gpio);
@@ -4882,7 +4884,6 @@ static int dsi_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct dsi_data *dsi;
 	struct resource *dsi_mem;
-	struct resource *res;
 	unsigned int i;
 	int r;
 
@@ -4919,13 +4920,11 @@ static int dsi_probe(struct platform_device *pdev)
 	if (IS_ERR(dsi->proto_base))
 		return PTR_ERR(dsi->proto_base);
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "phy");
-	dsi->phy_base = devm_ioremap_resource(dev, res);
+	dsi->phy_base = devm_platform_ioremap_resource_byname(pdev, "phy");
 	if (IS_ERR(dsi->phy_base))
 		return PTR_ERR(dsi->phy_base);
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pll");
-	dsi->pll_base = devm_ioremap_resource(dev, res);
+	dsi->pll_base = devm_platform_ioremap_resource_byname(pdev, "pll");
 	if (IS_ERR(dsi->pll_base))
 		return PTR_ERR(dsi->pll_base);
 
@@ -5059,7 +5058,7 @@ static int dsi_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int dsi_runtime_suspend(struct device *dev)
+static __maybe_unused int dsi_runtime_suspend(struct device *dev)
 {
 	struct dsi_data *dsi = dev_get_drvdata(dev);
 
@@ -5072,7 +5071,7 @@ static int dsi_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int dsi_runtime_resume(struct device *dev)
+static __maybe_unused int dsi_runtime_resume(struct device *dev)
 {
 	struct dsi_data *dsi = dev_get_drvdata(dev);
 
@@ -5084,8 +5083,7 @@ static int dsi_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops dsi_pm_ops = {
-	.runtime_suspend = dsi_runtime_suspend,
-	.runtime_resume = dsi_runtime_resume,
+	SET_RUNTIME_PM_OPS(dsi_runtime_suspend, dsi_runtime_resume, NULL)
 	SET_LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
 };
 
