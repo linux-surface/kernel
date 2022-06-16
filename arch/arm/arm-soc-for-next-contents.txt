@@ -1,0 +1,28 @@
+arm/soc
+
+arm/dt
+
+arm/drivers
+
+arm/defconfig
+
+arm/late
+
+arm/fixes
+	<no branch> (7c7eaeefb0ae226da9233d5db265652d900e1fcb)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.19
+	<no branch> (44dbdf3bb3f44bf08897ed5f22eb262edcf3d926)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-fixes-5.19
+	patch
+		ARM: dts: stm32: move SCMI related nodes in a dedicated file for stm32mp15
+		ARM: Fix refcount leak in axxia_boot_secondary
+	<no branch> (680c0aee97690c3f595e074a5f677599aac5d26b)
+		https://github.com/chesterlintw/linux-s32g tags/s32g2-fixes-5.19
+	<no branch> (37d838de369b07b596c19ff3662bf0293fdb09ee)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/drivers-fixes
+	<no branch> (46d6e11320d21dc40fce229ab3504125847de27e)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/maintainers-fixes
+	patch
+		bus: bt1-apb: Don't print error on -EPROBE_DEFER
+		bus: bt1-axi: Don't print error on -EPROBE_DEFER
+
