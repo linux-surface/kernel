@@ -86,6 +86,10 @@ static int imx_cpufreq_dt_probe(struct platform_device *pdev)
 	u32 cell_value, supported_hw[2];
 	int speed_grade, mkt_segment;
 	int ret;
+	struct dev_pm_opp_config config = {
+		.supported_hw = supported_hw,
+		.supported_hw_count = ARRAY_SIZE(supported_hw),
+	};
 
 	cpu_dev = get_cpu_device(0);
 
@@ -153,17 +157,17 @@ static int imx_cpufreq_dt_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "cpu speed grade %d mkt segment %d supported-hw %#x %#x\n",
 			speed_grade, mkt_segment, supported_hw[0], supported_hw[1]);
 
-	cpufreq_opp_table = dev_pm_opp_set_supported_hw(cpu_dev, supported_hw, 2);
+	cpufreq_opp_table = dev_pm_opp_set_config(cpu_dev, &config);
 	if (IS_ERR(cpufreq_opp_table)) {
 		ret = PTR_ERR(cpufreq_opp_table);
-		dev_err(&pdev->dev, "Failed to set supported opp: %d\n", ret);
+		dev_err(&pdev->dev, "Failed to set Opp config: %d\n", ret);
 		return ret;
 	}
 
 	cpufreq_dt_pdev = platform_device_register_data(
 			&pdev->dev, "cpufreq-dt", -1, NULL, 0);
 	if (IS_ERR(cpufreq_dt_pdev)) {
-		dev_pm_opp_put_supported_hw(cpufreq_opp_table);
+		dev_pm_opp_clear_config(cpufreq_opp_table);
 		ret = PTR_ERR(cpufreq_dt_pdev);
 		dev_err(&pdev->dev, "Failed to register cpufreq-dt: %d\n", ret);
 		return ret;
@@ -176,7 +180,7 @@ static int imx_cpufreq_dt_remove(struct platform_device *pdev)
 {
 	platform_device_unregister(cpufreq_dt_pdev);
 	if (!of_machine_is_compatible("fsl,imx7ulp"))
-		dev_pm_opp_put_supported_hw(cpufreq_opp_table);
+		dev_pm_opp_clear_config(cpufreq_opp_table);
 	else
 		clk_bulk_put(ARRAY_SIZE(imx7ulp_clks), imx7ulp_clks);
 

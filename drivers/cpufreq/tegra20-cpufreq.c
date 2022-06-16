@@ -34,7 +34,7 @@ static bool cpu0_node_has_opp_v2_prop(void)
 
 static void tegra20_cpufreq_put_supported_hw(void *opp_table)
 {
-	dev_pm_opp_put_supported_hw(opp_table);
+	dev_pm_opp_clear_config(opp_table);
 }
 
 static void tegra20_cpufreq_dt_unregister(void *cpufreq_dt)
@@ -49,6 +49,10 @@ static int tegra20_cpufreq_probe(struct platform_device *pdev)
 	struct device *cpu_dev;
 	u32 versions[2];
 	int err;
+	struct dev_pm_opp_config config = {
+		.supported_hw = versions,
+		.supported_hw_count = ARRAY_SIZE(versions),
+	};
 
 	if (!cpu0_node_has_opp_v2_prop()) {
 		dev_err(&pdev->dev, "operating points not found\n");
@@ -71,10 +75,10 @@ static int tegra20_cpufreq_probe(struct platform_device *pdev)
 	if (WARN_ON(!cpu_dev))
 		return -ENODEV;
 
-	opp_table = dev_pm_opp_set_supported_hw(cpu_dev, versions, 2);
+	opp_table = dev_pm_opp_set_config(cpu_dev, &config);
 	err = PTR_ERR_OR_ZERO(opp_table);
 	if (err) {
-		dev_err(&pdev->dev, "failed to set supported hw: %d\n", err);
+		dev_err(&pdev->dev, "failed to set OPP config: %d\n", err);
 		return err;
 	}
 

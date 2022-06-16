@@ -1386,6 +1386,10 @@ static int tegra_pmc_core_pd_add(struct tegra_pmc *pmc, struct device_node *np)
 	struct generic_pm_domain *genpd;
 	const char *rname = "core";
 	int err;
+	struct dev_pm_opp_config config = {
+		.regulator_names = &rname,
+		.regulator_count = 1,
+	};
 
 	genpd = devm_kzalloc(pmc->dev, sizeof(*genpd), GFP_KERNEL);
 	if (!genpd)
@@ -1395,10 +1399,10 @@ static int tegra_pmc_core_pd_add(struct tegra_pmc *pmc, struct device_node *np)
 	genpd->set_performance_state = tegra_pmc_core_pd_set_performance_state;
 	genpd->opp_to_performance_state = tegra_pmc_core_pd_opp_to_performance_state;
 
-	err = devm_pm_opp_set_regulators(pmc->dev, &rname, 1);
+	err = devm_pm_opp_set_config(pmc->dev, &config);
 	if (err)
 		return dev_err_probe(pmc->dev, err,
-				     "failed to set core OPP regulator\n");
+				     "failed to set OPP config\n");
 
 	err = pm_genpd_init(genpd, NULL, false);
 	if (err) {

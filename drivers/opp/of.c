@@ -767,7 +767,54 @@ void dev_pm_opp_of_remove_table(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(dev_pm_opp_of_remove_table);
 
-static int _read_bw(struct dev_pm_opp *new_opp, struct opp_table *table,
+static int _read_rate(struct dev_pm_opp *new_opp, struct opp_table *opp_table,
+		      struct device_node *np)
+{
+	struct property *prop;
+	int i, count, ret;
+	u64 *rates;
+
+	if (!opp_table->clk_count)
+		return 0;
+
+	prop = of_find_property(np, "opp-hz", NULL);
+	if (!prop)
+		return -ENODEV;
+
+	count = prop->length / sizeof(u64);
+	if (opp_table->clk_count != count) {
+		pr_err("%s: Count mismatch between opp-hz and clk_count (%d %d)\n",
+		       __func__, count, opp_table->clk_count);
+		return -EINVAL;
+	}
+
+	rates = kmalloc_array(count, sizeof(*rates), GFP_KERNEL);
+	if (!rates)
+		return -ENOMEM;
+
+	ret = of_property_read_u64_array(np, "opp-hz", rates, count);
+	if (ret) {
+		pr_err("%s: Error parsing opp-hz: %d\n", __func__, ret);
+	} else {
+		/*
+		 * Rate is defined as an unsigned long in clk API, and so
+		 * casting explicitly to its type. Must be fixed once rate is 64
+		 * bit guaranteed in clk API.
+		 */
+		for (i = 0; i < count; i++) {
+			new_opp->rates[i] = (unsigned long)rates[i];
+
+			/* This will happen for frequencies > 4.29 GHz */
+			WARN_ON(new_opp->rates[i] != rates[i]);
+		}
+	}
+
+	kfree(rates);
+
+	return ret;
+}
+
+static int _read_bw(struct dev_pm_opp *new_opp, struct opp_table *opp_table,
 		    struct device_node *np, bool peak)
 {
 	const char *name = peak ? "opp-peak-kBps" : "opp-avg-kBps";
@@ -780,9 +827,9 @@ static int _read_bw(struct dev_pm_opp *new_opp, struct opp_table *table,
 		return -ENODEV;
 
 	count = prop->length / sizeof(u32);
-	if (table->path_count != count) {
+	if (opp_table->path_count != count) {
 		pr_err("%s: Mismatch between %s and paths (%d %d)\n",
-				__func__, name, count, table->path_count);
+				__func__, name, count, opp_table->path_count);
 		return -EINVAL;
 	}
 
@@ -808,34 +855,27 @@ out:
 	return ret;
 }
 
-static int _read_opp_key(struct dev_pm_opp *new_opp, struct opp_table *table,
-			 struct device_node *np, bool *rate_not_available)
+static int _read_opp_key(struct dev_pm_opp *new_opp,
+			 struct opp_table *opp_table, struct device_node *np)
 {
 	bool found = false;
-	u64 rate;
 	int ret;
 
-	ret = of_property_read_u64(np, "opp-hz", &rate);
-	if (!ret) {
-		/*
-		 * Rate is defined as an unsigned long in clk API, and so
-		 * casting explicitly to its type. Must be fixed once rate is 64
-		 * bit guaranteed in clk API.
-		 */
-		new_opp->rate = (unsigned long)rate;
+	ret = _read_rate(new_opp, opp_table, np);
+	if (ret)
+		return ret;
+	else if (opp_table->clk_count == 1)
 		found = true;
-	}
-	*rate_not_available = !!ret;
 
 	/*
 	 * Bandwidth consists of peak and average (optional) values:
 	 * opp-peak-kBps = <path1_value path2_value>;
 	 * opp-avg-kBps = <path1_value path2_value>;
 	 */
-	ret = _read_bw(new_opp, table, np, true);
+	ret = _read_bw(new_opp, opp_table, np, true);
 	if (!ret) {
 		found = true;
-		ret = _read_bw(new_opp, table, np, false);
+		ret = _read_bw(new_opp, opp_table, np, false);
 	}
 
 	/* The properties were found but we failed to parse them */
@@ -881,13 +921,12 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 	struct dev_pm_opp *new_opp;
 	u32 val;
 	int ret;
-	bool rate_not_available = false;
 
 	new_opp = _opp_allocate(opp_table);
 	if (!new_opp)
 		return ERR_PTR(-ENOMEM);
 
-	ret = _read_opp_key(new_opp, opp_table, np, &rate_not_available);
+	ret = _read_opp_key(new_opp, opp_table, np);
 	if (ret < 0) {
 		dev_err(dev, "%s: opp key field not found\n", __func__);
 		goto free_opp;
@@ -895,8 +934,8 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 
 	/* Check if the OPP supports hardware's hierarchy of versions or not */
 	if (!_opp_is_supported(dev, opp_table, np)) {
-		dev_dbg(dev, "OPP not supported by hardware: %lu\n",
-			new_opp->rate);
+		dev_dbg(dev, "OPP not supported by hardware: %s\n",
+			of_node_full_name(np));
 		goto free_opp;
 	}
 
@@ -920,7 +959,7 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 	if (opp_table->is_genpd)
 		new_opp->pstate = pm_genpd_opp_to_performance_state(dev, new_opp);
 
-	ret = _opp_add(dev, new_opp, opp_table, rate_not_available);
+	ret = _opp_add(dev, new_opp, opp_table);
 	if (ret) {
 		/* Don't return error for duplicate OPPs */
 		if (ret == -EBUSY)
@@ -931,8 +970,8 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 	/* OPP to select on device suspend */
 	if (of_property_read_bool(np, "opp-suspend")) {
 		if (opp_table->suspend_opp) {
-			/* Pick the OPP with higher rate as suspend OPP */
-			if (new_opp->rate > opp_table->suspend_opp->rate) {
+			/* Pick the OPP with higher rate/bw/level as suspend OPP */
+			if (_opp_compare_key(opp_table, new_opp, opp_table->suspend_opp) == 1) {
 				opp_table->suspend_opp->suspend = false;
 				new_opp->suspend = true;
 				opp_table->suspend_opp = new_opp;
@@ -947,7 +986,7 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 		opp_table->clock_latency_ns_max = new_opp->clock_latency_ns;
 
 	pr_debug("%s: turbo:%d rate:%lu uv:%lu uvmin:%lu uvmax:%lu latency:%lu level:%u\n",
-		 __func__, new_opp->turbo, new_opp->rate,
+		 __func__, new_opp->turbo, new_opp->rates[0],
 		 new_opp->supplies[0].u_volt, new_opp->supplies[0].u_volt_min,
 		 new_opp->supplies[0].u_volt_max, new_opp->clock_latency_ns,
 		 new_opp->level);
