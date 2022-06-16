@@ -296,9 +296,10 @@ static const struct attribute_group ssam_sam_group = {
 };
 
 
-/* -- Serial device setup. -------------------------------------------------- */
+/* -- ACPI based device setup. ---------------------------------------------- */
 
-static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc, void *ctx)
+static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
+						  void *ctx)
 {
 	struct serdev_device *serdev = ctx;
 	struct acpi_resource_uart_serialbus *uart;
@@ -348,63 +349,11 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc, voi
 	return AE_CTRL_TERMINATE;
 }
 
-static int ssam_serdev_setup_via_acpi(struct serdev_device *serdev, acpi_handle handle)
+static acpi_status ssam_serdev_setup_via_acpi(acpi_handle handle,
+					      struct serdev_device *serdev)
 {
-	acpi_status status;
-
-	status = acpi_walk_resources(handle, METHOD_NAME__CRS,
-				     ssam_serdev_setup_via_acpi_crs, serdev);
-
-	return status ? -ENXIO : 0;
-}
-
-static int ssam_serdev_setup_via_of(struct serdev_device *serdev)
-{
-	const char *parity = "n";
-	bool flow_control;
-	u32 baud_rate;
-	int status;
-
-	status = device_property_read_u32(&serdev->dev, "current-speed", &baud_rate);
-	if (status)
-		return status;
-
-	flow_control = device_property_read_bool(&serdev->dev, "uart-has-rtscts");
-
-	status = device_property_read_string(&serdev->dev, "uart-parity", &parity);
-	if (status && status != -EINVAL)
-		return status;
-
-	serdev_device_set_baudrate(serdev, baud_rate);
-	serdev_device_set_flow_control(serdev, flow_control);
-
-	switch (parity[0]) {
-	case 'n':
-		status = serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
-		break;
-	case 'e':
-		status = serdev_device_set_parity(serdev, SERDEV_PARITY_EVEN);
-		break;
-	case 'o':
-		status = serdev_device_set_parity(serdev, SERDEV_PARITY_ODD);
-		break;
-	default:
-		status = 0;
-		dev_warn(&serdev->dev, "setup: unsupported parity (value: '%s')\n", parity);
-	}
-
-	if (status)
-		dev_err(&serdev->dev, "setup: failed to set parity (value: '%s')\n", parity);
-
-	return status;
-}
-
-static int ssam_serdev_setup(struct serdev_device *serdev, struct acpi_device *ssh)
-{
-	if (ssh)
-		return ssam_serdev_setup_via_acpi(serdev, ssh->handle);
-	else
-		return ssam_serdev_setup_via_of(serdev);
+	return acpi_walk_resources(handle, METHOD_NAME__CRS,
+				   ssam_serdev_setup_via_acpi_crs, serdev);
 }
 
 
@@ -668,16 +617,15 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 {
 	struct acpi_device *ssh = ACPI_COMPANION(&serdev->dev);
 	struct ssam_controller *ctrl;
+	acpi_status astatus;
 	int status;
 
-	if (ssh) {
-		if (gpiod_count(&serdev->dev, NULL) < 0)
-			return -ENODEV;
+	if (gpiod_count(&serdev->dev, NULL) < 0)
+		return -ENODEV;
 
-		status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
-		if (status)
-			return status;
-	}
+	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
+	if (status)
+		return status;
 
 	/* Allocate controller. */
 	ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
@@ -698,9 +646,11 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	if (status)
 		goto err_devopen;
 
-	status = ssam_serdev_setup(serdev, ssh);
-	if (status)
+	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
+	if (ACPI_FAILURE(astatus)) {
+		status = -ENXIO;
 		goto err_devinit;
+	}
 
 	/* Start controller. */
 	status = ssam_controller_start(ctrl);
@@ -750,9 +700,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	 *       For now let's thus default power/wakeup to false.
 	 */
 	device_set_wakeup_capable(&serdev->dev, true);
-
-	if (ssh)
-		acpi_dev_clear_dependencies(ssh);
+	acpi_dev_clear_dependencies(ssh);
 
 	return 0;
 
@@ -817,29 +765,18 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 	device_set_wakeup_capable(&serdev->dev, false);
 }
 
-static const struct acpi_device_id ssam_serial_hub_acpi_match[] = {
+static const struct acpi_device_id ssam_serial_hub_match[] = {
 	{ "MSHW0084", 0 },
 	{ },
 };
-MODULE_DEVICE_TABLE(acpi, ssam_serial_hub_acpi_match);
-
-#ifdef CONFIG_OF
-static const struct of_device_id ssam_serial_hub_of_match[] = {
-	{ .compatible = "surface,aggregator", },
-	{ },
-};
-MODULE_DEVICE_TABLE(of, ssam_serial_hub_of_match);
-#else
-#define ssam_serial_hub_of_match NULL
-#endif
+MODULE_DEVICE_TABLE(acpi, ssam_serial_hub_match);
 
 static struct serdev_device_driver ssam_serial_hub = {
 	.probe = ssam_serial_hub_probe,
 	.remove = ssam_serial_hub_remove,
 	.driver = {
 		.name = "surface_serial_hub",
-		.acpi_match_table = ssam_serial_hub_acpi_match,
-		.of_match_table = ssam_serial_hub_of_match,
+		.acpi_match_table = ssam_serial_hub_match,
 		.pm = &ssam_serial_hub_pm_ops,
 		.shutdown = ssam_serial_hub_shutdown,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
