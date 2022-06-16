@@ -647,6 +647,14 @@ void serial8250_em485_destroy(struct uart_8250_port *p)
 }
 EXPORT_SYMBOL_GPL(serial8250_em485_destroy);
 
+struct serial_rs485 serial8250_em485_supported = {
+	.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | SER_RS485_RTS_AFTER_SEND |
+		 SER_RS485_TERMINATE_BUS | SER_RS485_RX_DURING_TX,
+	.delay_rts_before_send = 1,
+	.delay_rts_after_send = 1,
+};
+EXPORT_SYMBOL_GPL(serial8250_em485_supported);
+
 /**
  * serial8250_em485_config() - generic ->rs485_config() callback
  * @port: uart port
@@ -667,13 +675,6 @@ int serial8250_em485_config(struct uart_port *port, struct serial_rs485 *rs485)
 		rs485->flags &= ~SER_RS485_RTS_AFTER_SEND;
 	}
 
-	/* clamp the delays to [0, 100ms] */
-	rs485->delay_rts_before_send = min(rs485->delay_rts_before_send, 100U);
-	rs485->delay_rts_after_send  = min(rs485->delay_rts_after_send, 100U);
-
-	memset(rs485->padding, 0, sizeof(rs485->padding));
-	port->rs485 = *rs485;
-
 	gpiod_set_value(port->rs485_term_gpio,
 			rs485->flags & SER_RS485_TERMINATE_BUS);
 
@@ -681,15 +682,8 @@ int serial8250_em485_config(struct uart_port *port, struct serial_rs485 *rs485)
 	 * Both serial8250_em485_init() and serial8250_em485_destroy()
 	 * are idempotent.
 	 */
-	if (rs485->flags & SER_RS485_ENABLED) {
-		int ret = serial8250_em485_init(up);
-
-		if (ret) {
-			rs485->flags &= ~SER_RS485_ENABLED;
-			port->rs485.flags &= ~SER_RS485_ENABLED;
-		}
-		return ret;
-	}
+	if (rs485->flags & SER_RS485_ENABLED)
+		return serial8250_em485_init(up);
 
 	serial8250_em485_destroy(up);
 	return 0;
@@ -1503,18 +1497,12 @@ static void __stop_tx_rs485(struct uart_8250_port *p, u64 stop_delay)
 	}
 }
 
-static inline void __do_stop_tx(struct uart_8250_port *p)
-{
-	if (serial8250_clear_THRI(p))
-		serial8250_rpm_put_tx(p);
-}
-
 static inline void __stop_tx(struct uart_8250_port *p)
 {
 	struct uart_8250_em485 *em485 = p->em485;
 
 	if (em485) {
-		unsigned char lsr = serial_in(p, UART_LSR);
+		unsigned char lsr = serial_lsr_in(p);
 		u64 stop_delay = 0;
 
 		p->lsr_saved_flags |= lsr & LSR_SAVE_FLAGS;
@@ -1544,7 +1532,9 @@ static inline void __stop_tx(struct uart_8250_port *p)
 
 		__stop_tx_rs485(p, stop_delay);
 	}
-	__do_stop_tx(p);
+
+	if (serial8250_clear_THRI(p))
+		serial8250_rpm_put_tx(p);
 }
 
 static void serial8250_stop_tx(struct uart_port *port)
@@ -1573,10 +1563,8 @@ static inline void __start_tx(struct uart_port *port)
 
 	if (serial8250_set_THRI(up)) {
 		if (up->bugs & UART_BUG_TXEN) {
-			unsigned char lsr;
+			unsigned char lsr = serial_lsr_in(up);
 
-			lsr = serial_in(up, UART_LSR);
-			up->lsr_saved_flags |= lsr & LSR_SAVE_FLAGS;
 			if (lsr & UART_LSR_THRE)
 				serial8250_tx_chars(up);
 		}
@@ -1616,7 +1604,8 @@ void serial8250_em485_start_tx(struct uart_8250_port *up)
 }
 EXPORT_SYMBOL_GPL(serial8250_em485_start_tx);
 
-static inline void start_tx_rs485(struct uart_port *port)
+/* Returns false, if start_tx_timer was setup to defer TX start */
+static bool start_tx_rs485(struct uart_port *port)
 {
 	struct uart_8250_port *up = up_to_u8250p(port);
 	struct uart_8250_em485 *em485 = up->em485;
@@ -1644,11 +1633,11 @@ static inline void start_tx_rs485(struct uart_port *port)
 			em485->active_timer = &em485->start_tx_timer;
 			start_hrtimer_ms(&em485->start_tx_timer,
 					 up->port.rs485.delay_rts_before_send);
-			return;
+			return false;
 		}
 	}
 
-	__start_tx(port);
+	return true;
 }
 
 static enum hrtimer_restart serial8250_em485_handle_start_tx(struct hrtimer *t)
@@ -1678,14 +1667,12 @@ static void serial8250_start_tx(struct uart_port *port)
 
 	serial8250_rpm_get_tx(up);
 
-	if (em485 &&
-	    em485->active_timer == &em485->start_tx_timer)
-		return;
-
-	if (em485)
-		start_tx_rs485(port);
-	else
-		__start_tx(port);
+	if (em485) {
+		if ((em485->active_timer == &em485->start_tx_timer) ||
+		    !start_tx_rs485(port))
+			return;
+	}
+	__start_tx(port);
 }
 
 static void serial8250_throttle(struct uart_port *port)
@@ -1792,9 +1779,11 @@ void serial8250_read_char(struct uart_8250_port *up, unsigned char lsr)
 EXPORT_SYMBOL_GPL(serial8250_read_char);
 
 /*
- * serial8250_rx_chars: processes according to the passed in LSR
- * value, and returns the remaining LSR bits not handled
- * by this Rx routine.
+ * serial8250_rx_chars - Read characters. The first LSR value must be passed in.
+ *
+ * Returns LSR bits. The caller should rely only on non-Rx related LSR bits
+ * (such as THRE) because the LSR value might come from an already consumed
+ * character.
  */
 unsigned char serial8250_rx_chars(struct uart_8250_port *up, unsigned char lsr)
 {
@@ -1926,7 +1915,7 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	status = serial_port_in(port, UART_LSR);
+	status = serial_lsr_in(up);
 
 	/*
 	 * If port is stopped and there are no error conditions in the
@@ -2007,8 +1996,7 @@ static unsigned int serial8250_tx_empty(struct uart_port *port)
 	serial8250_rpm_get(up);
 
 	spin_lock_irqsave(&port->lock, flags);
-	lsr = serial_port_in(port, UART_LSR);
-	up->lsr_saved_flags |= lsr & LSR_SAVE_FLAGS;
+	lsr = serial_lsr_in(up);
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	serial8250_rpm_put(up);
@@ -2084,9 +2072,7 @@ static void wait_for_lsr(struct uart_8250_port *up, int bits)
 
 	/* Wait up to 10ms for the character(s) to be sent. */
 	for (;;) {
-		status = serial_in(up, UART_LSR);
-
-		up->lsr_saved_flags |= status & LSR_SAVE_FLAGS;
+		status = serial_lsr_in(up);
 
 		if ((status & bits) == bits)
 			break;
@@ -3201,7 +3187,7 @@ static void serial8250_config_port(struct uart_port *port, int flags)
 		autoconfig(up);
 
 	if (port->rs485.flags & SER_RS485_ENABLED)
-		port->rs485_config(port, &port->rs485);
+		uart_rs485_config(port);
 
 	/* if access method is AU, it is a 16550 with a quirk */
 	if (port->type == PORT_16550A && port->iotype == UPIO_AU)

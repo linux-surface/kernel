@@ -3939,7 +3939,7 @@ static ssize_t show_bind(struct device *dev, struct device_attribute *attr,
 	bind = con_is_bound(con->con);
 	console_unlock();
 
-	return snprintf(buf, PAGE_SIZE, "%i\n", bind);
+	return sysfs_emit(buf, "%i\n", bind);
 }
 
 static ssize_t show_name(struct device *dev, struct device_attribute *attr,
@@ -3947,7 +3947,7 @@ static ssize_t show_name(struct device *dev, struct device_attribute *attr,
 {
 	struct con_driver *con = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%s %s\n",
+	return sysfs_emit(buf, "%s %s\n",
 			(con->flag & CON_DRIVER_FLAG_MODULE) ? "(M)" : "(S)",
 			 con->desc);
 
@@ -4741,7 +4741,7 @@ u32 screen_glyph_unicode(const struct vc_data *vc, int n)
 
 	if (uniscr)
 		return uniscr->lines[n / vc->vc_cols][n % vc->vc_cols];
-	return inverse_translate(vc, screen_glyph(vc, n * 2), 1);
+	return inverse_translate(vc, screen_glyph(vc, n * 2), true);
 }
 EXPORT_SYMBOL_GPL(screen_glyph_unicode);
 

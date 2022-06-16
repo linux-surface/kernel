@@ -2681,16 +2681,11 @@ static int pl011_find_free_port(void)
 static int pl011_get_rs485_mode(struct uart_amba_port *uap)
 {
 	struct uart_port *port = &uap->port;
-	struct serial_rs485 *rs485 = &port->rs485;
 	int ret;
 
 	ret = uart_get_rs485_mode(port);
 	if (ret)
 		return ret;
-
-	/* clamp the delays to [0, 100ms] */
-	rs485->delay_rts_before_send = min(rs485->delay_rts_before_send, 100U);
-	rs485->delay_rts_after_send = min(rs485->delay_rts_after_send, 100U);
 
 	return 0;
 }
@@ -2751,6 +2746,13 @@ static int pl011_register_port(struct uart_amba_port *uap)
 	return ret;
 }
 
+static const struct serial_rs485 pl011_rs485_supported = {
+	.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | SER_RS485_RTS_AFTER_SEND |
+		 SER_RS485_RX_DURING_TX,
+	.delay_rts_before_send = 1,
+	.delay_rts_after_send = 1,
+};
+
 static int pl011_probe(struct amba_device *dev, const struct amba_id *id)
 {
 	struct uart_amba_port *uap;
@@ -2777,6 +2779,7 @@ static int pl011_probe(struct amba_device *dev, const struct amba_id *id)
 	uap->port.irq = dev->irq[0];
 	uap->port.ops = &amba_pl011_pops;
 	uap->port.rs485_config = pl011_rs485_config;
+	uap->port.rs485_supported = &pl011_rs485_supported;
 	snprintf(uap->type, sizeof(uap->type), "PL011 rev%u", amba_rev(dev));
 
 	ret = pl011_setup_port(&dev->dev, uap, &dev->res, portnr);
