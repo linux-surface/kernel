@@ -20,8 +20,6 @@
 #include "processor.h"
 #include "test_util.h"
 
-#define VCPU_ID 0
-
 static __thread volatile struct rseq __rseq = {
 	.cpu_id = RSEQ_CPU_ID_UNINITIALIZED,
 };
@@ -173,12 +171,11 @@ static void *migration_worker(void *ign)
 	return NULL;
 }
 
-static int calc_min_max_cpu(void)
+static void calc_min_max_cpu(void)
 {
 	int i, cnt, nproc;
 
-	if (CPU_COUNT(&possible_mask) < 2)
-		return -EINVAL;
+	TEST_REQUIRE(CPU_COUNT(&possible_mask) >= 2);
 
 	/*
 	 * CPU_SET doesn't provide a FOR_EACH helper, get the min/max CPU that
@@ -200,13 +197,15 @@ static int calc_min_max_cpu(void)
 		cnt++;
 	}
 
-	return (cnt < 2) ? -EINVAL : 0;
+	__TEST_REQUIRE(cnt >= 2,
+		       "Only one usable CPU, task migration not possible");
 }
 
 int main(int argc, char *argv[])
 {
 	int r, i, snapshot;
 	struct kvm_vm *vm;
+	struct kvm_vcpu *vcpu;
 	u32 cpu, rseq_cpu;
 
 	/* Tell stdout not to buffer its content */
@@ -216,10 +215,7 @@ int main(int argc, char *argv[])
 	TEST_ASSERT(!r, "sched_getaffinity failed, errno = %d (%s)", errno,
 		    strerror(errno));
 
-	if (calc_min_max_cpu()) {
-		print_skip("Only one usable CPU, task migration not possible");
-		exit(KSFT_SKIP);
-	}
+	calc_min_max_cpu();
 
 	sys_rseq(0);
 
@@ -228,14 +224,14 @@ int main(int argc, char *argv[])
 	 * GUEST_SYNC, while concurrently migrating the process by setting its
 	 * CPU affinity.
 	 */
-	vm = vm_create_default(VCPU_ID, 0, guest_code);
+	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
 	ucall_init(vm, NULL);
 
 	pthread_create(&migration_thread, NULL, migration_worker, 0);
 
 	for (i = 0; !done; i++) {
-		vcpu_run(vm, VCPU_ID);
-		TEST_ASSERT(get_ucall(vm, VCPU_ID, NULL) == UCALL_SYNC,
+		vcpu_run(vcpu);
+		TEST_ASSERT(get_ucall(vcpu, NULL) == UCALL_SYNC,
 			    "Guest failed?");
 
 		/*

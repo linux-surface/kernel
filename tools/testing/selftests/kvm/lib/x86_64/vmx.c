@@ -7,7 +7,6 @@
 
 #include "test_util.h"
 #include "kvm_util.h"
-#include "../kvm_util_internal.h"
 #include "processor.h"
 #include "vmx.h"
 
@@ -43,16 +42,12 @@ struct eptPageTablePointer {
 	uint64_t address:40;
 	uint64_t reserved_63_52:12;
 };
-int vcpu_enable_evmcs(struct kvm_vm *vm, int vcpu_id)
+int vcpu_enable_evmcs(struct kvm_vcpu *vcpu)
 {
 	uint16_t evmcs_ver;
 
-	struct kvm_enable_cap enable_evmcs_cap = {
-		.cap = KVM_CAP_HYPERV_ENLIGHTENED_VMCS,
-		 .args[0] = (unsigned long)&evmcs_ver
-	};
-
-	vcpu_ioctl(vm, vcpu_id, KVM_ENABLE_CAP, &enable_evmcs_cap);
+	vcpu_enable_cap(vcpu, KVM_CAP_HYPERV_ENLIGHTENED_VMCS,
+			(unsigned long)&evmcs_ver);
 
 	/* KVM should return supported EVMCS version range */
 	TEST_ASSERT(((evmcs_ver >> 8) >= (evmcs_ver & 0xff)) &&
@@ -396,10 +391,7 @@ bool nested_vmx_supported(void)
 
 void nested_vmx_check_supported(void)
 {
-	if (!nested_vmx_supported()) {
-		print_skip("nested VMX not enabled");
-		exit(KSFT_SKIP);
-	}
+	TEST_REQUIRE(nested_vmx_supported());
 }
 
 static void nested_create_pte(struct kvm_vm *vm,

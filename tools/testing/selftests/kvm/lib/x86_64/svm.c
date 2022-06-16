@@ -9,7 +9,6 @@
 
 #include "test_util.h"
 #include "kvm_util.h"
-#include "../kvm_util_internal.h"
 #include "processor.h"
 #include "svm_util.h"
 
@@ -175,10 +174,7 @@ bool nested_svm_supported(void)
 
 void nested_svm_check_supported(void)
 {
-	if (!nested_svm_supported()) {
-		print_skip("nested SVM not enabled");
-		exit(KSFT_SKIP);
-	}
+	TEST_REQUIRE(nested_svm_supported());
 }
 
 /*

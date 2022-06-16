@@ -171,24 +171,18 @@ static void handle_abort(struct ucall *uc)
 		  __FILE__, uc->args[1]);
 }
 
-#define VCPU_ID 0
-
-static void enter_guest(struct kvm_vm *vm)
+static void enter_guest(struct kvm_vcpu *vcpu)
 {
-	struct kvm_run *run;
+	struct kvm_run *run = vcpu->run;
 	struct ucall uc;
-	int r;
-
-	run = vcpu_state(vm, VCPU_ID);
 
 	while (true) {
-		r = _vcpu_run(vm, VCPU_ID);
-		TEST_ASSERT(!r, "vcpu_run failed: %d\n", r);
+		vcpu_run(vcpu);
 		TEST_ASSERT(run->exit_reason == KVM_EXIT_IO,
 			    "unexpected exit reason: %u (%s)",
 			    run->exit_reason, exit_reason_str(run->exit_reason));
 
-		switch (get_ucall(vm, VCPU_ID, &uc)) {
+		switch (get_ucall(vcpu, &uc)) {
 		case UCALL_PR_MSR:
 			pr_msr(&uc);
 			break;
@@ -206,29 +200,24 @@ static void enter_guest(struct kvm_vm *vm)
 
 int main(void)
 {
-	struct kvm_enable_cap cap = {0};
 	struct kvm_cpuid2 *best;
+	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 
-	if (!kvm_check_cap(KVM_CAP_ENFORCE_PV_FEATURE_CPUID)) {
-		print_skip("KVM_CAP_ENFORCE_PV_FEATURE_CPUID not supported");
-		exit(KSFT_SKIP);
-	}
+	TEST_REQUIRE(kvm_has_cap(KVM_CAP_ENFORCE_PV_FEATURE_CPUID));
 
-	vm = vm_create_default(VCPU_ID, 0, guest_main);
+	vm = vm_create_with_one_vcpu(&vcpu, guest_main);
 
-	cap.cap = KVM_CAP_ENFORCE_PV_FEATURE_CPUID;
-	cap.args[0] = 1;
-	vcpu_enable_cap(vm, VCPU_ID, &cap);
+	vcpu_enable_cap(vcpu, KVM_CAP_ENFORCE_PV_FEATURE_CPUID, 1);
 
 	best = kvm_get_supported_cpuid();
 	clear_kvm_cpuid_features(best);
-	vcpu_set_cpuid(vm, VCPU_ID, best);
+	vcpu_set_cpuid(vcpu, best);
 
 	vm_init_descriptor_tables(vm);
-	vcpu_init_descriptor_tables(vm, VCPU_ID);
+	vcpu_init_descriptor_tables(vcpu);
 	vm_install_exception_handler(vm, GP_VECTOR, guest_gp_handler);
 
-	enter_guest(vm);
+	enter_guest(vcpu);
 	kvm_vm_free(vm);
 }

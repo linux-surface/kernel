@@ -165,24 +165,16 @@ static void stats_test(int stats_fd)
 
 static void vm_stats_test(struct kvm_vm *vm)
 {
-	int stats_fd;
-
-	/* Get fd for VM stats */
-	stats_fd = vm_get_stats_fd(vm);
-	TEST_ASSERT(stats_fd >= 0, "Get VM stats fd");
+	int stats_fd = vm_get_stats_fd(vm);
 
 	stats_test(stats_fd);
 	close(stats_fd);
 	TEST_ASSERT(fcntl(stats_fd, F_GETFD) == -1, "Stats fd not freed");
 }
 
-static void vcpu_stats_test(struct kvm_vm *vm, int vcpu_id)
+static void vcpu_stats_test(struct kvm_vcpu *vcpu)
 {
-	int stats_fd;
-
-	/* Get fd for VCPU stats */
-	stats_fd = vcpu_get_stats_fd(vm, vcpu_id);
-	TEST_ASSERT(stats_fd >= 0, "Get VCPU stats fd");
+	int stats_fd = vcpu_get_stats_fd(vcpu);
 
 	stats_test(stats_fd);
 	close(stats_fd);
@@ -203,6 +195,7 @@ static void vcpu_stats_test(struct kvm_vm *vm, int vcpu_id)
 int main(int argc, char *argv[])
 {
 	int i, j;
+	struct kvm_vcpu **vcpus;
 	struct kvm_vm **vms;
 	int max_vm = DEFAULT_NUM_VM;
 	int max_vcpu = DEFAULT_NUM_VCPU;
@@ -220,26 +213,26 @@ int main(int argc, char *argv[])
 	}
 
 	/* Check the extension for binary stats */
-	if (kvm_check_cap(KVM_CAP_BINARY_STATS_FD) <= 0) {
-		print_skip("Binary form statistics interface is not supported");
-		exit(KSFT_SKIP);
-	}
+	TEST_REQUIRE(kvm_has_cap(KVM_CAP_BINARY_STATS_FD));
 
 	/* Create VMs and VCPUs */
 	vms = malloc(sizeof(vms[0]) * max_vm);
 	TEST_ASSERT(vms, "Allocate memory for storing VM pointers");
+
+	vcpus = malloc(sizeof(struct kvm_vcpu *) * max_vm * max_vcpu);
+	TEST_ASSERT(vcpus, "Allocate memory for storing vCPU pointers");
+
 	for (i = 0; i < max_vm; ++i) {
-		vms[i] = vm_create(VM_MODE_DEFAULT,
-				DEFAULT_GUEST_PHY_PAGES, O_RDWR);
+		vms[i] = vm_create_barebones();
 		for (j = 0; j < max_vcpu; ++j)
-			vm_vcpu_add(vms[i], j);
+			vcpus[j * max_vcpu + i] = __vm_vcpu_add(vms[i], j);
 	}
 
 	/* Check stats read for every VM and VCPU */
 	for (i = 0; i < max_vm; ++i) {
 		vm_stats_test(vms[i]);
 		for (j = 0; j < max_vcpu; ++j)
-			vcpu_stats_test(vms[i], j);
+			vcpu_stats_test(vcpus[j * max_vcpu + i]);
 	}
 
 	for (i = 0; i < max_vm; ++i)
