@@ -651,6 +651,7 @@ static int torture_shutdown(void *arg)
 		VERBOSE_TOROUT_STRING("No torture_shutdown_hook(), skipping.");
 	if (ftrace_dump_at_shutdown)
 		rcu_ftrace_dump(DUMP_ALL);
+	pr_flush(1000, true);
 	kernel_power_off();	/* Shut down the system. */
 	return 0;
 }
