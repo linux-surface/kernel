@@ -110,16 +110,16 @@ struct gsi_channel {
 	bool toward_ipa;
 	bool command;			/* AP command TX channel or not */
 
-	u8 tlv_count;			/* # entries in TLV FIFO */
+	u8 trans_tre_max;		/* max TREs in a transaction */
 	u16 tre_count;
 	u16 event_count;
 
 	struct gsi_ring tre_ring;
 	u32 evt_ring_id;
 
+	/* The following counts are used only for TX endpoints */
 	u64 byte_count;			/* total # bytes transferred */
 	u64 trans_count;		/* total # transactions */
-	/* The following counts are used only for TX endpoints */
 	u64 queued_byte_count;		/* last reported queued byte count */
 	u64 queued_trans_count;		/* ...and queued trans count */
 	u64 compl_byte_count;		/* last reported completed byte count */
@@ -187,15 +187,6 @@ void gsi_teardown(struct gsi *gsi);
  * Return:	 The maximum number of TREs oustanding on the channel
  */
 u32 gsi_channel_tre_max(struct gsi *gsi, u32 channel_id);
-
-/**
- * gsi_channel_trans_tre_max() - Maximum TREs in a single transaction
- * @gsi:	GSI pointer
- * @channel_id:	Channel whose limit is to be returned
- *
- * Return:	 The maximum TRE count per transaction on the channel
- */
-u32 gsi_channel_trans_tre_max(struct gsi *gsi, u32 channel_id);
 
 /**
  * gsi_channel_start() - Start an allocated GSI channel
