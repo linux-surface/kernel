@@ -1520,7 +1520,7 @@ F:	Documentation/devicetree/bindings/arm/arm,versatile.yaml
 F:	Documentation/devicetree/bindings/arm/arm,vexpress-juno.yaml
 F:	Documentation/devicetree/bindings/auxdisplay/arm,versatile-lcd.yaml
 F:	Documentation/devicetree/bindings/clock/arm,syscon-icst.yaml
-F:	Documentation/devicetree/bindings/i2c/i2c-versatile.txt
+F:	Documentation/devicetree/bindings/i2c/arm,i2c-versatile.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/arm,versatile-fpga-irq.txt
 F:	Documentation/devicetree/bindings/mtd/mtd-physmap.yaml
 F:	arch/arm/boot/dts/arm-realview-*
@@ -2416,7 +2416,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik.git
 F:	Documentation/devicetree/bindings/arm/ste-*
 F:	Documentation/devicetree/bindings/arm/ux500.yaml
 F:	Documentation/devicetree/bindings/arm/ux500/
-F:	Documentation/devicetree/bindings/i2c/i2c-nomadik.txt
+F:	Documentation/devicetree/bindings/i2c/st,nomadik-i2c.yaml
 F:	arch/arm/boot/dts/ste-*
 F:	arch/arm/mach-nomadik/
 F:	arch/arm/mach-ux500/
@@ -9291,6 +9291,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/wsa/linux.git
 F:	Documentation/devicetree/bindings/i2c/i2c.txt
 F:	Documentation/i2c/
 F:	drivers/i2c/*
+F:	include/dt-bindings/i2c/i2c.h
 F:	include/linux/i2c-dev.h
 F:	include/linux/i2c-smbus.h
 F:	include/linux/i2c.h
@@ -9306,6 +9307,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/wsa/linux.git
 F:	Documentation/devicetree/bindings/i2c/
 F:	drivers/i2c/algos/
 F:	drivers/i2c/busses/
+F:	include/dt-bindings/i2c/
 
 I2C-TAOS-EVM DRIVER
 M:	Jean Delvare <jdelvare@suse.com>
@@ -14907,7 +14909,7 @@ M:	Peter Korsgaard <peter@korsgaard.com>
 M:	Andrew Lunn <andrew@lunn.ch>
 L:	linux-i2c@vger.kernel.org
 S:	Maintained
-F:	Documentation/devicetree/bindings/i2c/i2c-ocores.txt
+F:	Documentation/devicetree/bindings/i2c/opencores,i2c-ocores.yaml
 F:	Documentation/i2c/busses/i2c-ocores.rst
 F:	drivers/i2c/busses/i2c-ocores.c
 F:	include/linux/platform_data/i2c-ocores.h
@@ -19336,7 +19338,7 @@ R:	Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 R:	Mika Westerberg <mika.westerberg@linux.intel.com>
 R:	Jan Dabros <jsd@semihalf.com>
 L:	linux-i2c@vger.kernel.org
-S:	Maintained
+S:	Supported
 F:	drivers/i2c/busses/i2c-designware-*
 
 SYNOPSYS DESIGNWARE MMC/SD/SDIO DRIVER
