@@ -49,6 +49,7 @@ enum {
 	SD_MAX_XFER_BLOCKS = 0xffffffff,
 	SD_MAX_WS10_BLOCKS = 0xffff,
 	SD_MAX_WS16_BLOCKS = 0x7fffff,
+	SD_MAX_UNMAP_DESCS = 0xffff,
 };
 
 enum sd_lbp_mode {
@@ -125,6 +126,7 @@ struct scsi_disk {
 	u32		opt_xfer_blocks;
 	u32		max_ws_blocks;
 	u32		max_unmap_blocks;
+	u32		max_unmap_descriptors;
 	u32		unmap_granularity;
 	u32		unmap_alignment;
 	u32		index;
