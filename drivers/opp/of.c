@@ -808,8 +808,8 @@ out:
 	return ret;
 }
 
-static int _read_opp_key(struct dev_pm_opp *new_opp,
-			 struct opp_table *opp_table, struct device_node *np)
+static int _read_opp_key(struct dev_pm_opp *new_opp, struct opp_table *opp_table,
+			 struct device_node *np, bool *rate_not_available)
 {
 	bool found = false;
 	u64 rate;
@@ -825,6 +825,7 @@ static int _read_opp_key(struct dev_pm_opp *new_opp,
 		new_opp->rate = (unsigned long)rate;
 		found = true;
 	}
+	*rate_not_available = !!ret;
 
 	/*
 	 * Bandwidth consists of peak and average (optional) values:
@@ -880,12 +881,13 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 	struct dev_pm_opp *new_opp;
 	u32 val;
 	int ret;
+	bool rate_not_available = false;
 
 	new_opp = _opp_allocate(opp_table);
 	if (!new_opp)
 		return ERR_PTR(-ENOMEM);
 
-	ret = _read_opp_key(new_opp, opp_table, np);
+	ret = _read_opp_key(new_opp, opp_table, np, &rate_not_available);
 	if (ret < 0) {
 		dev_err(dev, "%s: opp key field not found\n", __func__);
 		goto free_opp;
@@ -918,7 +920,7 @@ static struct dev_pm_opp *_opp_add_static_v2(struct opp_table *opp_table,
 	if (opp_table->is_genpd)
 		new_opp->pstate = pm_genpd_opp_to_performance_state(dev, new_opp);
 
-	ret = _opp_add(dev, new_opp, opp_table);
+	ret = _opp_add(dev, new_opp, opp_table, rate_not_available);
 	if (ret) {
 		/* Don't return error for duplicate OPPs */
 		if (ret == -EBUSY)
