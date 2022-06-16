@@ -855,6 +855,7 @@ static void sd_config_discard(struct scsi_disk *sdkp, enum sd_lbp_mode mode)
 	struct request_queue *q = sdkp->disk->queue;
 	unsigned int logical_block_size = sdkp->device->sector_size;
 	unsigned int max_blocks = 0;
+	unsigned int max_segments = 1;
 
 	if (mode == SD_LBP_DEFAULT && !sdkp->provisioning_override) {
 		if (sdkp->lbpme) { /* Logical Block Provisioning Enabled */
@@ -891,11 +892,14 @@ static void sd_config_discard(struct scsi_disk *sdkp, enum sd_lbp_mode mode)
 		q->limits.discard_alignment = 0;
 		q->limits.discard_granularity = 0;
 		blk_queue_max_discard_sectors(q, 0);
+		blk_queue_max_discard_segments(q, 0);
 		return;
 
 	case SD_LBP_UNMAP:
 		max_blocks = min_not_zero(sdkp->max_unmap_blocks,
 					  (u32)SD_MAX_WS16_BLOCKS);
+		max_segments = clamp(sdkp->max_unmap_descriptors, 1U,
+				     (u32)SD_MAX_UNMAP_DESCS);
 		break;
 
 	case SD_LBP_WS16:
@@ -930,6 +934,8 @@ static void sd_config_discard(struct scsi_disk *sdkp, enum sd_lbp_mode mode)
 		max(sdkp->physical_block_size,
 		    sdkp->unmap_granularity * logical_block_size);
 	blk_queue_max_discard_sectors(q, max_blocks * (logical_block_size >> 9));
+	blk_queue_max_discard_segments(q, max_segments);
+
 }
 
 static blk_status_t sd_setup_unmap_cmnd(struct scsi_cmnd *cmd)
@@ -937,9 +943,10 @@ static blk_status_t sd_setup_unmap_cmnd(struct scsi_cmnd *cmd)
 	struct scsi_device *sdp = cmd->device;
 	struct request *rq = scsi_cmd_to_rq(cmd);
 	struct scsi_disk *sdkp = scsi_disk(rq->q->disk);
-	u64 lba = sectors_to_logical(sdp, blk_rq_pos(rq));
-	u32 nr_blocks = sectors_to_logical(sdp, blk_rq_sectors(rq));
-	unsigned int data_len = 24;
+	unsigned short segments = blk_rq_nr_discard_segments(rq);
+	unsigned int data_len = 8 + 16 * segments;
+	unsigned int descriptor_offset = 8;
+	struct bio *bio;
 	char *buf;
 
 	rq->special_vec.bv_page = mempool_alloc(sd_page_pool, GFP_ATOMIC);
@@ -952,13 +959,20 @@ static blk_status_t sd_setup_unmap_cmnd(struct scsi_cmnd *cmd)
 
 	cmd->cmd_len = 10;
 	cmd->cmnd[0] = UNMAP;
-	cmd->cmnd[8] = 24;
+	cmd->cmnd[8] = data_len;
 
 	buf = bvec_virt(&rq->special_vec);
-	put_unaligned_be16(6 + 16, &buf[0]);
-	put_unaligned_be16(16, &buf[2]);
-	put_unaligned_be64(lba, &buf[8]);
-	put_unaligned_be32(nr_blocks, &buf[16]);
+	put_unaligned_be16(6 + 16 * segments, &buf[0]);
+	put_unaligned_be16(16 * segments, &buf[2]);
+
+	__rq_for_each_bio(bio, rq) {
+		u64 lba = sectors_to_logical(sdp, bio->bi_iter.bi_sector);
+		u32 nr_blocks = sectors_to_logical(sdp, bio_sectors(bio));
+
+		put_unaligned_be64(lba, &buf[descriptor_offset]);
+		put_unaligned_be32(nr_blocks, &buf[descriptor_offset + 8]);
+		descriptor_offset += 16;
+	}
 
 	cmd->allowed = sdkp->max_retries;
 	cmd->transfersize = data_len;
@@ -3021,8 +3035,10 @@ static void sd_read_block_limits(struct scsi_disk *sdkp)
 		lba_count = get_unaligned_be32(&vpd->data[20]);
 		desc_count = get_unaligned_be32(&vpd->data[24]);
 
-		if (lba_count && desc_count)
+		if (lba_count && desc_count) {
 			sdkp->max_unmap_blocks = lba_count;
+			sdkp->max_unmap_descriptors = desc_count;
+		}
 
 		sdkp->unmap_granularity = get_unaligned_be32(&vpd->data[28]);
 
