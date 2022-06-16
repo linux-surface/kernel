@@ -75,7 +75,7 @@ out:
 static int samsung_ufs_phy_calibrate(struct phy *phy)
 {
 	struct samsung_ufs_phy *ufs_phy = get_samsung_ufs_phy(phy);
-	struct samsung_ufs_phy_cfg **cfgs = ufs_phy->cfg;
+	const struct samsung_ufs_phy_cfg * const *cfgs = ufs_phy->cfgs;
 	const struct samsung_ufs_phy_cfg *cfg;
 	int err = 0;
 	int i;
@@ -207,7 +207,7 @@ static int samsung_ufs_phy_init(struct phy *phy)
 	ss_phy->lane_cnt = phy->attrs.bus_width;
 	ss_phy->ufs_phy_state = CFG_PRE_INIT;
 
-	if (ss_phy->drvdata->has_symbol_clk) {
+	if (ss_phy->has_symbol_clk) {
 		ret = samsung_ufs_phy_symbol_clk_init(ss_phy);
 		if (ret)
 			dev_err(ss_phy->dev, "failed to set ufs phy symbol clocks\n");
@@ -259,7 +259,7 @@ static int samsung_ufs_phy_exit(struct phy *phy)
 
 	clk_disable_unprepare(ss_phy->ref_clk);
 
-	if (ss_phy->drvdata->has_symbol_clk) {
+	if (ss_phy->has_symbol_clk) {
 		clk_disable_unprepare(ss_phy->tx0_symbol_clk);
 		clk_disable_unprepare(ss_phy->rx0_symbol_clk);
 		clk_disable_unprepare(ss_phy->rx1_symbol_clk);
@@ -288,6 +288,7 @@ static int samsung_ufs_phy_probe(struct platform_device *pdev)
 	struct phy *gen_phy;
 	struct phy_provider *phy_provider;
 	const struct samsung_ufs_phy_drvdata *drvdata;
+	u32 isol_offset;
 	int err = 0;
 
 	match = of_match_node(samsung_ufs_phy_match, dev->of_node);
@@ -326,9 +327,14 @@ static int samsung_ufs_phy_probe(struct platform_device *pdev)
 
 	drvdata = match->data;
 	phy->dev = dev;
-	phy->drvdata = drvdata;
-	phy->cfg = (struct samsung_ufs_phy_cfg **)drvdata->cfg;
-	phy->isol = &drvdata->isol;
+	phy->cfgs = drvdata->cfgs;
+	phy->has_symbol_clk = drvdata->has_symbol_clk;
+	memcpy(&phy->isol, &drvdata->isol, sizeof(phy->isol));
+
+	if (!of_property_read_u32_index(dev->of_node, "samsung,pmu-syscon", 1,
+					&isol_offset))
+		phy->isol.offset = isol_offset;
+
 	phy->lane_cnt = PHY_DEF_LANE_CNT;
 
 	phy_set_drvdata(gen_phy, phy);
