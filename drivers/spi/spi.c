@@ -2663,11 +2663,6 @@ int spi_slave_abort(struct spi_device *spi)
 }
 EXPORT_SYMBOL_GPL(spi_slave_abort);
 
-static int match_true(struct device *dev, void *data)
-{
-	return 1;
-}
-
 static ssize_t slave_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
@@ -2675,7 +2670,7 @@ static ssize_t slave_show(struct device *dev, struct device_attribute *attr,
 						   dev);
 	struct device *child;
 
-	child = device_find_child(&ctlr->dev, NULL, match_true);
+	child = device_find_any_child(&ctlr->dev);
 	return sprintf(buf, "%s\n",
 		       child ? to_spi_device(child)->modalias : NULL);
 }
@@ -2694,7 +2689,7 @@ static ssize_t slave_store(struct device *dev, struct device_attribute *attr,
 	if (rc != 1 || !name[0])
 		return -EINVAL;
 
-	child = device_find_child(&ctlr->dev, NULL, match_true);
+	child = device_find_any_child(&ctlr->dev);
 	if (child) {
 		/* Remove registered slave */
 		device_unregister(child);
