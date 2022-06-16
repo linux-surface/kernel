@@ -148,37 +148,33 @@ static bool id_permitted_for_cred(const struct cred *old, kid_t new_id, enum set
 {
 	bool permitted;
 
-	/* If our old creds already had this ID in it, it's fine. */
+	/*
+	 * If our old creds already had this ID in it, it's fine. Otherwise need
+	 * to check against the policy of the old ID.
+	 */
 	if (new_type == UID) {
 		if (uid_eq(new_id.uid, old->uid) || uid_eq(new_id.uid, old->euid) ||
 			uid_eq(new_id.uid, old->suid))
 			return true;
+		permitted =
+		    setid_policy_lookup((kid_t){.uid = old->uid}, new_id, new_type) != SIDPOL_CONSTRAINED;
+		if (!permitted)
+			pr_warn("UID transition ((%d,%d,%d) -> %d) blocked\n",
+				__kuid_val(old->uid), __kuid_val(old->euid),
+				__kuid_val(old->suid), __kuid_val(new_id.uid));
 	} else if (new_type == GID){
 		if (gid_eq(new_id.gid, old->gid) || gid_eq(new_id.gid, old->egid) ||
 			gid_eq(new_id.gid, old->sgid))
 			return true;
-	} else /* Error, new_type is an invalid type */
-		return false;
-
-	/*
-	 * Transitions to new UIDs require a check against the policy of the old
-	 * RUID.
-	 */
-	permitted =
-	    setid_policy_lookup((kid_t){.uid = old->uid}, new_id, new_type) != SIDPOL_CONSTRAINED;
-
-	if (!permitted) {
-		if (new_type == UID) {
-			pr_warn("UID transition ((%d,%d,%d) -> %d) blocked\n",
-				__kuid_val(old->uid), __kuid_val(old->euid),
-				__kuid_val(old->suid), __kuid_val(new_id.uid));
-		} else if (new_type == GID) {
+		permitted =
+		    setid_policy_lookup((kid_t){.gid = old->gid}, new_id, new_type) != SIDPOL_CONSTRAINED;
+		if (!permitted)
 			pr_warn("GID transition ((%d,%d,%d) -> %d) blocked\n",
 				__kgid_val(old->gid), __kgid_val(old->egid),
 				__kgid_val(old->sgid), __kgid_val(new_id.gid));
-		} else /* Error, new_type is an invalid type */
-			return false;
-	}
+	} else /* Error, new_type is an invalid type */
+		return false;
+
 	return permitted;
 }
 
