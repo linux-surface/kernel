@@ -48,6 +48,7 @@
 #include "block-group.h"
 #include "discard.h"
 #include "qgroup.h"
+#include "raid56.h"
 #define CREATE_TRACE_POINTS
 #include <trace/events/btrfs.h>
 
@@ -72,7 +73,7 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data);
 #define STATE_STRING_BUF_LEN	(sizeof(STATE_STRING_PREFACE) + BTRFS_FS_STATE_COUNT)
 
 /*
- * Characters to print to indicate error conditions or uncommon filesystem sate.
+ * Characters to print to indicate error conditions or uncommon filesystem state.
  * RO is not an error.
  */
 static const char fs_state_chars[] = {
@@ -1931,10 +1932,6 @@ static void btrfs_resize_thread_pool(struct btrfs_fs_info *fs_info,
 	btrfs_workqueue_set_max(fs_info->hipri_workers, new_pool_size);
 	btrfs_workqueue_set_max(fs_info->delalloc_workers, new_pool_size);
 	btrfs_workqueue_set_max(fs_info->caching_workers, new_pool_size);
-	btrfs_workqueue_set_max(fs_info->endio_workers, new_pool_size);
-	btrfs_workqueue_set_max(fs_info->endio_meta_workers, new_pool_size);
-	btrfs_workqueue_set_max(fs_info->endio_meta_write_workers,
-				new_pool_size);
 	btrfs_workqueue_set_max(fs_info->endio_write_workers, new_pool_size);
 	btrfs_workqueue_set_max(fs_info->endio_freespace_worker, new_pool_size);
 	btrfs_workqueue_set_max(fs_info->delayed_workers, new_pool_size);
@@ -2703,13 +2700,9 @@ static int __init init_btrfs_fs(void)
 	if (err)
 		goto free_delayed_ref;
 
-	err = btrfs_end_io_wq_init();
-	if (err)
-		goto free_prelim_ref;
-
 	err = btrfs_interface_init();
 	if (err)
-		goto free_end_io_wq;
+		goto free_prelim_ref;
 
 	btrfs_print_mod_info();
 
@@ -2725,8 +2718,6 @@ static int __init init_btrfs_fs(void)
 
 unregister_ioctl:
 	btrfs_interface_exit();
-free_end_io_wq:
-	btrfs_end_io_wq_exit();
 free_prelim_ref:
 	btrfs_prelim_ref_exit();
 free_delayed_ref:
@@ -2764,7 +2755,6 @@ static void __exit exit_btrfs_fs(void)
 	extent_state_cache_exit();
 	extent_io_exit();
 	btrfs_interface_exit();
-	btrfs_end_io_wq_exit();
 	unregister_filesystem(&btrfs_fs_type);
 	btrfs_exit_sysfs();
 	btrfs_cleanup_fs_uuids();
