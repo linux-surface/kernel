@@ -913,6 +913,14 @@ int __meminit sparse_add_section(int nid, unsigned long start_pfn,
 	ms = __nr_to_section(section_nr);
 	set_section_nid(section_nr, nid);
 	__section_mark_present(ms, section_nr);
+	/*
+	 * Mark whole section as non-optimizable once there is a subsection
+	 * whose vmemmap pages are allocated from alternative allocator. The
+	 * early section is always optimizable since the early section's
+	 * vmemmap pages do not consider partially being populated.
+	 */
+	if (!early_section(ms) && altmap)
+		section_mark_cannot_optimize_vmemmap(ms);
 
 	/* Align memmap to section boundary in the subsection case */
 	if (section_nr_to_pfn(section_nr) != start_pfn)
