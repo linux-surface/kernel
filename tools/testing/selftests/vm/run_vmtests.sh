@@ -180,9 +180,13 @@ run_test ./ksm_tests -N -m 1
 run_test ./ksm_tests -N -m 0
 
 # protection_keys tests
-if [ $VADDR64 -eq 0 ]; then
+if [ -x ./protection_keys_32 ]
+then
 	run_test ./protection_keys_32
-else
+fi
+
+if [ -x ./protection_keys_64 ]
+then
 	run_test ./protection_keys_64
 fi
 
