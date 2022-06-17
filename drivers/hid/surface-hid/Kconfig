@@ -5,7 +5,7 @@ menu "Surface System Aggregator Module HID support"
 
 config SURFACE_HID
 	tristate "HID transport driver for Surface System Aggregator Module"
-	depends on SURFACE_AGGREGATOR_REGISTRY
+	depends on SURFACE_AGGREGATOR_BUS
 	select SURFACE_HID_CORE
 	help
 	  Driver to support integrated HID devices on newer Microsoft Surface
