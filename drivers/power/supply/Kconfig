@@ -869,7 +869,8 @@ config BATTERY_SURFACE
 
 config CHARGER_SURFACE
 	tristate "AC driver for 7th-generation Microsoft Surface devices"
-	depends on SURFACE_AGGREGATOR_REGISTRY
+	depends on SURFACE_AGGREGATOR
+	depends on SURFACE_AGGREGATOR_BUS
 	help
 	  Driver for AC devices connected via/managed by the Surface System
 	  Aggregator Module (SSAM).
