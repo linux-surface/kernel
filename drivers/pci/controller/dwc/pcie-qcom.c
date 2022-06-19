@@ -12,6 +12,7 @@
 #include <linux/crc8.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/interconnect.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -224,6 +225,8 @@ struct qcom_pcie {
 	struct phy *phy;
 	struct gpio_desc *reset;
 	const struct qcom_pcie_cfg *cfg;
+
+	struct icc_path *icc_path;
 };
 
 #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
@@ -1698,6 +1701,14 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		ret = PTR_ERR(pcie->phy);
 		goto err_pm_runtime_put;
 	}
+
+	pcie->icc_path = devm_of_icc_get(dev, "pcie-mem");
+	if (IS_ERR(pcie->icc_path)) {
+		ret = PTR_ERR(pcie->icc_path);
+		goto err_pm_runtime_put;
+	}
+
+	icc_set_bw(pcie->icc_path, 500, 800);
 
 	ret = pcie->cfg->ops->get_resources(pcie);
 	if (ret)
