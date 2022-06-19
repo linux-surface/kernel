@@ -2450,7 +2450,7 @@
 				 <&gcc GCC_USB3_PHY_SEC_BCR>;
 			reset-names = "phy", "common";
 
-			usb_sec_ssphy: usb3-phy@88e9200 {
+			usb_sec_ssphy: usb3-phy@88ee200 {
 				reg = <0 0x088ee200 0 0x200>,
 				      <0 0x088ee400 0 0x200>,
 				      <0 0x088eec00 0 0x218>,
