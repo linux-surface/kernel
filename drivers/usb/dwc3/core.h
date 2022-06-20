@@ -1147,11 +1147,13 @@ struct dwc3 {
 
 	struct reset_control	*reset;
 
-	struct usb_phy		*usb2_phy;
-	struct usb_phy		*usb3_phy;
+#define DWC3_MAX_PORTS	4
 
-	struct phy		*usb2_generic_phy;
-	struct phy		*usb3_generic_phy;
+	struct usb_phy		*usb2_phy[DWC3_MAX_PORTS];
+	struct usb_phy		*usb3_phy[DWC3_MAX_PORTS];
+
+	struct phy		*usb2_generic_phy[DWC3_MAX_PORTS];
+	struct phy		*usb3_generic_phy[DWC3_MAX_PORTS];
 
 	bool			phys_ready;
 
@@ -1252,6 +1254,7 @@ struct dwc3 {
 	u8			speed;
 
 	u8			num_eps;
+	u32			num_ports;
 
 	struct dwc3_hwparams	hwparams;
 	struct debugfs_regset32	*regset;
