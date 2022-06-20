@@ -384,11 +384,9 @@ void dwc3_otg_update(struct dwc3 *dwc, bool ignore_idstatus)
 		if (ret) {
 			dev_err(dwc->dev, "failed to initialize host\n");
 		} else {
-			if (dwc->usb2_phy)
-				otg_set_vbus(dwc->usb2_phy->otg, true);
-			if (dwc->usb2_generic_phy)
-				phy_set_mode(dwc->usb2_generic_phy,
-					     PHY_MODE_USB_HOST);
+			if (dwc->usb2_phy[0])
+				otg_set_vbus(dwc->usb2_phy[0]->otg, true);
+			phy_set_mode(dwc->usb2_generic_phy[0], PHY_MODE_USB_HOST);
 		}
 		break;
 	case DWC3_OTG_ROLE_DEVICE:
@@ -398,10 +396,10 @@ void dwc3_otg_update(struct dwc3 *dwc, bool ignore_idstatus)
 		dwc3_event_buffers_setup(dwc);
 		spin_unlock_irqrestore(&dwc->lock, flags);
 
-		if (dwc->usb2_phy)
-			otg_set_vbus(dwc->usb2_phy->otg, false);
-		if (dwc->usb2_generic_phy)
-			phy_set_mode(dwc->usb2_generic_phy,
+		if (dwc->usb2_phy[0])
+			otg_set_vbus(dwc->usb2_phy[0]->otg, false);
+		if (dwc->usb2_generic_phy[0])
+			phy_set_mode(dwc->usb2_generic_phy[0],
 				     PHY_MODE_USB_DEVICE);
 		ret = dwc3_gadget_init(dwc);
 		if (ret)
