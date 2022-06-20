@@ -2707,6 +2707,89 @@
 			};
 		};
 
+		usb_mp: usb@a4f8800 {
+			compatible = "qcom,sc8180x-dwc3", "qcom,dwc3";
+			reg = <0 0xa4f8800 0 0x400>;
+			status = "disabled";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+			dma-ranges;
+
+			clocks = <&gcc GCC_CFG_NOC_USB3_MP_AXI_CLK>,
+				 <&gcc GCC_USB30_MP_MASTER_CLK>,
+				 <&gcc GCC_AGGRE_USB3_MP_AXI_CLK>,
+				 <&gcc GCC_USB30_MP_MOCK_UTMI_CLK>,
+				 <&gcc GCC_USB30_MP_SLEEP_CLK>,
+				 <&rpmhcc RPMH_CXO_CLK>;
+
+			clock-names = "cfg_noc", "core", "iface", "mock_utmi",
+				      "sleep", "xo";
+
+			assigned-clocks = <&gcc GCC_USB30_MP_MOCK_UTMI_CLK>,
+					  <&gcc GCC_USB30_MP_MASTER_CLK>;
+			assigned-clock-rates = <19200000>, <200000000>;
+
+			// TODO: are interrupts correct?
+			//       currently computed as #ACPI - 32
+			//
+			// IRQs are only for wake?
+			//
+			// usb2 (this)	 dt	acpi
+			//    ?		654?	 686
+			//    ?		656?	 688
+			//    ?		487?	 519	(conflict with old sec!)
+			//    ?		655?	 687
+			//    ?		510?	 542
+			//    ?		526?	 558
+			//    ?		539?	 571
+			//    ?		548?	 580
+			//    ?		551?	 583
+
+			interrupts = <GIC_SPI 656 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 487 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 655 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 510 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 526 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 539 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 548 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 551 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "hs_phy_irq", "ss_phy_irq",
+					  "dm_hs_phy_irq", "dp_hs_phy_irq";
+
+			// TODO: make driver support more interrupts
+			//
+			// interrupt-names = "hs_phy0_irq", "ss_phy0_irq",
+			// 		  "dm_hs_phy0_irq", "dp_hs_phy0_irq",
+			// 		  "hs_phy1_irq", "ss_phy1_irq",
+			// 		  "dm_hs_phy1_irq", "dp_hs_phy1_irq";
+
+			power-domains = <&gcc USB30_MP_GDSC>;
+
+			interconnects = <&aggre1_noc MASTER_USB3_2 0 &mc_virt SLAVE_EBI_CH0 0>,
+					<&gem_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_USB3_2 0>;
+			interconnect-names = "usb-ddr", "apps-usb";
+
+			resets = <&gcc GCC_USB30_MP_BCR>;
+
+			usb_mp_dwc3: dwc3@a400000 {
+				compatible = "snps,dwc3";
+				reg = <0 0x0a400000 0 0xcd00>;
+				interrupts = <GIC_SPI 654 IRQ_TYPE_LEVEL_HIGH>;
+				iommus = <&apps_smmu 0x60 0>;
+
+				snps,dis_u2_susphy_quirk;
+				snps,dis_enblslpm_quirk;
+
+				snps,ports = <2>;
+
+				phys = <&usb_mp0_hsphy>, <&usb_mp0_ssphy>,
+				       <&usb_mp1_hsphy>, <&usb_mp1_ssphy>;
+				phy-names = "usb2-mp0-phy", "usb3-mp0-phy",
+					    "usb2-mp1-phy", "usb3-mp1-phy";
+			};
+		};
+
 		mdss: mdss@ae00000 {
 			compatible = "qcom,sc8180x-mdss";
 			reg = <0 0x0ae00000 0 0x1000>;
