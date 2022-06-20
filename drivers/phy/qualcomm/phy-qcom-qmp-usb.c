@@ -2255,7 +2255,7 @@ static const struct of_device_id qmp_usb_of_match_table[] = {
 		.data = &sa8775p_usb3_uniphy_cfg,
 	}, {
 		.compatible = "qcom,sc8180x-qmp-usb3-uni-phy",
-		.data = &sm8150_usb3_uniphy_cfg,
+		.data = &sm8150_usb3_uniphy_cfg,	// TODO: use sc8180x tables found in ACPI?
 	}, {
 		.compatible = "qcom,sc8280xp-qmp-usb3-uni-phy",
 		.data = &sc8280xp_usb3_uniphy_cfg,
