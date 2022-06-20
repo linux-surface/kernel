@@ -2513,6 +2513,74 @@
 			};
 		};
 
+		usb_mp0_qmpphy: phy@88eb000 {
+			compatible = "qcom,sc8180x-qmp-usb3-uni-phy";
+			reg = <0 0x088eb000 0 0x200>;
+			status = "disabled";
+			#clock-cells = <1>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			clocks = <&gcc GCC_USB3_MP_PHY_AUX_CLK>,
+				 <&rpmhcc RPMH_CXO_CLK>,
+				 <&gcc GCC_USB3_MP0_CLKREF_CLK>,
+				 <&gcc GCC_USB3_MP_PHY_COM_AUX_CLK>;
+			clock-names = "aux", "ref_clk_src", "ref", "com_aux";
+
+			resets = <&gcc GCC_USB3_UNIPHY_MP0_BCR>,
+				 <&gcc GCC_USB3UNIPHY_PHY_MP0_BCR>;
+			reset-names = "phy", "common";
+
+			power-domains = <&gcc USB30_MP_GDSC>;
+
+			usb_mp0_ssphy: usb3-phy@88eb200 {
+				reg = <0 0x088eb200 0 0x200>,
+				      <0 0x088eb400 0 0x200>,
+				      <0 0x088eb800 0 0x800>,
+				      <0 0x088eb600 0 0x200>;
+
+				#phy-cells = <0>;
+				clocks = <&gcc GCC_USB3_MP_PHY_PIPE_0_CLK>;
+				clock-names = "pipe0";
+				clock-output-names = "usb3_mp0_phy_pipe_clk_src";
+			};
+		};
+
+		usb_mp1_qmpphy: phy@88ec000 {
+			compatible = "qcom,sc8180x-qmp-usb3-uni-phy";
+			reg = <0 0x088ec000 0 0x200>;
+			status = "disabled";
+			#clock-cells = <1>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			clocks = <&gcc GCC_USB3_MP_PHY_AUX_CLK>,
+				 <&rpmhcc RPMH_CXO_CLK>,
+				 <&gcc GCC_USB3_MP1_CLKREF_CLK>,
+				 <&gcc GCC_USB3_MP_PHY_COM_AUX_CLK>;
+			clock-names = "aux", "ref_clk_src", "ref", "com_aux";
+
+			resets = <&gcc GCC_USB3_UNIPHY_MP1_BCR>,
+				 <&gcc GCC_USB3UNIPHY_PHY_MP1_BCR>;
+			reset-names = "phy", "common";
+
+			power-domains = <&gcc USB30_MP_GDSC>;
+
+			usb_mp1_ssphy: usb3-phy@88ec200 {
+				reg = <0 0x088ec200 0 0x200>,
+				      <0 0x088ec400 0 0x200>,
+				      <0 0x088ec800 0 0x800>,
+				      <0 0x088ec600 0 0x200>;
+
+				#phy-cells = <0>;
+				clocks = <&gcc GCC_USB3_MP_PHY_PIPE_1_CLK>;
+				clock-names = "pipe0";
+				clock-output-names = "usb3_mp1_phy_pipe_clk_src";
+			};
+		};
+
 		system-cache-controller@9200000 {
 			compatible = "qcom,sc8180x-llcc";
 			reg = <0 0x09200000 0 0x50000>, <0 0x09600000 0 0x50000>;
