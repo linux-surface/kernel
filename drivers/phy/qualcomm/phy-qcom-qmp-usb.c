@@ -2595,6 +2595,9 @@ static const struct of_device_id qcom_qmp_phy_usb_of_match_table[] = {
 		.compatible = "qcom,sc8180x-qmp-usb3-phy",
 		.data = &sm8150_usb3phy_cfg,
 	}, {
+		.compatible = "qcom,sc8180x-qmp-usb3-uni-phy",
+		.data = &sm8150_usb3_uniphy_cfg,
+	}, {
 		.compatible = "qcom,sdm845-qmp-usb3-phy",
 		.data = &qmp_v3_usb3phy_cfg,
 	}, {
