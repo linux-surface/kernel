@@ -2872,8 +2872,8 @@ static int dwc3_gadget_vbus_draw(struct usb_gadget *g, unsigned int mA)
 	union power_supply_propval	val = {0};
 	int				ret;
 
-	if (dwc->usb2_phy)
-		return usb_phy_set_power(dwc->usb2_phy, mA);
+	if (dwc->usb2_phy[0])
+		return usb_phy_set_power(dwc->usb2_phy[0], mA);
 
 	if (!dwc->usb_psy)
 		return -EOPNOTSUPP;
