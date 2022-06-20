@@ -2382,6 +2382,32 @@
 			resets = <&gcc GCC_QUSB2PHY_SEC_BCR>;
 		};
 
+		usb_mp0_hsphy: phy@88e4000 {
+			compatible = "qcom,sc8180x-usb-hs-phy",
+				     "qcom,usb-snps-hs-7nm-phy";
+			reg = <0 0x088e4000 0 0x400>;
+			status = "disabled";
+			#phy-cells = <0>;
+
+			clocks = <&rpmhcc RPMH_CXO_CLK>;
+			clock-names = "ref";
+
+			resets = <&gcc GCC_QUSB2PHY_MP0_BCR>;
+		};
+
+		usb_mp1_hsphy: phy@88e5000 {
+			compatible = "qcom,sc8180x-usb-hs-phy",
+				     "qcom,usb-snps-hs-7nm-phy";
+			reg = <0 0x088e5000 0 0x400>;
+			status = "disabled";
+			#phy-cells = <0>;
+
+			clocks = <&rpmhcc RPMH_CXO_CLK>;
+			clock-names = "ref";
+
+			resets = <&gcc GCC_QUSB2PHY_MP1_BCR>;
+		};
+
 		usb_prim_qmpphy: phy@88e9000 {
 			compatible = "qcom,sc8180x-qmp-usb3-dp-phy";
 			reg = <0 0x088e9000 0 0x18c>,
@@ -2472,6 +2498,74 @@
 				#clock-cells = <1>;
 				#phy-cells = <0>;
 				clock-output-names = "qmp_dptx1_phy_pll_link_clk", "qmp_dptx1_phy_pll_vco_div_clk";
+			};
+		};
+
+		usb_mp0_qmpphy: phy@88eb000 {
+			compatible = "qcom,sc8180x-qmp-usb3-uni-phy";
+			reg = <0 0x088eb000 0 0x200>;
+			status = "disabled";
+			#clock-cells = <1>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			clocks = <&gcc GCC_USB3_MP_PHY_AUX_CLK>,
+				 <&rpmhcc RPMH_CXO_CLK>,
+				 <&gcc GCC_USB3_MP0_CLKREF_CLK>,
+				 <&gcc GCC_USB3_MP_PHY_COM_AUX_CLK>;
+			clock-names = "aux", "ref_clk_src", "ref", "com_aux";
+
+			resets = <&gcc GCC_USB3_UNIPHY_MP0_BCR>,
+				 <&gcc GCC_USB3UNIPHY_PHY_MP0_BCR>;
+			reset-names = "phy", "common";
+
+			power-domains = <&gcc USB30_MP_GDSC>;
+
+			usb_mp0_ssphy: usb3-phy@88eb200 {
+				reg = <0 0x088eb200 0 0x200>,
+				      <0 0x088eb400 0 0x200>,
+				      <0 0x088eb800 0 0x800>,
+				      <0 0x088eb600 0 0x200>;
+
+				#phy-cells = <0>;
+				clocks = <&gcc GCC_USB3_MP_PHY_PIPE_0_CLK>;
+				clock-names = "pipe0";
+				clock-output-names = "usb3_mp0_phy_pipe_clk_src";
+			};
+		};
+
+		usb_mp1_qmpphy: phy@88ec000 {
+			compatible = "qcom,sc8180x-qmp-usb3-uni-phy";
+			reg = <0 0x088ec000 0 0x200>;
+			status = "disabled";
+			#clock-cells = <1>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			clocks = <&gcc GCC_USB3_MP_PHY_AUX_CLK>,
+				 <&rpmhcc RPMH_CXO_CLK>,
+				 <&gcc GCC_USB3_MP1_CLKREF_CLK>,
+				 <&gcc GCC_USB3_MP_PHY_COM_AUX_CLK>;
+			clock-names = "aux", "ref_clk_src", "ref", "com_aux";
+
+			resets = <&gcc GCC_USB3_UNIPHY_MP1_BCR>,
+				 <&gcc GCC_USB3UNIPHY_PHY_MP1_BCR>;
+			reset-names = "phy", "common";
+
+			power-domains = <&gcc USB30_MP_GDSC>;
+
+			usb_mp1_ssphy: usb3-phy@88ec200 {
+				reg = <0 0x088ec200 0 0x200>,
+				      <0 0x088ec400 0 0x200>,
+				      <0 0x088ec800 0 0x800>,
+				      <0 0x088ec600 0 0x200>;
+
+				#phy-cells = <0>;
+				clocks = <&gcc GCC_USB3_MP_PHY_PIPE_1_CLK>;
+				clock-names = "pipe0";
+				clock-output-names = "usb3_mp1_phy_pipe_clk_src";
 			};
 		};
 
@@ -2598,6 +2692,89 @@
 				snps,dis_enblslpm_quirk;
 				phys = <&usb_sec_hsphy>, <&usb_sec_ssphy>;
 				phy-names = "usb2-phy", "usb3-phy";
+			};
+		};
+
+		usb_mp: usb@a4f8800 {
+			compatible = "qcom,sc8180x-dwc3", "qcom,dwc3";
+			reg = <0 0xa4f8800 0 0x400>;
+			status = "disabled";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+			dma-ranges;
+
+			clocks = <&gcc GCC_CFG_NOC_USB3_MP_AXI_CLK>,
+				 <&gcc GCC_USB30_MP_MASTER_CLK>,
+				 <&gcc GCC_AGGRE_USB3_MP_AXI_CLK>,
+				 <&gcc GCC_USB30_MP_MOCK_UTMI_CLK>,
+				 <&gcc GCC_USB30_MP_SLEEP_CLK>,
+				 <&rpmhcc RPMH_CXO_CLK>;
+
+			clock-names = "cfg_noc", "core", "iface", "mock_utmi",
+				      "sleep", "xo";
+
+			assigned-clocks = <&gcc GCC_USB30_MP_MOCK_UTMI_CLK>,
+					  <&gcc GCC_USB30_MP_MASTER_CLK>;
+			assigned-clock-rates = <19200000>, <200000000>;
+
+			// TODO: are interrupts correct?
+			//       currently computed as #ACPI - 32
+			//
+			// IRQs are only for wake?
+			//
+			// usb2 (this)	 dt	acpi
+			//    ?		654?	 686
+			//    ?		656?	 688
+			//    ?		487?	 519	(conflict with old sec!)
+			//    ?		655?	 687
+			//    ?		510?	 542
+			//    ?		526?	 558
+			//    ?		539?	 571
+			//    ?		548?	 580
+			//    ?		551?	 583
+
+			interrupts = <GIC_SPI 656 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 487 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 655 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 510 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 526 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 539 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 548 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 551 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "hs_phy_irq", "ss_phy_irq",
+					  "dm_hs_phy_irq", "dp_hs_phy_irq";
+
+			// TODO: make driver support more interrupts
+			//
+			// interrupt-names = "hs_phy0_irq", "ss_phy0_irq",
+			// 		  "dm_hs_phy0_irq", "dp_hs_phy0_irq",
+			// 		  "hs_phy1_irq", "ss_phy1_irq",
+			// 		  "dm_hs_phy1_irq", "dp_hs_phy1_irq";
+
+			power-domains = <&gcc USB30_MP_GDSC>;
+
+			interconnects = <&aggre1_noc MASTER_USB3_2 0 &mc_virt SLAVE_EBI_CH0 0>,
+					<&gem_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_USB3_2 0>;
+			interconnect-names = "usb-ddr", "apps-usb";
+
+			resets = <&gcc GCC_USB30_MP_BCR>;
+
+			usb_mp_dwc3: dwc3@a400000 {
+				compatible = "snps,dwc3";
+				reg = <0 0x0a400000 0 0xcd00>;
+				interrupts = <GIC_SPI 654 IRQ_TYPE_LEVEL_HIGH>;
+				iommus = <&apps_smmu 0x60 0>;
+
+				snps,dis_u2_susphy_quirk;
+				snps,dis_enblslpm_quirk;
+
+				snps,ports = <2>;
+
+				phys = <&usb_mp0_hsphy>, <&usb_mp0_ssphy>,
+				       <&usb_mp1_hsphy>, <&usb_mp1_ssphy>;
+				phy-names = "usb2-mp0-phy", "usb3-mp0-phy",
+					    "usb2-mp1-phy", "usb3-mp1-phy";
 			};
 		};
 
