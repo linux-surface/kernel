@@ -6063,6 +6063,12 @@
 			are running concurrently, especially on systems
 			with rotating-rust storage.
 
+	torture.printk_shutdown_bug_workaround= [KNL]
+			Execute pr_flush(1000, true) just before invoking
+			kernel_power_off() to work around any bugs that
+			might prevent printk() from flushing its buffers
+			at shutdown time.
+
 	torture.verbose_sleep_frequency= [KNL]
 			Specifies how many verbose printk()s should be
 			emitted between each sleep.  The default of zero
