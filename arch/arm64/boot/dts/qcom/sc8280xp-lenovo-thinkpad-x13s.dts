@@ -400,6 +400,30 @@
 	status = "okay";
 };
 
+&remoteproc_adsp_glink {
+	pmic-glink {
+		compatible = "qcom,sc8280xp-pmic-glink", "qcom,pmic-glink";
+		qcom,glink-channels = "PMIC_RTR_ADSP_APPS";
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		connector@0 {
+			compatible = "usb-c-connector";
+			reg = <0>;
+			power-role = "dual";
+			data-role = "dual";
+		};
+
+		connector@1 {
+			compatible = "usb-c-connector";
+			reg = <1>;
+			power-role = "dual";
+			data-role = "dual";
+		};
+	};
+};
+
 &remoteproc_nsp0 {
 	firmware-name = "qcom/sc8280xp/qccdsp8280.mbn";
 
