@@ -1118,6 +1118,7 @@ static int perf_run_latency(struct perf_thread *pthr)
 	void __iomem *flt_dst, *bnd_dst;
 	void *flt_src;
 	u64 stop_at;
+	u32 rem;
 	int ret;
 
 	pthr->tries = 0;
@@ -1146,7 +1147,8 @@ static int perf_run_latency(struct perf_thread *pthr)
 		}
 
 		/* Avoid processor soft lock-ups */
-		if (!(pthr->tries % RESCHEDULE_RATIO))
+		div_u64_rem(pthr->tries, RESCHEDULE_RATIO, &rem);
+		if (!rem)
 			schedule();
 	}
 
