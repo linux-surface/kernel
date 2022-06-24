@@ -6289,7 +6289,7 @@ static int qcom_qmp_phy_probe(struct platform_device *pdev)
 			cfg = dp_cfg;
 			serdes = dp_serdes;
 		} else if (of_node_name_eq(child, "usb3-phy")) {
-			cfg = usb_cfg;
+			cfg = usb_cfg ? usb_cfg : cfg;
 			serdes = usb_serdes;
 		}
 
