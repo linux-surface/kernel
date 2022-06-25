@@ -4025,6 +4025,7 @@ static const struct qmp_phy_cfg sc8180x_pciephy_cfg = {
 	.start_ctrl		= PCS_START | SERDES_START,
 	.pwrdn_ctrl		= SW_PWRDN | REFCLK_DRV_DSBL,
 
+	.is_dual_lane_phy	= true,
 	.has_pwrdn_delay	= true,
 	.pwrdn_delay_min	= 995,		/* us */
 	.pwrdn_delay_max	= 1005,		/* us */
