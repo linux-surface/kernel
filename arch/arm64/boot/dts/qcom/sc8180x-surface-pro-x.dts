@@ -1022,6 +1022,10 @@
 			hid-touchpad {
 				ssam-uid = "01:15:02:03:00";
 			};
+
+			hid-tcfwupd {
+				ssam-uid = "01:15:02:05:00";
+			};
 		};
 
 		kip-tablet-mode-switch {
