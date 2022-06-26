@@ -229,6 +229,22 @@ config SURFACE_PRO3_BUTTON
 	help
 	  This driver handles the power/home/volume buttons on the Microsoft Surface Pro 3/4 tablet.
 
+config SURFACE_THERMAL_HUB
+	tristate "Surface System Aggregator Thermal Sensor Hub Driver"
+	depends on SURFACE_AGGREGATOR
+	depends on SURFACE_AGGREGATOR_BUS
+	help
+	  Proides a hub driver for thermal sensors connected via the Surface System
+	  Aggregator Module.
+
+	  This hub instantiates thermal sensor devices found on various Microsoft
+	  Surface devices, specifically those on which they are not directly
+	  described via ACPI. The thermal sensor devices themselves are handled by
+	  a separate driver (CONFIG_SURFACE_THERMAL).
+
+	  Select M or Y here, if you want to support thermal sensors on the Surface
+	  Pro X.
+
 source "drivers/platform/surface/aggregator/Kconfig"
 
 endif # SURFACE_PLATFORMS
