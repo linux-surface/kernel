@@ -1565,6 +1565,7 @@ static const struct qcom_pcie_cfg sc7280_cfg = {
 static const struct qcom_pcie_cfg sc8180x_cfg = {
 	.ops = &ops_1_9_0,
 	.has_tbu_clk = true,
+	.suspend_poweroff = true,
 };
 
 static const struct dw_pcie_ops dw_pcie_ops = {
