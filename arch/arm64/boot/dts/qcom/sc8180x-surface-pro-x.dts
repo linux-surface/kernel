@@ -216,6 +216,20 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&ts_5v_en_default_state>;
 	};
+
+	vreg_slp_s3_n: slp-s3-n-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_slp_s3_n";
+
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+
+		gpio = <&pmc8180c_gpios 11 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&slp_s3_n_default_state>;
+	};
 };
 
 
@@ -680,6 +694,13 @@
 		pins = "gpio10";
 		function = "func1";
 	};
+
+	slp_s3_n_default_state: slp-s3-n-default-state {
+		pins = "gpio11";
+		function = "normal";
+		output-enable;
+		bias-pull-down;
+	};
 };
 
 &pmc8180e_gpios {
@@ -847,6 +868,12 @@
 	perst-gpio = <&tlmm 102 GPIO_ACTIVE_LOW>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie1_default_state>;
+
+	// Use vddpe to drive SLP_S3_N pin high when device is not suspended.
+	//
+	// Requires "PCI: Notify PCI drivers about powerdown during suspend"
+	// by Manivannan Sadhasivam to actually disable pin during suspend/S3.
+	vddpe-3v3-supply = <&vreg_slp_s3_n>;
 
 	// phys = <&pcie1_lane>, <&pcie1_lane>;
 	// phy-names = "pciephy0", "pciephy1";
