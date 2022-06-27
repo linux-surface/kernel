@@ -423,6 +423,18 @@ config MTK_THERMAL
 	  Enable this option if you want to have support for thermal management
 	  controller present in Mediatek SoCs
 
+config SURFACE_THERMAL
+	tristate "Temperature sensor driver for Microsoft Surface System Aggregator Module"
+	depends on SURFACE_AGGREGATOR
+	depends on SURFACE_AGGREGATOR_BUS
+	help
+	  Driver for thermal sensors provided by the Surface System Aggregator
+	  Module.
+
+	  Select M or Y here, if you want to support thermal sensors on newer
+	  Microsoft Surface devices using the Surface System Aggregator module,
+	  such as the Surface Pro X.
+
 config AMLOGIC_THERMAL
 	tristate "Amlogic Thermal Support"
 	default ARCH_MESON
