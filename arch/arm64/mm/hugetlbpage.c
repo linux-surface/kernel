@@ -373,8 +373,10 @@ unsigned long hugetlb_mask_last_page(struct hstate *h)
 	unsigned long hp_size = huge_page_size(h);
 
 	switch (hp_size) {
+#ifndef __PAGETABLE_PMD_FOLDED
 	case PUD_SIZE:
 		return PGDIR_SIZE - PUD_SIZE;
+#endif
 	case CONT_PMD_SIZE:
 		return PUD_SIZE - CONT_PMD_SIZE;
 	case PMD_SIZE:
