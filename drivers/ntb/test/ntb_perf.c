@@ -126,7 +126,7 @@ MODULE_DESCRIPTION("PCIe NTB Performance Measurement Tool");
 #define PERF_BUF_LEN 1024
 
 #define LAT_MIN_TRIES	20
-#define RESCHEDULE_RATIO	10000
+#define RESCHEDULE_RATIO	8192 /* power of 2, to avoid actual division */
 
 static unsigned long max_mw_size;
 module_param(max_mw_size, ulong, 0644);
