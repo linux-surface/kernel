@@ -1138,6 +1138,10 @@
 			ssam-uid = "01:02:01:01:00";
 		};
 
+		thermal-sensors {
+			ssam-uid = "01:03:01:00:00";
+		};
+
 		kip-hub {
 			ssam-uid = "00:00:01:0e:00";
 
