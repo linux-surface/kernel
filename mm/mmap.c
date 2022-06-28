@@ -392,6 +392,8 @@ static void validate_mm_mt(struct mm_struct *mm)
 	struct vm_area_struct *vma_mt, *vma = mm->mmap;
 
 	MA_STATE(mas, mt, 0, 0);
+
+	mt_validate(&mm->mm_mt);
 	mas_for_each(&mas, vma_mt, ULONG_MAX) {
 		if (xa_is_zero(vma_mt))
 			continue;
@@ -440,7 +442,6 @@ static void validate_mm_mt(struct mm_struct *mm)
 
 	}
 	VM_BUG_ON(vma);
-	mt_validate(&mm->mm_mt);
 }
 #else
 #define validate_mm_mt(root) do { } while (0)
