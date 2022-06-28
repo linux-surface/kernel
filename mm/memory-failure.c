@@ -1725,13 +1725,6 @@ out:
 }
 
 #else
-
-static inline int mf_generic_kill_procs(unsigned long long pfn, int flags,
-					struct dev_pagemap *pgmap)
-{
-	return 0;
-}
-
 static inline int try_memory_failure_hugetlb(unsigned long pfn, int flags, int *hugetlb)
 {
 	return 0;
