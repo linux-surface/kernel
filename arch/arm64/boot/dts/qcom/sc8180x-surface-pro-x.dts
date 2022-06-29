@@ -35,26 +35,24 @@
 		pinctrl-0 = <&bl_pwm_default_state &bl_en_default_state>;
 	};
 
-	gpio-keys {
+	gpio-keys-volume {
 		compatible = "gpio-keys";
-		label = "Volume keys";
+		label = "Volume Buttons";
 		autorepeat;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&volume_down_gpio &volume_up_gpio>;
 
-		vol-down {
-			label = "Volume down";
-			linux,code = <KEY_VOLUMEDOWN>;
+		volume-down {
+			label = "Volume Down";
 			gpios = <&pmc8180a_gpios 1 GPIO_ACTIVE_LOW>;
-			debounce-interval = <15>;
+			linux,code = <KEY_VOLUMEDOWN>;
 		};
 
-		vol-up {
-			label = "Volume up";
-			linux,code = <KEY_VOLUMEUP>;
+		volume-up {
+			label = "Volume Up";
 			gpios = <&pmc8180a_gpios 6 GPIO_ACTIVE_LOW>;
-			debounce-interval = <15>;
+			linux,code = <KEY_VOLUMEUP>;
 		};
 	};
 
