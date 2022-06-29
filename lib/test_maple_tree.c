@@ -35685,7 +35685,6 @@ static noinline void check_spanning_write(struct maple_tree *mt)
 	mas_set(&mas, 1205);
 	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
 	mtree_unlock(mt);
-	mt_dump(mt);
 	mt_validate(mt);
 	mtree_destroy(mt);
 
@@ -35817,6 +35816,15 @@ static noinline void check_spanning_write(struct maple_tree *mt)
 	MT_BUG_ON(mt, mas_walk(&mas) != NULL);
 	mtree_unlock(mt);
 	mtree_destroy(mt);
+
+	mt_init_flags(mt, MT_FLAGS_ALLOC_RANGE);
+	for (i = 0; i <= 100; i++)
+		mtree_test_store_range(mt, i * 10, i * 10 + 5, &i);
+
+	mtree_lock(mt);
+	mas_set_range(&mas, 76, 875);
+	mas_store_gfp(&mas, NULL, GFP_KERNEL);
+	mtree_unlock(mt);
 }
 
 static noinline void check_null_expand(struct maple_tree *mt)
