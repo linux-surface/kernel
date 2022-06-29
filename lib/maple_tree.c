@@ -3029,8 +3029,7 @@ static int mas_spanning_rebalance(struct ma_state *mas,
 		if (mas_is_root_limits(mast->orig_l))
 			break;
 
-		if (!mast_spanning_rebalance(mast))
-			break;
+		mast_spanning_rebalance(mast);
 
 		/* rebalancing from other nodes may require another loop. */
 		if (!count)
@@ -6521,6 +6520,7 @@ static inline void *mas_first_entry(struct ma_state *mas, struct maple_node *mn,
 	max = mas->max;
 	mas->offset = 0;
 	while (likely(!ma_is_leaf(mt))) {
+		MT_BUG_ON(mas->tree, mte_dead_node(mas->node));
 		slots = ma_slots(mn, mt);
 		pivots = ma_pivots(mn, mt);
 		max = pivots[0];
@@ -6531,6 +6531,7 @@ static inline void *mas_first_entry(struct ma_state *mas, struct maple_node *mn,
 		mn = mas_mn(mas);
 		mt = mte_node_type(mas->node);
 	}
+	MT_BUG_ON(mas->tree, mte_dead_node(mas->node));
 
 	mas->max = max;
 	slots = ma_slots(mn, mt);
