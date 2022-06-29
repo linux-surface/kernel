@@ -243,6 +243,8 @@ static struct file *alloc_file(const struct path *path, int flags,
 		file->f_mode |= FMODE_CAN_WRITE;
 	file->f_mode |= FMODE_OPENED;
 	file->f_op = fop;
+	if (file->f_op->llseek)
+		file->f_mode |= FMODE_LSEEK;
 	if ((file->f_mode & (FMODE_READ | FMODE_WRITE)) == FMODE_READ)
 		i_readcount_inc(path->dentry->d_inode);
 	return file;
