@@ -220,7 +220,6 @@ static const struct file_operations mlx5vf_save_fops = {
 	.read = mlx5vf_save_read,
 	.poll = mlx5vf_save_poll,
 	.release = mlx5vf_release_file,
-	.llseek = no_llseek,
 };
 
 static struct mlx5_vf_migration_file *
@@ -338,7 +337,6 @@ static const struct file_operations mlx5vf_resume_fops = {
 	.owner = THIS_MODULE,
 	.write = mlx5vf_resume_write,
 	.release = mlx5vf_release_file,
-	.llseek = no_llseek,
 };
 
 static struct mlx5_vf_migration_file *

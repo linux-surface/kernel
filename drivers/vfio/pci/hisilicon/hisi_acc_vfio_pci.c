@@ -739,7 +739,6 @@ static const struct file_operations hisi_acc_vf_resume_fops = {
 	.owner = THIS_MODULE,
 	.write = hisi_acc_vf_resume_write,
 	.release = hisi_acc_vf_release_file,
-	.llseek = no_llseek,
 };
 
 static struct hisi_acc_vf_migration_file *
@@ -806,7 +805,6 @@ static const struct file_operations hisi_acc_vf_save_fops = {
 	.owner = THIS_MODULE,
 	.read = hisi_acc_vf_save_read,
 	.release = hisi_acc_vf_release_file,
-	.llseek = no_llseek,
 };
 
 static struct hisi_acc_vf_migration_file *

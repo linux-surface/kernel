@@ -326,7 +326,6 @@ static const struct file_operations efi_capsule_fops = {
 	.write = efi_capsule_write,
 	.flush = efi_capsule_flush,
 	.release = efi_capsule_release,
-	.llseek = no_llseek,
 };
 
 static struct miscdevice efi_capsule_misc = {

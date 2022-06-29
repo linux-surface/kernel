@@ -1103,7 +1103,6 @@ static const struct file_operations port_fops = {
 	.poll  = port_fops_poll,
 	.release = port_fops_release,
 	.fasync = port_fops_fasync,
-	.llseek = no_llseek,
 };
 
 /*
