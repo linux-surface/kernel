@@ -1699,8 +1699,7 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 /**
  * unmap_vmas - unmap a range of memory covered by a list of vma's
  * @tlb: address of the caller's struct mmu_gather
- * @mt: maple tree pointer. A maple tree is a RCU-safe range based B-tree
- *	designed to use modern processor cache efficiently
+ * @mt: The maple tree pointer for the VMAs
  * @vma: the starting vma
  * @start_addr: virtual address at which to start unmapping
  * @end_addr: virtual address at which to end unmapping
