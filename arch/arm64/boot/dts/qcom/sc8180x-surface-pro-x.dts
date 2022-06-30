@@ -714,6 +714,14 @@
 			output-low;
 			bias-pull-down;
 		};
+
+		wake-n {
+			pins = "gpio104";
+			function = "gpio";
+
+			drive-strength = <2>;
+			bias-pull-up;
+		};
 	};
 
 	pcie3_default_state: pcie3-default-state {
@@ -1055,6 +1063,7 @@
 	num-lanes = <2>;
 
 	perst-gpio = <&tlmm 102 GPIO_ACTIVE_LOW>;
+	wake-gpio = <&tlmm 104 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie1_default_state>;
 
