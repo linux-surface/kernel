@@ -21,6 +21,9 @@ properties:
       - qcom,ipq8074-qmp-pcie-phy
       - qcom,msm8998-qmp-pcie-phy
       - qcom,sc8180x-qmp-pcie-phy
+      - qcom,sc8280xp-qmp-gen3x1-pcie-phy
+      - qcom,sc8280xp-qmp-gen3x2-pcie-phy
+      - qcom,sc8280xp-qmp-modem-pcie-phy
       - qcom,sdm845-qhp-pcie-phy
       - qcom,sdm845-qmp-pcie-phy
       - qcom,sdx55-qmp-pcie-phy
@@ -74,13 +77,12 @@ patternProperties:
         maxItems: 6
 
       clocks:
-        items:
-          - description: PIPE clock
+        minItems: 1
+        maxItems: 2
 
       clock-names:
-        deprecated: true
-        items:
-          - const: pipe0
+        minItems: 1
+        maxItems: 2
 
       "#clock-cells":
         const: 0
@@ -168,6 +170,9 @@ allOf:
           contains:
             enum:
               - qcom,sc8180x-qmp-pcie-phy
+              - qcom,sc8280xp-qmp-gen3x1-pcie-phy
+              - qcom,sc8280xp-qmp-gen3x2-pcie-phy
+              - qcom,sc8280xp-qmp-modem-pcie-phy
               - qcom,sdm845-qhp-pcie-phy
               - qcom,sdm845-qmp-pcie-phy
               - qcom,sdx55-qmp-pcie-phy
@@ -200,6 +205,8 @@ allOf:
         compatible:
           contains:
             enum:
+              - qcom,sc8280xp-qmp-gen3x2-pcie-phy
+              - qcom,sc8280xp-qmp-modem-pcie-phy
               - qcom,sm8250-qmp-gen3x2-pcie-phy
               - qcom,sm8250-qmp-modem-pcie-phy
               - qcom,sm8450-qmp-gen4x2-pcie-phy
@@ -255,6 +262,36 @@ allOf:
                 - description: TX
                 - description: RX
                 - description: PCS
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,sc8280xp-qmp-gen3x1-pcie-phy
+              - qcom,sc8280xp-qmp-gen3x2-pcie-phy
+              - qcom,sc8280xp-qmp-modem-pcie-phy
+    then:
+      patternProperties:
+        "^phy@[0-9a-f]+$":
+          properties:
+            clocks:
+              maxItems: 2
+            clock-names:
+              items:
+                - const: pipe
+                - const: pipediv2
+    else:
+      patternProperties:
+        "^phy@[0-9a-f]+$":
+          properties:
+            clocks:
+              items:
+                - description: PIPE clock
+            clock-names:
+              deprecated: true
+              items:
+                - const: pipe0
 
 examples:
   - |
