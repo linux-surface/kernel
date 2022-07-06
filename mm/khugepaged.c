@@ -2438,6 +2438,8 @@ int madvise_collapse(struct vm_area_struct *vma, struct vm_area_struct **prev,
 		if (!mmap_locked)
 			*prev = NULL;  /* Tell caller we dropped mmap_lock */
 
+		trace_mm_madvise_collapse(mm, addr, result);
+
 		switch (result) {
 		case SCAN_SUCCEED:
 		case SCAN_PMD_MAPPED:
