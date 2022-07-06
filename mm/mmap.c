@@ -3357,7 +3357,7 @@ struct vm_area_struct *copy_vma(struct vm_area_struct **vmap,
 	}
 
 	new_vma = find_vma_prev(mm, addr, &prev);
-	if (new_vma->vm_start < addr + len)
+	if (new_vma && new_vma->vm_start < addr + len)
 		return NULL;	/* should never get here */
 
 	new_vma = vma_merge(mm, prev, addr, addr + len, vma->vm_flags,
