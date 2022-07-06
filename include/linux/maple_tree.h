@@ -434,6 +434,7 @@ struct ma_wr_state {
 		.node = MAS_START,					\
 		.min = 0,						\
 		.max = ULONG_MAX,					\
+		.alloc = NULL,						\
 	}
 
 #define MA_WR_STATE(name, ma_state, wr_entry)				\

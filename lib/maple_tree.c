@@ -1293,15 +1293,29 @@ static inline void mas_free(struct ma_state *mas, struct maple_enode *used)
  * there is not enough nodes.
  * @mas: The maple state
  * @count: The number of nodes needed
+ * @gfp: the gfp flags
  */
-static void mas_node_count(struct ma_state *mas, int count)
+static void mas_node_count_gfp(struct ma_state *mas, int count, gfp_t gfp)
 {
 	unsigned long allocated = mas_allocated(mas);
 
 	if (allocated < count) {
 		mas_set_alloc_req(mas, count - allocated);
-		mas_alloc_nodes(mas, GFP_NOWAIT | __GFP_NOWARN);
+		mas_alloc_nodes(mas, gfp);
 	}
+}
+
+/*
+ * mas_node_count() - Check if enough nodes are allocated and request more if
+ * there is not enough nodes.
+ * @mas: The maple state
+ * @count: The number of nodes needed
+ *
+ * Note: Uses GFP_NOWAIT | __GFP_NOWARN for gfp flags.
+ */
+static void mas_node_count(struct ma_state *mas, int count)
+{
+	return mas_node_count_gfp(mas, count, GFP_NOWAIT | __GFP_NOWARN);
 }
 
 /*
@@ -3962,7 +3976,7 @@ static inline int mas_wr_spanning_store(struct ma_wr_state *wr_mas)
 	if (unlikely(!mas->index && mas->last == ULONG_MAX))
 		return mas_new_root(mas, wr_mas->entry);
 	/*
-	 * Node rebalancing may occur due to this store, so there may be two new
+	 * Node rebalancing may occur due to this store, so there may be three new
 	 * entries per level plus a new root.
 	 */
 	height = mas_mt_height(mas);
@@ -3993,6 +4007,12 @@ static inline int mas_wr_spanning_store(struct ma_wr_state *wr_mas)
 		mas->offset = l_mas.offset;
 		mas->index = l_mas.index;
 		mas->last = l_mas.last = r_mas.last;
+	}
+
+	/* expanding NULLs may make this cover the entire range */
+	if (!l_mas.index && r_mas.last == ULONG_MAX) {
+		mas_set_range(mas, 0, ULONG_MAX);
+		return mas_new_root(mas, wr_mas->entry);
 	}
 
 	memset(&b_node, 0, sizeof(struct maple_big_node));
@@ -5657,15 +5677,15 @@ int mas_preallocate(struct ma_state *mas, void *entry, gfp_t gfp)
 {
 	int ret;
 
-	mas_set_alloc_req(mas, 1 + mas_mt_height(mas) * 3);
-	mas_alloc_nodes(mas, gfp);
+	mas_node_count_gfp(mas, 1 + mas_mt_height(mas) * 3, gfp);
 	if (likely(!mas_is_err(mas)))
 		return 0;
 
 	mas_set_alloc_req(mas, 0);
-	mas_destroy(mas);
 	ret = xa_err(mas->node);
-	mas->node = MAS_START;
+	mas_reset(mas);
+	mas_destroy(mas);
+	mas_reset(mas);
 	return ret;
 }
 
