@@ -466,6 +466,7 @@ Memory Area, or VMA) there is a series of lines such as the following::
     MMUPageSize:           4 kB
     Locked:                0 kB
     THPeligible:           0
+    PMDMappable:           0
     VmFlags: rd ex mr mw me dw
 
 The first of these lines shows the same information as is displayed for the
@@ -518,9 +519,14 @@ replaced by copy-on-write) part of the underlying shmem object out on swap.
 does not take into account swapped out page of underlying shmem objects.
 "Locked" indicates whether the mapping is locked in memory or not.
 
+"PMDMappable" indicates if the memory can be mapped by PMDs - 1 if true, 0
+otherwise.  It just shows the current status. Note that this is memory
+operable on explicitly by MADV_COLLAPSE.
+
 "THPeligible" indicates whether the mapping is eligible for allocating THP
-pages as well as the THP is PMD mappable or not - 1 if true, 0 otherwise.
-It just shows the current status.
+pages by the kernel, as well as the THP is PMD mappable or not - 1 if true, 0
+otherwise. It just shows the current status.  Note this is memory the kernel can
+transparently provide as THPs.
 
 "VmFlags" field deserves a separate description. This member represents the
 kernel flags associated with the particular virtual memory area in two letter

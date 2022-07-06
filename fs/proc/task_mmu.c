@@ -867,6 +867,8 @@ static int show_smap(struct seq_file *m, void *v)
 
 	seq_printf(m, "THPeligible:    %d\n",
 		   hugepage_vma_check(vma, vma->vm_flags, true, false, true));
+	seq_printf(m, "PMDMappable:    %d\n",
+		   hugepage_vma_check(vma, vma->vm_flags, true, false, false));
 
 	if (arch_pkeys_enabled())
 		seq_printf(m, "ProtectionKey:  %8u\n", vma_pkey(vma));
