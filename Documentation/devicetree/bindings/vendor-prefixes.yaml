@@ -29,6 +29,8 @@ patternProperties:
     description: 70mai Co., Ltd.
   "^8dev,.*":
     description: 8devices, UAB
+  "^9elements,.*":
+    description: 9elements GmbH
   "^abb,.*":
     description: ABB
   "^abilis,.*":
