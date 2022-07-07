@@ -3792,6 +3792,7 @@ static struct page *rmqueue_pcplist(struct zone *preferred_zone,
 	pcp_trylock_prepare(UP_flags);
 	if (!spin_trylock(&pcp->lock)) {
 		pcp_trylock_finish(UP_flags);
+		local_unlock_irqrestore(&pagesets.lock, flags);
 		return NULL;
 	}
 
