@@ -75,6 +75,7 @@ sesInfoAlloc(void)
 		INIT_LIST_HEAD(&ret_buf->tcon_list);
 		mutex_init(&ret_buf->session_mutex);
 		spin_lock_init(&ret_buf->iface_lock);
+		INIT_LIST_HEAD(&ret_buf->iface_list);
 		spin_lock_init(&ret_buf->chan_lock);
 	}
 	return ret_buf;
@@ -83,6 +84,8 @@ sesInfoAlloc(void)
 void
 sesInfoFree(struct cifs_ses *buf_to_free)
 {
+	struct cifs_server_iface *iface = NULL, *niface = NULL;
+
 	if (buf_to_free == NULL) {
 		cifs_dbg(FYI, "Null buffer passed to sesInfoFree\n");
 		return;
@@ -96,7 +99,11 @@ sesInfoFree(struct cifs_ses *buf_to_free)
 	kfree(buf_to_free->user_name);
 	kfree(buf_to_free->domainName);
 	kfree_sensitive(buf_to_free->auth_key.response);
-	kfree(buf_to_free->iface_list);
+	spin_lock(&buf_to_free->iface_lock);
+	list_for_each_entry_safe(iface, niface, &buf_to_free->iface_list,
+				 iface_head)
+		kref_put(&iface->refcount, release_iface);
+	spin_unlock(&buf_to_free->iface_lock);
 	kfree_sensitive(buf_to_free);
 }
 
@@ -1022,7 +1029,7 @@ setup_aio_ctx_iter(struct cifs_aio_ctx *ctx, struct iov_iter *iter, int rw)
 	saved_len = count;
 
 	while (count && npages < max_pages) {
-		rc = iov_iter_get_pages(iter, pages, count, max_pages, &start);
+		rc = iov_iter_get_pages2(iter, pages, count, max_pages, &start);
 		if (rc < 0) {
 			cifs_dbg(VFS, "Couldn't get user pages (rc=%zd)\n", rc);
 			break;
@@ -1034,7 +1041,6 @@ setup_aio_ctx_iter(struct cifs_aio_ctx *ctx, struct iov_iter *iter, int rw)
 			break;
 		}
 
-		iov_iter_advance(iter, rc);
 		count -= rc;
 		rc += start;
 		cur_npages = DIV_ROUND_UP(rc, PAGE_SIZE);

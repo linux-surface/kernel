@@ -2007,7 +2007,6 @@ static const struct file_operations zcrypt_fops = {
 #endif
 	.open		= zcrypt_open,
 	.release	= zcrypt_release,
-	.llseek		= no_llseek,
 };
 
 /*

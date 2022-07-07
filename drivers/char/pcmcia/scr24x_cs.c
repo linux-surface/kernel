@@ -219,7 +219,6 @@ static const struct file_operations scr24x_fops = {
 	.write		= scr24x_write,
 	.open		= scr24x_open,
 	.release	= scr24x_release,
-	.llseek		= no_llseek,
 };
 
 static int scr24x_config_check(struct pcmcia_device *link, void *priv_data)

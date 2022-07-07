@@ -161,7 +161,6 @@ static const struct file_operations zcore_reipl_fops = {
 	.write		= zcore_reipl_write,
 	.open		= zcore_reipl_open,
 	.release	= zcore_reipl_release,
-	.llseek		= no_llseek,
 };
 
 static ssize_t zcore_hsa_read(struct file *filp, char __user *buf,
@@ -196,7 +195,6 @@ static const struct file_operations zcore_hsa_fops = {
 	.write		= zcore_hsa_write,
 	.read		= zcore_hsa_read,
 	.open		= nonseekable_open,
-	.llseek		= no_llseek,
 };
 
 static int __init check_sdias(void)

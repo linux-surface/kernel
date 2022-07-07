@@ -57,7 +57,6 @@ static const struct file_operations __fops = {				\
 	.release = simple_attr_release,					\
 	.read	 = debugfs_attr_read,					\
 	.write	 = debugfs_attr_write,					\
-	.llseek  = no_llseek,						\
 }
 
 typedef struct vfsmount *(*debugfs_automount_t)(struct dentry *, void *);
