@@ -42,6 +42,10 @@ renesas/dt-fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt64-cleanup-5.20-2
 	dt/cleanup-arm-2
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/dt-cleanup-5.20-2
+	samsung/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.20-2
+	samsung/dt64-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.20-2
 
 arm/drivers
 	renesas/drivers
