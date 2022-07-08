@@ -7,6 +7,8 @@ arm/soc
 		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc-for-v5.20
 	zynq/soc
 		https://github.com/Xilinx/linux-xlnx tags/zynq-soc-for-v5.20
+	renesas/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-soc-for-v5.20-tag1
 
 arm/dt
 	samsung/dt
@@ -54,6 +56,10 @@ renesas/dt-fixes
 		https://github.com/Xilinx/linux-xlnx tags/zynq-dt-for-v5.20
 	zynq/dt64
 		https://github.com/Xilinx/linux-xlnx tags/zynqmp-dt-for-v5.20
+	renesas/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-dt-for-v5.20-tag2
+	renesas/dt-bindings-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v5.20-tag2
 
 arm/drivers
 	renesas/drivers
