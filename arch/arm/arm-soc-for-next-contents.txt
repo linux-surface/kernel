@@ -3,6 +3,10 @@ arm/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-5.20
 	omap/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.20/soc-signed
+	zynq/soc-64
+		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc-for-v5.20
+	zynq/soc
+		https://github.com/Xilinx/linux-xlnx tags/zynq-soc-for-v5.20
 
 arm/dt
 	samsung/dt
@@ -46,6 +50,10 @@ renesas/dt-fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-5.20-2
 	samsung/dt64-2
 		git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-5.20-2
+	zynq/dt
+		https://github.com/Xilinx/linux-xlnx tags/zynq-dt-for-v5.20
+	zynq/dt64
+		https://github.com/Xilinx/linux-xlnx tags/zynqmp-dt-for-v5.20
 
 arm/drivers
 	renesas/drivers
@@ -84,4 +92,9 @@ arm/fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-dtsfixes1
 	<no branch> (f4470dbfb5ff92804650bc71d115c3f150d430f6)
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v5.19-rockchip-socfixes1
+	patch
+		MAINTAINERS: mark ARM/PALM TREO SUPPORT orphan
+		MAINTAINERS: add polarfire rng, pci and clock drivers
+	<no branch> (a57f68ddc8865d59a19783080cc52fb4a11dc209)
+		git://git.pengutronix.de/pza/linux tags/reset-fixes-for-v5.19
 
