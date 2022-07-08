@@ -103,4 +103,12 @@ arm/fixes
 		MAINTAINERS: add polarfire rng, pci and clock drivers
 	<no branch> (a57f68ddc8865d59a19783080cc52fb4a11dc209)
 		git://git.pengutronix.de/pza/linux tags/reset-fixes-for-v5.19
+	<no branch> (e5ce073c8a1e01b215a5eb32ba48f8d17ded3bd5)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-fixes-for-v5.19
+	<no branch> (2fdf15b50a46e366740df4cccbe2343269b4ff55)
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-fixes-5.19-2
+	<no branch> (79471f29ec4870bc02b4fea844e86669a8a4f2a5)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-5.19-1
+	<no branch> (884b66976a7279ee889ba885fe364244d50b79e7)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-5.19-2
 
