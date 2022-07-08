@@ -388,6 +388,13 @@ static void __create_pgd_mapping(pgd_t *pgdir, phys_addr_t phys,
 	} while (pgdp++, addr = next, addr != end);
 }
 
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+extern __alias(__create_pgd_mapping)
+void create_kpti_ng_temp_pgd(pgd_t *pgdir, phys_addr_t phys, unsigned long virt,
+			     phys_addr_t size, pgprot_t prot,
+			     phys_addr_t (*pgtable_alloc)(int), int flags);
+#endif
+
 static phys_addr_t __pgd_pgtable_alloc(int shift)
 {
 	void *ptr = (void *)__get_free_page(GFP_PGTABLE_KERNEL);
@@ -529,8 +536,7 @@ static void __init map_mem(pgd_t *pgdp)
 
 #ifdef CONFIG_KEXEC_CORE
 	if (crash_mem_map) {
-		if (IS_ENABLED(CONFIG_ZONE_DMA) ||
-		    IS_ENABLED(CONFIG_ZONE_DMA32))
+		if (defer_reserve_crashkernel())
 			flags |= NO_BLOCK_MAPPINGS | NO_CONT_MAPPINGS;
 		else if (crashk_res.end)
 			memblock_mark_nomap(crashk_res.start,
@@ -571,8 +577,7 @@ static void __init map_mem(pgd_t *pgdp)
 	 * through /sys/kernel/kexec_crash_size interface.
 	 */
 #ifdef CONFIG_KEXEC_CORE
-	if (crash_mem_map &&
-	    !IS_ENABLED(CONFIG_ZONE_DMA) && !IS_ENABLED(CONFIG_ZONE_DMA32)) {
+	if (crash_mem_map && !defer_reserve_crashkernel()) {
 		if (crashk_res.end) {
 			__map_memblock(pgdp, crashk_res.start,
 				       crashk_res.end + 1,
@@ -665,13 +670,9 @@ static int __init map_entry_trampoline(void)
 		__set_fixmap(FIX_ENTRY_TRAMP_TEXT1 - i,
 			     pa_start + i * PAGE_SIZE, prot);
 
-	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE)) {
-		extern char __entry_tramp_data_start[];
-
-		__set_fixmap(FIX_ENTRY_TRAMP_DATA,
-			     __pa_symbol(__entry_tramp_data_start),
-			     PAGE_KERNEL_RO);
-	}
+	if (IS_ENABLED(CONFIG_RELOCATABLE))
+		__set_fixmap(FIX_ENTRY_TRAMP_TEXT1 - i,
+			     pa_start + i * PAGE_SIZE, PAGE_KERNEL_RO);
 
 	return 0;
 }
