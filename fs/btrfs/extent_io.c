@@ -182,6 +182,7 @@ static int add_extent_changeset(struct extent_state *state, u32 bits,
 static void submit_one_bio(struct btrfs_bio_ctrl *bio_ctrl)
 {
 	struct bio *bio;
+	struct bio_vec *bv;
 	struct inode *inode;
 	int mirror_num;
 
@@ -189,11 +190,14 @@ static void submit_one_bio(struct btrfs_bio_ctrl *bio_ctrl)
 		return;
 
 	bio = bio_ctrl->bio;
-	inode = bio_first_page_all(bio)->mapping->host;
+	bv = bio_first_bvec_all(bio);
+	inode = bv->bv_page->mapping->host;
 	mirror_num = bio_ctrl->mirror_num;
 
 	/* Caller should ensure the bio has at least some range added */
 	ASSERT(bio->bi_iter.bi_size);
+
+	btrfs_bio(bio)->file_offset = page_offset(bv->bv_page) + bv->bv_offset;
 
 	if (!is_data_inode(inode))
 		btrfs_submit_metadata_bio(inode, bio, mirror_num);
@@ -2434,6 +2438,20 @@ int btrfs_repair_eb_io_failure(const struct extent_buffer *eb, int mirror_num)
 	return ret;
 }
 
+static int next_mirror(struct io_failure_record *failrec, int cur_mirror)
+{
+	if (cur_mirror == failrec->num_copies)
+		return cur_mirror + 1 - failrec->num_copies;
+	return cur_mirror + 1;
+}
+
+static int prev_mirror(struct io_failure_record *failrec, int cur_mirror)
+{
+	if (cur_mirror == 1)
+		return failrec->num_copies;
+	return cur_mirror - 1;
+}
+
 /*
  * each time an IO finishes, we do a fast check in the IO failure tree
  * to see if we need to process or clean up an io_failure_record
@@ -2446,7 +2464,7 @@ int clean_io_failure(struct btrfs_fs_info *fs_info,
 	u64 private;
 	struct io_failure_record *failrec;
 	struct extent_state *state;
-	int num_copies;
+	int mirror;
 	int ret;
 
 	private = 0;
@@ -2470,20 +2488,19 @@ int clean_io_failure(struct btrfs_fs_info *fs_info,
 					    EXTENT_LOCKED);
 	spin_unlock(&io_tree->lock);
 
-	if (state && state->start <= failrec->start &&
-	    state->end >= failrec->start + failrec->len - 1) {
-		num_copies = btrfs_num_copies(fs_info, failrec->logical,
-					      failrec->len);
-		if (num_copies > 1)  {
-			repair_io_failure(fs_info, ino, start, failrec->len,
-					  failrec->logical, page, pg_offset,
-					  failrec->failed_mirror);
-		}
-	}
+	if (!state || state->start > failrec->start ||
+	    state->end < failrec->start + failrec->len - 1)
+		goto out;
+
+	mirror = failrec->this_mirror;
+	do {
+		mirror = prev_mirror(failrec, mirror);
+		repair_io_failure(fs_info, ino, start, failrec->len,
+				  failrec->logical, page, pg_offset, mirror);
+	} while (mirror != failrec->failed_mirror);
 
 out:
 	free_io_failure(failure_tree, io_tree, failrec);
-
 	return 0;
 }
 
@@ -2522,17 +2539,16 @@ void btrfs_free_io_failure_record(struct btrfs_inode *inode, u64 start, u64 end)
 }
 
 static struct io_failure_record *btrfs_get_io_failure_record(struct inode *inode,
-							     u64 start)
+							     struct btrfs_bio *bbio,
+							     unsigned int bio_offset)
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
+	u64 start = bbio->file_offset + bio_offset;
 	struct io_failure_record *failrec;
-	struct extent_map *em;
 	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
 	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
-	struct extent_map_tree *em_tree = &BTRFS_I(inode)->extent_tree;
 	const u32 sectorsize = fs_info->sectorsize;
 	int ret;
-	u64 logical;
 
 	failrec = get_state_failrec(failure_tree, start);
 	if (!IS_ERR(failrec)) {
@@ -2544,7 +2560,8 @@ static struct io_failure_record *btrfs_get_io_failure_record(struct inode *inode
 		 * (e.g. with a list for failed_mirror) to make
 		 * clean_io_failure() clean all those errors at once.
 		 */
-
+		ASSERT(failrec->this_mirror == bbio->mirror_num);
+		ASSERT(failrec->len == fs_info->sectorsize);
 		return failrec;
 	}
 
@@ -2554,40 +2571,27 @@ static struct io_failure_record *btrfs_get_io_failure_record(struct inode *inode
 
 	failrec->start = start;
 	failrec->len = sectorsize;
-	failrec->this_mirror = 0;
-	failrec->compress_type = BTRFS_COMPRESS_NONE;
-
-	read_lock(&em_tree->lock);
-	em = lookup_extent_mapping(em_tree, start, failrec->len);
-	if (!em) {
-		read_unlock(&em_tree->lock);
-		kfree(failrec);
-		return ERR_PTR(-EIO);
-	}
-
-	if (em->start > start || em->start + em->len <= start) {
-		free_extent_map(em);
-		em = NULL;
-	}
-	read_unlock(&em_tree->lock);
-	if (!em) {
-		kfree(failrec);
-		return ERR_PTR(-EIO);
-	}
-
-	logical = start - em->start;
-	logical = em->block_start + logical;
-	if (test_bit(EXTENT_FLAG_COMPRESSED, &em->flags)) {
-		logical = em->block_start;
-		failrec->compress_type = em->compress_type;
-	}
+	failrec->failed_mirror = failrec->this_mirror = bbio->mirror_num;
+	failrec->logical = (bbio->iter.bi_sector << SECTOR_SHIFT) + bio_offset;
 
 	btrfs_debug(fs_info,
-		    "Get IO Failure Record: (new) logical=%llu, start=%llu, len=%llu",
-		    logical, start, failrec->len);
+		    "Get IO Failure Record: (new) logical=%llu, start=%llu",
+		    failrec->logical, start);
 
-	failrec->logical = logical;
-	free_extent_map(em);
+	failrec->num_copies = btrfs_num_copies(fs_info, failrec->logical,
+					       sectorsize);
+	if (failrec->num_copies == 1) {
+		/*
+		 * we only have a single copy of the data, so don't bother with
+		 * all the retry and error correction code that follows. no
+		 * matter what the error is, it is very likely to persist.
+		 */
+		btrfs_debug(fs_info,
+			"Check Repairable: cannot repair, num_copies=%d",
+			failrec->num_copies);
+		kfree(failrec);
+		return ERR_PTR(-EIO);
+	}
 
 	/* Set the bits in the private failure tree */
 	ret = set_extent_bits(failure_tree, start, start + sectorsize - 1,
@@ -2605,28 +2609,29 @@ static struct io_failure_record *btrfs_get_io_failure_record(struct inode *inode
 	return failrec;
 }
 
-static bool btrfs_check_repairable(struct inode *inode,
-				   struct io_failure_record *failrec,
-				   int failed_mirror)
+int btrfs_repair_one_sector(struct inode *inode, struct btrfs_bio *failed_bbio,
+			    u32 bio_offset, struct page *page,
+			    unsigned int pgoff,
+			    submit_bio_hook_t *submit_bio_hook)
 {
+	u64 start = failed_bbio->file_offset + bio_offset;
+	struct io_failure_record *failrec;
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
-	int num_copies;
+	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
+	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
+	struct bio *failed_bio = &failed_bbio->bio;
+	const int icsum = bio_offset >> fs_info->sectorsize_bits;
+	struct bio *repair_bio;
+	struct btrfs_bio *repair_bbio;
 
-	num_copies = btrfs_num_copies(fs_info, failrec->logical, failrec->len);
-	if (num_copies == 1) {
-		/*
-		 * we only have a single copy of the data, so don't bother with
-		 * all the retry and error correction code that follows. no
-		 * matter what the error is, it is very likely to persist.
-		 */
-		btrfs_debug(fs_info,
-			"Check Repairable: cannot repair, num_copies=%d, next_mirror %d, failed_mirror %d",
-			num_copies, failrec->this_mirror, failed_mirror);
-		return false;
-	}
+	btrfs_debug(fs_info,
+		   "repair read error: read error at %llu", start);
 
-	/* The failure record should only contain one sector */
-	ASSERT(failrec->len == fs_info->sectorsize);
+	BUG_ON(bio_op(failed_bio) == REQ_OP_WRITE);
+
+	failrec = btrfs_get_io_failure_record(inode, failed_bbio, bio_offset);
+	if (IS_ERR(failrec))
+		return PTR_ERR(failrec);
 
 	/*
 	 * There are two premises:
@@ -2637,48 +2642,13 @@ static bool btrfs_check_repairable(struct inode *inode,
 	 * a good copy of the failed sector and if we succeed, we have setup
 	 * everything for repair_io_failure to do the rest for us.
 	 */
-	ASSERT(failed_mirror);
-	failrec->failed_mirror = failed_mirror;
-	failrec->this_mirror++;
-	if (failrec->this_mirror == failed_mirror)
-		failrec->this_mirror++;
-
-	if (failrec->this_mirror > num_copies) {
+	failrec->this_mirror = next_mirror(failrec, failrec->this_mirror);
+	if (failrec->this_mirror == failrec->failed_mirror) {
 		btrfs_debug(fs_info,
-			"Check Repairable: (fail) num_copies=%d, next_mirror %d, failed_mirror %d",
-			num_copies, failrec->this_mirror, failed_mirror);
-		return false;
-	}
-
-	return true;
-}
-
-int btrfs_repair_one_sector(struct inode *inode,
-			    struct bio *failed_bio, u32 bio_offset,
-			    struct page *page, unsigned int pgoff,
-			    u64 start, int failed_mirror,
-			    submit_bio_hook_t *submit_bio_hook)
-{
-	struct io_failure_record *failrec;
-	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
-	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
-	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
-	struct btrfs_bio *failed_bbio = btrfs_bio(failed_bio);
-	const int icsum = bio_offset >> fs_info->sectorsize_bits;
-	struct bio *repair_bio;
-	struct btrfs_bio *repair_bbio;
-
-	btrfs_debug(fs_info,
-		   "repair read error: read error at %llu", start);
-
-	BUG_ON(bio_op(failed_bio) == REQ_OP_WRITE);
-
-	failrec = btrfs_get_io_failure_record(inode, start);
-	if (IS_ERR(failrec))
-		return PTR_ERR(failrec);
-
-
-	if (!btrfs_check_repairable(inode, failrec, failed_mirror)) {
+			"Check Repairable: (fail) num_copies=%d, this_mirror %d, failed_mirror %d",
+			failrec->num_copies,
+			failrec->this_mirror,
+			failrec->failed_mirror);
 		free_io_failure(failure_tree, tree, failrec);
 		return -EIO;
 	}
@@ -2711,7 +2681,7 @@ int btrfs_repair_one_sector(struct inode *inode,
 	 * will be handled by the endio on the repair_bio, so we can't return an
 	 * error here.
 	 */
-	submit_bio_hook(inode, repair_bio, failrec->this_mirror, failrec->compress_type);
+	submit_bio_hook(inode, repair_bio, failrec->this_mirror, 0);
 	return BLK_STS_OK;
 }
 
@@ -2757,9 +2727,10 @@ static void end_sector_io(struct page *page, u64 offset, bool uptodate)
 				    offset + sectorsize - 1, &cached);
 }
 
-static void submit_data_read_repair(struct inode *inode, struct bio *failed_bio,
+static void submit_data_read_repair(struct inode *inode,
+				    struct btrfs_bio *failed_bbio,
 				    u32 bio_offset, const struct bio_vec *bvec,
-				    int failed_mirror, unsigned int error_bitmap)
+				    unsigned int error_bitmap)
 {
 	const unsigned int pgoff = bvec->bv_offset;
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
@@ -2770,7 +2741,7 @@ static void submit_data_read_repair(struct inode *inode, struct bio *failed_bio,
 	const int nr_bits = (end + 1 - start) >> fs_info->sectorsize_bits;
 	int i;
 
-	BUG_ON(bio_op(failed_bio) == REQ_OP_WRITE);
+	BUG_ON(bio_op(&failed_bbio->bio) == REQ_OP_WRITE);
 
 	/* This repair is only for data */
 	ASSERT(is_data_inode(inode));
@@ -2782,7 +2753,7 @@ static void submit_data_read_repair(struct inode *inode, struct bio *failed_bio,
 	 * We only get called on buffered IO, thus page must be mapped and bio
 	 * must not be cloned.
 	 */
-	ASSERT(page->mapping && !bio_flagged(failed_bio, BIO_CLONED));
+	ASSERT(page->mapping && !bio_flagged(&failed_bbio->bio, BIO_CLONED));
 
 	/* Iterate through all the sectors in the range */
 	for (i = 0; i < nr_bits; i++) {
@@ -2799,10 +2770,9 @@ static void submit_data_read_repair(struct inode *inode, struct bio *failed_bio,
 			goto next;
 		}
 
-		ret = btrfs_repair_one_sector(inode, failed_bio,
-				bio_offset + offset,
-				page, pgoff + offset, start + offset,
-				failed_mirror, btrfs_submit_data_read_bio);
+		ret = btrfs_repair_one_sector(inode, failed_bbio,
+				bio_offset + offset, page, pgoff + offset,
+				btrfs_submit_data_read_bio);
 		if (!ret) {
 			/*
 			 * We have submitted the read repair, the page release
@@ -3117,6 +3087,10 @@ static void end_bio_extent_readpage(struct bio *bio)
 			 * Only try to repair bios that actually made it to a
 			 * device.  If the bio failed to be submitted mirror
 			 * is 0 and we need to fail it without retrying.
+			 *
+			 * This also includes the high level bios for compressed
+			 * extents - these never make it to a device and repair
+			 * is already handled on the lower compressed bio.
 			 */
 			if (mirror > 0)
 				repair = true;
@@ -3134,8 +3108,8 @@ static void end_bio_extent_readpage(struct bio *bio)
 			 * submit_data_read_repair() will handle all the good
 			 * and bad sectors, we just continue to the next bvec.
 			 */
-			submit_data_read_repair(inode, bio, bio_offset, bvec,
-						mirror, error_bitmap);
+			submit_data_read_repair(inode, bbio, bio_offset, bvec,
+						error_bitmap);
 		} else {
 			/* Update page status and unlock */
 			end_page_read(page, uptodate, start, len);
