@@ -1486,7 +1486,8 @@ static noinline void check_erase2_testset(struct maple_tree *mt,
 		switch (set[i]) {
 		case SNULL:
 			if ((s_min == set[i+1]) && (s_max == set[i+2])) {
-				entry_count--;
+				if (s_entry)
+					entry_count--;
 			} else if ((s_min != set[i+1]) && (s_max != set[i+2])) {
 				entry_count++;
 			} else if ((mas_start.node != mas_end.node) ||
