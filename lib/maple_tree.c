@@ -5287,6 +5287,9 @@ int mas_empty_area_rev(struct ma_state *mas, unsigned long min,
 		}
 	}
 
+	if (mas_is_err(mas))
+		return xa_err(mas->node);
+
 	if (unlikely(mas->offset == MAPLE_NODE_SLOTS))
 		return -EBUSY;
 
