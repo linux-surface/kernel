@@ -2965,7 +2965,7 @@ static int do_brk_flags(struct ma_state *mas, struct vm_area_struct *vma,
 		vma->vm_end = addr + len;
 		vma->vm_flags |= VM_SOFTDIRTY;
 		if (mas_store_gfp(mas, vma, GFP_KERNEL))
-			return -ENOMEM;
+			goto mas_expand_failed;
 
 		if (vma->anon_vma) {
 			anon_vma_interval_tree_post_update_vma(vma);
@@ -3012,6 +3012,13 @@ mas_store_fail:
 	vm_area_free(vma);
 vma_alloc_fail:
 	vm_unacct_memory(len >> PAGE_SHIFT);
+	return -ENOMEM;
+
+mas_expand_failed:
+	if (vma->anon_vma) {
+		anon_vma_interval_tree_post_update_vma(vma);
+		anon_vma_unlock_write(vma->anon_vma);
+	}
 	return -ENOMEM;
 }
 
