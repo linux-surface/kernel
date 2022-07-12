@@ -677,7 +677,8 @@ inline int vma_expand(struct ma_state *mas, struct vm_area_struct *vma,
 		if (next->anon_vma && !vma->anon_vma) {
 			int error;
 
-			vma->anon_vma = next->anon_vma;
+			anon_vma = next->anon_vma;
+			vma->anon_vma = anon_vma;
 			error = anon_vma_clone(vma, next);
 			if (error)
 				return error;
@@ -695,16 +696,19 @@ inline int vma_expand(struct ma_state *mas, struct vm_area_struct *vma,
 
 	vma_adjust_trans_huge(vma, start, end, 0);
 
+	if (file) {
+		mapping = file->f_mapping;
+		root = &mapping->i_mmap;
+		uprobe_munmap(vma, vma->vm_start, vma->vm_end);
+		i_mmap_lock_write(mapping);
+	}
+
 	if (anon_vma) {
 		anon_vma_lock_write(anon_vma);
 		anon_vma_interval_tree_pre_update_vma(vma);
 	}
 
 	if (file) {
-		mapping = file->f_mapping;
-		root = &mapping->i_mmap;
-		uprobe_munmap(vma, vma->vm_start, vma->vm_end);
-		i_mmap_lock_write(mapping);
 		flush_dcache_mmap_lock(mapping);
 		vma_interval_tree_remove(vma, root);
 	}
@@ -735,16 +739,15 @@ inline int vma_expand(struct ma_state *mas, struct vm_area_struct *vma,
 		mm->highest_vm_end = vm_end_gap(vma);
 	}
 
-	if (file) {
-		i_mmap_unlock_write(mapping);
-		uprobe_mmap(vma);
-	}
-
 	if (anon_vma) {
 		anon_vma_interval_tree_post_update_vma(vma);
 		anon_vma_unlock_write(anon_vma);
 	}
 
+	if (file) {
+		i_mmap_unlock_write(mapping);
+		uprobe_mmap(vma);
+	}
 
 	if (remove_next) {
 		if (file) {
