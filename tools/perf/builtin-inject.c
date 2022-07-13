@@ -809,7 +809,7 @@ static bool keep_feat(int feat)
 	case HEADER_CPU_PMU_CAPS:
 	case HEADER_CLOCK_DATA:
 	case HEADER_HYBRID_TOPOLOGY:
-	case HEADER_HYBRID_CPU_PMU_CAPS:
+	case HEADER_PMU_CAPS:
 		return true;
 	/* Information that can be updated */
 	case HEADER_BUILD_ID:
@@ -1061,6 +1061,7 @@ int cmd_inject(int argc, const char **argv)
 			.stat		= perf_event__repipe_op2_synth,
 			.stat_round	= perf_event__repipe_op2_synth,
 			.feature	= perf_event__repipe_op2_synth,
+			.finished_init	= perf_event__repipe_op2_synth,
 			.compressed	= perf_event__repipe_op4_synth,
 			.auxtrace	= perf_event__repipe_auxtrace,
 		},
