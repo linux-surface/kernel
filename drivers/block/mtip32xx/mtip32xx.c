@@ -2367,21 +2367,18 @@ static const struct file_operations mtip_device_status_fops = {
 	.owner  = THIS_MODULE,
 	.open   = simple_open,
 	.read   = mtip_hw_read_device_status,
-	.llseek = no_llseek,
 };
 
 static const struct file_operations mtip_regs_fops = {
 	.owner  = THIS_MODULE,
 	.open   = simple_open,
 	.read   = mtip_hw_read_registers,
-	.llseek = no_llseek,
 };
 
 static const struct file_operations mtip_flags_fops = {
 	.owner  = THIS_MODULE,
 	.open   = simple_open,
 	.read   = mtip_hw_read_flags,
-	.llseek = no_llseek,
 };
 
 static int mtip_hw_debugfs_init(struct driver_data *dd)

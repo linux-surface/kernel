@@ -1132,7 +1132,6 @@ error_1:
 
 static const struct file_operations ftdi_elan_fops = {
 	.owner = THIS_MODULE,
-	.llseek = no_llseek,
 	.read = ftdi_elan_read,
 	.write = ftdi_elan_write,
 	.open = ftdi_elan_open,
