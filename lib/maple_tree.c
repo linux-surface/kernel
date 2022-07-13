@@ -2254,10 +2254,10 @@ static inline void mas_wr_node_walk(struct ma_wr_state *wr_mas)
 					       wr_mas->pivots, mas->max);
 	offset = mas->offset;
 	min = mas_safe_min(mas, wr_mas->pivots, offset);
-	max = wr_mas->pivots[offset];
 	if (unlikely(offset == count))
-		goto max; /* may have been set to zero */
+		goto max;
 
+	max = wr_mas->pivots[offset];
 	index = mas->index;
 	if (unlikely(index <= max))
 		goto done;
