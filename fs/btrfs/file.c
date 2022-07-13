@@ -1846,6 +1846,33 @@ static ssize_t check_direct_IO(struct btrfs_fs_info *fs_info,
 	return 0;
 }
 
+static size_t dio_fault_in_size(const struct kiocb *iocb,
+				const struct iov_iter *iov,
+				size_t prev_left)
+{
+	const size_t left = iov_iter_count(iov);
+	size_t size = PAGE_SIZE;
+
+	/*
+	 * If there's no progress since the last time we had to fault in pages,
+	 * then we fault in at most 1 page. Faulting in more than that may
+	 * result in making very slow progress or falling back to buffered IO,
+	 * because by the time we retry the DIO operation some of the first
+	 * remaining pages may have been evicted in order to fault in other pages
+	 * that follow them. That can happen when we are under memory pressure and
+	 * the iov represents a large buffer.
+	 */
+	if (left != prev_left) {
+		int dirty_tresh = current->nr_dirtied_pause - current->nr_dirtied;
+
+		size = max(dirty_tresh, 8) << PAGE_SHIFT;
+		size = min_t(size_t, SZ_1M, size);
+	}
+	size -= offset_in_page(iocb->ki_pos);
+
+	return min(left, size);
+}
+
 static ssize_t btrfs_direct_write(struct kiocb *iocb, struct iov_iter *from)
 {
 	const bool is_sync_write = (iocb->ki_flags & IOCB_DSYNC);
@@ -1956,7 +1983,9 @@ again:
 		if (left == prev_left) {
 			err = -ENOTBLK;
 		} else {
-			fault_in_iov_iter_readable(from, left);
+			const size_t size = dio_fault_in_size(iocb, from, prev_left);
+
+			fault_in_iov_iter_readable(from, size);
 			prev_left = left;
 			goto again;
 		}
@@ -1971,11 +2000,25 @@ again:
 	if (is_sync_write)
 		iocb->ki_flags |= IOCB_DSYNC;
 
-	/* If 'err' is -ENOTBLK then it means we must fallback to buffered IO. */
+	/*
+	 * If 'err' is -ENOTBLK or we have not written all data, then it means
+	 * we must fallback to buffered IO.
+	 */
 	if ((err < 0 && err != -ENOTBLK) || !iov_iter_count(from))
 		goto out;
 
 buffered:
+	/*
+	 * If we are in a NOWAIT context, then return -EAGAIN to signal the caller
+	 * it must retry the operation in a context where blocking is acceptable,
+	 * since we currently don't have NOWAIT semantics support for buffered IO
+	 * and may block there for many reasons (reserving space for example).
+	 */
+	if (iocb->ki_flags & IOCB_NOWAIT) {
+		err = -EAGAIN;
+		goto out;
+	}
+
 	pos = iocb->ki_pos;
 	written_buffered = btrfs_buffered_write(iocb, from);
 	if (written_buffered < 0) {
@@ -2058,9 +2101,11 @@ ssize_t btrfs_do_write_iter(struct kiocb *iocb, struct iov_iter *from,
 		num_written = btrfs_encoded_write(iocb, from, encoded);
 		num_sync = encoded->len;
 	} else if (iocb->ki_flags & IOCB_DIRECT) {
-		num_written = num_sync = btrfs_direct_write(iocb, from);
+		num_written = btrfs_direct_write(iocb, from);
+		num_sync = num_written;
 	} else {
-		num_written = num_sync = btrfs_buffered_write(iocb, from);
+		num_written = btrfs_buffered_write(iocb, from);
+		num_sync = num_written;
 	}
 
 	btrfs_set_inode_last_sub_trans(inode);
@@ -2308,7 +2353,7 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	btrfs_release_log_ctx_extents(&ctx);
 	if (ret < 0) {
 		/* Fallthrough and commit/free transaction. */
-		ret = 1;
+		ret = BTRFS_LOG_FORCE_COMMIT;
 	}
 
 	/* we've logged all the items and now have a consistent
@@ -2734,7 +2779,7 @@ int btrfs_replace_file_extents(struct btrfs_inode *inode,
 		goto out;
 	}
 	rsv->size = btrfs_calc_insert_metadata_size(fs_info, 1);
-	rsv->failfast = 1;
+	rsv->failfast = true;
 
 	/*
 	 * 1 - update the inode
@@ -3100,7 +3145,8 @@ static int btrfs_punch_hole(struct file *file, loff_t offset, loff_t len)
 
 	ASSERT(trans != NULL);
 	inode_inc_iversion(inode);
-	inode->i_mtime = inode->i_ctime = current_time(inode);
+	inode->i_mtime = current_time(inode);
+	inode->i_ctime = inode->i_mtime;
 	ret = btrfs_update_inode(trans, root, BTRFS_I(inode));
 	updated_inode = true;
 	btrfs_end_transaction(trans);
@@ -3760,25 +3806,20 @@ again:
 		read = ret;
 
 	if (iov_iter_count(to) > 0 && (ret == -EFAULT || ret > 0)) {
-		const size_t left = iov_iter_count(to);
+		if (iter_is_iovec(to)) {
+			const size_t left = iov_iter_count(to);
+			const size_t size = dio_fault_in_size(iocb, to, prev_left);
 
-		if (left == prev_left) {
-			/*
-			 * We didn't make any progress since the last attempt,
-			 * fallback to a buffered read for the remainder of the
-			 * range. This is just to avoid any possibility of looping
-			 * for too long.
-			 */
-			ret = read;
-		} else {
-			/*
-			 * We made some progress since the last retry or this is
-			 * the first time we are retrying. Fault in as many pages
-			 * as possible and retry.
-			 */
-			fault_in_iov_iter_writeable(to, left);
+			fault_in_iov_iter_writeable(to, size);
 			prev_left = left;
 			goto again;
+		} else {
+			/*
+			 * fault_in_iov_iter_writeable() only works for iovecs,
+			 * return with a partial read and fallback to buffered
+			 * IO for the rest of the range.
+			 */
+			ret = read;
 		}
 	}
 	btrfs_inode_unlock(inode, BTRFS_ILOCK_SHARED);
