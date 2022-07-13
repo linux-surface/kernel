@@ -311,7 +311,7 @@ EXPORT_SYMBOL(release_resource);
  *
  * If a resource is found, returns 0 and @*res is overwritten with the part
  * of the resource that's within [@start..@end]; if none is found, returns
- * -ENODEV.  Returns -EINVAL for invalid parameters.
+ * -ENODEV.
  *
  * @start:	start address of the resource searched for
  * @end:	end address of same resource
@@ -327,9 +327,6 @@ static int find_next_iomem_res(resource_size_t start, resource_size_t end,
 			       struct resource *res)
 {
 	struct resource *p;
-
-	if (!res)
-		return -EINVAL;
 
 	if (start >= end)
 		return -EINVAL;
@@ -356,7 +353,7 @@ static int find_next_iomem_res(resource_size_t start, resource_size_t end,
 		break;
 	}
 
-	if (p) {
+	if (p && res) {
 		/* copy data */
 		*res = (struct resource) {
 			.start = max(start, p->start),
@@ -474,18 +471,18 @@ int walk_system_ram_range(unsigned long start_pfn, unsigned long nr_pages,
 	return ret;
 }
 
-static int __is_ram(unsigned long pfn, unsigned long nr_pages, void *arg)
-{
-	return 1;
-}
-
 /*
  * This generic page_is_ram() returns true if specified address is
  * registered as System RAM in iomem_resource list.
  */
 int __weak page_is_ram(unsigned long pfn)
 {
-	return walk_system_ram_range(pfn, 1, NULL, __is_ram) == 1;
+	const resource_size_t pfn_res = PFN_PHYS(pfn);
+
+	return find_next_iomem_res(pfn_res,
+				   pfn_res + 1,
+				   IORESOURCE_SYSTEM_RAM | IORESOURCE_BUSY,
+				   IORES_DESC_NONE, NULL) == 0;
 }
 EXPORT_SYMBOL_GPL(page_is_ram);
 
