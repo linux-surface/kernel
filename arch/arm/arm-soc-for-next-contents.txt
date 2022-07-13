@@ -9,6 +9,12 @@ arm/soc
 		https://github.com/Xilinx/linux-xlnx tags/zynq-soc-for-v5.20
 	renesas/soc
 		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-soc-for-v5.20-tag1
+	broadcom/soc
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.20/soc
+	broadcom/maintainers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.20/maintainers
+	imx/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-soc-5.20
 
 arm/dt
 	samsung/dt
@@ -84,6 +90,10 @@ renesas/dt-fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt64-5.20
 	sunxi/dt-2
 		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-5.20-2
+	at91/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-dt-5.20-2
+	qcom/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-5.20
 
 arm/drivers
 	renesas/drivers
@@ -165,4 +175,8 @@ arm/fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-5.19-2
 	<no branch> (6177a50fd32c6fd956c7265bc5297e725d221bfc)
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.19-3
+	<no branch> (8bd582ae9a71d7f14c4e0c735b2eacaf7516d626)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.19/devicetree-arm64-fixes
+	<no branch> (03110b46c99bb0c712f46bec660b1c3f674ce100)
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-fixes-for-5.19
 
