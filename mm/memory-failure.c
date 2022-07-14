@@ -1007,12 +1007,13 @@ static int me_swapcache_dirty(struct page_state *ps, struct page *p)
 
 static int me_swapcache_clean(struct page_state *ps, struct page *p)
 {
+	struct folio *folio = page_folio(p);
 	int ret;
 
-	delete_from_swap_cache(p);
+	delete_from_swap_cache(folio);
 
 	ret = delete_from_lru_cache(p) ? MF_FAILED : MF_RECOVERED;
-	unlock_page(p);
+	folio_unlock(folio);
 
 	if (has_extra_refcount(ps, p, false))
 		ret = MF_FAILED;
@@ -2178,7 +2179,7 @@ static bool isolate_page(struct page *page, struct list_head *pagelist)
 	bool lru = PageLRU(page);
 
 	if (PageHuge(page)) {
-		isolated = isolate_huge_page(page, pagelist);
+		isolated = !isolate_hugetlb(page, pagelist);
 	} else {
 		if (lru)
 			isolated = !isolate_lru_page(page);

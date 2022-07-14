@@ -66,12 +66,6 @@ static bool hugetlb_cma_page(struct page *page, unsigned int order)
 #endif
 static unsigned long hugetlb_cma_size __initdata;
 
-/*
- * Minimum page order among possible hugepage sizes, set to a proper value
- * at boot time.
- */
-static unsigned int minimum_order __read_mostly = UINT_MAX;
-
 __initdata LIST_HEAD(huge_boot_pages);
 
 /* for command line parsing */
@@ -2152,11 +2146,17 @@ int dissolve_free_huge_pages(unsigned long start_pfn, unsigned long end_pfn)
 	unsigned long pfn;
 	struct page *page;
 	int rc = 0;
+	unsigned int order;
+	struct hstate *h;
 
 	if (!hugepages_supported())
 		return rc;
 
-	for (pfn = start_pfn; pfn < end_pfn; pfn += 1 << minimum_order) {
+	order = huge_page_order(&default_hstate);
+	for_each_hstate(h)
+		order = min(order, huge_page_order(h));
+
+	for (pfn = start_pfn; pfn < end_pfn; pfn += 1 << order) {
 		page = pfn_to_page(pfn);
 		rc = dissolve_free_huge_page(page);
 		if (rc)
@@ -2766,8 +2766,7 @@ retry:
 		 * Fail with -EBUSY if not possible.
 		 */
 		spin_unlock_irq(&hugetlb_lock);
-		if (!isolate_huge_page(old_page, list))
-			ret = -EBUSY;
+		ret = isolate_hugetlb(old_page, list);
 		spin_lock_irq(&hugetlb_lock);
 		goto free_new;
 	} else if (!HPageFreed(old_page)) {
@@ -2843,7 +2842,7 @@ int isolate_or_dissolve_huge_page(struct page *page, struct list_head *list)
 	if (hstate_is_gigantic(h))
 		return -ENOMEM;
 
-	if (page_count(head) && isolate_huge_page(head, list))
+	if (page_count(head) && !isolate_hugetlb(head, list))
 		ret = 0;
 	else if (!page_count(head))
 		ret = alloc_and_dissolve_huge_page(h, head, list);
@@ -3149,9 +3148,6 @@ static void __init hugetlb_init_hstates(void)
 	struct hstate *h, *h2;
 
 	for_each_hstate(h) {
-		if (minimum_order > huge_page_order(h))
-			minimum_order = huge_page_order(h);
-
 		/* oversize hugepages were init'ed in early boot */
 		if (!hstate_is_gigantic(h))
 			hugetlb_hstate_alloc_pages(h);
@@ -3176,7 +3172,6 @@ static void __init hugetlb_init_hstates(void)
 				h->demote_order = h2->order;
 		}
 	}
-	VM_BUG_ON(minimum_order == UINT_MAX);
 }
 
 static void __init report_hugepages(void)
@@ -4808,12 +4803,11 @@ again:
 				entry = swp_entry_to_pte(swp_entry);
 				if (userfaultfd_wp(src_vma) && uffd_wp)
 					entry = huge_pte_mkuffd_wp(entry);
-				set_huge_swap_pte_at(src, addr, src_pte,
-						     entry, sz);
+				set_huge_pte_at(src, addr, src_pte, entry);
 			}
 			if (!userfaultfd_wp(dst_vma) && uffd_wp)
 				entry = huge_pte_clear_uffd_wp(entry);
-			set_huge_swap_pte_at(dst, addr, dst_pte, entry, sz);
+			set_huge_pte_at(dst, addr, dst_pte, entry);
 		} else if (unlikely(is_pte_marker(entry))) {
 			/*
 			 * We copy the pte marker only if the dst vma has
@@ -4880,7 +4874,7 @@ again:
 				 * table protection not changing it to point
 				 * to a new page.
 				 *
-				 * See Documentation/vm/mmu_notifier.rst
+				 * See Documentation/mm/mmu_notifier.rst
 				 */
 				huge_ptep_set_wrprotect(src, addr, src_pte);
 				entry = huge_pte_wrprotect(entry);
@@ -5714,7 +5708,7 @@ vm_fault_t hugetlb_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		 */
 		entry = huge_ptep_get(ptep);
 		if (unlikely(is_hugetlb_entry_migration(entry))) {
-			migration_entry_wait_huge(vma, mm, ptep);
+			migration_entry_wait_huge(vma, ptep);
 			return 0;
 		} else if (unlikely(is_hugetlb_entry_hwpoisoned(entry)))
 			return VM_FAULT_HWPOISON_LARGE |
@@ -6052,8 +6046,6 @@ int hugetlb_mcopy_atomic_pte(struct mm_struct *dst_mm,
 
 	set_huge_pte_at(dst_mm, dst_addr, dst_pte, _dst_pte);
 
-	(void)huge_ptep_set_access_flags(dst_vma, dst_addr, dst_pte, _dst_pte,
-					dst_vma->vm_flags & VM_WRITE);
 	hugetlb_count_add(pages_per_huge_page(h), dst_mm);
 
 	/* No need to invalidate - it was non-present before */
@@ -6363,8 +6355,7 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 					newpte = pte_swp_mkuffd_wp(newpte);
 				else if (uffd_wp_resolve)
 					newpte = pte_swp_clear_uffd_wp(newpte);
-				set_huge_swap_pte_at(mm, address, ptep,
-						     newpte, psize);
+				set_huge_pte_at(mm, address, ptep, newpte);
 				pages++;
 			}
 			spin_unlock(ptl);
@@ -6415,7 +6406,7 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 	 * No need to call mmu_notifier_invalidate_range() we are downgrading
 	 * page table protection not changing it to point to a new page.
 	 *
-	 * See Documentation/vm/mmu_notifier.rst
+	 * See Documentation/mm/mmu_notifier.rst
 	 */
 	i_mmap_unlock_write(vma->vm_file->f_mapping);
 	mmu_notifier_invalidate_range_end(&range);
@@ -6940,7 +6931,7 @@ retry:
 	} else {
 		if (is_hugetlb_entry_migration(pte)) {
 			spin_unlock(ptl);
-			__migration_entry_wait(mm, (pte_t *)pmd, ptl);
+			__migration_entry_wait_huge((pte_t *)pmd, ptl);
 			goto retry;
 		}
 		/*
@@ -6972,15 +6963,15 @@ follow_huge_pgd(struct mm_struct *mm, unsigned long address, pgd_t *pgd, int fla
 	return pte_page(*(pte_t *)pgd) + ((address & ~PGDIR_MASK) >> PAGE_SHIFT);
 }
 
-bool isolate_huge_page(struct page *page, struct list_head *list)
+int isolate_hugetlb(struct page *page, struct list_head *list)
 {
-	bool ret = true;
+	int ret = 0;
 
 	spin_lock_irq(&hugetlb_lock);
 	if (!PageHeadHuge(page) ||
 	    !HPageMigratable(page) ||
 	    !get_page_unless_zero(page)) {
-		ret = false;
+		ret = -EBUSY;
 		goto unlock;
 	}
 	ClearHPageMigratable(page);
@@ -7114,7 +7105,7 @@ void hugetlb_unshare_all_pmds(struct vm_area_struct *vma)
 	i_mmap_unlock_write(vma->vm_file->f_mapping);
 	/*
 	 * No need to call mmu_notifier_invalidate_range(), see
-	 * Documentation/vm/mmu_notifier.rst.
+	 * Documentation/mm/mmu_notifier.rst.
 	 */
 	mmu_notifier_invalidate_range_end(&range);
 }
