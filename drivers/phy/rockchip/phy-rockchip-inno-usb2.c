@@ -1162,6 +1162,12 @@ static int rockchip_usb2phy_otg_port_init(struct rockchip_usb2phy *rphy,
 					EXTCON_USB_HOST, &rport->event_nb);
 		if (ret)
 			dev_err(rphy->dev, "register USB HOST notifier failed\n");
+
+		if (!of_property_read_bool(rphy->dev->of_node, "extcon")) {
+			/* do initial sync of usb state */
+			ret = property_enabled(rphy->grf, &rport->port_cfg->utmi_id);
+			extcon_set_state_sync(rphy->edev, EXTCON_USB_HOST, !ret);
+		}
 	}
 
 out:
@@ -1283,7 +1289,7 @@ static int rockchip_usb2phy_probe(struct platform_device *pdev)
 
 		phy = devm_phy_create(dev, child_np, &rockchip_usb2phy_ops);
 		if (IS_ERR(phy)) {
-			dev_err(dev, "failed to create phy\n");
+			dev_err_probe(dev, PTR_ERR(phy), "failed to create phy\n");
 			ret = PTR_ERR(phy);
 			goto put_child;
 		}
