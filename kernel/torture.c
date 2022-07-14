@@ -48,6 +48,9 @@ module_param(disable_onoff_at_boot, bool, 0444);
 static bool ftrace_dump_at_shutdown;
 module_param(ftrace_dump_at_shutdown, bool, 0444);
 
+static bool printk_shutdown_bug_workaround;
+module_param(printk_shutdown_bug_workaround, bool, 0444);
+
 static int verbose_sleep_frequency;
 module_param(verbose_sleep_frequency, int, 0444);
 
@@ -651,6 +654,10 @@ static int torture_shutdown(void *arg)
 		VERBOSE_TOROUT_STRING("No torture_shutdown_hook(), skipping.");
 	if (ftrace_dump_at_shutdown)
 		rcu_ftrace_dump(DUMP_ALL);
+	if (printk_shutdown_bug_workaround) {
+		pr_info("%s: Flushing printk() buffers at power-down time.\n", __func__);
+		pr_flush(1000, true);
+	}
 	kernel_power_off();	/* Shut down the system. */
 	return 0;
 }
