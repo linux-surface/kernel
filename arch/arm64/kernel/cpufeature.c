@@ -2476,7 +2476,6 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.cpu_enable = cpu_enable_e0pd,
 	},
 #endif
-#ifdef CONFIG_ARCH_RANDOM
 	{
 		.desc = "Random Number Generator",
 		.capability = ARM64_HAS_RNG,
@@ -2488,7 +2487,6 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.sign = FTR_UNSIGNED,
 		.min_field_value = 1,
 	},
-#endif
 #ifdef CONFIG_ARM64_BTI
 	{
 		.desc = "Branch Target Identification",
