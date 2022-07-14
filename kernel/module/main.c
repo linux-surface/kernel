@@ -119,7 +119,7 @@ static void mod_update_bounds(struct module *mod)
 }
 
 /* Block module loading/unloading? */
-int modules_disabled = 0;
+int modules_disabled;
 core_param(nomodule, modules_disabled, bint, 0);
 
 /* Waiting for a module to finish initializing? */
@@ -2138,7 +2138,7 @@ static int move_module(struct module *mod, struct load_info *info)
 
 #ifdef CONFIG_ARCH_WANTS_MODULES_DATA_IN_VMALLOC
 	/* Do the allocs. */
-	ptr = vmalloc(mod->data_layout.size);
+	ptr = vzalloc(mod->data_layout.size);
 	/*
 	 * The pointer to this block is stored in the module structure
 	 * which is inside the block. Just mark it as not being a
@@ -2151,7 +2151,6 @@ static int move_module(struct module *mod, struct load_info *info)
 		return -ENOMEM;
 	}
 
-	memset(ptr, 0, mod->data_layout.size);
 	mod->data_layout.base = ptr;
 #endif
 	/* Transfer each section which specifies SHF_ALLOC */
@@ -2410,6 +2409,12 @@ static void do_free_init(struct work_struct *w)
 	}
 }
 
+#undef MODULE_PARAM_PREFIX
+#define MODULE_PARAM_PREFIX "module."
+/* Default value for module->async_probe_requested */
+static bool async_probe;
+module_param(async_probe, bool, 0644);
+
 /*
  * This is where the real work happens.
  *
@@ -2630,7 +2635,8 @@ static int unknown_module_param_cb(char *param, char *val, const char *modname,
 	int ret;
 
 	if (strcmp(param, "async_probe") == 0) {
-		mod->async_probe_requested = true;
+		if (strtobool(val, &mod->async_probe_requested))
+			mod->async_probe_requested = true;
 		return 0;
 	}
 
@@ -2796,6 +2802,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	err = prepare_coming_module(mod);
 	if (err)
 		goto bug_cleanup;
+
+	mod->async_probe_requested = async_probe;
 
 	/* Module is ready to execute: parsing args may do that. */
 	after_dashes = parse_args(mod->name, mod->args, mod->kp, mod->num_kp,
