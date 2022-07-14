@@ -11,6 +11,7 @@
 	EM( SCAN_FAIL,			"failed")			\
 	EM( SCAN_SUCCEED,		"succeeded")			\
 	EM( SCAN_PMD_NULL,		"pmd_null")			\
+	EM( SCAN_PMD_MAPPED,		"page_pmd_mapped")		\
 	EM( SCAN_EXCEED_NONE_PTE,	"exceed_none_pte")		\
 	EM( SCAN_EXCEED_SWAP_PTE,	"exceed_swap_pte")		\
 	EM( SCAN_EXCEED_SHARED_PTE,	"exceed_shared_pte")		\
@@ -164,6 +165,28 @@ TRACE_EVENT(mm_collapse_huge_page_swapin,
 		__entry->swapped_in,
 		__entry->referenced,
 		__entry->ret)
+);
+
+TRACE_EVENT(mm_madvise_collapse,
+
+	TP_PROTO(struct mm_struct *mm, unsigned long addr, int result),
+
+	TP_ARGS(mm, addr, result),
+
+	TP_STRUCT__entry(__field(struct mm_struct *, mm)
+			 __field(unsigned long, addr)
+			 __field(int, result)
+	),
+
+	TP_fast_assign(__entry->mm = mm;
+		       __entry->addr = addr;
+		       __entry->result = result;
+	),
+
+	TP_printk("mm=%p addr=%#lx result=%s",
+		  __entry->mm,
+		  __entry->addr,
+		  __print_symbolic(__entry->result, SCAN_STATUS))
 );
 
 #endif /* __HUGE_MEMORY_H */
