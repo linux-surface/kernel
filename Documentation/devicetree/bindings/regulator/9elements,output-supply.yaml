@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/regulator/userspace-consumer.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Regulator output-supply driver
+
+maintainers:
+  - Patrick Rudolph <patrick.rudolph@9elements.com>
+
+description: |
+  Regulator output-supply driver helps interact with regulator.
+  Provides regulator events & sysfs notify to capture regulator events
+  in realtime for userspace application.
+  This enables userspace application to monitor events in regulator(s) &
+  handle them appropriately.
+
+
+properties:
+  compatible:
+    enum:
+      - 9elements,output-supply
+
+  regulator-name:
+    description: Name of the consumer line
+
+  regulator-boot-on:
+    description: Enable regulator during boot
+
+  regulator-supplies:
+    description: Supply names for this regulator. This can be multiple strings
+
+patternProperties:
+  ".*-supply$":
+    description: |
+      Input supply phandle(s) for this node. There should be
+      <supply-name>-supply to pass regulators handle
+
+required:
+  - compatible
+  - regulator-supplies
+  - ".*-supply$"
+
+additionalProperties: false
+
+examples:
+  - |
+    p12v_b_consumer {
+        compatible = "9elements,output-supply";
+        regulator-name = "BCM1";
+        regulator-supplies = "vbus";
+        vbus-supply = <&p12v_b>;
+    };
+
+    ssb_rssd32 {
+        compatible = "9elements,output-supply";
+        regulator-name = "ssb_rssd32";
+        regulator-supplies = "sw0", "sw1";
+        sw0-supply = <&sw0_ssb_rssd32>;
+        sw1-supply = <&sw1_ssb_rssd32>;
+    };
+...
