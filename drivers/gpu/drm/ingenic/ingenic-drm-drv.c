@@ -1464,21 +1464,22 @@ static int ingenic_drm_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int __maybe_unused ingenic_drm_suspend(struct device *dev)
+static int ingenic_drm_suspend(struct device *dev)
 {
 	struct ingenic_drm *priv = dev_get_drvdata(dev);
 
 	return drm_mode_config_helper_suspend(&priv->drm);
 }
 
-static int __maybe_unused ingenic_drm_resume(struct device *dev)
+static int ingenic_drm_resume(struct device *dev)
 {
 	struct ingenic_drm *priv = dev_get_drvdata(dev);
 
 	return drm_mode_config_helper_resume(&priv->drm);
 }
 
-static SIMPLE_DEV_PM_OPS(ingenic_drm_pm_ops, ingenic_drm_suspend, ingenic_drm_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(ingenic_drm_pm_ops,
+				ingenic_drm_suspend, ingenic_drm_resume);
 
 static const u32 jz4740_formats[] = {
 	DRM_FORMAT_XRGB1555,
@@ -1541,6 +1542,32 @@ static const struct jz_soc_info jz4725b_soc_info = {
 	.num_formats_f0 = ARRAY_SIZE(jz4725b_formats_f0),
 };
 
+static const struct jz_soc_info jz4760_soc_info = {
+	.needs_dev_clk = false,
+	.has_osd = true,
+	.map_noncoherent = false,
+	.max_width = 1280,
+	.max_height = 720,
+	.max_burst = JZ_LCD_CTRL_BURST_32,
+	.formats_f1 = jz4770_formats_f1,
+	.num_formats_f1 = ARRAY_SIZE(jz4770_formats_f1),
+	.formats_f0 = jz4770_formats_f0,
+	.num_formats_f0 = ARRAY_SIZE(jz4770_formats_f0),
+};
+
+static const struct jz_soc_info jz4760b_soc_info = {
+	.needs_dev_clk = false,
+	.has_osd = true,
+	.map_noncoherent = false,
+	.max_width = 1280,
+	.max_height = 720,
+	.max_burst = JZ_LCD_CTRL_BURST_64,
+	.formats_f1 = jz4770_formats_f1,
+	.num_formats_f1 = ARRAY_SIZE(jz4770_formats_f1),
+	.formats_f0 = jz4770_formats_f0,
+	.num_formats_f0 = ARRAY_SIZE(jz4770_formats_f0),
+};
+
 static const struct jz_soc_info jz4770_soc_info = {
 	.needs_dev_clk = false,
 	.has_osd = true,
@@ -1572,6 +1599,8 @@ static const struct jz_soc_info jz4780_soc_info = {
 static const struct of_device_id ingenic_drm_of_match[] = {
 	{ .compatible = "ingenic,jz4740-lcd", .data = &jz4740_soc_info },
 	{ .compatible = "ingenic,jz4725b-lcd", .data = &jz4725b_soc_info },
+	{ .compatible = "ingenic,jz4760-lcd", .data = &jz4760_soc_info },
+	{ .compatible = "ingenic,jz4760b-lcd", .data = &jz4760b_soc_info },
 	{ .compatible = "ingenic,jz4770-lcd", .data = &jz4770_soc_info },
 	{ .compatible = "ingenic,jz4780-lcd", .data = &jz4780_soc_info },
 	{ /* sentinel */ },
@@ -1581,7 +1610,7 @@ MODULE_DEVICE_TABLE(of, ingenic_drm_of_match);
 static struct platform_driver ingenic_drm_driver = {
 	.driver = {
 		.name = "ingenic-drm",
-		.pm = pm_ptr(&ingenic_drm_pm_ops),
+		.pm = pm_sleep_ptr(&ingenic_drm_pm_ops),
 		.of_match_table = of_match_ptr(ingenic_drm_of_match),
 	},
 	.probe = ingenic_drm_probe,
@@ -1616,4 +1645,4 @@ module_exit(ingenic_drm_exit);
 
 MODULE_AUTHOR("Paul Cercueil <paul@crapouillou.net>");
 MODULE_DESCRIPTION("DRM driver for the Ingenic SoCs\n");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
