@@ -149,7 +149,7 @@ nfp_fl_pre_lag(struct nfp_app *app, const struct flow_action_entry *act,
 	}
 
 	/* Pre_lag action must be first on action list.
-	 * If other actions already exist they need pushed forward.
+	 * If other actions already exist they need to be pushed forward.
 	 */
 	if (act_len)
 		memmove(nfp_flow->action_data + act_size,
@@ -674,9 +674,9 @@ nfp_fl_set_ip6_hop_limit_flow_label(u32 off, __be32 exact, __be32 mask,
 					    fl_hl_mask->hop_limit;
 		break;
 	case round_down(offsetof(struct ipv6hdr, flow_lbl), 4):
-		if (mask & ~IPV6_FLOW_LABEL_MASK ||
-		    exact & ~IPV6_FLOW_LABEL_MASK) {
-			NL_SET_ERR_MSG_MOD(extack, "unsupported offload: invalid pedit IPv6 flow label action");
+		if (mask & ~IPV6_FLOWINFO_MASK ||
+		    exact & ~IPV6_FLOWINFO_MASK) {
+			NL_SET_ERR_MSG_MOD(extack, "unsupported offload: invalid pedit IPv6 flow info action");
 			return -EOPNOTSUPP;
 		}
 

@@ -6,7 +6,7 @@
  * Copyright 2007	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015-2017	Intel Deutschland GmbH
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2018-2022 Intel Corporation
  *
  * utilities for mac80211
  */
@@ -1569,7 +1569,7 @@ void ieee80211_regulatory_limit_wmm_params(struct ieee80211_sub_if_data *sdata,
 		return;
 
 	rcu_read_lock();
-	chanctx_conf = rcu_dereference(sdata->vif.chanctx_conf);
+	chanctx_conf = rcu_dereference(sdata->vif.bss_conf.chanctx_conf);
 	if (chanctx_conf)
 		center_freq = chanctx_conf->def.chan->center_freq;
 
@@ -1616,7 +1616,7 @@ void ieee80211_set_wmm_default(struct ieee80211_sub_if_data *sdata,
 	memset(&qparam, 0, sizeof(qparam));
 
 	rcu_read_lock();
-	chanctx_conf = rcu_dereference(sdata->vif.chanctx_conf);
+	chanctx_conf = rcu_dereference(sdata->vif.bss_conf.chanctx_conf);
 	use_11b = (chanctx_conf &&
 		   chanctx_conf->def.chan->band == NL80211_BAND_2GHZ) &&
 		 !(sdata->flags & IEEE80211_SDATA_OPERATING_GMODE);
@@ -1702,8 +1702,8 @@ void ieee80211_set_wmm_default(struct ieee80211_sub_if_data *sdata,
 	    sdata->vif.type != NL80211_IFTYPE_NAN) {
 		sdata->vif.bss_conf.qos = enable_qos;
 		if (bss_notify)
-			ieee80211_bss_info_change_notify(sdata,
-							 BSS_CHANGED_QOS);
+			ieee80211_link_info_change_notify(sdata, 0,
+							  BSS_CHANGED_QOS);
 	}
 }
 
@@ -2258,7 +2258,8 @@ static void ieee80211_handle_reconfig_failure(struct ieee80211_local *local)
 }
 
 static void ieee80211_assign_chanctx(struct ieee80211_local *local,
-				     struct ieee80211_sub_if_data *sdata)
+				     struct ieee80211_sub_if_data *sdata,
+				     unsigned int link_id)
 {
 	struct ieee80211_chanctx_conf *conf;
 	struct ieee80211_chanctx *ctx;
@@ -2267,11 +2268,11 @@ static void ieee80211_assign_chanctx(struct ieee80211_local *local,
 		return;
 
 	mutex_lock(&local->chanctx_mtx);
-	conf = rcu_dereference_protected(sdata->vif.chanctx_conf,
+	conf = rcu_dereference_protected(sdata->vif.link_conf[link_id]->chanctx_conf,
 					 lockdep_is_held(&local->chanctx_mtx));
 	if (conf) {
 		ctx = container_of(conf, struct ieee80211_chanctx, conf);
-		drv_assign_vif_chanctx(local, sdata, ctx);
+		drv_assign_vif_chanctx(local, sdata, link_id, ctx);
 	}
 	mutex_unlock(&local->chanctx_mtx);
 }
@@ -2477,7 +2478,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 		sdata = wiphy_dereference(local->hw.wiphy,
 					  local->monitor_sdata);
 		if (sdata && ieee80211_sdata_running(sdata))
-			ieee80211_assign_chanctx(local, sdata);
+			ieee80211_assign_chanctx(local, sdata, 0);
 	}
 
 	/* reconfigure hardware */
@@ -2487,19 +2488,23 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 
 	/* Finally also reconfigure all the BSS information */
 	list_for_each_entry(sdata, &local->interfaces, list) {
+		unsigned int link;
 		u32 changed;
 
 		if (!ieee80211_sdata_running(sdata))
 			continue;
 
-		ieee80211_assign_chanctx(local, sdata);
+		for (link = 0; link < ARRAY_SIZE(sdata->vif.link_conf); link++) {
+			if (sdata->vif.link_conf[link])
+				ieee80211_assign_chanctx(local, sdata, link);
+		}
 
 		switch (sdata->vif.type) {
 		case NL80211_IFTYPE_AP_VLAN:
 		case NL80211_IFTYPE_MONITOR:
 			break;
 		case NL80211_IFTYPE_ADHOC:
-			if (sdata->vif.bss_conf.ibss_joined)
+			if (sdata->vif.cfg.ibss_joined)
 				WARN_ON(drv_join_ibss(local, sdata));
 			fallthrough;
 		default:
@@ -2526,7 +2531,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 			  BSS_CHANGED_TXPOWER |
 			  BSS_CHANGED_MCAST_RATE;
 
-		if (sdata->vif.mu_mimo_owner)
+		if (sdata->vif.bss_conf.mu_mimo_owner)
 			changed |= BSS_CHANGED_MU_GROUPS;
 
 		switch (sdata->vif.type) {
@@ -2536,7 +2541,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 				   BSS_CHANGED_PS;
 
 			/* Re-send beacon info report to the driver */
-			if (sdata->u.mgd.have_beacon)
+			if (sdata->deflink.u.mgd.have_beacon)
 				changed |= BSS_CHANGED_BEACON_INFO;
 
 			if (sdata->vif.bss_conf.max_idle_period ||
@@ -2565,8 +2570,8 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 			if (sdata->vif.type == NL80211_IFTYPE_AP) {
 				changed |= BSS_CHANGED_AP_PROBE_RESP;
 
-				if (rcu_access_pointer(sdata->u.ap.beacon))
-					drv_start_ap(local, sdata);
+				if (rcu_access_pointer(sdata->deflink.u.ap.beacon))
+					drv_start_ap(local, sdata, 0);
 			}
 			fallthrough;
 		case NL80211_IFTYPE_MESH_POINT:
@@ -2801,7 +2806,8 @@ void ieee80211_resume_disconnect(struct ieee80211_vif *vif)
 }
 EXPORT_SYMBOL_GPL(ieee80211_resume_disconnect);
 
-void ieee80211_recalc_smps(struct ieee80211_sub_if_data *sdata)
+void ieee80211_recalc_smps(struct ieee80211_sub_if_data *sdata,
+			   unsigned int link_id)
 {
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_chanctx_conf *chanctx_conf;
@@ -2809,8 +2815,8 @@ void ieee80211_recalc_smps(struct ieee80211_sub_if_data *sdata)
 
 	mutex_lock(&local->chanctx_mtx);
 
-	chanctx_conf = rcu_dereference_protected(sdata->vif.chanctx_conf,
-					lockdep_is_held(&local->chanctx_mtx));
+	chanctx_conf = rcu_dereference_protected(sdata->vif.link_conf[link_id]->chanctx_conf,
+						 lockdep_is_held(&local->chanctx_mtx));
 
 	/*
 	 * This function can be called from a work, thus it may be possible
@@ -2835,8 +2841,8 @@ void ieee80211_recalc_min_chandef(struct ieee80211_sub_if_data *sdata)
 
 	mutex_lock(&local->chanctx_mtx);
 
-	chanctx_conf = rcu_dereference_protected(sdata->vif.chanctx_conf,
-					lockdep_is_held(&local->chanctx_mtx));
+	chanctx_conf = rcu_dereference_protected(sdata->vif.bss_conf.chanctx_conf,
+						 lockdep_is_held(&local->chanctx_mtx));
 
 	if (WARN_ON_ONCE(!chanctx_conf))
 		goto unlock;
@@ -3044,7 +3050,7 @@ void ieee80211_ie_build_he_6ghz_cap(struct ieee80211_sub_if_data *sdata,
 	cap = le16_to_cpu(iftd->he_6ghz_capa.capa);
 	cap &= ~IEEE80211_HE_6GHZ_CAP_SM_PS;
 
-	switch (sdata->smps_mode) {
+	switch (sdata->deflink.smps_mode) {
 	case IEEE80211_SMPS_AUTOMATIC:
 	case IEEE80211_SMPS_NUM_MODES:
 		WARN_ON(1);
@@ -3778,13 +3784,11 @@ int ieee80211_add_ext_srates_ie(struct ieee80211_sub_if_data *sdata,
 int ieee80211_ave_rssi(struct ieee80211_vif *vif)
 {
 	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
-	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
 
-	if (WARN_ON_ONCE(sdata->vif.type != NL80211_IFTYPE_STATION)) {
-		/* non-managed type inferfaces */
+	if (WARN_ON_ONCE(sdata->vif.type != NL80211_IFTYPE_STATION))
 		return 0;
-	}
-	return -ewma_beacon_signal_read(&ifmgd->ave_beacon_signal);
+
+	return -ewma_beacon_signal_read(&sdata->deflink.u.mgd.ave_beacon_signal);
 }
 EXPORT_SYMBOL_GPL(ieee80211_ave_rssi);
 
@@ -3976,11 +3980,11 @@ void ieee80211_dfs_cac_cancel(struct ieee80211_local *local)
 		 * by the time it gets it, sdata->wdev.cac_started
 		 * will no longer be true
 		 */
-		cancel_delayed_work(&sdata->dfs_cac_timer_work);
+		cancel_delayed_work(&sdata->deflink.dfs_cac_timer_work);
 
 		if (sdata->wdev.cac_started) {
 			chandef = sdata->vif.bss_conf.chandef;
-			ieee80211_vif_release_channel(sdata);
+			ieee80211_link_release_channel(sdata->link[0]);
 			cfg80211_cac_event(sdata->dev,
 					   &chandef,
 					   NL80211_RADAR_CAC_ABORTED,
@@ -4074,7 +4078,7 @@ u32 ieee80211_chandef_downgrade(struct cfg80211_chan_def *c)
 		/* n_P20 */
 		tmp = (150 + c->chan->center_freq - c->center_freq1) / 20;
 		/* n_P160 */
-		tmp /= 80;
+		tmp /= 8;
 		c->center_freq1 = c->center_freq1 - 80 + 160 * tmp;
 		c->width = NL80211_CHAN_WIDTH_160;
 		ret = IEEE80211_STA_DISABLE_320MHZ;
@@ -4213,74 +4217,6 @@ int ieee80211_send_action_csa(struct ieee80211_sub_if_data *sdata,
 
 	ieee80211_tx_skb(sdata, skb);
 	return 0;
-}
-
-bool ieee80211_cs_valid(const struct ieee80211_cipher_scheme *cs)
-{
-	return !(cs == NULL || cs->cipher == 0 ||
-		 cs->hdr_len < cs->pn_len + cs->pn_off ||
-		 cs->hdr_len <= cs->key_idx_off ||
-		 cs->key_idx_shift > 7 ||
-		 cs->key_idx_mask == 0);
-}
-
-bool ieee80211_cs_list_valid(const struct ieee80211_cipher_scheme *cs, int n)
-{
-	int i;
-
-	/* Ensure we have enough iftype bitmap space for all iftype values */
-	WARN_ON((NUM_NL80211_IFTYPES / 8 + 1) > sizeof(cs[0].iftype));
-
-	for (i = 0; i < n; i++)
-		if (!ieee80211_cs_valid(&cs[i]))
-			return false;
-
-	return true;
-}
-
-const struct ieee80211_cipher_scheme *
-ieee80211_cs_get(struct ieee80211_local *local, u32 cipher,
-		 enum nl80211_iftype iftype)
-{
-	const struct ieee80211_cipher_scheme *l = local->hw.cipher_schemes;
-	int n = local->hw.n_cipher_schemes;
-	int i;
-	const struct ieee80211_cipher_scheme *cs = NULL;
-
-	for (i = 0; i < n; i++) {
-		if (l[i].cipher == cipher) {
-			cs = &l[i];
-			break;
-		}
-	}
-
-	if (!cs || !(cs->iftype & BIT(iftype)))
-		return NULL;
-
-	return cs;
-}
-
-int ieee80211_cs_headroom(struct ieee80211_local *local,
-			  struct cfg80211_crypto_settings *crypto,
-			  enum nl80211_iftype iftype)
-{
-	const struct ieee80211_cipher_scheme *cs;
-	int headroom = IEEE80211_ENCRYPT_HEADROOM;
-	int i;
-
-	for (i = 0; i < crypto->n_ciphers_pairwise; i++) {
-		cs = ieee80211_cs_get(local, crypto->ciphers_pairwise[i],
-				      iftype);
-
-		if (cs && headroom < cs->hdr_len)
-			headroom = cs->hdr_len;
-	}
-
-	cs = ieee80211_cs_get(local, crypto->cipher_group, iftype);
-	if (cs && headroom < cs->hdr_len)
-		headroom = cs->hdr_len;
-
-	return headroom;
 }
 
 static bool
@@ -4474,7 +4410,7 @@ void ieee80211_recalc_dtim(struct ieee80211_local *local,
 static u8 ieee80211_chanctx_radar_detect(struct ieee80211_local *local,
 					 struct ieee80211_chanctx *ctx)
 {
-	struct ieee80211_sub_if_data *sdata;
+	struct ieee80211_link_data *link;
 	u8 radar_detect = 0;
 
 	lockdep_assert_held(&local->chanctx_mtx);
@@ -4482,20 +4418,26 @@ static u8 ieee80211_chanctx_radar_detect(struct ieee80211_local *local,
 	if (WARN_ON(ctx->replace_state == IEEE80211_CHANCTX_WILL_BE_REPLACED))
 		return 0;
 
-	list_for_each_entry(sdata, &ctx->reserved_vifs, reserved_chanctx_list)
-		if (sdata->reserved_radar_required)
-			radar_detect |= BIT(sdata->reserved_chandef.width);
+	list_for_each_entry(link, &ctx->reserved_links, reserved_chanctx_list)
+		if (link->reserved_radar_required)
+			radar_detect |= BIT(link->reserved_chandef.width);
 
 	/*
 	 * An in-place reservation context should not have any assigned vifs
 	 * until it replaces the other context.
 	 */
 	WARN_ON(ctx->replace_state == IEEE80211_CHANCTX_REPLACES_OTHER &&
-		!list_empty(&ctx->assigned_vifs));
+		!list_empty(&ctx->assigned_links));
 
-	list_for_each_entry(sdata, &ctx->assigned_vifs, assigned_chanctx_list)
-		if (sdata->radar_required)
-			radar_detect |= BIT(sdata->vif.bss_conf.chandef.width);
+	list_for_each_entry(link, &ctx->assigned_links, assigned_chanctx_list) {
+		struct ieee80211_sub_if_data *sdata = link->sdata;
+
+		if (!link->radar_required)
+			continue;
+
+		radar_detect |=
+			BIT(sdata->vif.link_conf[link->link_id]->chandef.width);
+	}
 
 	return radar_detect;
 }

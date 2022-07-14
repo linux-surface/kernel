@@ -2105,9 +2105,6 @@ static int mlxsw_sp_port_module_info_init(struct mlxsw_sp *mlxsw_sp)
 		return -ENOMEM;
 
 	for (i = 1; i < max_ports; i++) {
-		if (mlxsw_core_port_is_xm(mlxsw_sp->core, i))
-			continue;
-
 		port_mapping = &mlxsw_sp->port_mapping[i];
 		err = mlxsw_sp_port_module_info_get(mlxsw_sp, i, port_mapping);
 		if (err)
@@ -3013,6 +3010,12 @@ static int mlxsw_sp_init(struct mlxsw_core *mlxsw_core,
 		return err;
 	}
 
+	err = mlxsw_sp_pgt_init(mlxsw_sp);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Failed to initialize PGT\n");
+		goto err_pgt_init;
+	}
+
 	err = mlxsw_sp_fids_init(mlxsw_sp);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Failed to initialize FIDs\n");
@@ -3204,6 +3207,8 @@ err_traps_init:
 err_policers_init:
 	mlxsw_sp_fids_fini(mlxsw_sp);
 err_fids_init:
+	mlxsw_sp_pgt_fini(mlxsw_sp);
+err_pgt_init:
 	mlxsw_sp_kvdl_fini(mlxsw_sp);
 	mlxsw_sp_parsing_fini(mlxsw_sp);
 	return err;
@@ -3235,7 +3240,9 @@ static int mlxsw_sp1_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp1_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp1_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp1_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp1_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP1;
+	mlxsw_sp->pgt_smpe_index_valid = true;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3267,7 +3274,9 @@ static int mlxsw_sp2_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp2_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp2_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp2_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP2;
+	mlxsw_sp->pgt_smpe_index_valid = false;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3299,7 +3308,9 @@ static int mlxsw_sp3_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp2_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp2_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp2_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP3;
+	mlxsw_sp->pgt_smpe_index_valid = false;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3331,7 +3342,9 @@ static int mlxsw_sp4_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp2_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp2_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp2_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP4;
+	mlxsw_sp->pgt_smpe_index_valid = false;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3364,28 +3377,20 @@ static void mlxsw_sp_fini(struct mlxsw_core *mlxsw_core)
 	mlxsw_sp_traps_fini(mlxsw_sp);
 	mlxsw_sp_policers_fini(mlxsw_sp);
 	mlxsw_sp_fids_fini(mlxsw_sp);
+	mlxsw_sp_pgt_fini(mlxsw_sp);
 	mlxsw_sp_kvdl_fini(mlxsw_sp);
 	mlxsw_sp_parsing_fini(mlxsw_sp);
 }
 
-/* Per-FID flood tables are used for both "true" 802.1D FIDs and emulated
- * 802.1Q FIDs
- */
-#define MLXSW_SP_FID_FLOOD_TABLE_SIZE	(MLXSW_SP_FID_8021D_MAX + \
-					 VLAN_VID_MASK - 1)
-
 static const struct mlxsw_config_profile mlxsw_sp1_config_profile = {
-	.used_max_mid			= 1,
-	.max_mid			= MLXSW_SP_MID_MAX,
-	.used_flood_tables		= 1,
-	.used_flood_mode		= 1,
-	.flood_mode			= 3,
-	.max_fid_flood_tables		= 3,
-	.fid_flood_table_size		= MLXSW_SP_FID_FLOOD_TABLE_SIZE,
+	.used_flood_mode                = 1,
+	.flood_mode                     = MLXSW_CMD_MBOX_CONFIG_PROFILE_FLOOD_MODE_CONTROLLED,
 	.used_max_ib_mc			= 1,
 	.max_ib_mc			= 0,
 	.used_max_pkey			= 1,
 	.max_pkey			= 0,
+	.used_ubridge			= 1,
+	.ubridge			= 1,
 	.used_kvd_sizes			= 1,
 	.kvd_hash_single_parts		= 59,
 	.kvd_hash_double_parts		= 41,
@@ -3399,19 +3404,14 @@ static const struct mlxsw_config_profile mlxsw_sp1_config_profile = {
 };
 
 static const struct mlxsw_config_profile mlxsw_sp2_config_profile = {
-	.used_max_mid			= 1,
-	.max_mid			= MLXSW_SP_MID_MAX,
-	.used_flood_tables		= 1,
-	.used_flood_mode		= 1,
-	.flood_mode			= 3,
-	.max_fid_flood_tables		= 3,
-	.fid_flood_table_size		= MLXSW_SP_FID_FLOOD_TABLE_SIZE,
+	.used_flood_mode                = 1,
+	.flood_mode                     = MLXSW_CMD_MBOX_CONFIG_PROFILE_FLOOD_MODE_CONTROLLED,
 	.used_max_ib_mc			= 1,
 	.max_ib_mc			= 0,
 	.used_max_pkey			= 1,
 	.max_pkey			= 0,
-	.used_kvh_xlt_cache_mode	= 1,
-	.kvh_xlt_cache_mode		= 1,
+	.used_ubridge			= 1,
+	.ubridge			= 1,
 	.swid_config			= {
 		{
 			.used_type	= 1,
@@ -3585,6 +3585,25 @@ mlxsw_sp_resources_rif_mac_profile_register(struct mlxsw_core *mlxsw_core)
 					 &size_params);
 }
 
+static int mlxsw_sp_resources_rifs_register(struct mlxsw_core *mlxsw_core)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	struct devlink_resource_size_params size_params;
+	u64 max_rifs;
+
+	if (!MLXSW_CORE_RES_VALID(mlxsw_core, MAX_RIFS))
+		return -EIO;
+
+	max_rifs = MLXSW_CORE_RES_GET(mlxsw_core, MAX_RIFS);
+	devlink_resource_size_params_init(&size_params, max_rifs, max_rifs,
+					  1, DEVLINK_RESOURCE_UNIT_ENTRY);
+
+	return devlink_resource_register(devlink, "rifs", max_rifs,
+					 MLXSW_SP_RESOURCE_RIFS,
+					 DEVLINK_RESOURCE_ID_PARENT_TOP,
+					 &size_params);
+}
+
 static int mlxsw_sp1_resources_register(struct mlxsw_core *mlxsw_core)
 {
 	int err;
@@ -3609,8 +3628,13 @@ static int mlxsw_sp1_resources_register(struct mlxsw_core *mlxsw_core)
 	if (err)
 		goto err_resources_rif_mac_profile_register;
 
+	err = mlxsw_sp_resources_rifs_register(mlxsw_core);
+	if (err)
+		goto err_resources_rifs_register;
+
 	return 0;
 
+err_resources_rifs_register:
 err_resources_rif_mac_profile_register:
 err_policer_resources_register:
 err_resources_counter_register:
@@ -3643,8 +3667,13 @@ static int mlxsw_sp2_resources_register(struct mlxsw_core *mlxsw_core)
 	if (err)
 		goto err_resources_rif_mac_profile_register;
 
+	err = mlxsw_sp_resources_rifs_register(mlxsw_core);
+	if (err)
+		goto err_resources_rifs_register;
+
 	return 0;
 
+err_resources_rifs_register:
 err_resources_rif_mac_profile_register:
 err_policer_resources_register:
 err_resources_counter_register:

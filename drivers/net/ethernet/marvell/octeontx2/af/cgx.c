@@ -847,6 +847,11 @@ static void cgx_lmac_pause_frm_config(void *cgxd, int lmac_id, bool enable)
 	cfg |= CGX_CMR_RX_OVR_BP_EN(lmac_id);
 	cfg &= ~CGX_CMR_RX_OVR_BP_BP(lmac_id);
 	cgx_write(cgx, 0, CGXX_CMR_RX_OVR_BP, cfg);
+
+	/* Disable all PFC classes by default */
+	cfg = cgx_read(cgx, lmac_id, CGXX_SMUX_CBFC_CTL);
+	cfg = FIELD_SET(CGX_PFC_CLASS_MASK, 0, cfg);
+	cgx_write(cgx, lmac_id, CGXX_SMUX_CBFC_CTL, cfg);
 }
 
 int verify_lmac_fc_cfg(void *cgxd, int lmac_id, u8 tx_pause, u8 rx_pause,
@@ -899,6 +904,7 @@ int cgx_lmac_pfc_config(void *cgxd, int lmac_id, u8 tx_pause,
 		return 0;
 
 	cfg = cgx_read(cgx, lmac_id, CGXX_SMUX_CBFC_CTL);
+	pfc_en |= FIELD_GET(CGX_PFC_CLASS_MASK, cfg);
 
 	if (rx_pause) {
 		cfg |= (CGXX_SMUX_CBFC_CTL_RX_EN |
@@ -910,12 +916,13 @@ int cgx_lmac_pfc_config(void *cgxd, int lmac_id, u8 tx_pause,
 			CGXX_SMUX_CBFC_CTL_DRP_EN);
 	}
 
-	if (tx_pause)
+	if (tx_pause) {
 		cfg |= CGXX_SMUX_CBFC_CTL_TX_EN;
-	else
+		cfg = FIELD_SET(CGX_PFC_CLASS_MASK, pfc_en, cfg);
+	} else {
 		cfg &= ~CGXX_SMUX_CBFC_CTL_TX_EN;
-
-	cfg = FIELD_SET(CGX_PFC_CLASS_MASK, pfc_en, cfg);
+		cfg = FIELD_SET(CGX_PFC_CLASS_MASK, 0, cfg);
+	}
 
 	cgx_write(cgx, lmac_id, CGXX_SMUX_CBFC_CTL, cfg);
 
@@ -1005,9 +1012,9 @@ int cgx_fwi_cmd_send(u64 req, u64 *resp, struct lmac *lmac)
 	if (!wait_event_timeout(lmac->wq_cmd_cmplt, !lmac->cmd_pend,
 				msecs_to_jiffies(CGX_CMD_TIMEOUT))) {
 		dev = &cgx->pdev->dev;
-		dev_err(dev, "cgx port %d:%d cmd timeout\n",
-			cgx->cgx_id, lmac->lmac_id);
-		err = -EIO;
+		dev_err(dev, "cgx port %d:%d cmd %lld timeout\n",
+			cgx->cgx_id, lmac->lmac_id, FIELD_GET(CMDREG_ID, req));
+		err = LMAC_AF_ERR_CMD_TIMEOUT;
 		goto unlock;
 	}
 
@@ -1740,6 +1747,13 @@ static int cgx_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!cgx->reg_base) {
 		dev_err(dev, "CGX: Cannot map CSR memory space, aborting\n");
 		err = -ENOMEM;
+		goto err_release_regions;
+	}
+
+	cgx->lmac_count = cgx->mac_ops->get_nr_lmacs(cgx);
+	if (!cgx->lmac_count) {
+		dev_notice(dev, "CGX %d LMAC count is zero, skipping probe\n", cgx->cgx_id);
+		err = -EOPNOTSUPP;
 		goto err_release_regions;
 	}
 

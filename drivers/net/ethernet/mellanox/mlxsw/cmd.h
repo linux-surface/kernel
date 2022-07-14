@@ -343,23 +343,6 @@ static inline int mlxsw_cmd_boardinfo(struct mlxsw_core *mlxsw_core,
 				  0, 0, false, out_mbox, MLXSW_CMD_MBOX_SIZE);
 }
 
-/* cmd_mbox_xm_num_local_ports
- * Number of local_ports connected to the xm.
- * Each local port is a 4x
- * Spectrum-2/3: 25G
- * Spectrum-4: 50G
- */
-MLXSW_ITEM32(cmd_mbox, boardinfo, xm_num_local_ports, 0x00, 4, 3);
-
-/* cmd_mbox_xm_exists
- * An XM (eXtanded Mezanine, e.g. used for the XLT) is connected on the board.
- */
-MLXSW_ITEM32(cmd_mbox, boardinfo, xm_exists, 0x00, 0, 1);
-
-/* cmd_mbox_xm_local_port_entry
- */
-MLXSW_ITEM_BIT_ARRAY(cmd_mbox, boardinfo, xm_local_port_entry, 0x04, 4, 8);
-
 /* cmd_mbox_boardinfo_intapin
  * When PCIe interrupt messages are being used, this value is used for clearing
  * an interrupt. When using MSI-X, this register is not used.
@@ -650,6 +633,12 @@ MLXSW_ITEM32(cmd_mbox, config_profile,
  */
 MLXSW_ITEM32(cmd_mbox, config_profile, set_ar_sec, 0x0C, 15, 1);
 
+/* cmd_mbox_config_set_ubridge
+ * Capability bit. Setting a bit to 1 configures the profile
+ * according to the mailbox contents.
+ */
+MLXSW_ITEM32(cmd_mbox, config_profile, set_ubridge, 0x0C, 22, 1);
+
 /* cmd_mbox_config_set_kvd_linear_size
  * Capability bit. Setting a bit to 1 configures the profile
  * according to the mailbox contents.
@@ -673,12 +662,6 @@ MLXSW_ITEM32(cmd_mbox, config_profile, set_kvd_hash_double_size, 0x0C, 26, 1);
  * according to the mailbox contents.
  */
 MLXSW_ITEM32(cmd_mbox, config_profile, set_cqe_version, 0x08, 0, 1);
-
-/* cmd_mbox_config_set_kvh_xlt_cache_mode
- * Capability bit. Setting a bit to 1 configures the profile
- * according to the mailbox contents.
- */
-MLXSW_ITEM32(cmd_mbox, config_profile, set_kvh_xlt_cache_mode, 0x08, 3, 1);
 
 /* cmd_mbox_config_profile_max_vepa_channels
  * Maximum number of VEPA channels per port (0 through 16)
@@ -736,16 +719,25 @@ MLXSW_ITEM32(cmd_mbox, config_profile, max_flood_tables, 0x30, 16, 4);
  */
 MLXSW_ITEM32(cmd_mbox, config_profile, max_vid_flood_tables, 0x30, 8, 4);
 
+enum mlxsw_cmd_mbox_config_profile_flood_mode {
+	/* Mixed mode, where:
+	 * max_flood_tables indicates the number of single-entry tables.
+	 * max_vid_flood_tables indicates the number of per-VID tables.
+	 * max_fid_offset_flood_tables indicates the number of FID-offset
+	 * tables. max_fid_flood_tables indicates the number of per-FID tables.
+	 * Reserved when unified bridge model is used.
+	 */
+	MLXSW_CMD_MBOX_CONFIG_PROFILE_FLOOD_MODE_MIXED = 3,
+	/* Controlled flood tables. Reserved when legacy bridge model is
+	 * used.
+	 */
+	MLXSW_CMD_MBOX_CONFIG_PROFILE_FLOOD_MODE_CONTROLLED = 4,
+};
+
 /* cmd_mbox_config_profile_flood_mode
  * Flooding mode to use.
- * 0-2 - Backward compatible modes for SwitchX devices.
- * 3 - Mixed mode, where:
- * max_flood_tables indicates the number of single-entry tables.
- * max_vid_flood_tables indicates the number of per-VID tables.
- * max_fid_offset_flood_tables indicates the number of FID-offset tables.
- * max_fid_flood_tables indicates the number of per-FID tables.
  */
-MLXSW_ITEM32(cmd_mbox, config_profile, flood_mode, 0x30, 0, 2);
+MLXSW_ITEM32(cmd_mbox, config_profile, flood_mode, 0x30, 0, 3);
 
 /* cmd_mbox_config_profile_max_fid_offset_flood_tables
  * Maximum number of FID-offset flooding tables.
@@ -806,12 +798,12 @@ MLXSW_ITEM32(cmd_mbox, config_profile, adaptive_routing_group_cap, 0x4C, 0, 16);
  */
 MLXSW_ITEM32(cmd_mbox, config_profile, arn, 0x50, 31, 1);
 
-/* cmd_mbox_config_profile_kvh_xlt_cache_mode
- * KVH XLT cache mode:
- * 0 - XLT can use all KVH as best-effort
- * 1 - XLT cache uses 1/2 KVH
+/* cmd_mbox_config_profile_ubridge
+ * Unified Bridge
+ * 0 - non unified bridge
+ * 1 - unified bridge
  */
-MLXSW_ITEM32(cmd_mbox, config_profile, kvh_xlt_cache_mode, 0x50, 8, 4);
+MLXSW_ITEM32(cmd_mbox, config_profile, ubridge, 0x50, 4, 1);
 
 /* cmd_mbox_config_kvd_linear_size
  * KVD Linear Size
