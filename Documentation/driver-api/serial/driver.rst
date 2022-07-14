@@ -261,6 +261,8 @@ hardware.
 			- parity enable
 		PARODD
 			- odd parity (when PARENB is in force)
+		ADDRB
+			- address bit (changed through .rs485_config()).
 		CREAD
 			- enable reception of characters (if not set,
 			  still receive characters from the port, but
@@ -422,8 +424,9 @@ Other functions
 ---------------
 
 uart_update_timeout(port,cflag,baud)
-	Update the FIFO drain timeout, port->timeout, according to the
-	number of bits, parity, stop bits and baud rate.
+	Update the frame timing information according to the number of bits,
+	parity, stop bits and baud rate. The FIFO drain timeout is derived
+	from the frame timing information.
 
 	Locking: caller is expected to take port->lock
 
