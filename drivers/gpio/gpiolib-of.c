@@ -720,7 +720,7 @@ static void of_gpiochip_remove_hog(struct gpio_chip *chip,
 
 static int of_gpiochip_match_node(struct gpio_chip *chip, void *data)
 {
-	return chip->gpiodev->dev.of_node == data;
+	return device_match_of_node(&chip->gpiodev->dev, data);
 }
 
 static struct gpio_chip *of_find_gpiochip_by_node(struct device_node *np)
@@ -860,7 +860,8 @@ int of_mm_gpiochip_add_data(struct device_node *np,
 	if (mm_gc->save_regs)
 		mm_gc->save_regs(mm_gc);
 
-	mm_gc->gc.of_node = np;
+	of_node_put(mm_gc->gc.of_node);
+	mm_gc->gc.of_node = of_node_get(np);
 
 	ret = gpiochip_add_data(gc, data);
 	if (ret)
@@ -868,6 +869,7 @@ int of_mm_gpiochip_add_data(struct device_node *np,
 
 	return 0;
 err2:
+	of_node_put(np);
 	iounmap(mm_gc->regs);
 err1:
 	kfree(gc->label);
