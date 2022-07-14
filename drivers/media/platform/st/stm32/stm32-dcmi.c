@@ -622,7 +622,6 @@ static struct media_entity *dcmi_find_source(struct stm32_dcmi *dcmi)
 }
 
 static int dcmi_pipeline_s_fmt(struct stm32_dcmi *dcmi,
-			       struct v4l2_subdev_state *sd_state,
 			       struct v4l2_subdev_format *format)
 {
 	struct media_entity *entity = &dcmi->source->entity;
@@ -664,7 +663,7 @@ static int dcmi_pipeline_s_fmt(struct stm32_dcmi *dcmi,
 			format->format.width, format->format.height);
 
 		fmt.pad = pad->index;
-		ret = v4l2_subdev_call(subdev, pad, set_fmt, sd_state, &fmt);
+		ret = v4l2_subdev_call(subdev, pad, set_fmt, NULL, &fmt);
 		if (ret < 0) {
 			dev_err(dcmi->dev, "%s: Failed to set format 0x%x %ux%u on \"%s\":%d pad (%d)\n",
 				__func__, format->format.code,
@@ -1115,7 +1114,7 @@ static int dcmi_set_fmt(struct stm32_dcmi *dcmi, struct v4l2_format *f)
 	mf->width = sd_framesize.width;
 	mf->height = sd_framesize.height;
 
-	ret = dcmi_pipeline_s_fmt(dcmi, NULL, &format);
+	ret = dcmi_pipeline_s_fmt(dcmi, &format);
 	if (ret < 0)
 		return ret;
 
@@ -1631,6 +1630,54 @@ static const struct dcmi_format dcmi_formats[] = {
 		.fourcc = V4L2_PIX_FMT_SRGGB8,
 		.mbus_code = MEDIA_BUS_FMT_SRGGB8_1X8,
 		.bpp = 1,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SBGGR10,
+		.mbus_code = MEDIA_BUS_FMT_SBGGR10_1X10,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SGBRG10,
+		.mbus_code = MEDIA_BUS_FMT_SGBRG10_1X10,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SGRBG10,
+		.mbus_code = MEDIA_BUS_FMT_SGRBG10_1X10,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SRGGB10,
+		.mbus_code = MEDIA_BUS_FMT_SRGGB10_1X10,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SBGGR12,
+		.mbus_code = MEDIA_BUS_FMT_SBGGR12_1X12,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SGBRG12,
+		.mbus_code = MEDIA_BUS_FMT_SGBRG12_1X12,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SGRBG12,
+		.mbus_code = MEDIA_BUS_FMT_SGRBG12_1X12,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SRGGB12,
+		.mbus_code = MEDIA_BUS_FMT_SRGGB12_1X12,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SBGGR14,
+		.mbus_code = MEDIA_BUS_FMT_SBGGR14_1X14,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SGBRG14,
+		.mbus_code = MEDIA_BUS_FMT_SGBRG14_1X14,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SGRBG14,
+		.mbus_code = MEDIA_BUS_FMT_SGRBG14_1X14,
+		.bpp = 2,
+	}, {
+		.fourcc = V4L2_PIX_FMT_SRGGB14,
+		.mbus_code = MEDIA_BUS_FMT_SRGGB14_1X14,
+		.bpp = 2,
 	},
 };
 
