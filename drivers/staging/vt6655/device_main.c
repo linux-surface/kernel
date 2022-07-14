@@ -122,6 +122,9 @@ static int  vt6655_probe(struct pci_dev *pcid, const struct pci_device_id *ent);
 static void device_free_info(struct vnt_private *priv);
 static void device_print_info(struct vnt_private *priv);
 
+static void vt6655_mac_write_bssid_addr(void __iomem *iobase, const u8 *mac_addr);
+static void vt6655_mac_read_ether_addr(void __iomem *iobase, u8 *mac_addr);
+
 static int device_init_rd0_ring(struct vnt_private *priv);
 static int device_init_rd1_ring(struct vnt_private *priv);
 static int device_init_td0_ring(struct vnt_private *priv);
@@ -184,6 +187,22 @@ device_set_options(struct vnt_private *priv)
 	pr_debug(" preamble_type= %d\n", (int)priv->preamble_type);
 	pr_debug(" byShortPreamble= %d\n", (int)priv->byShortPreamble);
 	pr_debug(" byBBType= %d\n", (int)priv->byBBType);
+}
+
+static void vt6655_mac_write_bssid_addr(void __iomem *iobase, const u8 *mac_addr)
+{
+	iowrite8(1, iobase + MAC_REG_PAGE1SEL);
+	for (int i = 0; i < 6; i++)
+		iowrite8(mac_addr[i], iobase + MAC_REG_BSSID0 + i);
+	iowrite8(0, iobase + MAC_REG_PAGE1SEL);
+}
+
+static void vt6655_mac_read_ether_addr(void __iomem *iobase, u8 *mac_addr)
+{
+	iowrite8(1, iobase + MAC_REG_PAGE1SEL);
+	for (int i = 0; i < 6; i++)
+		mac_addr[i] = ioread8(iobase + MAC_REG_PAR0 + i);
+	iowrite8(0, iobase + MAC_REG_PAGE1SEL);
 }
 
 /*
@@ -1055,13 +1074,12 @@ static void vnt_interrupt_process(struct vnt_private *priv)
 	 * update ISR counter
 	 */
 	while (isr && priv->vif) {
-		MACvWriteISR(priv->port_offset, isr);
+		iowrite32(isr, priv->port_offset + MAC_REG_ISR);
 
 		if (isr & ISR_FETALERR) {
 			pr_debug(" ISR_FETALERR\n");
 			iowrite8(0, priv->port_offset + MAC_REG_SOFTPWRCTL);
-			VNSvOutPortW(priv->port_offset +
-				     MAC_REG_SOFTPWRCTL, SOFTPWRCTL_SWPECTI);
+			iowrite16(SOFTPWRCTL_SWPECTI, priv->port_offset + MAC_REG_SOFTPWRCTL);
 			device_error(priv, isr);
 		}
 
@@ -1135,7 +1153,7 @@ static void vnt_interrupt_work(struct work_struct *work)
 	if (priv->vif)
 		vnt_interrupt_process(priv);
 
-	MACvIntEnable(priv->port_offset, IMR_MASK_VALUE);
+	iowrite32(IMR_MASK_VALUE, priv->port_offset + MAC_REG_IMR);
 }
 
 static irqreturn_t vnt_interrupt(int irq,  void *arg)
@@ -1144,7 +1162,7 @@ static irqreturn_t vnt_interrupt(int irq,  void *arg)
 
 	schedule_work(&priv->interrupt_work);
 
-	MACvIntDisable(priv->port_offset);
+	iowrite32(0, priv->port_offset + MAC_REG_IMR);
 
 	return IRQ_HANDLED;
 }
@@ -1253,8 +1271,8 @@ static int vnt_start(struct ieee80211_hw *hw)
 
 	device_init_registers(priv);
 
-	dev_dbg(&priv->pcid->dev, "call MACvIntEnable\n");
-	MACvIntEnable(priv->port_offset, IMR_MASK_VALUE);
+	dev_dbg(&priv->pcid->dev, "enable MAC interrupt\n");
+	iowrite32(IMR_MASK_VALUE, priv->port_offset + MAC_REG_IMR);
 
 	ieee80211_wake_queues(hw);
 
@@ -1406,7 +1424,7 @@ static void vnt_bss_info_changed(struct ieee80211_hw *hw,
 
 		spin_lock_irqsave(&priv->lock, flags);
 
-		MACvWriteBSSIDAddress(priv->port_offset, conf->bssid);
+		vt6655_mac_write_bssid_addr(priv->port_offset, conf->bssid);
 
 		spin_unlock_irqrestore(&priv->lock, flags);
 	}
@@ -1523,20 +1541,17 @@ static void vnt_configure(struct ieee80211_hw *hw,
 			if (priv->mc_list_count > 2) {
 				MACvSelectPage1(priv->port_offset);
 
-				VNSvOutPortD(priv->port_offset +
-					     MAC_REG_MAR0, 0xffffffff);
-				VNSvOutPortD(priv->port_offset +
-					    MAC_REG_MAR0 + 4, 0xffffffff);
+				iowrite32(0xffffffff, priv->port_offset + MAC_REG_MAR0);
+				iowrite32(0xffffffff, priv->port_offset + MAC_REG_MAR0 + 4);
 
 				MACvSelectPage0(priv->port_offset);
 			} else {
 				MACvSelectPage1(priv->port_offset);
 
-				VNSvOutPortD(priv->port_offset +
-					     MAC_REG_MAR0, (u32)multicast);
-				VNSvOutPortD(priv->port_offset +
-					     MAC_REG_MAR0 + 4,
-					     (u32)(multicast >> 32));
+				multicast =  le64_to_cpu(multicast);
+				iowrite32((u32)multicast, priv->port_offset +  MAC_REG_MAR0);
+				iowrite32((u32)(multicast >> 32),
+					  priv->port_offset + MAC_REG_MAR0 + 4);
 
 				MACvSelectPage0(priv->port_offset);
 			}
@@ -1726,7 +1741,7 @@ vt6655_probe(struct pci_dev *pcid, const struct pci_device_id *ent)
 	}
 	/* initial to reload eeprom */
 	MACvInitialize(priv);
-	MACvReadEtherAddress(priv->port_offset, priv->abyCurrentNetAddr);
+	vt6655_mac_read_ether_addr(priv->port_offset, priv->abyCurrentNetAddr);
 
 	/* Get RFType */
 	priv->byRFType = SROMbyReadEmbedded(priv->port_offset, EEP_OFS_RFTYPE);
