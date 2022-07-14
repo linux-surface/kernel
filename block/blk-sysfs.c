@@ -325,17 +325,17 @@ static ssize_t queue_zoned_show(struct request_queue *q, char *page)
 
 static ssize_t queue_nr_zones_show(struct request_queue *q, char *page)
 {
-	return queue_var_show(blk_queue_nr_zones(q), page);
+	return queue_var_show(disk_nr_zones(q->disk), page);
 }
 
 static ssize_t queue_max_open_zones_show(struct request_queue *q, char *page)
 {
-	return queue_var_show(queue_max_open_zones(q), page);
+	return queue_var_show(bdev_max_open_zones(q->disk->part0), page);
 }
 
 static ssize_t queue_max_active_zones_show(struct request_queue *q, char *page)
 {
-	return queue_var_show(queue_max_active_zones(q), page);
+	return queue_var_show(bdev_max_active_zones(q->disk->part0), page);
 }
 
 static ssize_t queue_nomerges_show(struct request_queue *q, char *page)
@@ -755,11 +755,6 @@ static void blk_free_queue_rcu(struct rcu_head *rcu_head)
  * decremented with blk_put_queue(). Once the refcount reaches 0 this function
  * is called.
  *
- * For drivers that have a request_queue on a gendisk and added with
- * __device_add_disk() the refcount to request_queue will reach 0 with
- * the last put_disk() called by the driver. For drivers which don't use
- * __device_add_disk() this happens with blk_cleanup_queue().
- *
  * Drivers exist which depend on the release of the request_queue to be
  * synchronous, it should not be deferred.
  *
@@ -781,8 +776,6 @@ static void blk_release_queue(struct kobject *kobj)
 	blk_free_queue_stats(q->stats);
 	kfree(q->poll_stat);
 
-	blk_queue_free_zone_bitmaps(q);
-
 	if (queue_is_mq(q))
 		blk_mq_release(q);
 
@@ -791,7 +784,7 @@ static void blk_release_queue(struct kobject *kobj)
 	if (blk_queue_has_srcu(q))
 		cleanup_srcu_struct(q->srcu);
 
-	ida_simple_remove(&blk_queue_ida, q->id);
+	ida_free(&blk_queue_ida, q->id);
 	call_rcu(&q->rcu_head, blk_free_queue_rcu);
 }
 
@@ -800,7 +793,13 @@ static const struct sysfs_ops queue_sysfs_ops = {
 	.store	= queue_attr_store,
 };
 
+static const struct attribute_group *blk_queue_attr_groups[] = {
+	&queue_attr_group,
+	NULL
+};
+
 struct kobj_type blk_queue_ktype = {
+	.default_groups = blk_queue_attr_groups,
 	.sysfs_ops	= &queue_sysfs_ops,
 	.release	= blk_release_queue,
 };
@@ -811,32 +810,17 @@ struct kobj_type blk_queue_ktype = {
  */
 int blk_register_queue(struct gendisk *disk)
 {
-	int ret;
-	struct device *dev = disk_to_dev(disk);
 	struct request_queue *q = disk->queue;
-
-	ret = blk_trace_init_sysfs(dev);
-	if (ret)
-		return ret;
+	int ret;
 
 	mutex_lock(&q->sysfs_dir_lock);
 
-	ret = kobject_add(&q->kobj, kobject_get(&dev->kobj), "%s", "queue");
-	if (ret < 0) {
-		blk_trace_remove_sysfs(dev);
+	ret = kobject_add(&q->kobj, &disk_to_dev(disk)->kobj, "queue");
+	if (ret < 0)
 		goto unlock;
-	}
-
-	ret = sysfs_create_group(&q->kobj, &queue_attr_group);
-	if (ret) {
-		blk_trace_remove_sysfs(dev);
-		kobject_del(&q->kobj);
-		kobject_put(&dev->kobj);
-		goto unlock;
-	}
 
 	if (queue_is_mq(q))
-		__blk_mq_register_dev(dev, q);
+		blk_mq_sysfs_register(disk);
 	mutex_lock(&q->sysfs_lock);
 
 	mutex_lock(&q->debugfs_mutex);
@@ -846,7 +830,7 @@ int blk_register_queue(struct gendisk *disk)
 		blk_mq_debugfs_register(q);
 	mutex_unlock(&q->debugfs_mutex);
 
-	ret = disk_register_independent_access_ranges(disk, NULL);
+	ret = disk_register_independent_access_ranges(disk);
 	if (ret)
 		goto put_dev;
 
@@ -895,8 +879,6 @@ put_dev:
 	mutex_unlock(&q->sysfs_lock);
 	mutex_unlock(&q->sysfs_dir_lock);
 	kobject_del(&q->kobj);
-	blk_trace_remove_sysfs(dev);
-	kobject_put(&dev->kobj);
 
 	return ret;
 }
@@ -934,9 +916,8 @@ void blk_unregister_queue(struct gendisk *disk)
 	 * structures that can be modified through sysfs.
 	 */
 	if (queue_is_mq(q))
-		blk_mq_unregister_dev(disk_to_dev(disk), q);
+		blk_mq_sysfs_unregister(disk);
 	blk_crypto_sysfs_unregister(q);
-	blk_trace_remove_sysfs(disk_to_dev(disk));
 
 	mutex_lock(&q->sysfs_lock);
 	elv_unregister_queue(q);
@@ -955,6 +936,4 @@ void blk_unregister_queue(struct gendisk *disk)
 	q->sched_debugfs_dir = NULL;
 	q->rqos_debugfs_dir = NULL;
 	mutex_unlock(&q->debugfs_mutex);
-
-	kobject_put(&disk_to_dev(disk)->kobj);
 }
