@@ -1334,7 +1334,7 @@ M:	Todd Kjos <tkjos@android.com>
 M:	Martijn Coenen <maco@android.com>
 M:	Joel Fernandes <joel@joelfernandes.org>
 M:	Christian Brauner <christian@brauner.io>
-M:	Hridya Valsaraju <hridya@google.com>
+M:	Carlos Llamas <cmllamas@google.com>
 M:	Suren Baghdasaryan <surenb@google.com>
 L:	linux-kernel@vger.kernel.org
 S:	Supported
@@ -1999,11 +1999,9 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/coresight/linux.git
 F:	Documentation/ABI/testing/sysfs-bus-coresight-devices-*
-F:	Documentation/devicetree/bindings/arm/coresight-cpu-debug.txt
-F:	Documentation/devicetree/bindings/arm/coresight-cti.yaml
-F:	Documentation/devicetree/bindings/arm/coresight.txt
-F:	Documentation/devicetree/bindings/arm/ete.yaml
-F:	Documentation/devicetree/bindings/arm/trbe.yaml
+F:	Documentation/devicetree/bindings/arm/arm,coresight-*.yaml
+F:	Documentation/devicetree/bindings/arm/arm,embedded-trace-extension.yaml
+F:	Documentation/devicetree/bindings/arm/arm,trace-buffer-extension.yaml
 F:	Documentation/trace/coresight/*
 F:	drivers/hwtracing/coresight/*
 F:	include/dt-bindings/arm/coresight-cti-dt.h
@@ -7990,6 +7988,21 @@ F:	Documentation/fpga/
 F:	drivers/fpga/
 F:	include/linux/fpga/
 
+INTEL MAX10 BMC SECURE UPDATES
+M:	Russ Weight <russell.h.weight@intel.com>
+L:	linux-fpga@vger.kernel.org
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-driver-intel-m10-bmc-sec-update
+F:	drivers/fpga/intel-m10-bmc-sec-update.c
+
+MICROCHIP POLARFIRE FPGA DRIVERS
+M:	Conor Dooley <conor.dooley@microchip.com>
+R:	Ivan Bornyakov <i.bornyakov@metrotek.ru>
+L:	linux-fpga@vger.kernel.org
+S:	Supported
+F:	Documentation/devicetree/bindings/fpga/microchip,mpf-spi-fpga-mgr.yaml
+F:	drivers/fpga/microchip-spi.c
+
 FPU EMULATOR
 M:	Bill Metzenthen <billm@melbpc.org.au>
 S:	Maintained
@@ -13328,6 +13341,14 @@ L:	linux-mtd@lists.infradead.org
 S:	Supported
 F:	Documentation/devicetree/bindings/mtd/atmel-nand.txt
 F:	drivers/mtd/nand/raw/atmel/*
+
+MICROCHIP OTPC DRIVER
+M:	Claudiu Beznea <claudiu.beznea@microchip.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Supported
+F:	Documentation/devicetree/bindings/nvmem/microchip,sama7g5-otpc.yaml
+F:	drivers/nvmem/microchip-otpc.c
+F:	include/dt-bindings/nvmem/microchip,sama7g5-otpc.h
 
 MICROCHIP PWM DRIVER
 M:	Claudiu Beznea <claudiu.beznea@microchip.com>
@@ -21339,6 +21360,7 @@ M:	Jason Wang <jasowang@redhat.com>
 L:	virtualization@lists.linux-foundation.org
 S:	Maintained
 F:	Documentation/ABI/testing/sysfs-bus-vdpa
+F:	Documentation/ABI/testing/sysfs-class-vduse
 F:	Documentation/devicetree/bindings/virtio/
 F:	drivers/block/virtio_blk.c
 F:	drivers/crypto/virtio/
