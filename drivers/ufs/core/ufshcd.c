@@ -64,9 +64,6 @@
 /* maximum number of link-startup retries */
 #define DME_LINKSTARTUP_RETRIES 3
 
-/* Maximum retries for Hibern8 enter */
-#define UIC_HIBERN8_ENTER_RETRIES 3
-
 /* maximum number of reset retries before giving up */
 #define MAX_HOST_RESET_RETRIES 5
 
@@ -4753,7 +4750,7 @@ link_startup:
 		 * but we can't be sure if the link is up until link startup
 		 * succeeds. So reset the local Uni-Pro and try again.
 		 */
-		if (ret && ufshcd_hba_enable(hba)) {
+		if (ret && retries && ufshcd_hba_enable(hba)) {
 			ufshcd_update_evt_hist(hba,
 					       UFS_EVT_LINK_STARTUP_FAIL,
 					       (u32)ret);
