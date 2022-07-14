@@ -12,7 +12,6 @@
 #include "test_util.h"
 #include "kvm_util.h"
 #include "perf_test_util.h"
-#include "../kvm_util_internal.h"
 #include "processor.h"
 #include "vmx.h"
 
@@ -78,7 +77,7 @@ void perf_test_setup_ept(struct vmx_pages *vmx, struct kvm_vm *vm)
 	nested_identity_map_1g(vmx, vm, start, end - start);
 }
 
-void perf_test_setup_nested(struct kvm_vm *vm, int nr_vcpus)
+void perf_test_setup_nested(struct kvm_vm *vm, int nr_vcpus, struct kvm_vcpu *vcpus[])
 {
 	struct vmx_pages *vmx, *vmx0 = NULL;
 	struct kvm_regs regs;
@@ -104,9 +103,9 @@ void perf_test_setup_nested(struct kvm_vm *vm, int nr_vcpus)
 		 * Override the vCPU to run perf_test_l1_guest_code() which will
 		 * bounce it into L2 before calling perf_test_guest_code().
 		 */
-		vcpu_regs_get(vm, vcpu_id, &regs);
+		vcpu_regs_get(vcpus[vcpu_id], &regs);
 		regs.rip = (unsigned long) perf_test_l1_guest_code;
-		vcpu_regs_set(vm, vcpu_id, &regs);
-		vcpu_args_set(vm, vcpu_id, 2, vmx_gva, vcpu_id);
+		vcpu_regs_set(vcpus[vcpu_id], &regs);
+		vcpu_args_set(vcpus[vcpu_id], 2, vmx_gva, vcpu_id);
 	}
 }

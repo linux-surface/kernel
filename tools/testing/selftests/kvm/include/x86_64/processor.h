@@ -15,7 +15,11 @@
 #include <asm/msr-index.h>
 #include <asm/prctl.h>
 
+#include <linux/stringify.h>
+
 #include "../kvm_util.h"
+
+#define NMI_VECTOR		0x02
 
 #define X86_EFLAGS_FIXED	 (1u << 1)
 
@@ -385,6 +389,21 @@ static inline void cpu_relax(void)
 	asm volatile("rep; nop" ::: "memory");
 }
 
+#define vmmcall()		\
+	__asm__ __volatile__(	\
+		"vmmcall\n"	\
+		)
+
+#define ud2()			\
+	__asm__ __volatile__(	\
+		"ud2\n"	\
+		)
+
+#define hlt()			\
+	__asm__ __volatile__(	\
+		"hlt\n"	\
+		)
+
 bool is_intel_cpu(void);
 bool is_amd_cpu(void);
 
@@ -405,20 +424,81 @@ static inline unsigned int x86_model(unsigned int eax)
 	return ((eax >> 12) & 0xf0) | ((eax >> 4) & 0x0f);
 }
 
-struct kvm_x86_state *vcpu_save_state(struct kvm_vm *vm, uint32_t vcpuid);
-void vcpu_load_state(struct kvm_vm *vm, uint32_t vcpuid,
-		     struct kvm_x86_state *state);
+struct kvm_x86_state *vcpu_save_state(struct kvm_vcpu *vcpu);
+void vcpu_load_state(struct kvm_vcpu *vcpu, struct kvm_x86_state *state);
 void kvm_x86_state_cleanup(struct kvm_x86_state *state);
 
-struct kvm_msr_list *kvm_get_msr_index_list(void);
+const struct kvm_msr_list *kvm_get_msr_index_list(void);
+const struct kvm_msr_list *kvm_get_feature_msr_index_list(void);
+bool kvm_msr_is_in_save_restore_list(uint32_t msr_index);
 uint64_t kvm_get_feature_msr(uint64_t msr_index);
-struct kvm_cpuid2 *kvm_get_supported_cpuid(void);
 
-struct kvm_cpuid2 *vcpu_get_cpuid(struct kvm_vm *vm, uint32_t vcpuid);
-int __vcpu_set_cpuid(struct kvm_vm *vm, uint32_t vcpuid,
-		     struct kvm_cpuid2 *cpuid);
-void vcpu_set_cpuid(struct kvm_vm *vm, uint32_t vcpuid,
-		    struct kvm_cpuid2 *cpuid);
+static inline void vcpu_msrs_get(struct kvm_vcpu *vcpu,
+				 struct kvm_msrs *msrs)
+{
+	int r = __vcpu_ioctl(vcpu, KVM_GET_MSRS, msrs);
+
+	TEST_ASSERT(r == msrs->nmsrs,
+		    "KVM_GET_MSRS failed, r: %i (failed on MSR %x)",
+		    r, r < 0 || r >= msrs->nmsrs ? -1 : msrs->entries[r].index);
+}
+static inline void vcpu_msrs_set(struct kvm_vcpu *vcpu, struct kvm_msrs *msrs)
+{
+	int r = __vcpu_ioctl(vcpu, KVM_SET_MSRS, msrs);
+
+	TEST_ASSERT(r == msrs->nmsrs,
+		    "KVM_GET_MSRS failed, r: %i (failed on MSR %x)",
+		    r, r < 0 || r >= msrs->nmsrs ? -1 : msrs->entries[r].index);
+}
+static inline void vcpu_debugregs_get(struct kvm_vcpu *vcpu,
+				      struct kvm_debugregs *debugregs)
+{
+	vcpu_ioctl(vcpu, KVM_GET_DEBUGREGS, debugregs);
+}
+static inline void vcpu_debugregs_set(struct kvm_vcpu *vcpu,
+				      struct kvm_debugregs *debugregs)
+{
+	vcpu_ioctl(vcpu, KVM_SET_DEBUGREGS, debugregs);
+}
+static inline void vcpu_xsave_get(struct kvm_vcpu *vcpu,
+				  struct kvm_xsave *xsave)
+{
+	vcpu_ioctl(vcpu, KVM_GET_XSAVE, xsave);
+}
+static inline void vcpu_xsave2_get(struct kvm_vcpu *vcpu,
+				   struct kvm_xsave *xsave)
+{
+	vcpu_ioctl(vcpu, KVM_GET_XSAVE2, xsave);
+}
+static inline void vcpu_xsave_set(struct kvm_vcpu *vcpu,
+				  struct kvm_xsave *xsave)
+{
+	vcpu_ioctl(vcpu, KVM_SET_XSAVE, xsave);
+}
+static inline void vcpu_xcrs_get(struct kvm_vcpu *vcpu,
+				 struct kvm_xcrs *xcrs)
+{
+	vcpu_ioctl(vcpu, KVM_GET_XCRS, xcrs);
+}
+static inline void vcpu_xcrs_set(struct kvm_vcpu *vcpu, struct kvm_xcrs *xcrs)
+{
+	vcpu_ioctl(vcpu, KVM_SET_XCRS, xcrs);
+}
+
+struct kvm_cpuid2 *kvm_get_supported_cpuid(void);
+struct kvm_cpuid2 *vcpu_get_cpuid(struct kvm_vcpu *vcpu);
+
+static inline int __vcpu_set_cpuid(struct kvm_vcpu *vcpu,
+				   struct kvm_cpuid2 *cpuid)
+{
+	return __vcpu_ioctl(vcpu, KVM_SET_CPUID2, cpuid);
+}
+
+static inline void vcpu_set_cpuid(struct kvm_vcpu *vcpu,
+				  struct kvm_cpuid2 *cpuid)
+{
+	vcpu_ioctl(vcpu, KVM_SET_CPUID2, cpuid);
+}
 
 struct kvm_cpuid_entry2 *
 kvm_get_supported_cpuid_index(uint32_t function, uint32_t index);
@@ -429,15 +509,22 @@ kvm_get_supported_cpuid_entry(uint32_t function)
 	return kvm_get_supported_cpuid_index(function, 0);
 }
 
-uint64_t vcpu_get_msr(struct kvm_vm *vm, uint32_t vcpuid, uint64_t msr_index);
-int _vcpu_set_msr(struct kvm_vm *vm, uint32_t vcpuid, uint64_t msr_index,
-		  uint64_t msr_value);
-void vcpu_set_msr(struct kvm_vm *vm, uint32_t vcpuid, uint64_t msr_index,
-	  	  uint64_t msr_value);
+uint64_t vcpu_get_msr(struct kvm_vcpu *vcpu, uint64_t msr_index);
+int _vcpu_set_msr(struct kvm_vcpu *vcpu, uint64_t msr_index, uint64_t msr_value);
+
+static inline void vcpu_set_msr(struct kvm_vcpu *vcpu, uint64_t msr_index,
+				uint64_t msr_value)
+{
+	int r = _vcpu_set_msr(vcpu, msr_index, msr_value);
+
+	TEST_ASSERT(r == 1, KVM_IOCTL_ERROR(KVM_SET_MSRS, r));
+}
+
 
 uint32_t kvm_get_cpuid_max_basic(void);
 uint32_t kvm_get_cpuid_max_extended(void);
 void kvm_get_cpu_address_width(unsigned int *pa_bits, unsigned int *va_bits);
+bool vm_is_unrestricted_guest(struct kvm_vm *vm);
 
 struct ex_regs {
 	uint64_t rax, rcx, rdx, rbx;
@@ -452,13 +539,86 @@ struct ex_regs {
 };
 
 void vm_init_descriptor_tables(struct kvm_vm *vm);
-void vcpu_init_descriptor_tables(struct kvm_vm *vm, uint32_t vcpuid);
+void vcpu_init_descriptor_tables(struct kvm_vcpu *vcpu);
 void vm_install_exception_handler(struct kvm_vm *vm, int vector,
 			void (*handler)(struct ex_regs *));
 
-uint64_t vm_get_page_table_entry(struct kvm_vm *vm, int vcpuid, uint64_t vaddr);
-void vm_set_page_table_entry(struct kvm_vm *vm, int vcpuid, uint64_t vaddr,
-			     uint64_t pte);
+/* If a toddler were to say "abracadabra". */
+#define KVM_EXCEPTION_MAGIC 0xabacadabaull
+
+/*
+ * KVM selftest exception fixup uses registers to coordinate with the exception
+ * handler, versus the kernel's in-memory tables and KVM-Unit-Tests's in-memory
+ * per-CPU data.  Using only registers avoids having to map memory into the
+ * guest, doesn't require a valid, stable GS.base, and reduces the risk of
+ * for recursive faults when accessing memory in the handler.  The downside to
+ * using registers is that it restricts what registers can be used by the actual
+ * instruction.  But, selftests are 64-bit only, making register* pressure a
+ * minor concern.  Use r9-r11 as they are volatile, i.e. don't need* to be saved
+ * by the callee, and except for r11 are not implicit parameters to any
+ * instructions.  Ideally, fixup would use r8-r10 and thus avoid implicit
+ * parameters entirely, but Hyper-V's hypercall ABI uses r8 and testing Hyper-V
+ * is higher priority than testing non-faulting SYSCALL/SYSRET.
+ *
+ * Note, the fixup handler deliberately does not handle #DE, i.e. the vector
+ * is guaranteed to be non-zero on fault.
+ *
+ * REGISTER INPUTS:
+ * r9  = MAGIC
+ * r10 = RIP
+ * r11 = new RIP on fault
+ *
+ * REGISTER OUTPUTS:
+ * r9  = exception vector (non-zero)
+ */
+#define KVM_ASM_SAFE(insn)					\
+	"mov $" __stringify(KVM_EXCEPTION_MAGIC) ", %%r9\n\t"	\
+	"lea 1f(%%rip), %%r10\n\t"				\
+	"lea 2f(%%rip), %%r11\n\t"				\
+	"1: " insn "\n\t"					\
+	"mov $0, %[vector]\n\t"					\
+	"jmp 3f\n\t"						\
+	"2:\n\t"						\
+	"mov  %%r9b, %[vector]\n\t"				\
+	"3:\n\t"
+
+#define KVM_ASM_SAFE_OUTPUTS(v)	[vector] "=qm"(v)
+#define KVM_ASM_SAFE_CLOBBERS	"r9", "r10", "r11"
+
+#define kvm_asm_safe(insn, inputs...)			\
+({							\
+	uint8_t vector;					\
+							\
+	asm volatile(KVM_ASM_SAFE(insn)			\
+		     : KVM_ASM_SAFE_OUTPUTS(vector)	\
+		     : inputs				\
+		     : KVM_ASM_SAFE_CLOBBERS);		\
+	vector;						\
+})
+
+static inline uint8_t rdmsr_safe(uint32_t msr, uint64_t *val)
+{
+	uint8_t vector;
+	uint32_t a, d;
+
+	asm volatile(KVM_ASM_SAFE("rdmsr")
+		     : "=a"(a), "=d"(d), KVM_ASM_SAFE_OUTPUTS(vector)
+		     : "c"(msr)
+		     : KVM_ASM_SAFE_CLOBBERS);
+
+	*val = (uint64_t)a | ((uint64_t)d << 32);
+	return vector;
+}
+
+static inline uint8_t wrmsr_safe(uint32_t msr, uint64_t val)
+{
+	return kvm_asm_safe("wrmsr", "A"(val), "c"(msr));
+}
+
+uint64_t vm_get_page_table_entry(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
+				 uint64_t vaddr);
+void vm_set_page_table_entry(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
+			     uint64_t vaddr, uint64_t pte);
 
 /*
  * get_cpuid() - find matching CPUID entry and return pointer to it.
@@ -478,8 +638,8 @@ uint64_t kvm_hypercall(uint64_t nr, uint64_t a0, uint64_t a1, uint64_t a2,
 		       uint64_t a3);
 
 struct kvm_cpuid2 *kvm_get_supported_hv_cpuid(void);
-void vcpu_set_hv_cpuid(struct kvm_vm *vm, uint32_t vcpuid);
-struct kvm_cpuid2 *vcpu_get_supported_hv_cpuid(struct kvm_vm *vm, uint32_t vcpuid);
+void vcpu_set_hv_cpuid(struct kvm_vcpu *vcpu);
+struct kvm_cpuid2 *vcpu_get_supported_hv_cpuid(struct kvm_vcpu *vcpu);
 void vm_xsave_req_perm(int bit);
 
 enum pg_level {
