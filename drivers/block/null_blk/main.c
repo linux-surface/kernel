@@ -1898,31 +1898,48 @@ static int null_gendisk_register(struct nullb *nullb)
 
 static int null_init_tag_set(struct nullb *nullb, struct blk_mq_tag_set *set)
 {
+	unsigned int flags = BLK_MQ_F_SHOULD_MERGE;
+	int hw_queues, numa_node;
+	unsigned int queue_depth;
 	int poll_queues;
 
-	set->ops = &null_mq_ops;
-	set->nr_hw_queues = nullb ? nullb->dev->submit_queues :
-						g_submit_queues;
-	poll_queues = nullb ? nullb->dev->poll_queues : g_poll_queues;
-	if (poll_queues)
-		set->nr_hw_queues += poll_queues;
-	set->queue_depth = nullb ? nullb->dev->hw_queue_depth :
-						g_hw_queue_depth;
-	set->numa_node = nullb ? nullb->dev->home_node : g_home_node;
-	set->cmd_size	= sizeof(struct nullb_cmd);
-	set->flags = BLK_MQ_F_SHOULD_MERGE;
-	if (nullb->dev->no_sched)
-		set->flags |= BLK_MQ_F_NO_SCHED;
-	if (nullb->dev->shared_tag_bitmap)
-		set->flags |= BLK_MQ_F_TAG_HCTX_SHARED;
-	set->driver_data = nullb;
-	if (poll_queues)
-		set->nr_maps = 3;
-	else
-		set->nr_maps = 1;
+	if (nullb) {
+		hw_queues = nullb->dev->submit_queues;
+		poll_queues = nullb->dev->poll_queues;
+		queue_depth = nullb->dev->hw_queue_depth;
+		numa_node = nullb->dev->home_node;
+		if (nullb->dev->no_sched)
+			flags |= BLK_MQ_F_NO_SCHED;
+		if (nullb->dev->shared_tag_bitmap)
+			flags |= BLK_MQ_F_TAG_HCTX_SHARED;
+		if (nullb->dev->blocking)
+			flags |= BLK_MQ_F_BLOCKING;
+	} else {
+		hw_queues = g_submit_queues;
+		poll_queues = g_poll_queues;
+		queue_depth = g_hw_queue_depth;
+		numa_node = g_home_node;
+		if (g_no_sched)
+			flags |= BLK_MQ_F_NO_SCHED;
+		if (g_shared_tag_bitmap)
+			flags |= BLK_MQ_F_TAG_HCTX_SHARED;
+		if (g_blocking)
+			flags |= BLK_MQ_F_BLOCKING;
+	}
 
-	if ((nullb && nullb->dev->blocking) || g_blocking)
-		set->flags |= BLK_MQ_F_BLOCKING;
+	set->ops = &null_mq_ops;
+	set->cmd_size	= sizeof(struct nullb_cmd);
+	set->flags = flags;
+	set->driver_data = nullb;
+	set->nr_hw_queues = hw_queues;
+	set->queue_depth = queue_depth;
+	set->numa_node = numa_node;
+	if (poll_queues) {
+		set->nr_hw_queues += poll_queues;
+		set->nr_maps = 3;
+	} else {
+		set->nr_maps = 1;
+	}
 
 	return blk_mq_alloc_tag_set(set);
 }
