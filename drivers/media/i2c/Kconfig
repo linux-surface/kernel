@@ -857,7 +857,7 @@ config VIDEO_DW9714
 
 config VIDEO_DW9719
 	tristate "DW9719 lens voice coil support"
-	depends on I2C && VIDEO_V4L2
+	depends on I2C && VIDEO_DEV
 	select MEDIA_CONTROLLER
 	select VIDEO_V4L2_SUBDEV_API
 	select V4L2_ASYNC
