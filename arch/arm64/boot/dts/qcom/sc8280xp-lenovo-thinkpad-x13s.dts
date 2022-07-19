@@ -655,7 +655,7 @@
 		int-n {
 			pins = "gpio182";
 			function = "gpio";
-			bias-disable;
+			bias-pull-up;
 		};
 	};
 
