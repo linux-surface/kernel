@@ -24,6 +24,7 @@
 
 #include "nvme.h"
 #include "fabrics.h"
+#include <linux/nvme-auth.h>
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -330,12 +331,16 @@ enum nvme_disposition {
 	COMPLETE,
 	RETRY,
 	FAILOVER,
+	AUTHENTICATE,
 };
 
 static inline enum nvme_disposition nvme_decide_disposition(struct request *req)
 {
 	if (likely(nvme_req(req)->status == 0))
 		return COMPLETE;
+
+	if ((nvme_req(req)->status & 0x7ff) == NVME_SC_AUTH_REQUIRED)
+		return AUTHENTICATE;
 
 	if (blk_noretry_request(req) ||
 	    (nvme_req(req)->status & NVME_SC_DNR) ||
@@ -375,11 +380,13 @@ static inline void nvme_end_req(struct request *req)
 
 void nvme_complete_rq(struct request *req)
 {
+	struct nvme_ctrl *ctrl = nvme_req(req)->ctrl;
+
 	trace_nvme_complete_rq(req);
 	nvme_cleanup_cmd(req);
 
-	if (nvme_req(req)->ctrl->kas)
-		nvme_req(req)->ctrl->comp_seen = true;
+	if (ctrl->kas)
+		ctrl->comp_seen = true;
 
 	switch (nvme_decide_disposition(req)) {
 	case COMPLETE:
@@ -390,6 +397,14 @@ void nvme_complete_rq(struct request *req)
 		return;
 	case FAILOVER:
 		nvme_failover_req(req);
+		return;
+	case AUTHENTICATE:
+#ifdef CONFIG_NVME_AUTH
+		queue_work(nvme_wq, &ctrl->dhchap_auth_work);
+		nvme_retry_req(req);
+#else
+		nvme_end_req(req);
+#endif
 		return;
 	}
 }
@@ -702,7 +717,9 @@ bool __nvme_check_ready(struct nvme_ctrl *ctrl, struct request *rq,
 		switch (ctrl->state) {
 		case NVME_CTRL_CONNECTING:
 			if (blk_rq_is_passthrough(rq) && nvme_is_fabrics(req->cmd) &&
-			    req->cmd->fabrics.fctype == nvme_fabrics_type_connect)
+			    (req->cmd->fabrics.fctype == nvme_fabrics_type_connect ||
+			     req->cmd->fabrics.fctype == nvme_fabrics_type_auth_send ||
+			     req->cmd->fabrics.fctype == nvme_fabrics_type_auth_receive))
 				return true;
 			break;
 		default:
@@ -990,8 +1007,7 @@ static int nvme_execute_rq(struct request *rq, bool at_head)
  */
 int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		union nvme_result *result, void *buffer, unsigned bufflen,
-		unsigned timeout, int qid, int at_head,
-		blk_mq_req_flags_t flags)
+		int qid, int at_head, blk_mq_req_flags_t flags)
 {
 	struct request *req;
 	int ret;
@@ -1000,14 +1016,11 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		req = blk_mq_alloc_request(q, nvme_req_op(cmd), flags);
 	else
 		req = blk_mq_alloc_request_hctx(q, nvme_req_op(cmd), flags,
-						qid ? qid - 1 : 0);
+						qid - 1);
 
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 	nvme_init_request(req, cmd);
-
-	if (timeout)
-		req->timeout = timeout;
 
 	if (buffer && bufflen) {
 		ret = blk_rq_map_kern(q, req, buffer, bufflen, GFP_KERNEL);
@@ -1028,7 +1041,7 @@ EXPORT_SYMBOL_GPL(__nvme_submit_sync_cmd);
 int nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
 		void *buffer, unsigned bufflen)
 {
-	return __nvme_submit_sync_cmd(q, cmd, NULL, buffer, bufflen, 0,
+	return __nvme_submit_sync_cmd(q, cmd, NULL, buffer, bufflen,
 			NVME_QID_ANY, 0, 0);
 }
 EXPORT_SYMBOL_GPL(nvme_submit_sync_cmd);
@@ -1466,7 +1479,7 @@ static int nvme_features(struct nvme_ctrl *dev, u8 op, unsigned int fid,
 	c.features.dword11 = cpu_to_le32(dword11);
 
 	ret = __nvme_submit_sync_cmd(dev->admin_q, &c, &res,
-			buffer, buflen, 0, NVME_QID_ANY, 0, 0);
+			buffer, buflen, NVME_QID_ANY, 0, 0);
 	if (ret >= 0 && result)
 		*result = le32_to_cpu(res.u32);
 	return ret;
@@ -2103,7 +2116,7 @@ int nvme_sec_submit(void *data, u16 spsp, u8 secp, void *buffer, size_t len,
 	cmd.common.cdw10 = cpu_to_le32(((u32)secp) << 24 | ((u32)spsp) << 8);
 	cmd.common.cdw11 = cpu_to_le32(len);
 
-	return __nvme_submit_sync_cmd(ctrl->admin_q, &cmd, NULL, buffer, len, 0,
+	return __nvme_submit_sync_cmd(ctrl->admin_q, &cmd, NULL, buffer, len,
 			NVME_QID_ANY, 1, 0);
 }
 EXPORT_SYMBOL_GPL(nvme_sec_submit);
@@ -3613,6 +3626,108 @@ static ssize_t dctype_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(dctype);
 
+#ifdef CONFIG_NVME_AUTH
+static ssize_t nvme_ctrl_dhchap_secret_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	struct nvmf_ctrl_options *opts = ctrl->opts;
+
+	if (!opts->dhchap_secret)
+		return sysfs_emit(buf, "none\n");
+	return sysfs_emit(buf, "%s\n", opts->dhchap_secret);
+}
+
+static ssize_t nvme_ctrl_dhchap_secret_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	struct nvmf_ctrl_options *opts = ctrl->opts;
+	char *dhchap_secret;
+
+	if (!ctrl->opts->dhchap_secret)
+		return -EINVAL;
+	if (count < 7)
+		return -EINVAL;
+	if (memcmp(buf, "DHHC-1:", 7))
+		return -EINVAL;
+
+	dhchap_secret = kzalloc(count + 1, GFP_KERNEL);
+	if (!dhchap_secret)
+		return -ENOMEM;
+	memcpy(dhchap_secret, buf, count);
+	nvme_auth_stop(ctrl);
+	if (strcmp(dhchap_secret, opts->dhchap_secret)) {
+		int ret;
+
+		ret = nvme_auth_generate_key(dhchap_secret, &ctrl->host_key);
+		if (ret)
+			return ret;
+		kfree(opts->dhchap_secret);
+		opts->dhchap_secret = dhchap_secret;
+		/* Key has changed; re-authentication with new key */
+		nvme_auth_reset(ctrl);
+	}
+	/* Start re-authentication */
+	dev_info(ctrl->device, "re-authenticating controller\n");
+	queue_work(nvme_wq, &ctrl->dhchap_auth_work);
+
+	return count;
+}
+static DEVICE_ATTR(dhchap_secret, S_IRUGO | S_IWUSR,
+	nvme_ctrl_dhchap_secret_show, nvme_ctrl_dhchap_secret_store);
+
+static ssize_t nvme_ctrl_dhchap_ctrl_secret_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	struct nvmf_ctrl_options *opts = ctrl->opts;
+
+	if (!opts->dhchap_ctrl_secret)
+		return sysfs_emit(buf, "none\n");
+	return sysfs_emit(buf, "%s\n", opts->dhchap_ctrl_secret);
+}
+
+static ssize_t nvme_ctrl_dhchap_ctrl_secret_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
+	struct nvmf_ctrl_options *opts = ctrl->opts;
+	char *dhchap_secret;
+
+	if (!ctrl->opts->dhchap_ctrl_secret)
+		return -EINVAL;
+	if (count < 7)
+		return -EINVAL;
+	if (memcmp(buf, "DHHC-1:", 7))
+		return -EINVAL;
+
+	dhchap_secret = kzalloc(count + 1, GFP_KERNEL);
+	if (!dhchap_secret)
+		return -ENOMEM;
+	memcpy(dhchap_secret, buf, count);
+	nvme_auth_stop(ctrl);
+	if (strcmp(dhchap_secret, opts->dhchap_ctrl_secret)) {
+		int ret;
+
+		ret = nvme_auth_generate_key(dhchap_secret, &ctrl->ctrl_key);
+		if (ret)
+			return ret;
+		kfree(opts->dhchap_ctrl_secret);
+		opts->dhchap_ctrl_secret = dhchap_secret;
+		/* Key has changed; re-authentication with new key */
+		nvme_auth_reset(ctrl);
+	}
+	/* Start re-authentication */
+	dev_info(ctrl->device, "re-authenticating controller\n");
+	queue_work(nvme_wq, &ctrl->dhchap_auth_work);
+
+	return count;
+}
+static DEVICE_ATTR(dhchap_ctrl_secret, S_IRUGO | S_IWUSR,
+	nvme_ctrl_dhchap_ctrl_secret_show, nvme_ctrl_dhchap_ctrl_secret_store);
+#endif
+
 static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_reset_controller.attr,
 	&dev_attr_rescan_controller.attr,
@@ -3636,6 +3751,10 @@ static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_kato.attr,
 	&dev_attr_cntrltype.attr,
 	&dev_attr_dctype.attr,
+#ifdef CONFIG_NVME_AUTH
+	&dev_attr_dhchap_secret.attr,
+	&dev_attr_dhchap_ctrl_secret.attr,
+#endif
 	NULL
 };
 
@@ -3659,6 +3778,12 @@ static umode_t nvme_dev_attrs_are_visible(struct kobject *kobj,
 		return 0;
 	if (a == &dev_attr_fast_io_fail_tmo.attr && !ctrl->opts)
 		return 0;
+#ifdef CONFIG_NVME_AUTH
+	if (a == &dev_attr_dhchap_secret.attr && !ctrl->opts)
+		return 0;
+	if (a == &dev_attr_dhchap_ctrl_secret.attr && !ctrl->opts)
+		return 0;
+#endif
 
 	return a->mode;
 }
@@ -4042,7 +4167,7 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid,
 	if (!nvme_ns_head_multipath(ns->head))
 		nvme_add_ns_cdev(ns);
 
-	nvme_mpath_add_disk(ns, id);
+	nvme_mpath_add_disk(ns, id->anagrpid);
 	nvme_fault_inject_init(&ns->fault_inject, ns->disk->disk_name);
 	kfree(id);
 
@@ -4525,9 +4650,19 @@ static void nvme_fw_act_work(struct work_struct *work)
 	nvme_get_fw_slot_info(ctrl);
 }
 
+static u32 nvme_aer_type(u32 result)
+{
+	return result & 0x7;
+}
+
+static u32 nvme_aer_subtype(u32 result)
+{
+	return (result & 0xff00) >> 8;
+}
+
 static void nvme_handle_aen_notice(struct nvme_ctrl *ctrl, u32 result)
 {
-	u32 aer_notice_type = (result & 0xff00) >> 8;
+	u32 aer_notice_type = nvme_aer_subtype(result);
 
 	trace_nvme_async_event(ctrl, aer_notice_type);
 
@@ -4542,8 +4677,10 @@ static void nvme_handle_aen_notice(struct nvme_ctrl *ctrl, u32 result)
 		 * recovery actions from interfering with the controller's
 		 * firmware activation.
 		 */
-		if (nvme_change_ctrl_state(ctrl, NVME_CTRL_RESETTING))
+		if (nvme_change_ctrl_state(ctrl, NVME_CTRL_RESETTING)) {
+			nvme_auth_stop(ctrl);
 			queue_work(nvme_wq, &ctrl->fw_act_work);
+		}
 		break;
 #ifdef CONFIG_NVME_MULTIPATH
 	case NVME_AER_NOTICE_ANA:
@@ -4560,11 +4697,19 @@ static void nvme_handle_aen_notice(struct nvme_ctrl *ctrl, u32 result)
 	}
 }
 
+static void nvme_handle_aer_persistent_error(struct nvme_ctrl *ctrl)
+{
+	trace_nvme_async_event(ctrl, NVME_AER_ERROR);
+	dev_warn(ctrl->device, "resetting controller due to AER\n");
+	nvme_reset_ctrl(ctrl);
+}
+
 void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
 		volatile union nvme_result *res)
 {
 	u32 result = le32_to_cpu(res->u32);
-	u32 aer_type = result & 0x07;
+	u32 aer_type = nvme_aer_type(result);
+	u32 aer_subtype = nvme_aer_subtype(result);
 
 	if (le16_to_cpu(status) >> 1 != NVME_SC_SUCCESS)
 		return;
@@ -4574,6 +4719,15 @@ void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
 		nvme_handle_aen_notice(ctrl, result);
 		break;
 	case NVME_AER_ERROR:
+		/*
+		 * For a persistent internal error, don't run async_event_work
+		 * to submit a new AER. The controller reset will do it.
+		 */
+		if (aer_subtype == NVME_AER_ERROR_PERSIST_INT_ERR) {
+			nvme_handle_aer_persistent_error(ctrl);
+			return;
+		}
+		fallthrough;
 	case NVME_AER_SMART:
 	case NVME_AER_CSS:
 	case NVME_AER_VS:
@@ -4590,6 +4744,7 @@ EXPORT_SYMBOL_GPL(nvme_complete_async_event);
 void nvme_stop_ctrl(struct nvme_ctrl *ctrl)
 {
 	nvme_mpath_stop(ctrl);
+	nvme_auth_stop(ctrl);
 	nvme_stop_keep_alive(ctrl);
 	nvme_stop_failfast_work(ctrl);
 	flush_work(&ctrl->async_event_work);
@@ -4649,6 +4804,8 @@ static void nvme_free_ctrl(struct device *dev)
 
 	nvme_free_cels(ctrl);
 	nvme_mpath_uninit(ctrl);
+	nvme_auth_stop(ctrl);
+	nvme_auth_free(ctrl);
 	__free_page(ctrl->discard_page);
 
 	if (subsys) {
@@ -4739,6 +4896,7 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 
 	nvme_fault_inject_init(&ctrl->fault_inject, dev_name(ctrl->device));
 	nvme_mpath_init_ctrl(ctrl);
+	nvme_auth_init_ctrl(ctrl);
 
 	return 0;
 out_free_name:
