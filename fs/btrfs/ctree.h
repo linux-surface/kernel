@@ -1097,6 +1097,7 @@ struct btrfs_fs_info {
 
 	struct lockdep_map btrfs_trans_num_writers_map;
 	struct lockdep_map btrfs_trans_num_extwriters_map;
+	struct lockdep_map btrfs_state_change_map[4];
 
 #ifdef CONFIG_BTRFS_FS_REF_VERIFY
 	spinlock_t ref_verify_lock;
@@ -1178,6 +1179,13 @@ enum {
 	BTRFS_ROOT_UNFINISHED_DROP,
 };
 
+enum btrfs_lockdep_trans_states {
+	BTRFS_LOCKDEP_TRANS_COMMIT_START,
+	BTRFS_LOCKDEP_TRANS_UNBLOCKED,
+	BTRFS_LOCKDEP_TRANS_SUPER_COMMITTED,
+	BTRFS_LOCKDEP_TRANS_COMPLETED,
+};
+
 /*
  * Lockdep annotation for wait events.
  *
@@ -1216,11 +1224,35 @@ enum {
 #define btrfs_lockdep_release(b, lock)						\
 	rwsem_release(&b->lock##_map, _THIS_IP_)
 
+/*
+ * Macros for the transaction states wait events, similar to the generic wait
+ * event macros.
+ */
+#define btrfs_might_wait_for_state(b, i)					\
+	do {									\
+		rwsem_acquire(&b->btrfs_state_change_map[i], 0, 0, _THIS_IP_);	\
+		rwsem_release(&b->btrfs_state_change_map[i], _THIS_IP_);	\
+	} while (0)
+
+#define btrfs_trans_state_lockdep_acquire(b, i)				\
+	rwsem_acquire_read(&b->btrfs_state_change_map[i], 0, 0, _THIS_IP_)
+
+#define btrfs_trans_state_lockdep_release(b, i)				\
+	rwsem_release(&b->btrfs_state_change_map[i], _THIS_IP_)
+
 /* Initialization of the lockdep map */
 #define btrfs_lockdep_init_map(b, lock)                                        \
 	do {									\
 		static struct lock_class_key lock##_key;			\
 		lockdep_init_map(&b->lock##_map, #lock, &lock##_key, 0);	\
+	} while (0)
+
+/* Initialization of the transaction states lockdep maps. */
+#define btrfs_state_lockdep_init_map(b, lock, state)				\
+	do {									\
+		static struct lock_class_key lock##_key;			\
+		lockdep_init_map(&b->btrfs_state_change_map[state], #lock,	\
+				 &lock##_key, 0);				\
 	} while (0)
 
 static inline void btrfs_wake_unfinished_drop(struct btrfs_fs_info *fs_info)
