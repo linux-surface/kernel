@@ -3334,6 +3334,18 @@ static int raid_map(struct dm_target *ti, struct bio *bio)
 	if (unlikely(bio_end_sector(bio) > mddev->array_sectors))
 		return DM_MAPIO_REQUEUE;
 
+	/*
+	 * FIXME: must call bio_associate_blkg() to init bio->bi_blkg; otherwise
+	 * raid5.c:chunk_aligned_read() will crash in submit_bio_noacct()
+	 * (when blk_throtl_bio() dereferences a NULL blkg_to_tg(bio->bi_blkg)
+	 * because bio->bi_blkg is NULL).
+	 *
+	 * This is because raid5.c:chunk_aligned_read() uses @bio to recurse,
+	 * due to bio splitting before issuing any IO. Long-term fix would be
+	 * to refactor md_handle_request() callers to perform bio splitting.
+	 */
+	bio_associate_blkg(bio);
+
 	md_handle_request(mddev, bio);
 
 	return DM_MAPIO_SUBMITTED;
