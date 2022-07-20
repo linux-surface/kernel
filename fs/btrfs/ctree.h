@@ -1095,6 +1095,8 @@ struct btrfs_fs_info {
 	/* Updates are not protected by any lock */
 	struct btrfs_commit_stats commit_stats;
 
+	struct lockdep_map btrfs_trans_num_writers_map;
+
 #ifdef CONFIG_BTRFS_FS_REF_VERIFY
 	spinlock_t ref_verify_lock;
 	struct rb_root block_tree;
@@ -1174,6 +1176,51 @@ enum {
 	/* This root has a drop operation that was started previously. */
 	BTRFS_ROOT_UNFINISHED_DROP,
 };
+
+/*
+ * Lockdep annotation for wait events.
+ *
+ * @b: The struct where the lockdep map is defined
+ * @lock: The lockdep map corresponding to a wait event
+ *
+ * This macro is used to annotate a wait event. In this case a thread acquires
+ * the lockdep map as writer (exclusive lock) because it has to block until all
+ * the threads that hold the lock as readers signal the condition for the wait
+ * event and release their locks.
+ */
+#define btrfs_might_wait_for_event(b, lock)					\
+	do {									\
+		rwsem_acquire(&b->lock##_map, 0, 0, _THIS_IP_);			\
+		rwsem_release(&b->lock##_map, _THIS_IP_);			\
+	} while (0)
+
+/*
+ * Protection for the resource/condition of a wait event.
+ *
+ * @b: The struct where the lockdep map is defined
+ * @lock: The lockdep map corresponding to a wait event
+ *
+ * Many threads can modify the condition for the wait event at the same time
+ * and signal the threads that block on the wait event. The threads that
+ * modify the condition and do the signaling acquire the lock as readers
+ * (shared lock).
+ */
+#define btrfs_lockdep_acquire(b, lock)						\
+	rwsem_acquire_read(&b->lock##_map, 0, 0, _THIS_IP_)
+
+/*
+ * Used after signaling the condition for a wait event to release the
+ * lockdep map held by a reader thread.
+ */
+#define btrfs_lockdep_release(b, lock)						\
+	rwsem_release(&b->lock##_map, _THIS_IP_)
+
+/* Initialization of the lockdep map */
+#define btrfs_lockdep_init_map(b, lock)                                        \
+	do {									\
+		static struct lock_class_key lock##_key;			\
+		lockdep_init_map(&b->lock##_map, #lock, &lock##_key, 0);	\
+	} while (0)
 
 static inline void btrfs_wake_unfinished_drop(struct btrfs_fs_info *fs_info)
 {
