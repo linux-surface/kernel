@@ -90,6 +90,7 @@
 #include "rsrc.h"
 #include "cancel.h"
 #include "net.h"
+#include "notif.h"
 
 #include "timeout.h"
 #include "poll.h"
@@ -320,6 +321,8 @@ static __cold struct io_ring_ctx *io_ring_ctx_alloc(struct io_uring_params *p)
 	INIT_WQ_LIST(&ctx->locked_free_list);
 	INIT_DELAYED_WORK(&ctx->fallback_work, io_fallback_req_func);
 	INIT_WQ_LIST(&ctx->submit_state.compl_reqs);
+	INIT_LIST_HEAD(&ctx->notif_list);
+	INIT_LIST_HEAD(&ctx->notif_list_locked);
 	return ctx;
 err:
 	kfree(ctx->dummy_ubuf);
@@ -605,7 +608,7 @@ static bool io_cqring_overflow_flush(struct io_ring_ctx *ctx)
 	return ret;
 }
 
-static void __io_put_task(struct task_struct *task, int nr)
+void __io_put_task(struct task_struct *task, int nr)
 {
 	struct io_uring_task *tctx = task->io_uring;
 
@@ -615,31 +618,13 @@ static void __io_put_task(struct task_struct *task, int nr)
 	put_task_struct_many(task, nr);
 }
 
-/* must to be called somewhat shortly after putting a request */
-static inline void io_put_task(struct task_struct *task, int nr)
-{
-	if (likely(task == current))
-		task->io_uring->cached_refs += nr;
-	else
-		__io_put_task(task, nr);
-}
-
-static void io_task_refs_refill(struct io_uring_task *tctx)
+void io_task_refs_refill(struct io_uring_task *tctx)
 {
 	unsigned int refill = -tctx->cached_refs + IO_TCTX_REFS_CACHE_NR;
 
 	percpu_counter_add(&tctx->inflight, refill);
 	refcount_add(refill, &current->usage);
 	tctx->cached_refs += refill;
-}
-
-static inline void io_get_task_refs(int nr)
-{
-	struct io_uring_task *tctx = current->io_uring;
-
-	tctx->cached_refs -= nr;
-	if (unlikely(tctx->cached_refs < 0))
-		io_task_refs_refill(tctx);
 }
 
 static __cold void io_uring_drop_tctx_refs(struct task_struct *task)
@@ -738,9 +723,8 @@ struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx)
 	return &rings->cqes[off];
 }
 
-static bool io_fill_cqe_aux(struct io_ring_ctx *ctx,
-			    u64 user_data, s32 res, u32 cflags,
-			    bool allow_overflow)
+bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data, s32 res, u32 cflags,
+		     bool allow_overflow)
 {
 	struct io_uring_cqe *cqe;
 
@@ -2497,7 +2481,9 @@ static __cold void io_ring_ctx_free(struct io_ring_ctx *ctx)
 	}
 #endif
 	WARN_ON_ONCE(!list_empty(&ctx->ltimeout_list));
+	WARN_ON_ONCE(ctx->notif_slots || ctx->nr_notif_slots);
 
+	io_notif_cache_purge(ctx);
 	io_mem_free(ctx->rings);
 	io_mem_free(ctx->sq_sqes);
 
@@ -2673,6 +2659,7 @@ static __cold void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
 		io_unregister_personality(ctx, index);
 	if (ctx->rings)
 		io_poll_remove_all(ctx, NULL, true);
+	io_notif_unregister(ctx);
 	mutex_unlock(&ctx->uring_lock);
 
 	/* failed during ring init, it couldn't have issued any requests */
@@ -3870,6 +3857,15 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 		if (!arg || nr_args)
 			break;
 		ret = io_register_file_alloc_range(ctx, arg);
+		break;
+	case IORING_REGISTER_NOTIFIERS:
+		ret = io_notif_register(ctx, arg, nr_args);
+		break;
+	case IORING_UNREGISTER_NOTIFIERS:
+		ret = -EINVAL;
+		if (arg || nr_args)
+			break;
+		ret = io_notif_unregister(ctx);
 		break;
 	default:
 		ret = -EINVAL;

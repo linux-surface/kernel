@@ -4,6 +4,7 @@
 #include <linux/blkdev.h>
 #include <linux/task_work.h>
 #include <linux/bitmap.h>
+#include <linux/llist.h>
 #include <uapi/linux/io_uring.h>
 
 struct io_wq_work_node {
@@ -33,6 +34,9 @@ struct io_file_table {
 	unsigned int alloc_hint;
 };
 
+struct io_notif;
+struct io_notif_slot;
+
 struct io_hash_bucket {
 	spinlock_t		lock;
 	struct hlist_head	list;
@@ -41,6 +45,30 @@ struct io_hash_bucket {
 struct io_hash_table {
 	struct io_hash_bucket	*hbs;
 	unsigned		hash_bits;
+};
+
+/*
+ * Arbitrary limit, can be raised if need be
+ */
+#define IO_RINGFD_REG_MAX 16
+
+struct io_uring_task {
+	/* submission side */
+	int				cached_refs;
+	const struct io_ring_ctx 	*last;
+	struct io_wq			*io_wq;
+	struct file			*registered_rings[IO_RINGFD_REG_MAX];
+
+	struct xarray			xa;
+	struct wait_queue_head		wait;
+	atomic_t			in_idle;
+	atomic_t			inflight_tracked;
+	struct percpu_counter		inflight;
+
+	struct { /* task_work */
+		struct llist_head	task_list;
+		struct callback_head	task_work;
+	} ____cacheline_aligned_in_smp;
 };
 
 struct io_uring {
@@ -212,12 +240,17 @@ struct io_ring_ctx {
 		unsigned		nr_user_files;
 		unsigned		nr_user_bufs;
 		struct io_mapped_ubuf	**user_bufs;
+		struct io_notif_slot	*notif_slots;
+		unsigned		nr_notif_slots;
 
 		struct io_submit_state	submit_state;
 
 		struct io_buffer_list	*io_bl;
 		struct xarray		io_bl_xa;
 		struct list_head	io_buffers_cache;
+
+		/* struct io_notif cache, protected by uring_lock */
+		struct list_head	notif_list;
 
 		struct io_hash_table	cancel_table_locked;
 		struct list_head	cq_overflow_list;
@@ -228,6 +261,10 @@ struct io_ring_ctx {
 	/* IRQ completion list, under ->completion_lock */
 	struct io_wq_work_list	locked_free_list;
 	unsigned int		locked_free_nr;
+
+	/* struct io_notif cache protected by completion_lock */
+	struct list_head	notif_list_locked;
+	unsigned int		notif_locked_nr;
 
 	const struct cred	*sq_creds;	/* cred used for __io_sq_thread() */
 	struct io_sq_data	*sq_data;	/* if using sq thread polling */
