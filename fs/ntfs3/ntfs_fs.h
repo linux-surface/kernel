@@ -440,6 +440,7 @@ int attr_is_frame_compressed(struct ntfs_inode *ni, struct ATTRIB *attr,
 int attr_allocate_frame(struct ntfs_inode *ni, CLST frame, size_t compr_size,
 			u64 new_valid);
 int attr_collapse_range(struct ntfs_inode *ni, u64 vbo, u64 bytes);
+int attr_insert_range(struct ntfs_inode *ni, u64 vbo, u64 bytes);
 int attr_punch_hole(struct ntfs_inode *ni, u64 vbo, u64 bytes, u32 *frame_size);
 
 /* Functions from attrlist.c */
@@ -592,7 +593,7 @@ int ntfs_look_free_mft(struct ntfs_sb_info *sbi, CLST *rno, bool mft,
 void ntfs_mark_rec_free(struct ntfs_sb_info *sbi, CLST rno);
 int ntfs_clear_mft_tail(struct ntfs_sb_info *sbi, size_t from, size_t to);
 int ntfs_refresh_zone(struct ntfs_sb_info *sbi);
-int ntfs_update_mftmirr(struct ntfs_sb_info *sbi, int wait);
+void ntfs_update_mftmirr(struct ntfs_sb_info *sbi, int wait);
 enum NTFS_DIRTY_FLAGS {
 	NTFS_DIRTY_CLEAR = 0,
 	NTFS_DIRTY_DIRTY = 1,
@@ -780,10 +781,11 @@ bool run_lookup_entry(const struct runs_tree *run, CLST vcn, CLST *lcn,
 void run_truncate(struct runs_tree *run, CLST vcn);
 void run_truncate_head(struct runs_tree *run, CLST vcn);
 void run_truncate_around(struct runs_tree *run, CLST vcn);
-bool run_lookup(const struct runs_tree *run, CLST vcn, size_t *Index);
+bool run_lookup(const struct runs_tree *run, CLST vcn, size_t *index);
 bool run_add_entry(struct runs_tree *run, CLST vcn, CLST lcn, CLST len,
 		   bool is_mft);
 bool run_collapse_range(struct runs_tree *run, CLST vcn, CLST len);
+bool run_insert_range(struct runs_tree *run, CLST vcn, CLST len);
 bool run_get_entry(const struct runs_tree *run, size_t index, CLST *vcn,
 		   CLST *lcn, CLST *len);
 bool run_is_mapped_full(const struct runs_tree *run, CLST svcn, CLST evcn);
