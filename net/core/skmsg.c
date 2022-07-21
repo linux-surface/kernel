@@ -324,14 +324,13 @@ int sk_msg_zerocopy_from_iter(struct sock *sk, struct iov_iter *from,
 			goto out;
 		}
 
-		copied = iov_iter_get_pages(from, pages, bytes, maxpages,
+		copied = iov_iter_get_pages2(from, pages, bytes, maxpages,
 					    &offset);
 		if (copied <= 0) {
 			ret = -EFAULT;
 			goto out;
 		}
 
-		iov_iter_advance(from, copied);
 		bytes -= copied;
 		msg->sg.size += copied;
 
@@ -698,6 +697,11 @@ struct sk_psock *sk_psock_init(struct sock *sk, int node)
 	struct proto *prot;
 
 	write_lock_bh(&sk->sk_callback_lock);
+
+	if (sk_is_inet(sk) && inet_csk_has_ulp(sk)) {
+		psock = ERR_PTR(-EINVAL);
+		goto out;
+	}
 
 	if (sk->sk_user_data) {
 		psock = ERR_PTR(-EBUSY);
