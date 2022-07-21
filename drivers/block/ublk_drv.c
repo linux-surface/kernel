@@ -112,7 +112,6 @@ struct ublk_queue {
 
 struct ublk_device {
 	struct gendisk		*ub_disk;
-	struct request_queue	*ub_queue;
 
 	char	*__queues;
 
@@ -125,7 +124,9 @@ struct ublk_device {
 	struct cdev		cdev;
 	struct device		cdev_dev;
 
-	atomic_t		ch_open_cnt;
+#define UB_STATE_OPEN		(1 << 0)
+#define UB_STATE_USED		(1 << 1)
+	unsigned long		state;
 	int			ub_number;
 
 	struct mutex		mutex;
@@ -154,8 +155,6 @@ static wait_queue_head_t ublk_idr_wq;	/* wait until one idr is freed */
 static DEFINE_MUTEX(ublk_ctl_mutex);
 
 static struct miscdevice ublk_misc;
-
-static struct lock_class_key ublk_bio_compl_lkclass;
 
 static inline bool ublk_can_use_task_work(const struct ublk_queue *ubq)
 {
@@ -208,19 +207,17 @@ static inline int ublk_queue_cmd_buf_size(struct ublk_device *ub, int q_id)
 			PAGE_SIZE);
 }
 
-static int ublk_open(struct block_device *bdev, fmode_t mode)
+static void ublk_free_disk(struct gendisk *disk)
 {
-	return 0;
-}
+	struct ublk_device *ub = disk->private_data;
 
-static void ublk_release(struct gendisk *disk, fmode_t mode)
-{
+	clear_bit(UB_STATE_USED, &ub->state);
+	put_device(&ub->cdev_dev);
 }
 
 static const struct block_device_operations ub_fops = {
 	.owner =	THIS_MODULE,
-	.open =		ublk_open,
-	.release =	ublk_release,
+	.free_disk =	ublk_free_disk,
 };
 
 #define UBLK_MAX_PIN_PAGES	32
@@ -391,9 +388,6 @@ static inline unsigned int ublk_req_build_flags(struct request *req)
 
 	if (req->cmd_flags & REQ_FUA)
 		flags |= UBLK_IO_F_FUA;
-
-	if (req->cmd_flags & REQ_PREFLUSH)
-		flags |= UBLK_IO_F_PREFLUSH;
 
 	if (req->cmd_flags & REQ_NOUNMAP)
 		flags |= UBLK_IO_F_NOUNMAP;
@@ -661,21 +655,17 @@ static int ublk_ch_open(struct inode *inode, struct file *filp)
 	struct ublk_device *ub = container_of(inode->i_cdev,
 			struct ublk_device, cdev);
 
-	if (atomic_cmpxchg(&ub->ch_open_cnt, 0, 1) == 0) {
-		filp->private_data = ub;
-		return 0;
-	}
-	return -EBUSY;
+	if (test_and_set_bit(UB_STATE_OPEN, &ub->state))
+		return -EBUSY;
+	filp->private_data = ub;
+	return 0;
 }
 
 static int ublk_ch_release(struct inode *inode, struct file *filp)
 {
 	struct ublk_device *ub = filp->private_data;
 
-	while (atomic_cmpxchg(&ub->ch_open_cnt, 1, 0) != 1)
-		cpu_relax();
-
-	filp->private_data = NULL;
+	clear_bit(UB_STATE_OPEN, &ub->state);
 	return 0;
 }
 
@@ -818,23 +808,18 @@ static void ublk_cancel_dev(struct ublk_device *ub)
 static void ublk_stop_dev(struct ublk_device *ub)
 {
 	mutex_lock(&ub->mutex);
-	if (!disk_live(ub->ub_disk))
+	if (ub->dev_info.state != UBLK_S_DEV_LIVE)
 		goto unlock;
 
 	del_gendisk(ub->ub_disk);
 	ub->dev_info.state = UBLK_S_DEV_DEAD;
 	ub->dev_info.ublksrv_pid = -1;
 	ublk_cancel_dev(ub);
+	put_disk(ub->ub_disk);
+	ub->ub_disk = NULL;
  unlock:
 	mutex_unlock(&ub->mutex);
 	cancel_delayed_work_sync(&ub->monitor_work);
-}
-
-static int ublk_ctrl_stop_dev(struct ublk_device *ub)
-{
-	ublk_stop_dev(ub);
-	cancel_work_sync(&ub->stop_work);
-	return 0;
 }
 
 static inline bool ublk_queue_ready(struct ublk_queue *ubq)
@@ -1041,23 +1026,6 @@ static int __ublk_alloc_dev_number(struct ublk_device *ub, int idx)
 	return err;
 }
 
-static struct ublk_device *__ublk_create_dev(int idx)
-{
-	struct ublk_device *ub = NULL;
-	int ret;
-
-	ub = kzalloc(sizeof(*ub), GFP_KERNEL);
-	if (!ub)
-		return ERR_PTR(-ENOMEM);
-
-	ret = __ublk_alloc_dev_number(ub, idx);
-	if (ret < 0) {
-		kfree(ub);
-		return ERR_PTR(ret);
-	}
-	return ub;
-}
-
 static void __ublk_destroy_dev(struct ublk_device *ub)
 {
 	spin_lock(&ublk_idr_lock);
@@ -1074,12 +1042,7 @@ static void ublk_cdev_rel(struct device *dev)
 {
 	struct ublk_device *ub = container_of(dev, struct ublk_device, cdev_dev);
 
-	blk_mq_destroy_queue(ub->ub_queue);
-
-	put_disk(ub->ub_disk);
-
 	blk_mq_free_tag_set(&ub->tag_set);
-
 	ublk_deinit_queues(ub);
 
 	__ublk_destroy_dev(ub);
@@ -1119,31 +1082,24 @@ static void ublk_stop_work_fn(struct work_struct *work)
 	ublk_stop_dev(ub);
 }
 
-static void ublk_update_capacity(struct ublk_device *ub)
+/* align maximum I/O size to PAGE_SIZE */
+static void ublk_align_max_io_size(struct ublk_device *ub)
 {
-	unsigned int max_rq_bytes;
+	unsigned int max_rq_bytes = ub->dev_info.rq_max_blocks << ub->bs_shift;
 
-	/* make max request buffer size aligned with PAGE_SIZE */
-	max_rq_bytes = round_down(ub->dev_info.rq_max_blocks <<
-			ub->bs_shift, PAGE_SIZE);
-	ub->dev_info.rq_max_blocks = max_rq_bytes >> ub->bs_shift;
-
-	set_capacity(ub->ub_disk, ub->dev_info.dev_blocks << (ub->bs_shift - 9));
+	ub->dev_info.rq_max_blocks =
+		round_down(max_rq_bytes, PAGE_SIZE) >> ub->bs_shift;
 }
 
-/* add disk & cdev, cleanup everything in case of failure */
+/* add tag_set & cdev, cleanup everything in case of failure */
 static int ublk_add_dev(struct ublk_device *ub)
 {
-	struct gendisk *disk;
 	int err = -ENOMEM;
-	int bsize;
 
 	/* We are not ready to support zero copy */
 	ub->dev_info.flags[0] &= ~UBLK_F_SUPPORT_ZERO_COPY;
 
-	bsize = ub->dev_info.block_size;
-	ub->bs_shift = ilog2(bsize);
-
+	ub->bs_shift = ilog2(ub->dev_info.block_size);
 	ub->dev_info.nr_hw_queues = min_t(unsigned int,
 			ub->dev_info.nr_hw_queues, nr_cpu_ids);
 
@@ -1160,59 +1116,16 @@ static int ublk_add_dev(struct ublk_device *ub)
 	ub->tag_set.cmd_size = sizeof(struct ublk_rq_data);
 	ub->tag_set.flags = BLK_MQ_F_SHOULD_MERGE;
 	ub->tag_set.driver_data = ub;
-
 	err = blk_mq_alloc_tag_set(&ub->tag_set);
 	if (err)
 		goto out_deinit_queues;
 
-	ub->ub_queue = blk_mq_init_queue(&ub->tag_set);
-	if (IS_ERR(ub->ub_queue)) {
-		err = PTR_ERR(ub->ub_queue);
-		goto out_cleanup_tags;
-	}
-	ub->ub_queue->queuedata = ub;
-
-	disk = ub->ub_disk = blk_mq_alloc_disk_for_queue(ub->ub_queue,
-						 &ublk_bio_compl_lkclass);
-	if (!disk) {
-		err = -ENOMEM;
-		goto out_free_request_queue;
-	}
-
-	blk_queue_logical_block_size(ub->ub_queue, bsize);
-	blk_queue_physical_block_size(ub->ub_queue, bsize);
-	blk_queue_io_min(ub->ub_queue, bsize);
-
-	blk_queue_max_hw_sectors(ub->ub_queue, ub->dev_info.rq_max_blocks <<
-			(ub->bs_shift - 9));
-
-	ub->ub_queue->limits.discard_granularity = PAGE_SIZE;
-
-	blk_queue_max_discard_sectors(ub->ub_queue, UINT_MAX >> 9);
-	blk_queue_max_write_zeroes_sectors(ub->ub_queue, UINT_MAX >> 9);
-
-	ublk_update_capacity(ub);
-
-	disk->fops		= &ub_fops;
-	disk->private_data	= ub;
-	disk->queue		= ub->ub_queue;
-	sprintf(disk->disk_name, "ublkb%d", ub->ub_number);
-
+	ublk_align_max_io_size(ub);
 	mutex_init(&ub->mutex);
 
 	/* add char dev so that ublksrv daemon can be setup */
-	err = ublk_add_chdev(ub);
-	if (err)
-		return err;
+	return ublk_add_chdev(ub);
 
-	/* don't expose disk now until we got start command from cdev */
-
-	return 0;
-
-out_free_request_queue:
-	blk_mq_destroy_queue(ub->ub_queue);
-out_cleanup_tags:
-	blk_mq_free_tag_set(&ub->tag_set);
 out_deinit_queues:
 	ublk_deinit_queues(ub);
 out_destroy_dev:
@@ -1222,8 +1135,8 @@ out_destroy_dev:
 
 static void ublk_remove(struct ublk_device *ub)
 {
-	ublk_ctrl_stop_dev(ub);
-
+	ublk_stop_dev(ub);
+	cancel_work_sync(&ub->stop_work);
 	cdev_device_del(&ub->cdev, &ub->cdev_dev);
 	put_device(&ub->cdev_dev);
 }
@@ -1244,122 +1157,187 @@ static struct ublk_device *ublk_get_device_from_id(int idx)
 	return ub;
 }
 
-static int ublk_ctrl_start_dev(struct ublk_device *ub, struct io_uring_cmd *cmd)
+static int ublk_ctrl_start_dev(struct io_uring_cmd *cmd)
 {
 	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
-	int ret = -EINVAL;
 	int ublksrv_pid = (int)header->data[0];
 	unsigned long dev_blocks = header->data[1];
+	struct ublk_device *ub;
+	struct gendisk *disk;
+	int ret = -EINVAL;
 
 	if (ublksrv_pid <= 0)
-		return ret;
+		return -EINVAL;
+
+	ub = ublk_get_device_from_id(header->dev_id);
+	if (!ub)
+		return -EINVAL;
 
 	wait_for_completion_interruptible(&ub->completion);
 
 	schedule_delayed_work(&ub->monitor_work, UBLK_DAEMON_MONITOR_PERIOD);
 
 	mutex_lock(&ub->mutex);
-	if (!disk_live(ub->ub_disk)) {
-		/* We may get disk size updated */
-		if (dev_blocks) {
-			ub->dev_info.dev_blocks = dev_blocks;
-			ublk_update_capacity(ub);
-		}
-		ub->dev_info.ublksrv_pid = ublksrv_pid;
-		ret = add_disk(ub->ub_disk);
-		if (!ret)
-			ub->dev_info.state = UBLK_S_DEV_LIVE;
-	} else {
+	if (ub->dev_info.state == UBLK_S_DEV_LIVE ||
+	    test_bit(UB_STATE_USED, &ub->state)) {
 		ret = -EEXIST;
+		goto out_unlock;
 	}
+
+	/* We may get disk size updated */
+	if (dev_blocks)
+		ub->dev_info.dev_blocks = dev_blocks;
+
+	disk = blk_mq_alloc_disk(&ub->tag_set, ub);
+	if (IS_ERR(disk)) {
+		ret = PTR_ERR(disk);
+		goto out_unlock;
+	}
+	sprintf(disk->disk_name, "ublkb%d", ub->ub_number);
+	disk->fops = &ub_fops;
+	disk->private_data = ub;
+
+	blk_queue_logical_block_size(disk->queue, ub->dev_info.block_size);
+	blk_queue_physical_block_size(disk->queue, ub->dev_info.block_size);
+	blk_queue_io_min(disk->queue, ub->dev_info.block_size);
+	blk_queue_max_hw_sectors(disk->queue,
+		ub->dev_info.rq_max_blocks << (ub->bs_shift - 9));
+	disk->queue->limits.discard_granularity = PAGE_SIZE;
+	blk_queue_max_discard_sectors(disk->queue, UINT_MAX >> 9);
+	blk_queue_max_write_zeroes_sectors(disk->queue, UINT_MAX >> 9);
+
+	set_capacity(disk, ub->dev_info.dev_blocks << (ub->bs_shift - 9));
+
+	ub->dev_info.ublksrv_pid = ublksrv_pid;
+	ub->ub_disk = disk;
+	get_device(&ub->cdev_dev);
+	ret = add_disk(disk);
+	if (ret) {
+		put_disk(disk);
+		goto out_unlock;
+	}
+	set_bit(UB_STATE_USED, &ub->state);
+	ub->dev_info.state = UBLK_S_DEV_LIVE;
+out_unlock:
 	mutex_unlock(&ub->mutex);
-
+	ublk_put_device(ub);
 	return ret;
-}
-
-static struct blk_mq_hw_ctx *ublk_get_hw_queue(struct ublk_device *ub,
-		unsigned int index)
-{
-	struct blk_mq_hw_ctx *hctx;
-	unsigned long i;
-
-	queue_for_each_hw_ctx(ub->ub_queue, hctx, i)
-		if (hctx->queue_num == index)
-			return hctx;
-	return NULL;
 }
 
 static int ublk_ctrl_get_queue_affinity(struct io_uring_cmd *cmd)
 {
 	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
 	void __user *argp = (void __user *)(unsigned long)header->addr;
-	struct blk_mq_hw_ctx *hctx;
 	struct ublk_device *ub;
+	cpumask_var_t cpumask;
 	unsigned long queue;
 	unsigned int retlen;
+	unsigned int i;
 	int ret = -EINVAL;
+	
+	if (header->len * BITS_PER_BYTE < nr_cpu_ids)
+		return -EINVAL;
+	if (header->len & (sizeof(unsigned long)-1))
+		return -EINVAL;
+	if (!header->addr)
+		return -EINVAL;
 
 	ub = ublk_get_device_from_id(header->dev_id);
 	if (!ub)
-		goto out;
+		return -EINVAL;
 
 	queue = header->data[0];
 	if (queue >= ub->dev_info.nr_hw_queues)
-		goto out;
-	hctx = ublk_get_hw_queue(ub, queue);
-	if (!hctx)
-		goto out;
+		goto out_put_device;
 
+	ret = -ENOMEM;
+	if (!zalloc_cpumask_var(&cpumask, GFP_KERNEL))
+		goto out_put_device;
+
+	for_each_possible_cpu(i) {
+		if (ub->tag_set.map[HCTX_TYPE_DEFAULT].mq_map[i] == queue)
+			cpumask_set_cpu(i, cpumask);
+	}
+
+	ret = -EFAULT;
 	retlen = min_t(unsigned short, header->len, cpumask_size());
-	if (copy_to_user(argp, hctx->cpumask, retlen)) {
-		ret = -EFAULT;
-		goto out;
-	}
-	if (retlen != header->len) {
-		if (clear_user(argp + retlen, header->len - retlen)) {
-			ret = -EFAULT;
-			goto out;
-		}
-	}
+	if (copy_to_user(argp, cpumask, retlen))
+		goto out_free_cpumask;
+	if (retlen != header->len &&
+	    clear_user(argp + retlen, header->len - retlen))
+		goto out_free_cpumask;
+
 	ret = 0;
- out:
-	if (ub)
-		ublk_put_device(ub);
+out_free_cpumask:
+	free_cpumask_var(cpumask);
+out_put_device:
+	ublk_put_device(ub);
 	return ret;
 }
 
-static int ublk_ctrl_add_dev(const struct ublksrv_ctrl_dev_info *info,
-		void __user *argp, int idx)
+static inline void ublk_dump_dev_info(struct ublksrv_ctrl_dev_info *info)
 {
+	pr_devel("%s: dev id %d flags %llx\n", __func__,
+			info->dev_id, info->flags[0]);
+	pr_devel("\t nr_hw_queues %d queue_depth %d block size %d dev_capacity %lld\n",
+			info->nr_hw_queues, info->queue_depth,
+			info->block_size, info->dev_blocks);
+}
+
+static int ublk_ctrl_add_dev(struct io_uring_cmd *cmd)
+{
+	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
+	void __user *argp = (void __user *)(unsigned long)header->addr;
+	struct ublksrv_ctrl_dev_info info;
 	struct ublk_device *ub;
-	int ret;
+	int ret = -EINVAL;
+
+	if (header->len < sizeof(info) || !header->addr)
+		return -EINVAL;
+	if (header->queue_id != (u16)-1) {
+		pr_warn("%s: queue_id is wrong %x\n",
+			__func__, header->queue_id);
+		return -EINVAL;
+	}
+	if (copy_from_user(&info, argp, sizeof(info)))
+		return -EFAULT;
+	ublk_dump_dev_info(&info);
+	if (header->dev_id != info.dev_id) {
+		pr_warn("%s: dev id not match %u %u\n",
+			__func__, header->dev_id, info.dev_id);
+		return -EINVAL;
+	}
 
 	ret = mutex_lock_killable(&ublk_ctl_mutex);
 	if (ret)
 		return ret;
 
-	ub = __ublk_create_dev(idx);
-	if (!IS_ERR_OR_NULL(ub)) {
-		memcpy(&ub->dev_info, info, sizeof(*info));
+	ret = -ENOMEM;
+	ub = kzalloc(sizeof(*ub), GFP_KERNEL);
+	if (!ub)
+		goto out_unlock;
 
-		/* update device id */
-		ub->dev_info.dev_id = ub->ub_number;
-
-		ret = ublk_add_dev(ub);
-		if (!ret) {
-			if (copy_to_user(argp, &ub->dev_info, sizeof(*info))) {
-				ublk_remove(ub);
-				ret = -EFAULT;
-			}
-		}
-	} else {
-		if (IS_ERR(ub))
-			ret = PTR_ERR(ub);
-		else
-			ret = -ENOMEM;
+	ret = __ublk_alloc_dev_number(ub, header->dev_id);
+	if (ret < 0) {
+		kfree(ub);
+		goto out_unlock;
 	}
-	mutex_unlock(&ublk_ctl_mutex);
 
+	memcpy(&ub->dev_info, &info, sizeof(info));
+
+	/* update device id */
+	ub->dev_info.dev_id = ub->ub_number;
+
+	ret = ublk_add_dev(ub);
+	if (ret)
+		goto out_unlock;
+
+	if (copy_to_user(argp, &ub->dev_info, sizeof(info))) {
+		ublk_remove(ub);
+		ret = -EFAULT;
+	}
+out_unlock:
+	mutex_unlock(&ublk_ctl_mutex);
 	return ret;
 }
 
@@ -1403,16 +1381,6 @@ static int ublk_ctrl_del_dev(int idx)
 	return ret;
 }
 
-
-static inline void ublk_dump_dev_info(struct ublksrv_ctrl_dev_info *info)
-{
-	pr_devel("%s: dev id %d flags %llx\n", __func__,
-			info->dev_id, info->flags[0]);
-	pr_devel("\t nr_hw_queues %d queue_depth %d block size %d dev_capacity %lld\n",
-			info->nr_hw_queues, info->queue_depth,
-			info->block_size, info->dev_blocks);
-}
-
 static inline void ublk_ctrl_cmd_dump(struct io_uring_cmd *cmd)
 {
 	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
@@ -1422,59 +1390,47 @@ static inline void ublk_ctrl_cmd_dump(struct io_uring_cmd *cmd)
 			header->data[0], header->addr, header->len);
 }
 
-static int ublk_ctrl_cmd_validate(struct io_uring_cmd *cmd,
-		struct ublksrv_ctrl_dev_info *info)
+static int ublk_ctrl_stop_dev(struct io_uring_cmd *cmd)
 {
 	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
-	u32 cmd_op = cmd->cmd_op;
-	void __user *argp = (void __user *)(unsigned long)header->addr;
+	struct ublk_device *ub;
 
-	if (!capable(CAP_SYS_ADMIN))
-		return -EPERM;
+	ub = ublk_get_device_from_id(header->dev_id);
+	if (!ub)
+		return -EINVAL;
 
-	switch (cmd_op) {
-	case UBLK_CMD_GET_DEV_INFO:
-		if (header->len < sizeof(*info) || !header->addr)
-			return -EINVAL;
-		break;
-	case UBLK_CMD_ADD_DEV:
-		if (header->len < sizeof(*info) || !header->addr)
-			return -EINVAL;
-		if (copy_from_user(info, argp, sizeof(*info)) != 0)
-			return -EFAULT;
-		ublk_dump_dev_info(info);
-		if (header->dev_id != info->dev_id) {
-			printk(KERN_WARNING "%s: cmd %x, dev id not match %u %u\n",
-					__func__, cmd_op, header->dev_id,
-					info->dev_id);
-			return -EINVAL;
-		}
-		if (header->queue_id != (u16)-1) {
-			printk(KERN_WARNING "%s: cmd %x queue_id is wrong %x\n",
-					__func__, cmd_op, header->queue_id);
-			return -EINVAL;
-		}
-		break;
-	case UBLK_CMD_GET_QUEUE_AFFINITY:
-		if ((header->len * BITS_PER_BYTE) < nr_cpu_ids)
-			return -EINVAL;
-		if (header->len & (sizeof(unsigned long)-1))
-			return -EINVAL;
-		if (!header->addr)
-			return -EINVAL;
-	}
+	ublk_stop_dev(ub);
+	cancel_work_sync(&ub->stop_work);
 
+	ublk_put_device(ub);
 	return 0;
+}
+
+static int ublk_ctrl_get_dev_info(struct io_uring_cmd *cmd)
+{
+	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
+	void __user *argp = (void __user *)(unsigned long)header->addr;
+	struct ublk_device *ub;
+	int ret = 0;
+
+	if (header->len < sizeof(struct ublksrv_ctrl_dev_info) || !header->addr)
+		return -EINVAL;
+
+	ub = ublk_get_device_from_id(header->dev_id);
+	if (!ub)
+		return -EINVAL;
+
+	if (copy_to_user(argp, &ub->dev_info, sizeof(ub->dev_info)))
+		ret = -EFAULT;
+	ublk_put_device(ub);
+
+	return ret;
 }
 
 static int ublk_ctrl_uring_cmd(struct io_uring_cmd *cmd,
 		unsigned int issue_flags)
 {
 	struct ublksrv_ctrl_cmd *header = (struct ublksrv_ctrl_cmd *)cmd->cmd;
-	void __user *argp = (void __user *)(unsigned long)header->addr;
-	struct ublksrv_ctrl_dev_info info;
-	u32 cmd_op = cmd->cmd_op;
-	struct ublk_device *ub;
 	int ret = -EINVAL;
 
 	ublk_ctrl_cmd_dump(cmd);
@@ -1482,38 +1438,23 @@ static int ublk_ctrl_uring_cmd(struct io_uring_cmd *cmd,
 	if (!(issue_flags & IO_URING_F_SQE128))
 		goto out;
 
-	ret = ublk_ctrl_cmd_validate(cmd, &info);
-	if (ret)
+	ret = -EPERM;
+	if (!capable(CAP_SYS_ADMIN))
 		goto out;
 
 	ret = -ENODEV;
-	switch (cmd_op) {
+	switch (cmd->cmd_op) {
 	case UBLK_CMD_START_DEV:
-		ub = ublk_get_device_from_id(header->dev_id);
-		if (ub) {
-			ret = ublk_ctrl_start_dev(ub, cmd);
-			ublk_put_device(ub);
-		}
+		ret = ublk_ctrl_start_dev(cmd);
 		break;
 	case UBLK_CMD_STOP_DEV:
-		ub = ublk_get_device_from_id(header->dev_id);
-		if (ub) {
-			ret = ublk_ctrl_stop_dev(ub);
-			ublk_put_device(ub);
-		}
+		ret = ublk_ctrl_stop_dev(cmd);
 		break;
 	case UBLK_CMD_GET_DEV_INFO:
-		ub = ublk_get_device_from_id(header->dev_id);
-		if (ub) {
-			if (copy_to_user(argp, &ub->dev_info, sizeof(info)))
-				ret = -EFAULT;
-			else
-				ret = 0;
-			ublk_put_device(ub);
-		}
+		ret = ublk_ctrl_get_dev_info(cmd);
 		break;
 	case UBLK_CMD_ADD_DEV:
-		ret = ublk_ctrl_add_dev(&info, argp, header->dev_id);
+		ret = ublk_ctrl_add_dev(cmd);
 		break;
 	case UBLK_CMD_DEL_DEV:
 		ret = ublk_ctrl_del_dev(header->dev_id);
