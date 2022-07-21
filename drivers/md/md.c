@@ -368,28 +368,6 @@ EXPORT_SYMBOL_GPL(md_new_event);
 static LIST_HEAD(all_mddevs);
 static DEFINE_SPINLOCK(all_mddevs_lock);
 
-/*
- * iterates through all used mddevs in the system.
- * We take care to grab the all_mddevs_lock whenever navigating
- * the list, and to always hold a refcount when unlocked.
- * Any code which breaks out of this loop while own
- * a reference to the current mddev and must mddev_put it.
- */
-#define for_each_mddev(_mddev,_tmp)					\
-									\
-	for (({ spin_lock(&all_mddevs_lock);				\
-		_tmp = all_mddevs.next;					\
-		_mddev = NULL;});					\
-	     ({ if (_tmp != &all_mddevs)				\
-			mddev_get(list_entry(_tmp, struct mddev, all_mddevs));\
-		spin_unlock(&all_mddevs_lock);				\
-		if (_mddev) mddev_put(_mddev);				\
-		_mddev = list_entry(_tmp, struct mddev, all_mddevs);	\
-		_tmp != &all_mddevs;});					\
-	     ({ spin_lock(&all_mddevs_lock);				\
-		_tmp = _tmp->next;})					\
-		)
-
 /* Rather than calling directly into the personality make_request function,
  * IO requests come here first so that we can check if the device is
  * being suspended pending a reconfiguration.
@@ -647,6 +625,10 @@ EXPORT_SYMBOL(md_flush_request);
 
 static inline struct mddev *mddev_get(struct mddev *mddev)
 {
+	lockdep_assert_held(&all_mddevs_lock);
+
+	if (test_bit(MD_DELETED, &mddev->flags))
+		return NULL;
 	atomic_inc(&mddev->active);
 	return mddev;
 }
@@ -661,7 +643,7 @@ static void mddev_put(struct mddev *mddev)
 	    mddev->ctime == 0 && !mddev->hold_active) {
 		/* Array is not configured at all, and not held active,
 		 * so destroy it */
-		list_del_init(&mddev->all_mddevs);
+		set_bit(MD_DELETED, &mddev->flags);
 
 		/*
 		 * Call queue_work inside the spinlock so that
@@ -678,7 +660,6 @@ static void md_safemode_timeout(struct timer_list *t);
 
 void mddev_init(struct mddev *mddev)
 {
-	kobject_init(&mddev->kobj, &md_ktype);
 	mutex_init(&mddev->open_mutex);
 	mutex_init(&mddev->reconfig_mutex);
 	mutex_init(&mddev->bitmap_info.mutex);
@@ -742,8 +723,8 @@ static struct mddev *mddev_find(dev_t unit)
 
 	spin_lock(&all_mddevs_lock);
 	mddev = mddev_find_locked(unit);
-	if (mddev)
-		mddev_get(mddev);
+	if (mddev && !mddev_get(mddev))
+		mddev = NULL;
 	spin_unlock(&all_mddevs_lock);
 
 	return mddev;
@@ -789,6 +770,15 @@ out_free_new:
 	spin_unlock(&all_mddevs_lock);
 	kfree(new);
 	return ERR_PTR(error);
+}
+
+static void mddev_free(struct mddev *mddev)
+{
+	spin_lock(&all_mddevs_lock);
+	list_del(&mddev->all_mddevs);
+	spin_unlock(&all_mddevs_lock);
+
+	kfree(mddev);
 }
 
 static const struct attribute_group md_redundancy_group;
@@ -3335,14 +3325,35 @@ rdev_size_show(struct md_rdev *rdev, char *page)
 	return sprintf(page, "%llu\n", (unsigned long long)rdev->sectors / 2);
 }
 
-static int overlaps(sector_t s1, sector_t l1, sector_t s2, sector_t l2)
+static int md_rdevs_overlap(struct md_rdev *a, struct md_rdev *b)
 {
 	/* check if two start/length pairs overlap */
-	if (s1+l1 <= s2)
-		return 0;
-	if (s2+l2 <= s1)
-		return 0;
-	return 1;
+	if (a->data_offset + a->sectors <= b->data_offset)
+		return false;
+	if (b->data_offset + b->sectors <= a->data_offset)
+		return false;
+	return true;
+}
+
+static bool md_rdev_overlaps(struct md_rdev *rdev)
+{
+	struct mddev *mddev;
+	struct md_rdev *rdev2;
+
+	spin_lock(&all_mddevs_lock);
+	list_for_each_entry(mddev, &all_mddevs, all_mddevs) {
+		if (test_bit(MD_DELETED, &mddev->flags))
+			continue;
+		rdev_for_each(rdev2, mddev) {
+			if (rdev != rdev2 && rdev->bdev == rdev2->bdev &&
+			    md_rdevs_overlap(rdev, rdev2)) {
+				spin_unlock(&all_mddevs_lock);
+				return true;
+			}
+		}
+	}
+	spin_unlock(&all_mddevs_lock);
+	return false;
 }
 
 static int strict_blocks_to_sectors(const char *buf, sector_t *sectors)
@@ -3394,46 +3405,21 @@ rdev_size_store(struct md_rdev *rdev, const char *buf, size_t len)
 		return -EINVAL; /* component must fit device */
 
 	rdev->sectors = sectors;
-	if (sectors > oldsectors && my_mddev->external) {
-		/* Need to check that all other rdevs with the same
-		 * ->bdev do not overlap.  'rcu' is sufficient to walk
-		 * the rdev lists safely.
-		 * This check does not provide a hard guarantee, it
-		 * just helps avoid dangerous mistakes.
+
+	/*
+	 * Check that all other rdevs with the same bdev do not overlap.  This
+	 * check does not provide a hard guarantee, it just helps avoid
+	 * dangerous mistakes.
+	 */
+	if (sectors > oldsectors && my_mddev->external &&
+	    md_rdev_overlaps(rdev)) {
+		/*
+		 * Someone else could have slipped in a size change here, but
+		 * doing so is just silly.  We put oldsectors back because we
+		 * know it is safe, and trust userspace not to race with itself.
 		 */
-		struct mddev *mddev;
-		int overlap = 0;
-		struct list_head *tmp;
-
-		rcu_read_lock();
-		for_each_mddev(mddev, tmp) {
-			struct md_rdev *rdev2;
-
-			rdev_for_each(rdev2, mddev)
-				if (rdev->bdev == rdev2->bdev &&
-				    rdev != rdev2 &&
-				    overlaps(rdev->data_offset, rdev->sectors,
-					     rdev2->data_offset,
-					     rdev2->sectors)) {
-					overlap = 1;
-					break;
-				}
-			if (overlap) {
-				mddev_put(mddev);
-				break;
-			}
-		}
-		rcu_read_unlock();
-		if (overlap) {
-			/* Someone else could have slipped in a size
-			 * change here, but doing so is just silly.
-			 * We put oldsectors back because we *know* it is
-			 * safe, and trust userspace not to race with
-			 * itself
-			 */
-			rdev->sectors = oldsectors;
-			return -EBUSY;
-		}
+		rdev->sectors = oldsectors;
+		return -EBUSY;
 	}
 	return len;
 }
@@ -5545,11 +5531,10 @@ md_attr_show(struct kobject *kobj, struct attribute *attr, char *page)
 	if (!entry->show)
 		return -EIO;
 	spin_lock(&all_mddevs_lock);
-	if (list_empty(&mddev->all_mddevs)) {
+	if (!mddev_get(mddev)) {
 		spin_unlock(&all_mddevs_lock);
 		return -EBUSY;
 	}
-	mddev_get(mddev);
 	spin_unlock(&all_mddevs_lock);
 
 	rv = entry->show(mddev, page);
@@ -5570,18 +5555,17 @@ md_attr_store(struct kobject *kobj, struct attribute *attr,
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 	spin_lock(&all_mddevs_lock);
-	if (list_empty(&mddev->all_mddevs)) {
+	if (!mddev_get(mddev)) {
 		spin_unlock(&all_mddevs_lock);
 		return -EBUSY;
 	}
-	mddev_get(mddev);
 	spin_unlock(&all_mddevs_lock);
 	rv = entry->store(mddev, page, length);
 	mddev_put(mddev);
 	return rv;
 }
 
-static void md_free(struct kobject *ko)
+static void md_kobj_release(struct kobject *ko)
 {
 	struct mddev *mddev = container_of(ko, struct mddev, kobj);
 
@@ -5590,15 +5574,8 @@ static void md_free(struct kobject *ko)
 	if (mddev->sysfs_level)
 		sysfs_put(mddev->sysfs_level);
 
-	if (mddev->gendisk) {
-		del_gendisk(mddev->gendisk);
-		put_disk(mddev->gendisk);
-	}
-	percpu_ref_exit(&mddev->writes_pending);
-
-	bioset_exit(&mddev->bio_set);
-	bioset_exit(&mddev->sync_set);
-	kfree(mddev);
+	del_gendisk(mddev->gendisk);
+	put_disk(mddev->gendisk);
 }
 
 static const struct sysfs_ops md_sysfs_ops = {
@@ -5606,7 +5583,7 @@ static const struct sysfs_ops md_sysfs_ops = {
 	.store	= md_attr_store,
 };
 static struct kobj_type md_ktype = {
-	.release	= md_free,
+	.release	= md_kobj_release,
 	.sysfs_ops	= &md_sysfs_ops,
 	.default_groups	= md_attr_groups,
 };
@@ -5617,7 +5594,6 @@ static void mddev_delayed_delete(struct work_struct *ws)
 {
 	struct mddev *mddev = container_of(ws, struct mddev, del_work);
 
-	kobject_del(&mddev->kobj);
 	kobject_put(&mddev->kobj);
 }
 
@@ -5664,8 +5640,8 @@ int md_alloc(dev_t dev, char *name)
 	mutex_lock(&disks_mutex);
 	mddev = mddev_alloc(dev);
 	if (IS_ERR(mddev)) {
-		mutex_unlock(&disks_mutex);
-		return PTR_ERR(mddev);
+		error = PTR_ERR(mddev);
+		goto out_unlock;
 	}
 
 	partitioned = (MAJOR(mddev->unit) != MD_MAJOR);
@@ -5683,7 +5659,7 @@ int md_alloc(dev_t dev, char *name)
 			    strcmp(mddev2->gendisk->disk_name, name) == 0) {
 				spin_unlock(&all_mddevs_lock);
 				error = -EEXIST;
-				goto out_unlock_disks_mutex;
+				goto out_free_mddev;
 			}
 		spin_unlock(&all_mddevs_lock);
 	}
@@ -5696,7 +5672,7 @@ int md_alloc(dev_t dev, char *name)
 	error = -ENOMEM;
 	disk = blk_alloc_disk(NUMA_NO_NODE);
 	if (!disk)
-		goto out_unlock_disks_mutex;
+		goto out_free_mddev;
 
 	disk->major = MAJOR(mddev->unit);
 	disk->first_minor = unit << shift;
@@ -5717,24 +5693,35 @@ int md_alloc(dev_t dev, char *name)
 	mddev->gendisk = disk;
 	error = add_disk(disk);
 	if (error)
-		goto out_cleanup_disk;
+		goto out_put_disk;
 
+	kobject_init(&mddev->kobj, &md_ktype);
 	error = kobject_add(&mddev->kobj, &disk_to_dev(disk)->kobj, "%s", "md");
-	if (error)
-		goto out_del_gendisk;
+	if (error) {
+		/*
+		 * The disk is already live at this point.  Clear the hold flag
+		 * and let mddev_put take care of the deletion, as it isn't any
+		 * different from a normal close on last release now.
+		 */
+		mddev->hold_active = 0;
+		goto done;
+	}
 
 	kobject_uevent(&mddev->kobj, KOBJ_ADD);
 	mddev->sysfs_state = sysfs_get_dirent_safe(mddev->kobj.sd, "array_state");
 	mddev->sysfs_level = sysfs_get_dirent_safe(mddev->kobj.sd, "level");
-	goto out_unlock_disks_mutex;
 
-out_del_gendisk:
-	del_gendisk(disk);
-out_cleanup_disk:
-	put_disk(disk);
-out_unlock_disks_mutex:
+done:
 	mutex_unlock(&disks_mutex);
 	mddev_put(mddev);
+	return error;
+
+out_put_disk:
+	put_disk(disk);
+out_free_mddev:
+	mddev_free(mddev);
+out_unlock:
+	mutex_unlock(&disks_mutex);
 	return error;
 }
 
@@ -7796,45 +7783,33 @@ out_unlock:
 
 static int md_open(struct block_device *bdev, fmode_t mode)
 {
-	/*
-	 * Succeed if we can lock the mddev, which confirms that
-	 * it isn't being stopped right now.
-	 */
-	struct mddev *mddev = mddev_find(bdev->bd_dev);
+	struct mddev *mddev;
 	int err;
 
+	spin_lock(&all_mddevs_lock);
+	mddev = mddev_get(bdev->bd_disk->private_data);
+	spin_unlock(&all_mddevs_lock);
 	if (!mddev)
 		return -ENODEV;
 
-	if (mddev->gendisk != bdev->bd_disk) {
-		/* we are racing with mddev_put which is discarding this
-		 * bd_disk.
-		 */
-		mddev_put(mddev);
-		/* Wait until bdev->bd_disk is definitely gone */
-		if (work_pending(&mddev->del_work))
-			flush_workqueue(md_misc_wq);
-		return -EBUSY;
-	}
-	BUG_ON(mddev != bdev->bd_disk->private_data);
-
-	if ((err = mutex_lock_interruptible(&mddev->open_mutex)))
+	err = mutex_lock_interruptible(&mddev->open_mutex);
+	if (err)
 		goto out;
 
-	if (test_bit(MD_CLOSING, &mddev->flags)) {
-		mutex_unlock(&mddev->open_mutex);
-		err = -ENODEV;
-		goto out;
-	}
+	err = -ENODEV;
+	if (test_bit(MD_CLOSING, &mddev->flags))
+		goto out_unlock;
 
-	err = 0;
 	atomic_inc(&mddev->openers);
 	mutex_unlock(&mddev->open_mutex);
 
 	bdev_check_media_change(bdev);
- out:
-	if (err)
-		mddev_put(mddev);
+	return 0;
+
+out_unlock:
+	mutex_unlock(&mddev->open_mutex);
+out:
+	mddev_put(mddev);
 	return err;
 }
 
@@ -7858,6 +7833,17 @@ static unsigned int md_check_events(struct gendisk *disk, unsigned int clearing)
 	return ret;
 }
 
+static void md_free_disk(struct gendisk *disk)
+{
+	struct mddev *mddev = disk->private_data;
+
+	percpu_ref_exit(&mddev->writes_pending);
+	bioset_exit(&mddev->bio_set);
+	bioset_exit(&mddev->sync_set);
+
+	mddev_free(mddev);
+}
+
 const struct block_device_operations md_fops =
 {
 	.owner		= THIS_MODULE,
@@ -7871,6 +7857,7 @@ const struct block_device_operations md_fops =
 	.getgeo		= md_getgeo,
 	.check_events	= md_check_events,
 	.set_read_only	= md_set_read_only,
+	.free_disk	= md_free_disk,
 };
 
 static int md_thread(void *arg)
@@ -8176,6 +8163,8 @@ static void *md_seq_start(struct seq_file *seq, loff_t *pos)
 		if (!l--) {
 			mddev = list_entry(tmp, struct mddev, all_mddevs);
 			mddev_get(mddev);
+			if (!mddev_get(mddev))
+				continue;
 			spin_unlock(&all_mddevs_lock);
 			return mddev;
 		}
@@ -8189,25 +8178,35 @@ static void *md_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
 	struct list_head *tmp;
 	struct mddev *next_mddev, *mddev = v;
+	struct mddev *to_put = NULL;
 
 	++*pos;
 	if (v == (void*)2)
 		return NULL;
 
 	spin_lock(&all_mddevs_lock);
-	if (v == (void*)1)
+	if (v == (void*)1) {
 		tmp = all_mddevs.next;
-	else
+	} else {
+		to_put = mddev;
 		tmp = mddev->all_mddevs.next;
-	if (tmp != &all_mddevs)
-		next_mddev = mddev_get(list_entry(tmp,struct mddev,all_mddevs));
-	else {
-		next_mddev = (void*)2;
-		*pos = 0x10000;
 	}
+
+	for (;;) {
+		if (tmp == &all_mddevs) {
+			next_mddev = (void*)2;
+			*pos = 0x10000;
+			break;
+		}
+		next_mddev = list_entry(tmp, struct mddev, all_mddevs);
+		if (mddev_get(next_mddev))
+			break;
+		mddev = next_mddev;
+		tmp = mddev->all_mddevs.next;
+	};
 	spin_unlock(&all_mddevs_lock);
 
-	if (v != (void*)1)
+	if (to_put)
 		mddev_put(mddev);
 	return next_mddev;
 
@@ -8706,7 +8705,6 @@ void md_do_sync(struct md_thread *thread)
 	unsigned long update_time;
 	sector_t mark_cnt[SYNC_MARKS];
 	int last_mark,m;
-	struct list_head *tmp;
 	sector_t last_check;
 	int skipped = 0;
 	struct md_rdev *rdev;
@@ -8770,7 +8768,10 @@ void md_do_sync(struct md_thread *thread)
 	try_again:
 		if (test_bit(MD_RECOVERY_INTR, &mddev->recovery))
 			goto skip;
-		for_each_mddev(mddev2, tmp) {
+		spin_lock(&all_mddevs_lock);
+		list_for_each_entry(mddev2, &all_mddevs, all_mddevs) {
+			if (test_bit(MD_DELETED, &mddev2->flags))
+				continue;
 			if (mddev2 == mddev)
 				continue;
 			if (!mddev->parallel_resync
@@ -8802,7 +8803,8 @@ void md_do_sync(struct md_thread *thread)
 							desc, mdname(mddev),
 							mdname(mddev2));
 					}
-					mddev_put(mddev2);
+					spin_unlock(&all_mddevs_lock);
+
 					if (signal_pending(current))
 						flush_signals(current);
 					schedule();
@@ -8812,6 +8814,7 @@ void md_do_sync(struct md_thread *thread)
 				finish_wait(&resync_wait, &wq);
 			}
 		}
+		spin_unlock(&all_mddevs_lock);
 	} while (mddev->curr_resync < MD_RESYNC_DELAYED);
 
 	j = 0;
@@ -9566,11 +9569,14 @@ EXPORT_SYMBOL_GPL(rdev_clear_badblocks);
 static int md_notify_reboot(struct notifier_block *this,
 			    unsigned long code, void *x)
 {
-	struct list_head *tmp;
-	struct mddev *mddev;
+	struct mddev *mddev, *n;
 	int need_delay = 0;
 
-	for_each_mddev(mddev, tmp) {
+	spin_lock(&all_mddevs_lock);
+	list_for_each_entry_safe(mddev, n, &all_mddevs, all_mddevs) {
+		if (!mddev_get(mddev))
+			continue;
+		spin_unlock(&all_mddevs_lock);
 		if (mddev_trylock(mddev)) {
 			if (mddev->pers)
 				__md_stop_writes(mddev);
@@ -9579,7 +9585,11 @@ static int md_notify_reboot(struct notifier_block *this,
 			mddev_unlock(mddev);
 		}
 		need_delay = 1;
+		mddev_put(mddev);
+		spin_lock(&all_mddevs_lock);
 	}
+	spin_unlock(&all_mddevs_lock);
+
 	/*
 	 * certain more exotic SCSI devices are known to be
 	 * volatile wrt too early system reboots. While the
@@ -9898,8 +9908,7 @@ void md_autostart_arrays(int part)
 
 static __exit void md_exit(void)
 {
-	struct mddev *mddev;
-	struct list_head *tmp;
+	struct mddev *mddev, *n;
 	int delay = 1;
 
 	unregister_blkdev(MD_MAJOR,"md");
@@ -9919,17 +9928,24 @@ static __exit void md_exit(void)
 	}
 	remove_proc_entry("mdstat", NULL);
 
-	for_each_mddev(mddev, tmp) {
+	spin_lock(&all_mddevs_lock);
+	list_for_each_entry_safe(mddev, n, &all_mddevs, all_mddevs) {
+		if (!mddev_get(mddev))
+			continue;
+		spin_unlock(&all_mddevs_lock);
 		export_array(mddev);
 		mddev->ctime = 0;
 		mddev->hold_active = 0;
 		/*
-		 * for_each_mddev() will call mddev_put() at the end of each
-		 * iteration.  As the mddev is now fully clear, this will
-		 * schedule the mddev for destruction by a workqueue, and the
+		 * As the mddev is now fully clear, mddev_put will schedule
+		 * the mddev for destruction by a workqueue, and the
 		 * destroy_workqueue() below will wait for that to complete.
 		 */
+		mddev_put(mddev);
+		spin_lock(&all_mddevs_lock);
 	}
+	spin_unlock(&all_mddevs_lock);
+
 	destroy_workqueue(md_rdev_misc_wq);
 	destroy_workqueue(md_misc_wq);
 	destroy_workqueue(md_wq);

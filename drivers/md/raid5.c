@@ -5873,8 +5873,11 @@ struct stripe_request_ctx {
 	/* last sector in the request */
 	sector_t last_sector;
 
-	/* bitmap to track stripe sectors that have been added to stripes */
-	DECLARE_BITMAP(sectors_to_do, RAID5_MAX_REQ_STRIPES);
+	/*
+	 * bitmap to track stripe sectors that have been added to stripes
+	 * add one to account for unaligned requests
+	 */
+	DECLARE_BITMAP(sectors_to_do, RAID5_MAX_REQ_STRIPES + 1);
 
 	/* the request had REQ_PREFLUSH, cleared after the first stripe_head */
 	bool do_flush;
@@ -6041,13 +6044,13 @@ out_release:
 
 static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 {
+	DEFINE_WAIT_FUNC(wait, woken_wake_function);
 	struct r5conf *conf = mddev->private;
 	sector_t logical_sector;
 	struct stripe_request_ctx ctx = {};
 	const int rw = bio_data_dir(bi);
 	enum stripe_result res;
-	DEFINE_WAIT(w);
-	int s;
+	int s, stripe_cnt;
 
 	if (unlikely(bi->bi_opf & REQ_PREFLUSH)) {
 		int ret = log_handle_flush_request(conf, bi);
@@ -6091,9 +6094,9 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 	ctx.last_sector = bio_end_sector(bi);
 	bi->bi_next = NULL;
 
-	bitmap_set(ctx.sectors_to_do, 0,
-		   DIV_ROUND_UP_SECTOR_T(ctx.last_sector - logical_sector,
-					 RAID5_STRIPE_SECTORS(conf)));
+	stripe_cnt = DIV_ROUND_UP_SECTOR_T(ctx.last_sector - logical_sector,
+					   RAID5_STRIPE_SECTORS(conf));
+	bitmap_set(ctx.sectors_to_do, 0, stripe_cnt);
 
 	pr_debug("raid456: %s, logical %llu to %llu\n", __func__,
 		 bi->bi_iter.bi_sector, ctx.last_sector);
@@ -6109,7 +6112,8 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 		return true;
 	}
 	md_account_bio(mddev, &bi);
-	prepare_to_wait(&conf->wait_for_overlap, &w, TASK_UNINTERRUPTIBLE);
+
+	add_wait_queue(&conf->wait_for_overlap, &wait);
 	while (1) {
 		res = make_stripe_request(mddev, conf, &ctx, logical_sector,
 					  bi);
@@ -6132,21 +6136,19 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 				ctx.batch_last = NULL;
 			}
 
-			schedule();
-			prepare_to_wait(&conf->wait_for_overlap, &w,
-					TASK_UNINTERRUPTIBLE);
+			wait_woken(&wait, TASK_UNINTERRUPTIBLE,
+				   MAX_SCHEDULE_TIMEOUT);
 			continue;
 		}
 
-		s = find_first_bit(ctx.sectors_to_do, RAID5_MAX_REQ_STRIPES);
-		if (s == RAID5_MAX_REQ_STRIPES)
+		s = find_first_bit(ctx.sectors_to_do, stripe_cnt);
+		if (s == stripe_cnt)
 			break;
 
 		logical_sector = ctx.first_sector +
 			(s << RAID5_STRIPE_SHIFT(conf));
 	}
-
-	finish_wait(&conf->wait_for_overlap, &w);
+	remove_wait_queue(&conf->wait_for_overlap, &wait);
 
 	if (ctx.batch_last)
 		raid5_release_stripe(ctx.batch_last);
@@ -8259,8 +8261,7 @@ static int raid5_add_disk(struct mddev *mddev, struct md_rdev *rdev)
 	 * find the disk ... but prefer rdev->saved_raid_disk
 	 * if possible.
 	 */
-	if (rdev->saved_raid_disk >= 0 &&
-	    rdev->saved_raid_disk >= first &&
+	if (rdev->saved_raid_disk >= first &&
 	    rdev->saved_raid_disk <= last &&
 	    conf->disks[rdev->saved_raid_disk].rdev == NULL)
 		first = rdev->saved_raid_disk;
