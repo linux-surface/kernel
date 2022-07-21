@@ -466,6 +466,10 @@
 		scm: scm {
 			compatible = "qcom,scm-sc8180x", "qcom,scm";
 		};
+
+		tee-uefisecapp {
+			compatible = "qcom,tee-uefisecapp";
+		};
 	};
 
 	camnoc_virt: interconnect-camnoc-virt {
