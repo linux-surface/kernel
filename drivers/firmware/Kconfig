@@ -232,6 +232,13 @@ config QCOM_TEE
 	help
 	  TODO
 
+config QCOM_TEE_UEFISECAPP
+	tristate "Qualcomm TEE UEFI Secure App client driver"
+	select QCOM_TEE
+	depends on EFI
+	help
+	  TODO
+
 config SYSFB
 	bool
 	select BOOT_VESA_SUPPORT
