@@ -339,8 +339,19 @@ static const char *sech_name(const struct elf_info *info, Elf_Shdr *sechdr)
 				      sechdr->sh_name);
 }
 
-static const char *sec_name(const struct elf_info *info, int secindex)
+static const char *sec_name_of_symbol(const struct elf_info *info,
+				      const Elf_Sym *sym)
 {
+	unsigned int secindex = get_secindex(info, sym);
+
+	/*
+	 * If sym->st_shndx is a special section index, there is no
+	 * corresponding section header.
+	 * Return "" if the index is out of range of info->sechdrs[] array.
+	 */
+	if (secindex >= info->num_sections)
+		return "";
+
 	return sech_name(info, &info->sechdrs[secindex]);
 }
 
@@ -649,7 +660,7 @@ static void handle_symbol(struct module *mod, struct elf_info *info,
 			const char *name, *secname;
 
 			name = symname + strlen("__ksymtab_");
-			secname = sec_name(info, get_secindex(info, sym));
+			secname = sec_name_of_symbol(info, sym);
 
 			if (strstarts(secname, "___ksymtab_gpl+"))
 				sym_add_exported(name, mod, true);
@@ -742,7 +753,6 @@ static const char *const section_white_list[] =
 {
 	".comment*",
 	".debug*",
-	".cranges",		/* sh64 */
 	".zdebug*",		/* Compressed debug sections. */
 	".GCC.command.line",	/* record-gcc-switches */
 	".mdebug*",        /* alpha, score, mips etc. */
@@ -1217,7 +1227,7 @@ static Elf_Sym *find_elf_symbol2(struct elf_info *elf, Elf_Addr addr,
 
 		if (is_shndx_special(sym->st_shndx))
 			continue;
-		symsec = sec_name(elf, get_secindex(elf, sym));
+		symsec = sec_name_of_symbol(elf, sym);
 		if (strcmp(symsec, sec) != 0)
 			continue;
 		if (!is_valid_name(elf, sym))
@@ -1457,7 +1467,7 @@ static void default_mismatch_handler(const char *modname, struct elf_info *elf,
 	if (strstarts(fromsym, "reference___initcall"))
 		return;
 
-	tosec = sec_name(elf, get_secindex(elf, sym));
+	tosec = sec_name_of_symbol(elf, sym);
 	to = find_elf_symbol(elf, r->r_addend, sym);
 	tosym = sym_name(elf, to);
 
@@ -1559,7 +1569,7 @@ static void extable_mismatch_handler(const char* modname, struct elf_info *elf,
 				     Elf_Rela* r, Elf_Sym* sym,
 				     const char *fromsec)
 {
-	const char* tosec = sec_name(elf, get_secindex(elf, sym));
+	const char *tosec = sec_name_of_symbol(elf, sym);
 
 	sec_mismatch_count++;
 
@@ -1593,7 +1603,7 @@ static void extable_mismatch_handler(const char* modname, struct elf_info *elf,
 static void check_section_mismatch(const char *modname, struct elf_info *elf,
 				   Elf_Rela *r, Elf_Sym *sym, const char *fromsec)
 {
-	const char *tosec = sec_name(elf, get_secindex(elf, sym));
+	const char *tosec = sec_name_of_symbol(elf, sym);
 	const struct sectioncheck *mismatch = section_mismatch(fromsec, tosec);
 
 	if (mismatch) {
