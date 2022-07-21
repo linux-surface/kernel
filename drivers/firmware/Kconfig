@@ -226,6 +226,12 @@ config QCOM_SCM_DOWNLOAD_MODE_DEFAULT
 
 	  Say Y here to enable "download mode" by default.
 
+config QCOM_TEE
+	tristate "Qualcomm Trusted Execution Environment (TEE) interface routines"
+	depends on QCOM_SCM
+	help
+	  TODO
+
 config SYSFB
 	bool
 	select BOOT_VESA_SUPPORT
