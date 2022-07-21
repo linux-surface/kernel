@@ -540,9 +540,10 @@ restart:
 			continue;
 		if (!may_grant(gl, first_gh, gh)) {
 			/*
-			 * If we get here, it means we may not grant this holder for
-			 * some reason. If this holder is the head of the list, it
-			 * means we have a blocked holder at the head, so return 1.
+			 * If we get here, it means we may not grant this
+			 * holder for some reason. If this holder is at the
+			 * head of the list, it means we have a blocked holder
+			 * at the head, so return 1.
 			 */
 			if (list_is_first(&gh->gh_list, &gl->gl_holders))
 				return 1;
@@ -1779,7 +1780,7 @@ static int glock_compare(const void *arg_a, const void *arg_b)
 }
 
 /**
- * nq_m_sync - synchonously acquire more than one glock in deadlock free order
+ * nq_m_sync - synchronously acquire more than one glock in deadlock free order
  * @num_gh: the number of structures
  * @ghs: an array of struct gfs2_holder structures
  * @p: placeholder for the holder structure to pass back
@@ -1800,8 +1801,6 @@ static int nq_m_sync(unsigned int num_gh, struct gfs2_holder *ghs,
 	sort(p, num_gh, sizeof(struct gfs2_holder *), glock_compare, NULL);
 
 	for (x = 0; x < num_gh; x++) {
-		p[x]->gh_flags &= ~(LM_FLAG_TRY | GL_ASYNC);
-
 		error = gfs2_glock_nq(p[x]);
 		if (error) {
 			while (x--)
@@ -1818,7 +1817,6 @@ static int nq_m_sync(unsigned int num_gh, struct gfs2_holder *ghs,
  * @num_gh: the number of structures
  * @ghs: an array of struct gfs2_holder structures
  *
- *
  * Returns: 0 on success (all glocks acquired),
  *          errno on failure (no glocks acquired)
  */
@@ -1833,7 +1831,6 @@ int gfs2_glock_nq_m(unsigned int num_gh, struct gfs2_holder *ghs)
 	case 0:
 		return 0;
 	case 1:
-		ghs->gh_flags &= ~(LM_FLAG_TRY | GL_ASYNC);
 		return gfs2_glock_nq(ghs);
 	default:
 		if (num_gh <= 4)
