@@ -297,6 +297,7 @@ void evsel__set_sample_id(struct evsel *evsel, bool use_sample_identifier);
 
 void arch_evsel__set_sample_weight(struct evsel *evsel);
 void arch_evsel__fixup_new_cycles(struct perf_event_attr *attr);
+void arch__post_evsel_config(struct evsel *evsel, struct perf_event_attr *attr);
 
 int evsel__set_filter(struct evsel *evsel, const char *filter);
 int evsel__append_tp_filter(struct evsel *evsel, const char *filter);
@@ -379,6 +380,8 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 
 int evsel__parse_sample_timestamp(struct evsel *evsel, union perf_event *event,
 				  u64 *timestamp);
+
+u16 evsel__id_hdr_size(struct evsel *evsel);
 
 static inline struct evsel *evsel__next(struct evsel *evsel)
 {

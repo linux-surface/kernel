@@ -9,6 +9,7 @@
 #include "util/symbol.h"
 #include "util/thread.h"
 #include "util/header.h"
+#include "util/callchain.h"
 
 #include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
@@ -19,6 +20,7 @@
 #include "util/tool.h"
 #include "util/data.h"
 #include "util/string2.h"
+#include "util/map.h"
 
 #include <sys/types.h>
 #include <sys/prctl.h>
@@ -32,6 +34,7 @@
 #include <linux/kernel.h>
 #include <linux/zalloc.h>
 #include <linux/err.h>
+#include <linux/stringify.h>
 
 static struct perf_session *session;
 
@@ -119,6 +122,24 @@ static struct rb_root		thread_stats;
 
 static bool combine_locks;
 static bool show_thread_stats;
+
+/*
+ * CONTENTION_STACK_DEPTH
+ * Number of stack trace entries to find callers
+ */
+#define CONTENTION_STACK_DEPTH  8
+
+/*
+ * CONTENTION_STACK_SKIP
+ * Number of stack trace entries to skip when finding callers.
+ * The first few entries belong to the locking implementation itself.
+ */
+#define CONTENTION_STACK_SKIP  3
+
+static u64 sched_text_start;
+static u64 sched_text_end;
+static u64 lock_text_start;
+static u64 lock_text_end;
 
 static struct thread_stat *thread_stat_find(u32 tid)
 {
@@ -251,6 +272,31 @@ struct lock_key {
 	struct list_head	list;
 };
 
+static void lock_stat_key_print_time(unsigned long long nsec, int len)
+{
+	static const struct {
+		float base;
+		const char *unit;
+	} table[] = {
+		{ 1e9 * 3600, "h " },
+		{ 1e9 * 60, "m " },
+		{ 1e9, "s " },
+		{ 1e6, "ms" },
+		{ 1e3, "us" },
+		{ 0, NULL },
+	};
+
+	for (int i = 0; table[i].unit; i++) {
+		if (nsec < table[i].base)
+			continue;
+
+		pr_info("%*.2f %s", len - 3, nsec / table[i].base, table[i].unit);
+		return;
+	}
+
+	pr_info("%*llu %s", len - 3, nsec, "ns");
+}
+
 #define PRINT_KEY(member)						\
 static void lock_stat_key_print_ ## member(struct lock_key *key,	\
 					   struct lock_stat *ls)	\
@@ -258,11 +304,18 @@ static void lock_stat_key_print_ ## member(struct lock_key *key,	\
 	pr_info("%*llu", key->len, (unsigned long long)ls->member);	\
 }
 
+#define PRINT_TIME(member)						\
+static void lock_stat_key_print_ ## member(struct lock_key *key,	\
+					   struct lock_stat *ls)	\
+{									\
+	lock_stat_key_print_time((unsigned long long)ls->member, key->len);	\
+}
+
 PRINT_KEY(nr_acquired)
 PRINT_KEY(nr_contended)
-PRINT_KEY(avg_wait_time)
-PRINT_KEY(wait_time_total)
-PRINT_KEY(wait_time_max)
+PRINT_TIME(avg_wait_time)
+PRINT_TIME(wait_time_total)
+PRINT_TIME(wait_time_max)
 
 static void lock_stat_key_print_wait_time_min(struct lock_key *key,
 					      struct lock_stat *ls)
@@ -272,7 +325,7 @@ static void lock_stat_key_print_wait_time_min(struct lock_key *key,
 	if (wait_time == ULLONG_MAX)
 		wait_time = 0;
 
-	pr_info("%*"PRIu64, key->len, wait_time);
+	lock_stat_key_print_time(wait_time, key->len);
 }
 
 
@@ -291,10 +344,10 @@ static const char		*output_fields;
 struct lock_key keys[] = {
 	DEF_KEY_LOCK(acquired, "acquired", nr_acquired, 10),
 	DEF_KEY_LOCK(contended, "contended", nr_contended, 10),
-	DEF_KEY_LOCK(avg_wait, "avg wait (ns)", avg_wait_time, 15),
-	DEF_KEY_LOCK(wait_total, "total wait (ns)", wait_time_total, 15),
-	DEF_KEY_LOCK(wait_max, "max wait (ns)", wait_time_max, 15),
-	DEF_KEY_LOCK(wait_min, "min wait (ns)", wait_time_min, 15),
+	DEF_KEY_LOCK(avg_wait, "avg wait", avg_wait_time, 12),
+	DEF_KEY_LOCK(wait_total, "total wait", wait_time_total, 12),
+	DEF_KEY_LOCK(wait_max, "max wait", wait_time_max, 12),
+	DEF_KEY_LOCK(wait_min, "min wait", wait_time_min, 12),
 
 	/* extra comparisons much complicated should be here */
 	{ }
@@ -451,6 +504,18 @@ static struct lock_stat *pop_from_result(void)
 	return container_of(node, struct lock_stat, rb);
 }
 
+static struct lock_stat *lock_stat_find(u64 addr)
+{
+	struct hlist_head *entry = lockhashentry(addr);
+	struct lock_stat *ret;
+
+	hlist_for_each_entry(ret, entry, hash_entry) {
+		if (ret->addr == addr)
+			return ret;
+	}
+	return NULL;
+}
+
 static struct lock_stat *lock_stat_findnew(u64 addr, const char *name)
 {
 	struct hlist_head *entry = lockhashentry(addr);
@@ -484,17 +549,29 @@ alloc_failed:
 }
 
 struct trace_lock_handler {
+	/* it's used on CONFIG_LOCKDEP */
 	int (*acquire_event)(struct evsel *evsel,
 			     struct perf_sample *sample);
 
+	/* it's used on CONFIG_LOCKDEP && CONFIG_LOCK_STAT */
 	int (*acquired_event)(struct evsel *evsel,
 			      struct perf_sample *sample);
 
+	/* it's used on CONFIG_LOCKDEP && CONFIG_LOCK_STAT */
 	int (*contended_event)(struct evsel *evsel,
 			       struct perf_sample *sample);
 
+	/* it's used on CONFIG_LOCKDEP */
 	int (*release_event)(struct evsel *evsel,
 			     struct perf_sample *sample);
+
+	/* it's used when CONFIG_LOCKDEP is off */
+	int (*contention_begin_event)(struct evsel *evsel,
+				      struct perf_sample *sample);
+
+	/* it's used when CONFIG_LOCKDEP is off */
+	int (*contention_end_event)(struct evsel *evsel,
+				    struct perf_sample *sample);
 };
 
 static struct lock_seq_stat *get_seq(struct thread_stat *ts, u64 addr)
@@ -783,6 +860,243 @@ end:
 	return 0;
 }
 
+static bool is_lock_function(u64 addr)
+{
+	if (!sched_text_start) {
+		struct machine *machine = &session->machines.host;
+		struct map *kmap;
+		struct symbol *sym;
+
+		sym = machine__find_kernel_symbol_by_name(machine,
+							  "__sched_text_start",
+							  &kmap);
+		if (!sym) {
+			/* to avoid retry */
+			sched_text_start = 1;
+			return false;
+		}
+
+		sched_text_start = kmap->unmap_ip(kmap, sym->start);
+
+		/* should not fail from here */
+		sym = machine__find_kernel_symbol_by_name(machine,
+							  "__sched_text_end",
+							  &kmap);
+		sched_text_end = kmap->unmap_ip(kmap, sym->start);
+
+		sym = machine__find_kernel_symbol_by_name(machine,
+							  "__lock_text_start",
+							  &kmap);
+		lock_text_start = kmap->unmap_ip(kmap, sym->start);
+
+		sym = machine__find_kernel_symbol_by_name(machine,
+							  "__lock_text_end",
+							  &kmap);
+		lock_text_end = kmap->unmap_ip(kmap, sym->start);
+	}
+
+	/* failed to get kernel symbols */
+	if (sched_text_start == 1)
+		return false;
+
+	/* mutex and rwsem functions are in sched text section */
+	if (sched_text_start <= addr && addr < sched_text_end)
+		return true;
+
+	/* spinlock functions are in lock text section */
+	if (lock_text_start <= addr && addr < lock_text_end)
+		return true;
+
+	return false;
+}
+
+static int lock_contention_caller(struct evsel *evsel, struct perf_sample *sample,
+				  char *buf, int size)
+{
+	struct thread *thread;
+	struct callchain_cursor *cursor = &callchain_cursor;
+	struct symbol *sym;
+	int skip = 0;
+	int ret;
+
+	/* lock names will be replaced to task name later */
+	if (show_thread_stats)
+		return -1;
+
+	thread = machine__findnew_thread(&session->machines.host,
+					 -1, sample->pid);
+	if (thread == NULL)
+		return -1;
+
+	/* use caller function name from the callchain */
+	ret = thread__resolve_callchain(thread, cursor, evsel, sample,
+					NULL, NULL, CONTENTION_STACK_DEPTH);
+	if (ret != 0) {
+		thread__put(thread);
+		return -1;
+	}
+
+	callchain_cursor_commit(cursor);
+	thread__put(thread);
+
+	while (true) {
+		struct callchain_cursor_node *node;
+
+		node = callchain_cursor_current(cursor);
+		if (node == NULL)
+			break;
+
+		/* skip first few entries - for lock functions */
+		if (++skip <= CONTENTION_STACK_SKIP)
+			goto next;
+
+		sym = node->ms.sym;
+		if (sym && !is_lock_function(node->ip)) {
+			struct map *map = node->ms.map;
+			u64 offset;
+
+			offset = map->map_ip(map, node->ip) - sym->start;
+
+			if (offset)
+				scnprintf(buf, size, "%s+%#lx", sym->name, offset);
+			else
+				strlcpy(buf, sym->name, size);
+			return 0;
+		}
+
+next:
+		callchain_cursor_advance(cursor);
+	}
+	return -1;
+}
+
+static int report_lock_contention_begin_event(struct evsel *evsel,
+					      struct perf_sample *sample)
+{
+	struct lock_stat *ls;
+	struct thread_stat *ts;
+	struct lock_seq_stat *seq;
+	u64 addr = evsel__intval(evsel, sample, "lock_addr");
+
+	if (show_thread_stats)
+		addr = sample->tid;
+
+	ls = lock_stat_find(addr);
+	if (!ls) {
+		char buf[128];
+		const char *caller = buf;
+
+		if (lock_contention_caller(evsel, sample, buf, sizeof(buf)) < 0)
+			caller = "Unknown";
+
+		ls = lock_stat_findnew(addr, caller);
+		if (!ls)
+			return -ENOMEM;
+	}
+
+	ts = thread_stat_findnew(sample->tid);
+	if (!ts)
+		return -ENOMEM;
+
+	seq = get_seq(ts, addr);
+	if (!seq)
+		return -ENOMEM;
+
+	switch (seq->state) {
+	case SEQ_STATE_UNINITIALIZED:
+	case SEQ_STATE_ACQUIRED:
+		break;
+	case SEQ_STATE_CONTENDED:
+		/*
+		 * It can have nested contention begin with mutex spinning,
+		 * then we would use the original contention begin event and
+		 * ignore the second one.
+		 */
+		goto end;
+	case SEQ_STATE_ACQUIRING:
+	case SEQ_STATE_READ_ACQUIRED:
+	case SEQ_STATE_RELEASED:
+		/* broken lock sequence */
+		if (!ls->broken) {
+			ls->broken = 1;
+			bad_hist[BROKEN_CONTENDED]++;
+		}
+		list_del_init(&seq->list);
+		free(seq);
+		goto end;
+	default:
+		BUG_ON("Unknown state of lock sequence found!\n");
+		break;
+	}
+
+	if (seq->state != SEQ_STATE_CONTENDED) {
+		seq->state = SEQ_STATE_CONTENDED;
+		seq->prev_event_time = sample->time;
+		ls->nr_contended++;
+	}
+end:
+	return 0;
+}
+
+static int report_lock_contention_end_event(struct evsel *evsel,
+					    struct perf_sample *sample)
+{
+	struct lock_stat *ls;
+	struct thread_stat *ts;
+	struct lock_seq_stat *seq;
+	u64 contended_term;
+	u64 addr = evsel__intval(evsel, sample, "lock_addr");
+
+	if (show_thread_stats)
+		addr = sample->tid;
+
+	ls = lock_stat_find(addr);
+	if (!ls)
+		return 0;
+
+	ts = thread_stat_find(sample->tid);
+	if (!ts)
+		return 0;
+
+	seq = get_seq(ts, addr);
+	if (!seq)
+		return -ENOMEM;
+
+	switch (seq->state) {
+	case SEQ_STATE_UNINITIALIZED:
+		goto end;
+	case SEQ_STATE_CONTENDED:
+		contended_term = sample->time - seq->prev_event_time;
+		ls->wait_time_total += contended_term;
+		if (contended_term < ls->wait_time_min)
+			ls->wait_time_min = contended_term;
+		if (ls->wait_time_max < contended_term)
+			ls->wait_time_max = contended_term;
+		break;
+	case SEQ_STATE_ACQUIRING:
+	case SEQ_STATE_ACQUIRED:
+	case SEQ_STATE_READ_ACQUIRED:
+	case SEQ_STATE_RELEASED:
+		/* broken lock sequence */
+		if (!ls->broken) {
+			ls->broken = 1;
+			bad_hist[BROKEN_ACQUIRED]++;
+		}
+		list_del_init(&seq->list);
+		free(seq);
+		goto end;
+	default:
+		BUG_ON("Unknown state of lock sequence found!\n");
+		break;
+	}
+
+	seq->state = SEQ_STATE_ACQUIRED;
+	ls->nr_acquired++;
+	ls->avg_wait_time = ls->wait_time_total/ls->nr_acquired;
+end:
+	return 0;
+}
+
 /* lock oriented handlers */
 /* TODO: handlers for CPU oriented, thread oriented */
 static struct trace_lock_handler report_lock_ops  = {
@@ -790,6 +1104,8 @@ static struct trace_lock_handler report_lock_ops  = {
 	.acquired_event		= report_lock_acquired_event,
 	.contended_event	= report_lock_contended_event,
 	.release_event		= report_lock_release_event,
+	.contention_begin_event	= report_lock_contention_begin_event,
+	.contention_end_event	= report_lock_contention_end_event,
 };
 
 static struct trace_lock_handler *trace_handler;
@@ -822,12 +1138,33 @@ static int evsel__process_lock_release(struct evsel *evsel, struct perf_sample *
 	return 0;
 }
 
+static int evsel__process_contention_begin(struct evsel *evsel, struct perf_sample *sample)
+{
+	if (trace_handler->contention_begin_event)
+		return trace_handler->contention_begin_event(evsel, sample);
+	return 0;
+}
+
+static int evsel__process_contention_end(struct evsel *evsel, struct perf_sample *sample)
+{
+	if (trace_handler->contention_end_event)
+		return trace_handler->contention_end_event(evsel, sample);
+	return 0;
+}
+
 static void print_bad_events(int bad, int total)
 {
 	/* Output for debug, this have to be removed */
 	int i;
+	int broken = 0;
 	const char *name[4] =
 		{ "acquire", "acquired", "contended", "release" };
+
+	for (i = 0; i < BROKEN_MAX; i++)
+		broken += bad_hist[i];
+
+	if (broken == 0 && !verbose)
+		return;
 
 	pr_info("\n=== output for debug===\n\n");
 	pr_info("bad: %d, total: %d\n", bad, total);
@@ -1023,6 +1360,11 @@ static const struct evsel_str_handler lock_tracepoints[] = {
 	{ "lock:lock_release",	 evsel__process_lock_release,   }, /* CONFIG_LOCKDEP */
 };
 
+static const struct evsel_str_handler contention_tracepoints[] = {
+	{ "lock:contention_begin", evsel__process_contention_begin, },
+	{ "lock:contention_end",   evsel__process_contention_end,   },
+};
+
 static bool force;
 
 static int __cmd_report(bool display_info)
@@ -1031,6 +1373,7 @@ static int __cmd_report(bool display_info)
 	struct perf_tool eops = {
 		.sample		 = process_sample_event,
 		.comm		 = perf_event__process_comm,
+		.mmap		 = perf_event__process_mmap,
 		.namespaces	 = perf_event__process_namespaces,
 		.ordered_events	 = true,
 	};
@@ -1046,12 +1389,19 @@ static int __cmd_report(bool display_info)
 		return PTR_ERR(session);
 	}
 
+	/* for lock function check */
+	symbol_conf.sort_by_name = true;
 	symbol__init(&session->header.env);
 
 	if (!perf_session__has_traces(session, "lock record"))
 		goto out_delete;
 
 	if (perf_session__set_tracepoints_handlers(session, lock_tracepoints)) {
+		pr_err("Initializing perf session tracepoint handlers failed\n");
+		goto out_delete;
+	}
+
+	if (perf_session__set_tracepoints_handlers(session, contention_tracepoints)) {
 		pr_err("Initializing perf session tracepoint handlers failed\n");
 		goto out_delete;
 	}
@@ -1085,21 +1435,48 @@ static int __cmd_record(int argc, const char **argv)
 	const char *record_args[] = {
 		"record", "-R", "-m", "1024", "-c", "1", "--synth", "task",
 	};
+	const char *callgraph_args[] = {
+		"--call-graph", "fp," __stringify(CONTENTION_STACK_DEPTH),
+	};
 	unsigned int rec_argc, i, j, ret;
+	unsigned int nr_tracepoints;
+	unsigned int nr_callgraph_args = 0;
 	const char **rec_argv;
+	bool has_lock_stat = true;
 
 	for (i = 0; i < ARRAY_SIZE(lock_tracepoints); i++) {
 		if (!is_valid_tracepoint(lock_tracepoints[i].name)) {
-				pr_err("tracepoint %s is not enabled. "
-				       "Are CONFIG_LOCKDEP and CONFIG_LOCK_STAT enabled?\n",
-				       lock_tracepoints[i].name);
-				return 1;
+			pr_debug("tracepoint %s is not enabled. "
+				 "Are CONFIG_LOCKDEP and CONFIG_LOCK_STAT enabled?\n",
+				 lock_tracepoints[i].name);
+			has_lock_stat = false;
+			break;
 		}
 	}
 
-	rec_argc = ARRAY_SIZE(record_args) + argc - 1;
+	if (has_lock_stat)
+		goto setup_args;
+
+	for (i = 0; i < ARRAY_SIZE(contention_tracepoints); i++) {
+		if (!is_valid_tracepoint(contention_tracepoints[i].name)) {
+			pr_err("tracepoint %s is not enabled.\n",
+			       contention_tracepoints[i].name);
+			return 1;
+		}
+	}
+
+	nr_callgraph_args = ARRAY_SIZE(callgraph_args);
+
+setup_args:
+	rec_argc = ARRAY_SIZE(record_args) + nr_callgraph_args + argc - 1;
+
+	if (has_lock_stat)
+		nr_tracepoints = ARRAY_SIZE(lock_tracepoints);
+	else
+		nr_tracepoints = ARRAY_SIZE(contention_tracepoints);
+
 	/* factor of 2 is for -e in front of each tracepoint */
-	rec_argc += 2 * ARRAY_SIZE(lock_tracepoints);
+	rec_argc += 2 * nr_tracepoints;
 
 	rec_argv = calloc(rec_argc + 1, sizeof(char *));
 	if (!rec_argv)
@@ -1108,10 +1485,23 @@ static int __cmd_record(int argc, const char **argv)
 	for (i = 0; i < ARRAY_SIZE(record_args); i++)
 		rec_argv[i] = strdup(record_args[i]);
 
-	for (j = 0; j < ARRAY_SIZE(lock_tracepoints); j++) {
+	for (j = 0; j < nr_tracepoints; j++) {
+		const char *ev_name;
+
+		if (has_lock_stat)
+			ev_name = strdup(lock_tracepoints[j].name);
+		else
+			ev_name = strdup(contention_tracepoints[j].name);
+
+		if (!ev_name)
+			return -ENOMEM;
+
 		rec_argv[i++] = "-e";
-		rec_argv[i++] = strdup(lock_tracepoints[j].name);
+		rec_argv[i++] = ev_name;
 	}
+
+	for (j = 0; j < nr_callgraph_args; j++, i++)
+		rec_argv[i] = callgraph_args[j];
 
 	for (j = 1; j < (unsigned int)argc; j++, i++)
 		rec_argv[i] = argv[j];
@@ -1130,6 +1520,10 @@ int cmd_lock(int argc, const char **argv)
 	OPT_INCR('v', "verbose", &verbose, "be more verbose (show symbol address, etc)"),
 	OPT_BOOLEAN('D', "dump-raw-trace", &dump_trace, "dump raw trace in ASCII"),
 	OPT_BOOLEAN('f', "force", &force, "don't complain, do it"),
+	OPT_STRING(0, "vmlinux", &symbol_conf.vmlinux_name,
+		   "file", "vmlinux pathname"),
+	OPT_STRING(0, "kallsyms", &symbol_conf.kallsyms_name,
+		   "file", "kallsyms pathname"),
 	OPT_END()
 	};
 
