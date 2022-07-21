@@ -1941,7 +1941,7 @@ require use of the stronger protocol */
  * sessions (and from that the tree connections) can be found
  * by iterating over cifs_tcp_ses_list
  */
-GLOBAL_EXTERN struct list_head		cifs_tcp_ses_list;
+extern struct list_head		cifs_tcp_ses_list;
 
 /*
  * This lock protects the cifs_tcp_ses_list, the list of smb sessions per
@@ -1953,7 +1953,7 @@ GLOBAL_EXTERN struct list_head		cifs_tcp_ses_list;
  * tcon->open_file_lock and that before file->file_info_lock since the
  * structure order is cifs_socket-->cifs_ses-->cifs_tcon-->cifs_file
  */
-GLOBAL_EXTERN spinlock_t		cifs_tcp_ses_lock;
+extern spinlock_t		cifs_tcp_ses_lock;
 
 /*
  * Global transaction id (XID) information
@@ -1974,14 +1974,13 @@ GLOBAL_EXTERN atomic_t tcpSesReconnectCount;
 GLOBAL_EXTERN atomic_t tconInfoReconnectCount;
 
 /* Various Debug counters */
-GLOBAL_EXTERN atomic_t bufAllocCount;    /* current number allocated  */
+extern atomic_t buf_alloc_count;	/* current number allocated  */
+extern atomic_t small_buf_alloc_count;
 #ifdef CONFIG_CIFS_STATS2
-GLOBAL_EXTERN atomic_t totBufAllocCount; /* total allocated over all time */
-GLOBAL_EXTERN atomic_t totSmBufAllocCount;
+extern atomic_t total_buf_alloc_count; /* total allocated over all time */
+extern atomic_t total_small_buf_alloc_count;
 extern unsigned int slow_rsp_threshold; /* number of secs before logging */
 #endif
-GLOBAL_EXTERN atomic_t smBufAllocCount;
-GLOBAL_EXTERN atomic_t midCount;
 
 /* Misc globals */
 extern bool enable_oplocks; /* enable or disable oplocks */
@@ -1998,6 +1997,7 @@ extern unsigned int cifs_min_rcv;    /* min size of big ntwrk buf pool */
 extern unsigned int cifs_min_small;  /* min size of small buf pool */
 extern unsigned int cifs_max_pending; /* MAX requests at once to server*/
 extern bool disable_legacy_dialects;  /* forbid vers=1.0 and vers=2.0 mounts */
+extern atomic_t mid_count;
 
 void cifs_oplock_break(struct work_struct *work);
 void cifs_queue_oplock_break(struct cifsFileInfo *cfile);
