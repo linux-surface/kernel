@@ -178,10 +178,12 @@ void pci_ioremap_set_mem_type(int mem_type);
 static inline void pci_ioremap_set_mem_type(int mem_type) {}
 #endif
 
+#ifdef CONFIG_MMU
 struct resource;
 
 #define pci_remap_iospace pci_remap_iospace
 int pci_remap_iospace(const struct resource *res, phys_addr_t phys_addr);
+#endif
 
 /*
  * PCI configuration space mapping function.

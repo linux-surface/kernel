@@ -74,6 +74,13 @@
 #define PCIE_MSI_INTR0_MASK		0x82C
 #define PCIE_MSI_INTR0_STATUS		0x830
 
+#define GEN3_RELATED_OFF			0x890
+#define GEN3_RELATED_OFF_GEN3_ZRXDC_NONCOMPL	BIT(0)
+#define GEN3_RELATED_OFF_RXEQ_RGRDLESS_RXTS	BIT(13)
+#define GEN3_RELATED_OFF_GEN3_EQ_DISABLE	BIT(16)
+#define GEN3_RELATED_OFF_RATE_SHADOW_SEL_SHIFT	24
+#define GEN3_RELATED_OFF_RATE_SHADOW_SEL_MASK	GENMASK(25, 24)
+
 #define PCIE_PORT_MULTI_LANE_CTRL	0x8C0
 #define PORT_MLTI_UPCFG_SUPPORT		BIT(7)
 
@@ -155,8 +162,8 @@
 #define MAX_IATU_IN			256
 #define MAX_IATU_OUT			256
 
-struct pcie_port;
 struct dw_pcie;
+struct dw_pcie_rp;
 struct dw_pcie_ep;
 
 enum dw_pcie_region_type {
@@ -173,12 +180,13 @@ enum dw_pcie_device_mode {
 };
 
 struct dw_pcie_host_ops {
-	int (*host_init)(struct pcie_port *pp);
-	int (*msi_host_init)(struct pcie_port *pp);
+	int (*host_init)(struct dw_pcie_rp *pp);
+	int (*msi_host_init)(struct dw_pcie_rp *pp);
 };
 
-struct pcie_port {
+struct dw_pcie_rp {
 	bool			has_msi_ctrl:1;
+	bool			cfg0_io_shared:1;
 	u64			cfg0_base;
 	void __iomem		*va_cfg0_base;
 	u32			cfg0_size;
@@ -190,8 +198,8 @@ struct pcie_port {
 	int			msi_irq;
 	struct irq_domain	*irq_domain;
 	struct irq_domain	*msi_domain;
-	u16			msi_msg;
 	dma_addr_t		msi_data;
+	struct page		*msi_page;
 	struct irq_chip		*msi_irq_chip;
 	u32			num_vectors;
 	u32			irq_mask[MAX_MSI_CTRLS];
@@ -266,7 +274,7 @@ struct dw_pcie {
 	size_t			atu_size;
 	u32			num_ib_windows;
 	u32			num_ob_windows;
-	struct pcie_port	pp;
+	struct dw_pcie_rp	pp;
 	struct dw_pcie_ep	ep;
 	const struct dw_pcie_ops *ops;
 	unsigned int		version;
@@ -274,7 +282,6 @@ struct dw_pcie {
 	int			link_gen;
 	u8			n_fts[2];
 	bool			iatu_unroll_enabled: 1;
-	bool			io_cfg_atu_shared: 1;
 };
 
 #define to_dw_pcie_from_pp(port) container_of((port), struct dw_pcie, pp)
@@ -365,34 +372,48 @@ static inline void dw_pcie_dbi_ro_wr_dis(struct dw_pcie *pci)
 	dw_pcie_writel_dbi(pci, reg, val);
 }
 
+static inline int dw_pcie_start_link(struct dw_pcie *pci)
+{
+	if (pci->ops && pci->ops->start_link)
+		return pci->ops->start_link(pci);
+
+	return 0;
+}
+
+static inline void dw_pcie_stop_link(struct dw_pcie *pci)
+{
+	if (pci->ops && pci->ops->stop_link)
+		pci->ops->stop_link(pci);
+}
+
 #ifdef CONFIG_PCIE_DW_HOST
-irqreturn_t dw_handle_msi_irq(struct pcie_port *pp);
-void dw_pcie_setup_rc(struct pcie_port *pp);
-int dw_pcie_host_init(struct pcie_port *pp);
-void dw_pcie_host_deinit(struct pcie_port *pp);
-int dw_pcie_allocate_domains(struct pcie_port *pp);
+irqreturn_t dw_handle_msi_irq(struct dw_pcie_rp *pp);
+void dw_pcie_setup_rc(struct dw_pcie_rp *pp);
+int dw_pcie_host_init(struct dw_pcie_rp *pp);
+void dw_pcie_host_deinit(struct dw_pcie_rp *pp);
+int dw_pcie_allocate_domains(struct dw_pcie_rp *pp);
 void __iomem *dw_pcie_own_conf_map_bus(struct pci_bus *bus, unsigned int devfn,
 				       int where);
 #else
-static inline irqreturn_t dw_handle_msi_irq(struct pcie_port *pp)
+static inline irqreturn_t dw_handle_msi_irq(struct dw_pcie_rp *pp)
 {
 	return IRQ_NONE;
 }
 
-static inline void dw_pcie_setup_rc(struct pcie_port *pp)
+static inline void dw_pcie_setup_rc(struct dw_pcie_rp *pp)
 {
 }
 
-static inline int dw_pcie_host_init(struct pcie_port *pp)
+static inline int dw_pcie_host_init(struct dw_pcie_rp *pp)
 {
 	return 0;
 }
 
-static inline void dw_pcie_host_deinit(struct pcie_port *pp)
+static inline void dw_pcie_host_deinit(struct dw_pcie_rp *pp)
 {
 }
 
-static inline int dw_pcie_allocate_domains(struct pcie_port *pp)
+static inline int dw_pcie_allocate_domains(struct dw_pcie_rp *pp)
 {
 	return 0;
 }
