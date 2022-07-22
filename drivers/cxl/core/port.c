@@ -2,6 +2,7 @@
 /* Copyright(c) 2020 Intel Corporation. All rights reserved. */
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/workqueue.h>
+#include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -73,14 +74,8 @@ static ssize_t start_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	struct cxl_decoder *cxld = to_cxl_decoder(dev);
-	u64 start;
 
-	if (is_root_decoder(dev))
-		start = cxld->platform_res.start;
-	else
-		start = cxld->decoder_range.start;
-
-	return sysfs_emit(buf, "%#llx\n", start);
+	return sysfs_emit(buf, "%#llx\n", cxld->hpa_range.start);
 }
 static DEVICE_ATTR_ADMIN_RO(start);
 
@@ -88,14 +83,8 @@ static ssize_t size_show(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
 	struct cxl_decoder *cxld = to_cxl_decoder(dev);
-	u64 size;
 
-	if (is_root_decoder(dev))
-		size = resource_size(&cxld->platform_res);
-	else
-		size = range_len(&cxld->decoder_range);
-
-	return sysfs_emit(buf, "%#llx\n", size);
+	return sysfs_emit(buf, "%#llx\n", range_len(&cxld->hpa_range));
 }
 static DEVICE_ATTR_RO(size);
 
@@ -283,12 +272,6 @@ bool is_root_decoder(struct device *dev)
 }
 EXPORT_SYMBOL_NS_GPL(is_root_decoder, CXL);
 
-bool is_cxl_decoder(struct device *dev)
-{
-	return dev->type && dev->type->release == cxl_decoder_release;
-}
-EXPORT_SYMBOL_NS_GPL(is_cxl_decoder, CXL);
-
 struct cxl_decoder *to_cxl_decoder(struct device *dev)
 {
 	if (dev_WARN_ONCE(dev, dev->type->release != cxl_decoder_release,
@@ -370,7 +353,7 @@ static void unregister_port(void *_port)
 		lock_dev = &parent->dev;
 
 	device_lock_assert(lock_dev);
-	port->uport = NULL;
+	port->dead = true;
 	device_unregister(&port->dev);
 }
 
@@ -409,6 +392,7 @@ static struct cxl_port *cxl_port_alloc(struct device *uport,
 	if (rc < 0)
 		goto err;
 	port->id = rc;
+	port->uport = uport;
 
 	/*
 	 * The top-level cxl_port "cxl_root" does not have a cxl_port as
@@ -418,12 +402,27 @@ static struct cxl_port *cxl_port_alloc(struct device *uport,
 	 */
 	dev = &port->dev;
 	if (parent_port) {
+		struct cxl_port *iter;
+
 		dev->parent = &parent_port->dev;
 		port->depth = parent_port->depth + 1;
+
+		/*
+		 * walk to the host bridge, or the first ancestor that knows
+		 * the host bridge
+		 */
+		iter = port;
+		while (!iter->host_bridge &&
+		       !is_cxl_root(to_cxl_port(iter->dev.parent)))
+			iter = to_cxl_port(iter->dev.parent);
+		if (iter->host_bridge)
+			port->host_bridge = iter->host_bridge;
+		else
+			port->host_bridge = iter->uport;
+		dev_dbg(uport, "host-bridge: %s\n", dev_name(port->host_bridge));
 	} else
 		dev->parent = uport;
 
-	port->uport = uport;
 	port->component_reg_phys = component_reg_phys;
 	ida_init(&port->decoder_ida);
 	INIT_LIST_HEAD(&port->dports);
@@ -857,7 +856,7 @@ static void delete_endpoint(void *data)
 	parent = &parent_port->dev;
 
 	device_lock(parent);
-	if (parent->driver && endpoint->uport) {
+	if (parent->driver && !endpoint->dead) {
 		devm_release_action(parent, cxl_unlink_uport, endpoint);
 		devm_release_action(parent, unregister_port, endpoint);
 	}
@@ -1233,7 +1232,10 @@ static struct cxl_decoder *cxl_decoder_alloc(struct cxl_port *port,
 	cxld->interleave_ways = 1;
 	cxld->interleave_granularity = PAGE_SIZE;
 	cxld->target_type = CXL_DECODER_EXPANDER;
-	cxld->platform_res = (struct resource)DEFINE_RES_MEM(0, 0);
+	cxld->hpa_range = (struct range) {
+		.start = 0,
+		.end = -1,
+	};
 
 	return cxld;
 err:
@@ -1346,13 +1348,6 @@ int cxl_decoder_add_locked(struct cxl_decoder *cxld, int *target_map)
 	rc = dev_set_name(dev, "decoder%d.%d", port->id, cxld->id);
 	if (rc)
 		return rc;
-
-	/*
-	 * Platform decoder resources should show up with a reasonable name. All
-	 * other resources are just sub ranges within the main decoder resource.
-	 */
-	if (is_root_decoder(dev))
-		cxld->platform_res.name = dev_name(dev);
 
 	return device_add(dev);
 }
@@ -1521,9 +1516,19 @@ struct bus_type cxl_bus_type = {
 };
 EXPORT_SYMBOL_NS_GPL(cxl_bus_type, CXL);
 
+static struct dentry *cxl_debugfs;
+
+struct dentry *cxl_debugfs_create_dir(const char *dir)
+{
+	return debugfs_create_dir(dir, cxl_debugfs);
+}
+EXPORT_SYMBOL_NS_GPL(cxl_debugfs_create_dir, CXL);
+
 static __init int cxl_core_init(void)
 {
 	int rc;
+
+	cxl_debugfs = debugfs_create_dir("cxl", NULL);
 
 	cxl_mbox_init();
 
@@ -1547,7 +1552,6 @@ err_bus:
 	destroy_workqueue(cxl_bus_wq);
 err_wq:
 	cxl_memdev_exit();
-	cxl_mbox_exit();
 	return rc;
 }
 
@@ -1556,7 +1560,7 @@ static void cxl_core_exit(void)
 	bus_unregister(&cxl_bus_type);
 	destroy_workqueue(cxl_bus_wq);
 	cxl_memdev_exit();
-	cxl_mbox_exit();
+	debugfs_remove_recursive(cxl_debugfs);
 }
 
 module_init(cxl_core_init);

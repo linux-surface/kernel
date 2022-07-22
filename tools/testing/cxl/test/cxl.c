@@ -14,7 +14,7 @@
 #define NR_CXL_HOST_BRIDGES 2
 #define NR_CXL_ROOT_PORTS 2
 #define NR_CXL_SWITCH_PORTS 2
-#define NR_CXL_PORT_DECODERS 2
+#define NR_CXL_PORT_DECODERS 8
 
 static struct platform_device *cxl_acpi;
 static struct platform_device *cxl_host_bridge[NR_CXL_HOST_BRIDGES];
@@ -118,7 +118,7 @@ static struct {
 			.restrictions = ACPI_CEDT_CFMWS_RESTRICT_TYPE3 |
 					ACPI_CEDT_CFMWS_RESTRICT_VOLATILE,
 			.qtg_id = 0,
-			.window_size = SZ_256M,
+			.window_size = SZ_256M * 4UL,
 		},
 		.target = { 0 },
 	},
@@ -133,7 +133,7 @@ static struct {
 			.restrictions = ACPI_CEDT_CFMWS_RESTRICT_TYPE3 |
 					ACPI_CEDT_CFMWS_RESTRICT_VOLATILE,
 			.qtg_id = 1,
-			.window_size = SZ_256M * 2,
+			.window_size = SZ_256M * 8UL,
 		},
 		.target = { 0, 1, },
 	},
@@ -148,7 +148,7 @@ static struct {
 			.restrictions = ACPI_CEDT_CFMWS_RESTRICT_TYPE3 |
 					ACPI_CEDT_CFMWS_RESTRICT_PMEM,
 			.qtg_id = 2,
-			.window_size = SZ_256M,
+			.window_size = SZ_256M * 4UL,
 		},
 		.target = { 0 },
 	},
@@ -163,7 +163,7 @@ static struct {
 			.restrictions = ACPI_CEDT_CFMWS_RESTRICT_TYPE3 |
 					ACPI_CEDT_CFMWS_RESTRICT_PMEM,
 			.qtg_id = 3,
-			.window_size = SZ_256M * 2,
+			.window_size = SZ_256M * 8UL,
 		},
 		.target = { 0, 1, },
 	},
@@ -461,12 +461,11 @@ static int mock_cxl_enumerate_decoders(struct cxl_hdm *cxlhdm)
 			return PTR_ERR(cxld);
 		}
 
-		cxld->decoder_range = (struct range) {
+		cxld->hpa_range = (struct range) {
 			.start = 0,
 			.end = -1,
 		};
 
-		cxld->flags = CXL_DECODER_F_ENABLE;
 		cxld->interleave_ways = min_not_zero(target_count, 1);
 		cxld->interleave_granularity = SZ_4K;
 		cxld->target_type = CXL_DECODER_EXPANDER;
@@ -569,44 +568,6 @@ static void mock_companion(struct acpi_device *adev, struct device *dev)
 #define SZ_512G (SZ_64G * 8)
 #endif
 
-static struct platform_device *alloc_memdev(int id)
-{
-	struct resource res[] = {
-		[0] = {
-			.flags = IORESOURCE_MEM,
-		},
-		[1] = {
-			.flags = IORESOURCE_MEM,
-			.desc = IORES_DESC_PERSISTENT_MEMORY,
-		},
-	};
-	struct platform_device *pdev;
-	int i, rc;
-
-	for (i = 0; i < ARRAY_SIZE(res); i++) {
-		struct cxl_mock_res *r = alloc_mock_res(SZ_256M);
-
-		if (!r)
-			return NULL;
-		res[i].start = r->range.start;
-		res[i].end = r->range.end;
-	}
-
-	pdev = platform_device_alloc("cxl_mem", id);
-	if (!pdev)
-		return NULL;
-
-	rc = platform_device_add_resources(pdev, res, ARRAY_SIZE(res));
-	if (rc)
-		goto err;
-
-	return pdev;
-
-err:
-	platform_device_put(pdev);
-	return NULL;
-}
-
 static __init int cxl_test_init(void)
 {
 	int rc, i;
@@ -619,7 +580,8 @@ static __init int cxl_test_init(void)
 		goto err_gen_pool_create;
 	}
 
-	rc = gen_pool_add(cxl_mock_pool, SZ_512G, SZ_64G, NUMA_NO_NODE);
+	rc = gen_pool_add(cxl_mock_pool, iomem_resource.end + 1 - SZ_64G,
+			  SZ_64G, NUMA_NO_NODE);
 	if (rc)
 		goto err_gen_pool_add;
 
@@ -708,7 +670,7 @@ static __init int cxl_test_init(void)
 		struct platform_device *dport = cxl_switch_dport[i];
 		struct platform_device *pdev;
 
-		pdev = alloc_memdev(i);
+		pdev = platform_device_alloc("cxl_mem", i);
 		if (!pdev)
 			goto err_mem;
 		pdev->dev.parent = &dport->dev;

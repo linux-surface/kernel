@@ -64,6 +64,32 @@ static inline int cxl_hdm_decoder_count(u32 cap_hdr)
 	return val ? val * 2 : 1;
 }
 
+/* Encode defined in CXL 2.0 8.2.5.12.7 HDM Decoder Control Register */
+static inline int cxl_to_granularity(u16 ig, unsigned int *val)
+{
+	if (ig > 6)
+		return -EINVAL;
+	*val = 256 << ig;
+	return 0;
+}
+
+/* Encode defined in CXL ECN "3, 6, 12 and 16-way memory Interleaving" */
+static inline int cxl_to_ways(u8 eniw, unsigned int *val)
+{
+	switch (eniw) {
+	case 0 ... 4:
+		*val = 1 << eniw;
+		break;
+	case 8 ... 10:
+		*val = 3 << (eniw - 8);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /* CXL 2.0 8.2.8.1 Device Capabilities Array Register */
 #define CXLDEV_CAP_ARRAY_OFFSET 0x0
 #define   CXLDEV_CAP_ARRAY_CAP_ID 0
@@ -197,8 +223,7 @@ enum cxl_decoder_type {
  * struct cxl_decoder - CXL address range decode configuration
  * @dev: this decoder's device
  * @id: kernel device name id
- * @platform_res: address space resources considered by root decoder
- * @decoder_range: address space resources considered by midlevel decoder
+ * @hpa_range: Host physical address range mapped by this decoder
  * @interleave_ways: number of cxl_dports in this decode
  * @interleave_granularity: data stride per dport
  * @target_type: accelerator vs expander (type2 vs type3) selector
@@ -210,10 +235,7 @@ enum cxl_decoder_type {
 struct cxl_decoder {
 	struct device dev;
 	int id;
-	union {
-		struct resource platform_res;
-		struct range decoder_range;
-	};
+	struct range hpa_range;
 	int interleave_ways;
 	int interleave_granularity;
 	enum cxl_decoder_type target_type;
@@ -251,7 +273,6 @@ struct cxl_nvdimm_bridge {
 struct cxl_nvdimm {
 	struct device dev;
 	struct cxl_memdev *cxlmd;
-	struct nvdimm *nvdimm;
 };
 
 /**
@@ -260,6 +281,7 @@ struct cxl_nvdimm {
  *		     decode hierarchy.
  * @dev: this port's device
  * @uport: PCI or platform device implementing the upstream port capability
+ * @host_bridge: Shortcut to the platform attach point for this port
  * @id: id for port device-name
  * @dports: cxl_dport instances referenced by decoders
  * @endpoints: cxl_ep instances, endpoints that are a descendant of this port
@@ -271,6 +293,7 @@ struct cxl_nvdimm {
 struct cxl_port {
 	struct device dev;
 	struct device *uport;
+	struct device *host_bridge;
 	int id;
 	struct list_head dports;
 	struct list_head endpoints;
@@ -341,7 +364,6 @@ struct cxl_dport *cxl_find_dport_by_dev(struct cxl_port *port,
 struct cxl_decoder *to_cxl_decoder(struct device *dev);
 bool is_root_decoder(struct device *dev);
 bool is_endpoint_decoder(struct device *dev);
-bool is_cxl_decoder(struct device *dev);
 struct cxl_decoder *cxl_root_decoder_alloc(struct cxl_port *port,
 					   unsigned int nr_targets);
 struct cxl_decoder *cxl_switch_decoder_alloc(struct cxl_port *port,

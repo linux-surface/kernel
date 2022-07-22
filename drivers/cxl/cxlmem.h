@@ -178,8 +178,9 @@ struct cxl_endpoint_dvsec_info {
  * @firmware_version: Firmware version for the memory device.
  * @enabled_cmds: Hardware commands found enabled in CEL.
  * @exclusive_cmds: Commands that are kernel-internal only
- * @pmem_range: Active Persistent memory capacity configuration
- * @ram_range: Active Volatile memory capacity configuration
+ * @dpa_res: Overall DPA resource tree for the device
+ * @pmem_res: Active Persistent memory capacity configuration
+ * @ram_res: Active Volatile memory capacity configuration
  * @total_bytes: sum of all possible capacities
  * @volatile_only_bytes: hard volatile capacity
  * @persistent_only_bytes: hard persistent capacity
@@ -209,8 +210,9 @@ struct cxl_dev_state {
 	DECLARE_BITMAP(enabled_cmds, CXL_MEM_COMMAND_ID_MAX);
 	DECLARE_BITMAP(exclusive_cmds, CXL_MEM_COMMAND_ID_MAX);
 
-	struct range pmem_range;
-	struct range ram_range;
+	struct resource dpa_res;
+	struct resource pmem_res;
+	struct resource ram_res;
 	u64 total_bytes;
 	u64 volatile_only_bytes;
 	u64 persistent_only_bytes;
@@ -299,6 +301,13 @@ struct cxl_mbox_identify {
 	u8 qos_telemetry_caps;
 } __packed;
 
+struct cxl_mbox_get_partition_info {
+	__le64 active_volatile_cap;
+	__le64 active_persistent_cap;
+	__le64 next_volatile_cap;
+	__le64 next_persistent_cap;
+} __packed;
+
 struct cxl_mbox_get_lsa {
 	__le32 offset;
 	__le32 length;
@@ -370,4 +379,8 @@ struct cxl_hdm {
 	unsigned int interleave_mask;
 	struct cxl_port *port;
 };
+
+struct seq_file;
+struct dentry *cxl_debugfs_create_dir(const char *dir);
+void cxl_dpa_debug(struct seq_file *file, struct cxl_dev_state *cxlds);
 #endif /* __CXL_MEM_H__ */
