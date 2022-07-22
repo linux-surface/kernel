@@ -1550,9 +1550,8 @@ void rt_flush_dev(struct net_device *dev)
 			if (rt->dst.dev != dev)
 				continue;
 			rt->dst.dev = blackhole_netdev;
-			dev_replace_track(dev, blackhole_netdev,
-					  &rt->dst.dev_tracker,
-					  GFP_ATOMIC);
+			netdev_ref_replace(dev, blackhole_netdev,
+					   &rt->dst.dev_tracker, GFP_ATOMIC);
 			list_move(&rt->rt_uncached, &ul->quarantine);
 		}
 		spin_unlock_bh(&ul->lock);
@@ -2440,24 +2439,9 @@ martian_source:
 	goto out;
 }
 
-int ip_route_input_noref(struct sk_buff *skb, __be32 daddr, __be32 saddr,
-			 u8 tos, struct net_device *dev)
-{
-	struct fib_result res;
-	int err;
-
-	tos &= IPTOS_RT_MASK;
-	rcu_read_lock();
-	err = ip_route_input_rcu(skb, daddr, saddr, tos, dev, &res);
-	rcu_read_unlock();
-
-	return err;
-}
-EXPORT_SYMBOL(ip_route_input_noref);
-
 /* called with rcu_read_lock held */
-int ip_route_input_rcu(struct sk_buff *skb, __be32 daddr, __be32 saddr,
-		       u8 tos, struct net_device *dev, struct fib_result *res)
+static int ip_route_input_rcu(struct sk_buff *skb, __be32 daddr, __be32 saddr,
+			      u8 tos, struct net_device *dev, struct fib_result *res)
 {
 	/* Multicast recognition logic is moved from route cache to here.
 	 * The problem was that too many Ethernet cards have broken/missing
@@ -2505,6 +2489,21 @@ int ip_route_input_rcu(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 
 	return ip_route_input_slow(skb, daddr, saddr, tos, dev, res);
 }
+
+int ip_route_input_noref(struct sk_buff *skb, __be32 daddr, __be32 saddr,
+			 u8 tos, struct net_device *dev)
+{
+	struct fib_result res;
+	int err;
+
+	tos &= IPTOS_RT_MASK;
+	rcu_read_lock();
+	err = ip_route_input_rcu(skb, daddr, saddr, tos, dev, &res);
+	rcu_read_unlock();
+
+	return err;
+}
+EXPORT_SYMBOL(ip_route_input_noref);
 
 /* called with rcu_read_lock() */
 static struct rtable *__mkroute_output(const struct fib_result *res,
@@ -2851,7 +2850,7 @@ struct dst_entry *ipv4_blackhole_route(struct net *net, struct dst_entry *dst_or
 		new->output = dst_discard_out;
 
 		new->dev = net->loopback_dev;
-		dev_hold_track(new->dev, &new->dev_tracker, GFP_ATOMIC);
+		netdev_hold(new->dev, &new->dev_tracker, GFP_ATOMIC);
 
 		rt->rt_is_input = ort->rt_is_input;
 		rt->rt_iif = ort->rt_iif;

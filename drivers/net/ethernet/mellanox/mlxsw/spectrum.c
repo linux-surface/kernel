@@ -1999,7 +1999,6 @@ __mlxsw_sp_port_mapping_events_cancel(struct mlxsw_sp *mlxsw_sp)
 static void mlxsw_sp_ports_remove(struct mlxsw_sp *mlxsw_sp)
 {
 	unsigned int max_ports = mlxsw_core_max_ports(mlxsw_sp->core);
-	struct devlink *devlink = priv_to_devlink(mlxsw_sp->core);
 	int i;
 
 	for (i = 1; i < max_ports; i++)
@@ -2007,12 +2006,10 @@ static void mlxsw_sp_ports_remove(struct mlxsw_sp *mlxsw_sp)
 	/* Make sure all scheduled events are processed */
 	__mlxsw_sp_port_mapping_events_cancel(mlxsw_sp);
 
-	devl_lock(devlink);
 	for (i = 1; i < max_ports; i++)
 		if (mlxsw_sp_port_created(mlxsw_sp, i))
 			mlxsw_sp_port_remove(mlxsw_sp, i);
 	mlxsw_sp_cpu_port_remove(mlxsw_sp);
-	devl_unlock(devlink);
 	kfree(mlxsw_sp->ports);
 	mlxsw_sp->ports = NULL;
 }
@@ -2034,7 +2031,6 @@ mlxsw_sp_ports_remove_selected(struct mlxsw_core *mlxsw_core,
 static int mlxsw_sp_ports_create(struct mlxsw_sp *mlxsw_sp)
 {
 	unsigned int max_ports = mlxsw_core_max_ports(mlxsw_sp->core);
-	struct devlink *devlink = priv_to_devlink(mlxsw_sp->core);
 	struct mlxsw_sp_port_mapping_events *events;
 	struct mlxsw_sp_port_mapping *port_mapping;
 	size_t alloc_size;
@@ -2057,7 +2053,6 @@ static int mlxsw_sp_ports_create(struct mlxsw_sp *mlxsw_sp)
 			goto err_event_enable;
 	}
 
-	devl_lock(devlink);
 	err = mlxsw_sp_cpu_port_create(mlxsw_sp);
 	if (err)
 		goto err_cpu_port_create;
@@ -2070,7 +2065,6 @@ static int mlxsw_sp_ports_create(struct mlxsw_sp *mlxsw_sp)
 		if (err)
 			goto err_port_create;
 	}
-	devl_unlock(devlink);
 	return 0;
 
 err_port_create:
@@ -2080,7 +2074,6 @@ err_port_create:
 	i = max_ports;
 	mlxsw_sp_cpu_port_remove(mlxsw_sp);
 err_cpu_port_create:
-	devl_unlock(devlink);
 err_event_enable:
 	for (i--; i >= 1; i--)
 		mlxsw_sp_port_mapping_event_set(mlxsw_sp, i, false);
@@ -2105,9 +2098,6 @@ static int mlxsw_sp_port_module_info_init(struct mlxsw_sp *mlxsw_sp)
 		return -ENOMEM;
 
 	for (i = 1; i < max_ports; i++) {
-		if (mlxsw_core_port_is_xm(mlxsw_sp->core, i))
-			continue;
-
 		port_mapping = &mlxsw_sp->port_mapping[i];
 		err = mlxsw_sp_port_module_info_get(mlxsw_sp, i, port_mapping);
 		if (err)
@@ -3013,6 +3003,12 @@ static int mlxsw_sp_init(struct mlxsw_core *mlxsw_core,
 		return err;
 	}
 
+	err = mlxsw_sp_pgt_init(mlxsw_sp);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Failed to initialize PGT\n");
+		goto err_pgt_init;
+	}
+
 	err = mlxsw_sp_fids_init(mlxsw_sp);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Failed to initialize FIDs\n");
@@ -3204,6 +3200,8 @@ err_traps_init:
 err_policers_init:
 	mlxsw_sp_fids_fini(mlxsw_sp);
 err_fids_init:
+	mlxsw_sp_pgt_fini(mlxsw_sp);
+err_pgt_init:
 	mlxsw_sp_kvdl_fini(mlxsw_sp);
 	mlxsw_sp_parsing_fini(mlxsw_sp);
 	return err;
@@ -3235,7 +3233,9 @@ static int mlxsw_sp1_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp1_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp1_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp1_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp1_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP1;
+	mlxsw_sp->pgt_smpe_index_valid = true;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3267,7 +3267,9 @@ static int mlxsw_sp2_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp2_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp2_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp2_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP2;
+	mlxsw_sp->pgt_smpe_index_valid = false;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3299,7 +3301,9 @@ static int mlxsw_sp3_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp2_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp2_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp2_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP3;
+	mlxsw_sp->pgt_smpe_index_valid = false;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3331,7 +3335,9 @@ static int mlxsw_sp4_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp2_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp2_listener);
+	mlxsw_sp->fid_family_arr = mlxsw_sp2_fid_family_arr;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP4;
+	mlxsw_sp->pgt_smpe_index_valid = false;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
 }
@@ -3364,28 +3370,20 @@ static void mlxsw_sp_fini(struct mlxsw_core *mlxsw_core)
 	mlxsw_sp_traps_fini(mlxsw_sp);
 	mlxsw_sp_policers_fini(mlxsw_sp);
 	mlxsw_sp_fids_fini(mlxsw_sp);
+	mlxsw_sp_pgt_fini(mlxsw_sp);
 	mlxsw_sp_kvdl_fini(mlxsw_sp);
 	mlxsw_sp_parsing_fini(mlxsw_sp);
 }
 
-/* Per-FID flood tables are used for both "true" 802.1D FIDs and emulated
- * 802.1Q FIDs
- */
-#define MLXSW_SP_FID_FLOOD_TABLE_SIZE	(MLXSW_SP_FID_8021D_MAX + \
-					 VLAN_VID_MASK - 1)
-
 static const struct mlxsw_config_profile mlxsw_sp1_config_profile = {
-	.used_max_mid			= 1,
-	.max_mid			= MLXSW_SP_MID_MAX,
-	.used_flood_tables		= 1,
-	.used_flood_mode		= 1,
-	.flood_mode			= 3,
-	.max_fid_flood_tables		= 3,
-	.fid_flood_table_size		= MLXSW_SP_FID_FLOOD_TABLE_SIZE,
+	.used_flood_mode                = 1,
+	.flood_mode                     = MLXSW_CMD_MBOX_CONFIG_PROFILE_FLOOD_MODE_CONTROLLED,
 	.used_max_ib_mc			= 1,
 	.max_ib_mc			= 0,
 	.used_max_pkey			= 1,
 	.max_pkey			= 0,
+	.used_ubridge			= 1,
+	.ubridge			= 1,
 	.used_kvd_sizes			= 1,
 	.kvd_hash_single_parts		= 59,
 	.kvd_hash_double_parts		= 41,
@@ -3399,19 +3397,14 @@ static const struct mlxsw_config_profile mlxsw_sp1_config_profile = {
 };
 
 static const struct mlxsw_config_profile mlxsw_sp2_config_profile = {
-	.used_max_mid			= 1,
-	.max_mid			= MLXSW_SP_MID_MAX,
-	.used_flood_tables		= 1,
-	.used_flood_mode		= 1,
-	.flood_mode			= 3,
-	.max_fid_flood_tables		= 3,
-	.fid_flood_table_size		= MLXSW_SP_FID_FLOOD_TABLE_SIZE,
+	.used_flood_mode                = 1,
+	.flood_mode                     = MLXSW_CMD_MBOX_CONFIG_PROFILE_FLOOD_MODE_CONTROLLED,
 	.used_max_ib_mc			= 1,
 	.max_ib_mc			= 0,
 	.used_max_pkey			= 1,
 	.max_pkey			= 0,
-	.used_kvh_xlt_cache_mode	= 1,
-	.kvh_xlt_cache_mode		= 1,
+	.used_ubridge			= 1,
+	.ubridge			= 1,
 	.swid_config			= {
 		{
 			.used_type	= 1,
@@ -3477,19 +3470,19 @@ static int mlxsw_sp1_resources_kvd_register(struct mlxsw_core *mlxsw_core)
 					      &hash_single_size_params);
 
 	kvd_size = MLXSW_CORE_RES_GET(mlxsw_core, KVD_SIZE);
-	err = devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD,
-					kvd_size, MLXSW_SP_RESOURCE_KVD,
-					DEVLINK_RESOURCE_ID_PARENT_TOP,
-					&kvd_size_params);
+	err = devl_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD,
+				     kvd_size, MLXSW_SP_RESOURCE_KVD,
+				     DEVLINK_RESOURCE_ID_PARENT_TOP,
+				     &kvd_size_params);
 	if (err)
 		return err;
 
 	linear_size = profile->kvd_linear_size;
-	err = devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD_LINEAR,
-					linear_size,
-					MLXSW_SP_RESOURCE_KVD_LINEAR,
-					MLXSW_SP_RESOURCE_KVD,
-					&linear_size_params);
+	err = devl_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD_LINEAR,
+				     linear_size,
+				     MLXSW_SP_RESOURCE_KVD_LINEAR,
+				     MLXSW_SP_RESOURCE_KVD,
+				     &linear_size_params);
 	if (err)
 		return err;
 
@@ -3502,20 +3495,20 @@ static int mlxsw_sp1_resources_kvd_register(struct mlxsw_core *mlxsw_core)
 	double_size /= profile->kvd_hash_double_parts +
 		       profile->kvd_hash_single_parts;
 	double_size = rounddown(double_size, MLXSW_SP_KVD_GRANULARITY);
-	err = devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD_HASH_DOUBLE,
-					double_size,
-					MLXSW_SP_RESOURCE_KVD_HASH_DOUBLE,
-					MLXSW_SP_RESOURCE_KVD,
-					&hash_double_size_params);
+	err = devl_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD_HASH_DOUBLE,
+				     double_size,
+				     MLXSW_SP_RESOURCE_KVD_HASH_DOUBLE,
+				     MLXSW_SP_RESOURCE_KVD,
+				     &hash_double_size_params);
 	if (err)
 		return err;
 
 	single_size = kvd_size - double_size - linear_size;
-	err = devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD_HASH_SINGLE,
-					single_size,
-					MLXSW_SP_RESOURCE_KVD_HASH_SINGLE,
-					MLXSW_SP_RESOURCE_KVD,
-					&hash_single_size_params);
+	err = devl_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD_HASH_SINGLE,
+				     single_size,
+				     MLXSW_SP_RESOURCE_KVD_HASH_SINGLE,
+				     MLXSW_SP_RESOURCE_KVD,
+				     &hash_single_size_params);
 	if (err)
 		return err;
 
@@ -3536,10 +3529,10 @@ static int mlxsw_sp2_resources_kvd_register(struct mlxsw_core *mlxsw_core)
 					  MLXSW_SP_KVD_GRANULARITY,
 					  DEVLINK_RESOURCE_UNIT_ENTRY);
 
-	return devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD,
-					 kvd_size, MLXSW_SP_RESOURCE_KVD,
-					 DEVLINK_RESOURCE_ID_PARENT_TOP,
-					 &kvd_size_params);
+	return devl_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD,
+				      kvd_size, MLXSW_SP_RESOURCE_KVD,
+				      DEVLINK_RESOURCE_ID_PARENT_TOP,
+				      &kvd_size_params);
 }
 
 static int mlxsw_sp_resources_span_register(struct mlxsw_core *mlxsw_core)
@@ -3555,10 +3548,10 @@ static int mlxsw_sp_resources_span_register(struct mlxsw_core *mlxsw_core)
 	devlink_resource_size_params_init(&span_size_params, max_span, max_span,
 					  1, DEVLINK_RESOURCE_UNIT_ENTRY);
 
-	return devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_SPAN,
-					 max_span, MLXSW_SP_RESOURCE_SPAN,
-					 DEVLINK_RESOURCE_ID_PARENT_TOP,
-					 &span_size_params);
+	return devl_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_SPAN,
+				      max_span, MLXSW_SP_RESOURCE_SPAN,
+				      DEVLINK_RESOURCE_ID_PARENT_TOP,
+				      &span_size_params);
 }
 
 static int
@@ -3577,12 +3570,31 @@ mlxsw_sp_resources_rif_mac_profile_register(struct mlxsw_core *mlxsw_core)
 					  max_rif_mac_profiles, 1,
 					  DEVLINK_RESOURCE_UNIT_ENTRY);
 
-	return devlink_resource_register(devlink,
-					 "rif_mac_profiles",
-					 max_rif_mac_profiles,
-					 MLXSW_SP_RESOURCE_RIF_MAC_PROFILES,
-					 DEVLINK_RESOURCE_ID_PARENT_TOP,
-					 &size_params);
+	return devl_resource_register(devlink,
+				      "rif_mac_profiles",
+				      max_rif_mac_profiles,
+				      MLXSW_SP_RESOURCE_RIF_MAC_PROFILES,
+				      DEVLINK_RESOURCE_ID_PARENT_TOP,
+				      &size_params);
+}
+
+static int mlxsw_sp_resources_rifs_register(struct mlxsw_core *mlxsw_core)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	struct devlink_resource_size_params size_params;
+	u64 max_rifs;
+
+	if (!MLXSW_CORE_RES_VALID(mlxsw_core, MAX_RIFS))
+		return -EIO;
+
+	max_rifs = MLXSW_CORE_RES_GET(mlxsw_core, MAX_RIFS);
+	devlink_resource_size_params_init(&size_params, max_rifs, max_rifs,
+					  1, DEVLINK_RESOURCE_UNIT_ENTRY);
+
+	return devl_resource_register(devlink, "rifs", max_rifs,
+				      MLXSW_SP_RESOURCE_RIFS,
+				      DEVLINK_RESOURCE_ID_PARENT_TOP,
+				      &size_params);
 }
 
 static int mlxsw_sp1_resources_register(struct mlxsw_core *mlxsw_core)
@@ -3609,13 +3621,18 @@ static int mlxsw_sp1_resources_register(struct mlxsw_core *mlxsw_core)
 	if (err)
 		goto err_resources_rif_mac_profile_register;
 
+	err = mlxsw_sp_resources_rifs_register(mlxsw_core);
+	if (err)
+		goto err_resources_rifs_register;
+
 	return 0;
 
+err_resources_rifs_register:
 err_resources_rif_mac_profile_register:
 err_policer_resources_register:
 err_resources_counter_register:
 err_resources_span_register:
-	devlink_resources_unregister(priv_to_devlink(mlxsw_core));
+	devl_resources_unregister(priv_to_devlink(mlxsw_core));
 	return err;
 }
 
@@ -3643,13 +3660,18 @@ static int mlxsw_sp2_resources_register(struct mlxsw_core *mlxsw_core)
 	if (err)
 		goto err_resources_rif_mac_profile_register;
 
+	err = mlxsw_sp_resources_rifs_register(mlxsw_core);
+	if (err)
+		goto err_resources_rifs_register;
+
 	return 0;
 
+err_resources_rifs_register:
 err_resources_rif_mac_profile_register:
 err_policer_resources_register:
 err_resources_counter_register:
 err_resources_span_register:
-	devlink_resources_unregister(priv_to_devlink(mlxsw_core));
+	devl_resources_unregister(priv_to_devlink(mlxsw_core));
 	return err;
 }
 
@@ -3673,15 +3695,15 @@ static int mlxsw_sp_kvd_sizes_get(struct mlxsw_core *mlxsw_core,
 	 * granularity from the profile. In case the user
 	 * provided the sizes they are obtained via devlink.
 	 */
-	err = devlink_resource_size_get(devlink,
-					MLXSW_SP_RESOURCE_KVD_LINEAR,
-					p_linear_size);
+	err = devl_resource_size_get(devlink,
+				     MLXSW_SP_RESOURCE_KVD_LINEAR,
+				     p_linear_size);
 	if (err)
 		*p_linear_size = profile->kvd_linear_size;
 
-	err = devlink_resource_size_get(devlink,
-					MLXSW_SP_RESOURCE_KVD_HASH_DOUBLE,
-					p_double_size);
+	err = devl_resource_size_get(devlink,
+				     MLXSW_SP_RESOURCE_KVD_HASH_DOUBLE,
+				     p_double_size);
 	if (err) {
 		double_size = MLXSW_CORE_RES_GET(mlxsw_core, KVD_SIZE) -
 			      *p_linear_size;
@@ -3692,9 +3714,9 @@ static int mlxsw_sp_kvd_sizes_get(struct mlxsw_core *mlxsw_core,
 					   MLXSW_SP_KVD_GRANULARITY);
 	}
 
-	err = devlink_resource_size_get(devlink,
-					MLXSW_SP_RESOURCE_KVD_HASH_SINGLE,
-					p_single_size);
+	err = devl_resource_size_get(devlink,
+				     MLXSW_SP_RESOURCE_KVD_HASH_SINGLE,
+				     p_single_size);
 	if (err)
 		*p_single_size = MLXSW_CORE_RES_GET(mlxsw_core, KVD_SIZE) -
 				 *p_double_size - *p_linear_size;

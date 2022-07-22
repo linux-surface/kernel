@@ -1878,10 +1878,8 @@ out_fd:
 	return ERR_PTR(err);
 }
 
-int __sys_accept4_file(struct file *file, unsigned file_flags,
-		       struct sockaddr __user *upeer_sockaddr,
-		       int __user *upeer_addrlen, int flags,
-		       unsigned long nofile)
+static int __sys_accept4_file(struct file *file, struct sockaddr __user *upeer_sockaddr,
+			      int __user *upeer_addrlen, int flags)
 {
 	struct file *newfile;
 	int newfd;
@@ -1892,11 +1890,11 @@ int __sys_accept4_file(struct file *file, unsigned file_flags,
 	if (SOCK_NONBLOCK != O_NONBLOCK && (flags & SOCK_NONBLOCK))
 		flags = (flags & ~SOCK_NONBLOCK) | O_NONBLOCK;
 
-	newfd = __get_unused_fd_flags(flags, nofile);
+	newfd = get_unused_fd_flags(flags);
 	if (unlikely(newfd < 0))
 		return newfd;
 
-	newfile = do_accept(file, file_flags, upeer_sockaddr, upeer_addrlen,
+	newfile = do_accept(file, 0, upeer_sockaddr, upeer_addrlen,
 			    flags);
 	if (IS_ERR(newfile)) {
 		put_unused_fd(newfd);
@@ -1926,9 +1924,8 @@ int __sys_accept4(int fd, struct sockaddr __user *upeer_sockaddr,
 
 	f = fdget(fd);
 	if (f.file) {
-		ret = __sys_accept4_file(f.file, 0, upeer_sockaddr,
-						upeer_addrlen, flags,
-						rlimit(RLIMIT_NOFILE));
+		ret = __sys_accept4_file(f.file, upeer_sockaddr,
+					 upeer_addrlen, flags);
 		fdput(f);
 	}
 
@@ -2106,6 +2103,7 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
 	msg.msg_namelen = 0;
+	msg.msg_ubuf = NULL;
 	if (addr) {
 		err = move_addr_to_kernel(addr, addr_len, &address);
 		if (err < 0)
@@ -2405,6 +2403,7 @@ int __copy_msghdr_from_user(struct msghdr *kmsg,
 		return -EMSGSIZE;
 
 	kmsg->msg_iocb = NULL;
+	kmsg->msg_ubuf = NULL;
 	*uiov = msg.msg_iov;
 	*nsegs = msg.msg_iovlen;
 	return 0;

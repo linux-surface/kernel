@@ -38,6 +38,7 @@
 #include <net/tcp.h>
 #include <net/tls.h>
 
+#include "tls.h"
 #include "trace.h"
 
 /* device_offload_lock is used to synchronize tls_dev_add
@@ -564,7 +565,7 @@ int tls_device_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	lock_sock(sk);
 
 	if (unlikely(msg->msg_controllen)) {
-		rc = tls_proccess_cmsg(sk, msg, &record_type);
+		rc = tls_process_cmsg(sk, msg, &record_type);
 		if (rc)
 			goto out;
 	}
@@ -890,13 +891,18 @@ static void tls_device_core_ctrl_rx_resync(struct tls_context *tls_ctx,
 	}
 }
 
-static int tls_device_reencrypt(struct sock *sk, struct sk_buff *skb)
+static int
+tls_device_reencrypt(struct sock *sk, struct tls_sw_context_rx *sw_ctx)
 {
-	struct strp_msg *rxm = strp_msg(skb);
-	int err = 0, offset = rxm->offset, copy, nsg, data_len, pos;
-	struct sk_buff *skb_iter, *unused;
+	int err = 0, offset, copy, nsg, data_len, pos;
+	struct sk_buff *skb, *skb_iter, *unused;
 	struct scatterlist sg[1];
+	struct strp_msg *rxm;
 	char *orig_buf, *buf;
+
+	skb = tls_strp_msg(sw_ctx);
+	rxm = strp_msg(skb);
+	offset = rxm->offset;
 
 	orig_buf = kmalloc(rxm->full_len + TLS_HEADER_SIZE +
 			   TLS_CIPHER_AES_GCM_128_IV_SIZE, sk->sk_allocation);
@@ -920,7 +926,7 @@ static int tls_device_reencrypt(struct sock *sk, struct sk_buff *skb)
 		goto free_buf;
 
 	/* We are interested only in the decrypted data not the auth */
-	err = decrypt_skb(sk, skb, sg);
+	err = decrypt_skb(sk, sg);
 	if (err != -EBADMSG)
 		goto free_buf;
 	else
@@ -975,10 +981,12 @@ free_buf:
 	return err;
 }
 
-int tls_device_decrypted(struct sock *sk, struct tls_context *tls_ctx,
-			 struct sk_buff *skb, struct strp_msg *rxm)
+int tls_device_decrypted(struct sock *sk, struct tls_context *tls_ctx)
 {
 	struct tls_offload_context_rx *ctx = tls_offload_ctx_rx(tls_ctx);
+	struct tls_sw_context_rx *sw_ctx = tls_sw_ctx_rx(tls_ctx);
+	struct sk_buff *skb = tls_strp_msg(sw_ctx);
+	struct strp_msg *rxm = strp_msg(skb);
 	int is_decrypted = skb->decrypted;
 	int is_encrypted = !is_decrypted;
 	struct sk_buff *skb_iter;
@@ -1001,7 +1009,7 @@ int tls_device_decrypted(struct sock *sk, struct tls_context *tls_ctx,
 		 * likely have initial fragments decrypted, and final ones not
 		 * decrypted. We need to reencrypt that single SKB.
 		 */
-		return tls_device_reencrypt(sk, skb);
+		return tls_device_reencrypt(sk, sw_ctx);
 	}
 
 	/* Return immediately if the record is either entirely plaintext or
@@ -1018,7 +1026,7 @@ int tls_device_decrypted(struct sock *sk, struct tls_context *tls_ctx,
 	}
 
 	ctx->resync_nh_reset = 1;
-	return tls_device_reencrypt(sk, skb);
+	return tls_device_reencrypt(sk, sw_ctx);
 }
 
 static void tls_device_attach(struct tls_context *ctx, struct sock *sk,
