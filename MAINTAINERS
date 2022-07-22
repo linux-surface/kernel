@@ -16979,6 +16979,7 @@ QUALCOMM UEFISECAPP DRIVER
 M:	Maximilian Luz <luzmaximilian@gmail.com>
 L:	linux-arm-msm@vger.kernel.org
 S:	Maintained
+F:	Documentation/devicetree/bindings/firmware/qcom,tee-uefisecapp.yaml
 F:	drivers/firmware/qcom_tee_uefisecapp.c
 
 QUALCOMM VENUS VIDEO ACCELERATOR DRIVER
