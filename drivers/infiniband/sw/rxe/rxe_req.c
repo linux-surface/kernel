@@ -15,8 +15,7 @@ static int next_opcode(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
 		       u32 opcode);
 
 static inline void retry_first_write_send(struct rxe_qp *qp,
-					  struct rxe_send_wqe *wqe,
-					  unsigned int mask, int npsn)
+					  struct rxe_send_wqe *wqe, int npsn)
 {
 	int i;
 
@@ -83,7 +82,7 @@ static void req_retry(struct rxe_qp *qp)
 			if (mask & WR_WRITE_OR_SEND_MASK) {
 				npsn = (qp->comp.psn - wqe->first_psn) &
 					BTH_PSN_MASK;
-				retry_first_write_send(qp, wqe, mask, npsn);
+				retry_first_write_send(qp, wqe, npsn);
 			}
 
 			if (mask & WR_READ_MASK) {
@@ -581,9 +580,11 @@ static int rxe_do_local_ops(struct rxe_qp *qp, struct rxe_send_wqe *wqe)
 	wqe->status = IB_WC_SUCCESS;
 	qp->req.wqe_index = queue_next_index(qp->sq.queue, qp->req.wqe_index);
 
-	if ((wqe->wr.send_flags & IB_SEND_SIGNALED) ||
-	    qp->sq_sig_type == IB_SIGNAL_ALL_WR)
-		rxe_run_task(&qp->comp.task, 1);
+	/* There is no ack coming for local work requests
+	 * which can lead to a deadlock. So go ahead and complete
+	 * it now.
+	 */
+	rxe_run_task(&qp->comp.task, 1);
 
 	return 0;
 }

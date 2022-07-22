@@ -120,17 +120,15 @@ static void free_rd_atomic_resources(struct rxe_qp *qp)
 		for (i = 0; i < qp->attr.max_dest_rd_atomic; i++) {
 			struct resp_res *res = &qp->resp.resources[i];
 
-			free_rd_atomic_resource(qp, res);
+			free_rd_atomic_resource(res);
 		}
 		kfree(qp->resp.resources);
 		qp->resp.resources = NULL;
 	}
 }
 
-void free_rd_atomic_resource(struct rxe_qp *qp, struct resp_res *res)
+void free_rd_atomic_resource(struct resp_res *res)
 {
-	if (res->type == RXE_ATOMIC_MASK)
-		kfree_skb(res->atomic.skb);
 	res->type = 0;
 }
 
@@ -142,7 +140,7 @@ static void cleanup_rd_atomic_resources(struct rxe_qp *qp)
 	if (qp->resp.resources) {
 		for (i = 0; i < qp->attr.max_dest_rd_atomic; i++) {
 			res = &qp->resp.resources[i];
-			free_rd_atomic_resource(qp, res);
+			free_rd_atomic_resource(res);
 		}
 	}
 }
@@ -804,13 +802,15 @@ static void rxe_qp_do_cleanup(struct work_struct *work)
 	if (qp->rq.queue)
 		rxe_queue_cleanup(qp->rq.queue);
 
-	atomic_dec(&qp->scq->num_wq);
-	if (qp->scq)
+	if (qp->scq) {
+		atomic_dec(&qp->scq->num_wq);
 		rxe_put(qp->scq);
+	}
 
-	atomic_dec(&qp->rcq->num_wq);
-	if (qp->rcq)
+	if (qp->rcq) {
+		atomic_dec(&qp->rcq->num_wq);
 		rxe_put(qp->rcq);
+	}
 
 	if (qp->pd)
 		rxe_put(qp->pd);
