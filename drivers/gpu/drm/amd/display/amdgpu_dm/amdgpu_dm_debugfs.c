@@ -540,11 +540,11 @@ static ssize_t dp_phy_settings_write(struct file *f, const char __user *buf,
 
 	/* apply phy settings from user */
 	for (r = 0; r < link_lane_settings.link_settings.lane_count; r++) {
-		link_lane_settings.lane_settings[r].VOLTAGE_SWING =
+		link_lane_settings.hw_lane_settings[r].VOLTAGE_SWING =
 				(enum dc_voltage_swing) (param[0]);
-		link_lane_settings.lane_settings[r].PRE_EMPHASIS =
+		link_lane_settings.hw_lane_settings[r].PRE_EMPHASIS =
 				(enum dc_pre_emphasis) (param[1]);
-		link_lane_settings.lane_settings[r].POST_CURSOR2 =
+		link_lane_settings.hw_lane_settings[r].POST_CURSOR2 =
 				(enum dc_post_cursor2) (param[2]);
 	}
 
@@ -738,7 +738,7 @@ static ssize_t dp_phy_test_pattern_debugfs_write(struct file *f, const char __us
 	}
 
 	for (i = 0; i < (unsigned int)(link_training_settings.link_settings.lane_count); i++)
-		link_training_settings.lane_settings[i] = link->cur_lane_setting[i];
+		link_training_settings.hw_lane_settings[i] = link->cur_lane_setting[i];
 
 	dc_link_set_test_pattern(
 		link,
@@ -871,28 +871,18 @@ static int psr_capability_show(struct seq_file *m, void *data)
 }
 
 /*
- * Returns the current and maximum output bpc for the connector.
- * Example usage: cat /sys/kernel/debug/dri/0/DP-1/output_bpc
+ * Returns the current bpc for the crtc.
+ * Example usage: cat /sys/kernel/debug/dri/0/crtc-0/amdgpu_current_bpc
  */
-static int output_bpc_show(struct seq_file *m, void *data)
+static int amdgpu_current_bpc_show(struct seq_file *m, void *data)
 {
-	struct drm_connector *connector = m->private;
-	struct drm_device *dev = connector->dev;
-	struct drm_crtc *crtc = NULL;
+	struct drm_crtc *crtc = m->private;
+	struct drm_device *dev = crtc->dev;
 	struct dm_crtc_state *dm_crtc_state = NULL;
 	int res = -ENODEV;
 	unsigned int bpc;
 
 	mutex_lock(&dev->mode_config.mutex);
-	drm_modeset_lock(&dev->mode_config.connection_mutex, NULL);
-
-	if (connector->state == NULL)
-		goto unlock;
-
-	crtc = connector->state->crtc;
-	if (crtc == NULL)
-		goto unlock;
-
 	drm_modeset_lock(&crtc->mutex, NULL);
 	if (crtc->state == NULL)
 		goto unlock;
@@ -922,18 +912,15 @@ static int output_bpc_show(struct seq_file *m, void *data)
 	}
 
 	seq_printf(m, "Current: %u\n", bpc);
-	seq_printf(m, "Maximum: %u\n", connector->display_info.bpc);
 	res = 0;
 
 unlock:
-	if (crtc)
-		drm_modeset_unlock(&crtc->mutex);
-
-	drm_modeset_unlock(&dev->mode_config.connection_mutex);
+	drm_modeset_unlock(&crtc->mutex);
 	mutex_unlock(&dev->mode_config.mutex);
 
 	return res;
 }
+DEFINE_SHOW_ATTRIBUTE(amdgpu_current_bpc);
 
 /*
  * Example usage:
@@ -1239,12 +1226,14 @@ static ssize_t trigger_hotplug(struct file *f, const char __user *buf,
 	struct drm_connector *connector = &aconnector->base;
 	struct dc_link *link = NULL;
 	struct drm_device *dev = connector->dev;
+	struct amdgpu_device *adev = drm_to_adev(dev);
 	enum dc_connection_type new_connection_type = dc_connection_none;
 	char *wr_buf = NULL;
 	uint32_t wr_buf_size = 42;
 	int max_param_num = 1;
 	long param[1] = {0};
 	uint8_t param_nums = 0;
+	bool ret = false;
 
 	if (!aconnector || !aconnector->dc_link)
 		return -EINVAL;
@@ -1280,7 +1269,11 @@ static ssize_t trigger_hotplug(struct file *f, const char __user *buf,
 			new_connection_type != dc_connection_none)
 			goto unlock;
 
-		if (!dc_link_detect(aconnector->dc_link, DETECT_REASON_HPD))
+		mutex_lock(&adev->dm.dc_lock);
+		ret = dc_link_detect(aconnector->dc_link, DETECT_REASON_HPD);
+		mutex_unlock(&adev->dm.dc_lock);
+
+		if (!ret)
 			goto unlock;
 
 		amdgpu_dm_update_connector_after_detect(aconnector);
@@ -2539,7 +2532,6 @@ static int target_backlight_show(struct seq_file *m, void *unused)
 DEFINE_SHOW_ATTRIBUTE(dp_dsc_fec_support);
 DEFINE_SHOW_ATTRIBUTE(dmub_fw_state);
 DEFINE_SHOW_ATTRIBUTE(dmub_tracebuffer);
-DEFINE_SHOW_ATTRIBUTE(output_bpc);
 DEFINE_SHOW_ATTRIBUTE(dp_lttpr_status);
 #ifdef CONFIG_DRM_AMD_DC_HDCP
 DEFINE_SHOW_ATTRIBUTE(hdcp_sink_capability);
@@ -2786,7 +2778,6 @@ static const struct {
 	const struct file_operations *fops;
 } connector_debugfs_entries[] = {
 		{"force_yuv420_output", &force_yuv420_output_fops},
-		{"output_bpc", &output_bpc_fops},
 		{"trigger_hotplug", &trigger_hotplug_debugfs_fops},
 		{"internal_display", &internal_display_fops}
 };
@@ -3170,9 +3161,10 @@ static int crc_win_update_get(void *data, u64 *val)
 
 DEFINE_DEBUGFS_ATTRIBUTE(crc_win_update_fops, crc_win_update_get,
 			 crc_win_update_set, "%llu\n");
-
+#endif
 void crtc_debugfs_init(struct drm_crtc *crtc)
 {
+#ifdef CONFIG_DRM_AMD_SECURE_DISPLAY
 	struct dentry *dir = debugfs_lookup("crc", crtc->debugfs_entry);
 
 	if (!dir)
@@ -3188,9 +3180,11 @@ void crtc_debugfs_init(struct drm_crtc *crtc)
 				   &crc_win_y_end_fops);
 	debugfs_create_file_unsafe("crc_win_update", 0644, dir, crtc,
 				   &crc_win_update_fops);
-
-}
 #endif
+	debugfs_create_file("amdgpu_current_bpc", 0644, crtc->debugfs_entry,
+			    crtc, &amdgpu_current_bpc_fops);
+}
+
 /*
  * Writes DTN log state to the user supplied buffer.
  * Example usage: cat /sys/kernel/debug/dri/0/amdgpu_dm_dtn_log
@@ -3302,7 +3296,10 @@ static int trigger_hpd_mst_set(void *data, u64 val)
 			aconnector = to_amdgpu_dm_connector(connector);
 			if (aconnector->dc_link->type == dc_connection_mst_branch &&
 			    aconnector->mst_mgr.aux) {
+				mutex_lock(&adev->dm.dc_lock);
 				dc_link_detect(aconnector->dc_link, DETECT_REASON_HPD);
+				mutex_unlock(&adev->dm.dc_lock);
+
 				drm_dp_mst_topology_mgr_set_mst(&aconnector->mst_mgr, true);
 			}
 		}

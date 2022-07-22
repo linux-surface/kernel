@@ -1365,6 +1365,8 @@ static void __update_guc_busyness_stats(struct intel_guc *guc)
 	unsigned long flags;
 	ktime_t unused;
 
+	guc->timestamp.last_stat_jiffies = jiffies;
+
 	spin_lock_irqsave(&guc->timestamp.lock, flags);
 
 	guc_update_pm_timestamp(guc, &unused);
@@ -1437,6 +1439,17 @@ void intel_guc_busyness_park(struct intel_gt *gt)
 		return;
 
 	cancel_delayed_work(&guc->timestamp.work);
+
+	/*
+	 * Before parking, we should sample engine busyness stats if we need to.
+	 * We can skip it if we are less than half a ping from the last time we
+	 * sampled the busyness stats.
+	 */
+	if (guc->timestamp.last_stat_jiffies &&
+	    !time_after(jiffies, guc->timestamp.last_stat_jiffies +
+			(guc->timestamp.ping_delay / 2)))
+		return;
+
 	__update_guc_busyness_stats(guc);
 }
 
@@ -1578,87 +1591,18 @@ static void guc_reset_state(struct intel_context *ce, u32 head, bool scrub)
 	lrc_update_regs(ce, engine, head);
 }
 
-static u32 __cs_pending_mi_force_wakes(struct intel_engine_cs *engine)
-{
-	static const i915_reg_t _reg[I915_NUM_ENGINES] = {
-		[RCS0] = MSG_IDLE_CS,
-		[BCS0] = MSG_IDLE_BCS,
-		[VCS0] = MSG_IDLE_VCS0,
-		[VCS1] = MSG_IDLE_VCS1,
-		[VCS2] = MSG_IDLE_VCS2,
-		[VCS3] = MSG_IDLE_VCS3,
-		[VCS4] = MSG_IDLE_VCS4,
-		[VCS5] = MSG_IDLE_VCS5,
-		[VCS6] = MSG_IDLE_VCS6,
-		[VCS7] = MSG_IDLE_VCS7,
-		[VECS0] = MSG_IDLE_VECS0,
-		[VECS1] = MSG_IDLE_VECS1,
-		[VECS2] = MSG_IDLE_VECS2,
-		[VECS3] = MSG_IDLE_VECS3,
-		[CCS0] = MSG_IDLE_CS,
-		[CCS1] = MSG_IDLE_CS,
-		[CCS2] = MSG_IDLE_CS,
-		[CCS3] = MSG_IDLE_CS,
-	};
-	u32 val;
-
-	if (!_reg[engine->id].reg)
-		return 0;
-
-	val = intel_uncore_read(engine->uncore, _reg[engine->id]);
-
-	/* bits[29:25] & bits[13:9] >> shift */
-	return (val & (val >> 16) & MSG_IDLE_FW_MASK) >> MSG_IDLE_FW_SHIFT;
-}
-
-static void __gpm_wait_for_fw_complete(struct intel_gt *gt, u32 fw_mask)
-{
-	int ret;
-
-	/* Ensure GPM receives fw up/down after CS is stopped */
-	udelay(1);
-
-	/* Wait for forcewake request to complete in GPM */
-	ret =  __intel_wait_for_register_fw(gt->uncore,
-					    GEN9_PWRGT_DOMAIN_STATUS,
-					    fw_mask, fw_mask, 5000, 0, NULL);
-
-	/* Ensure CS receives fw ack from GPM */
-	udelay(1);
-
-	if (ret)
-		GT_TRACE(gt, "Failed to complete pending forcewake %d\n", ret);
-}
-
-/*
- * Wa_22011802037:gen12: In addition to stopping the cs, we need to wait for any
- * pending MI_FORCE_WAKEUP requests that the CS has initiated to complete. The
- * pending status is indicated by bits[13:9] (masked by bits[ 29:25]) in the
- * MSG_IDLE register. There's one MSG_IDLE register per reset domain. Since we
- * are concerned only with the gt reset here, we use a logical OR of pending
- * forcewakeups from all reset domains and then wait for them to complete by
- * querying PWRGT_DOMAIN_STATUS.
- */
 static void guc_engine_reset_prepare(struct intel_engine_cs *engine)
 {
-	u32 fw_pending;
-
-	if (GRAPHICS_VER(engine->i915) != 12)
+	if (!IS_GRAPHICS_VER(engine->i915, 11, 12))
 		return;
 
-	/*
-	 * Wa_22011802037
-	 * TODO: Occasionally trying to stop the cs times out, but does not
-	 * adversely affect functionality. The timeout is set as a config
-	 * parameter that defaults to 100ms. Assuming that this timeout is
-	 * sufficient for any pending MI_FORCEWAKEs to complete, ignore the
-	 * timeout returned here until it is root caused.
-	 */
 	intel_engine_stop_cs(engine);
 
-	fw_pending = __cs_pending_mi_force_wakes(engine);
-	if (fw_pending)
-		__gpm_wait_for_fw_complete(engine->gt, fw_pending);
+	/*
+	 * Wa_22011802037:gen11/gen12: In addition to stopping the cs, we need
+	 * to wait for any pending mi force wakeups
+	 */
+	intel_engine_wait_for_pending_mi_fw(engine);
 }
 
 static void guc_reset_nop(struct intel_engine_cs *engine)
@@ -3018,7 +2962,9 @@ static void __guc_context_set_preemption_timeout(struct intel_guc *guc,
 	}
 }
 
-static void guc_context_ban(struct intel_context *ce, struct i915_request *rq)
+static void
+guc_context_revoke(struct intel_context *ce, struct i915_request *rq,
+		   unsigned int preempt_timeout_ms)
 {
 	struct intel_guc *guc = ce_to_guc(ce);
 	struct intel_runtime_pm *runtime_pm =
@@ -3057,7 +3003,8 @@ static void guc_context_ban(struct intel_context *ce, struct i915_request *rq)
 		 * gets kicked off the HW ASAP.
 		 */
 		with_intel_runtime_pm(runtime_pm, wakeref) {
-			__guc_context_set_preemption_timeout(guc, guc_id, 1);
+			__guc_context_set_preemption_timeout(guc, guc_id,
+							     preempt_timeout_ms);
 			__guc_context_sched_disable(guc, ce, guc_id);
 		}
 	} else {
@@ -3065,7 +3012,7 @@ static void guc_context_ban(struct intel_context *ce, struct i915_request *rq)
 			with_intel_runtime_pm(runtime_pm, wakeref)
 				__guc_context_set_preemption_timeout(guc,
 								     ce->guc_id.id,
-								     1);
+								     preempt_timeout_ms);
 		spin_unlock_irqrestore(&ce->guc_state.lock, flags);
 	}
 }
@@ -3428,7 +3375,7 @@ static const struct intel_context_ops guc_context_ops = {
 	.unpin = guc_context_unpin,
 	.post_unpin = guc_context_post_unpin,
 
-	.ban = guc_context_ban,
+	.revoke = guc_context_revoke,
 
 	.cancel_request = guc_context_cancel_request,
 
@@ -3677,7 +3624,7 @@ static const struct intel_context_ops virtual_guc_context_ops = {
 	.unpin = guc_virtual_context_unpin,
 	.post_unpin = guc_context_post_unpin,
 
-	.ban = guc_context_ban,
+	.revoke = guc_context_revoke,
 
 	.cancel_request = guc_context_cancel_request,
 
@@ -3766,7 +3713,7 @@ static const struct intel_context_ops virtual_parent_context_ops = {
 	.unpin = guc_parent_context_unpin,
 	.post_unpin = guc_context_post_unpin,
 
-	.ban = guc_context_ban,
+	.revoke = guc_context_revoke,
 
 	.cancel_request = guc_context_cancel_request,
 

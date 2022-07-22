@@ -23,8 +23,6 @@
  *
  */
 
-#include <linux/delay.h>
-
 #include "dm_services.h"
 #include "dc_bios_types.h"
 #include "dcn10_stream_encoder.h"
@@ -36,7 +34,6 @@
 
 #define DC_LOGGER \
 		enc1->base.ctx->logger
-
 
 #define REG(reg)\
 	(enc1->regs->reg)
@@ -597,6 +594,8 @@ void enc1_stream_encoder_hdmi_set_stream_attribute(
 		HDMI_GC_SEND, 1,
 		HDMI_NULL_SEND, 1);
 
+	REG_UPDATE(HDMI_VBI_PACKET_CONTROL, HDMI_ACP_SEND, 0);
+
 	/* following belongs to audio */
 	REG_UPDATE(HDMI_INFOFRAME_CONTROL0, HDMI_AUDIO_INFO_SEND, 1);
 
@@ -675,11 +674,13 @@ static void enc1_stream_encoder_update_hdmi_info_packets(
 	/* for bring up, disable dp double  TODO */
 	REG_UPDATE(HDMI_DB_CONTROL, HDMI_DB_DISABLE, 1);
 
+	/*Always add mandatory packets first followed by optional ones*/
 	enc1_update_hdmi_info_packet(enc1, 0, &info_frame->avi);
-	enc1_update_hdmi_info_packet(enc1, 1, &info_frame->vendor);
+	enc1_update_hdmi_info_packet(enc1, 1, &info_frame->hfvsif);
 	enc1_update_hdmi_info_packet(enc1, 2, &info_frame->gamut);
-	enc1_update_hdmi_info_packet(enc1, 3, &info_frame->spd);
-	enc1_update_hdmi_info_packet(enc1, 4, &info_frame->hdrsmd);
+	enc1_update_hdmi_info_packet(enc1, 3, &info_frame->vendor);
+	enc1_update_hdmi_info_packet(enc1, 4, &info_frame->spd);
+	enc1_update_hdmi_info_packet(enc1, 5, &info_frame->hdrsmd);
 }
 
 static void enc1_stream_encoder_stop_hdmi_info_packets(

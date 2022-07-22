@@ -1041,7 +1041,8 @@ typedef struct {
   uint16_t        GfxclkFreqGfxUlv; // in MHz
   uint8_t         GfxIdlePadding2[2];
 
-  uint32_t        GfxoffSpare[16];
+  uint32_t        GfxOffEntryHysteresis;
+  uint32_t        GfxoffSpare[15];
 
   // GFX GPO
   uint32_t        GfxGpoSpare[16];
@@ -1359,8 +1360,14 @@ typedef struct {
   uint16_t AverageDclk0Frequency  ;
   uint16_t AverageVclk1Frequency  ;
   uint16_t AverageDclk1Frequency  ;
+  uint16_t PCIeBusy;
+  uint16_t dGPU_W_MAX;
+  uint16_t padding;
+
+  uint32_t MetricsCounter;
 
   uint16_t AvgVoltage[SVI_PLANE_COUNT];
+  uint16_t AvgCurrent[SVI_PLANE_COUNT];
 
   uint16_t AverageGfxActivity    ;
   uint16_t AverageUclkActivity   ;

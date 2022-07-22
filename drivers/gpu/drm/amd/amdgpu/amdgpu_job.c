@@ -29,6 +29,7 @@
 
 #include "amdgpu.h"
 #include "amdgpu_trace.h"
+#include "amdgpu_reset.h"
 
 static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 {
@@ -64,7 +65,14 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 		  ti.process_name, ti.tgid, ti.task_name, ti.pid);
 
 	if (amdgpu_device_should_recover_gpu(ring->adev)) {
-		r = amdgpu_device_gpu_recover_imp(ring->adev, job);
+		struct amdgpu_reset_context reset_context;
+		memset(&reset_context, 0, sizeof(reset_context));
+
+		reset_context.method = AMD_RESET_METHOD_NONE;
+		reset_context.reset_req_dev = adev;
+		clear_bit(AMDGPU_NEED_FULL_RESET, &reset_context.flags);
+
+		r = amdgpu_device_gpu_recover(ring->adev, job, &reset_context);
 		if (r)
 			DRM_ERROR("GPU Recovery Failed: %d\n", r);
 	} else {
@@ -262,10 +270,6 @@ static struct dma_fence *amdgpu_job_run(struct drm_sched_job *sched_job)
 			DRM_ERROR("Error scheduling IBs (%d)\n", r);
 	}
 
-	if (!job->job_run_counter)
-		dma_fence_get(fence);
-	else if (finished->error < 0)
-		dma_fence_put(&job->hw_fence);
 	job->job_run_counter++;
 	amdgpu_job_free_resources(job);
 

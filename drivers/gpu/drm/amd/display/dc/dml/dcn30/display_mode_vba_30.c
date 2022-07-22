@@ -438,8 +438,8 @@ static void UseMinimumDCFCLK(
 		int dpte_group_bytes[],
 		double PrefetchLinesY[][2][DC__NUM_DPP__MAX],
 		double PrefetchLinesC[][2][DC__NUM_DPP__MAX],
-		int swath_width_luma_ub_all_states[][2][DC__NUM_DPP__MAX],
-		int swath_width_chroma_ub_all_states[][2][DC__NUM_DPP__MAX],
+		unsigned int swath_width_luma_ub_all_states[][2][DC__NUM_DPP__MAX],
+		unsigned int swath_width_chroma_ub_all_states[][2][DC__NUM_DPP__MAX],
 		int BytePerPixelY[],
 		int BytePerPixelC[],
 		int HTotal[],
@@ -711,18 +711,6 @@ static double CalculateUrgentLatency(
 		double UrgentLatencyAdjustmentFabricClockComponent,
 		double UrgentLatencyAdjustmentFabricClockReference,
 		double FabricClockSingle);
-
-static bool CalculateBytePerPixelAnd256BBlockSizes(
-		enum source_format_class SourcePixelFormat,
-		enum dm_swizzle_mode SurfaceTiling,
-		unsigned int *BytePerPixelY,
-		unsigned int *BytePerPixelC,
-		double       *BytePerPixelDETY,
-		double       *BytePerPixelDETC,
-		unsigned int *BlockHeight256BytesY,
-		unsigned int *BlockHeight256BytesC,
-		unsigned int *BlockWidth256BytesY,
-		unsigned int *BlockWidth256BytesC);
 
 void dml30_recalculate(struct display_mode_lib *mode_lib)
 {
@@ -2095,7 +2083,7 @@ static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerforman
 	DTRACE("   return_bus_bw      = %f", v->ReturnBW);
 
 	for (k = 0; k < v->NumberOfActivePlanes; ++k) {
-		CalculateBytePerPixelAnd256BBlockSizes(
+		dml30_CalculateBytePerPixelAnd256BBlockSizes(
 				v->SourcePixelFormat[k],
 				v->SurfaceTiling[k],
 				&v->BytePerPixelY[k],
@@ -3165,7 +3153,7 @@ static void DisplayPipeConfiguration(struct display_mode_lib *mode_lib)
 
 	for (k = 0; k < mode_lib->vba.NumberOfActivePlanes; ++k) {
 
-		CalculateBytePerPixelAnd256BBlockSizes(
+		dml30_CalculateBytePerPixelAnd256BBlockSizes(
 				mode_lib->vba.SourcePixelFormat[k],
 				mode_lib->vba.SurfaceTiling[k],
 				&BytePerPixY[k],
@@ -3218,7 +3206,7 @@ static void DisplayPipeConfiguration(struct display_mode_lib *mode_lib)
 			&dummysinglestring);
 }
 
-static bool CalculateBytePerPixelAnd256BBlockSizes(
+void dml30_CalculateBytePerPixelAnd256BBlockSizes(
 		enum source_format_class SourcePixelFormat,
 		enum dm_swizzle_mode SurfaceTiling,
 		unsigned int *BytePerPixelY,
@@ -3305,7 +3293,6 @@ static bool CalculateBytePerPixelAnd256BBlockSizes(
 		*BlockWidth256BytesY = 256U / *BytePerPixelY / *BlockHeight256BytesY;
 		*BlockWidth256BytesC = 256U / *BytePerPixelC / *BlockHeight256BytesC;
 	}
-	return true;
 }
 
 static double CalculateTWait(
@@ -3709,7 +3696,7 @@ void dml30_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 	/*Bandwidth Support Check*/
 
 	for (k = 0; k <= v->NumberOfActivePlanes - 1; k++) {
-		CalculateBytePerPixelAnd256BBlockSizes(
+		dml30_CalculateBytePerPixelAnd256BBlockSizes(
 				v->SourcePixelFormat[k],
 				v->SurfaceTiling[k],
 				&v->BytePerPixelY[k],
@@ -6696,8 +6683,8 @@ static void UseMinimumDCFCLK(
 		int dpte_group_bytes[],
 		double PrefetchLinesY[][2][DC__NUM_DPP__MAX],
 		double PrefetchLinesC[][2][DC__NUM_DPP__MAX],
-		int swath_width_luma_ub_all_states[][2][DC__NUM_DPP__MAX],
-		int swath_width_chroma_ub_all_states[][2][DC__NUM_DPP__MAX],
+		unsigned int swath_width_luma_ub_all_states[][2][DC__NUM_DPP__MAX],
+		unsigned int swath_width_chroma_ub_all_states[][2][DC__NUM_DPP__MAX],
 		int BytePerPixelY[],
 		int BytePerPixelC[],
 		int HTotal[],

@@ -890,7 +890,6 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.disable_z10 = true,
 	.optimize_edp_link_rate = true,
 	.enable_sw_cntl_psr = true,
-	.apply_vendor_specific_lttpr_wa = true,
 	.enable_z9_disable_interface = true, /* Allow support for the PMFW interface for disable Z9*/
 	.dml_hostvm_override = DML_HOSTVM_OVERRIDE_FALSE,
 };
@@ -1651,7 +1650,6 @@ int dcn31_populate_dml_pipes_from_context(
 			continue;
 		pipe = &res_ctx->pipe_ctx[i];
 		timing = &pipe->stream->timing;
-
 		if (pipe->plane_state &&
 				(pipe->plane_state->src_rect.height < pipe->plane_state->dst_rect.height ||
 				pipe->plane_state->src_rect.width < pipe->plane_state->dst_rect.width))
@@ -1900,7 +1898,7 @@ static bool dcn31_resource_construct(
 	dc->caps.post_blend_color_processing = true;
 	dc->caps.force_dp_tps4_for_cp2520 = true;
 	dc->caps.dp_hpo = true;
-	dc->caps.hdmi_frl_pcon_support = true;
+	dc->caps.dp_hdmi21_pcon_support = true;
 	dc->caps.edp_dsc_support = true;
 	dc->caps.extended_aux_timeout_support = true;
 	dc->caps.dmcub_support = true;
@@ -2163,6 +2161,9 @@ static bool dcn31_resource_construct(
 		/* YELLOW CARP B0 has 4 DPIA's */
 		pool->base.usb4_dpia_count = 4;
 	}
+
+	if (dc->ctx->asic_id.chip_family == AMDGPU_FAMILY_GC_11_0_2)
+		pool->base.usb4_dpia_count = 4;
 
 	/* Audio, Stream Encoders including HPO and virtual, MPC 3D LUTs */
 	if (!resource_construct(num_virtual_links, dc, &pool->base,
