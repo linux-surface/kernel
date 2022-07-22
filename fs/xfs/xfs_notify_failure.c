@@ -18,6 +18,7 @@
 #include "xfs_rmap_btree.h"
 #include "xfs_rtalloc.h"
 #include "xfs_trans.h"
+#include "xfs_ag.h"
 
 #include <linux/mm.h>
 #include <linux/dax.h>
@@ -122,12 +123,16 @@ xfs_dax_notify_ddev_failure(
 		struct failure_info	notify;
 		struct xfs_agf		*agf;
 		xfs_agblock_t		agend;
+		struct xfs_perag	*pag;
 
-		error = xfs_alloc_read_agf(mp, tp, agno, 0, &agf_bp);
-		if (error)
+		pag = xfs_perag_get(mp, agno);
+		error = xfs_alloc_read_agf(pag, tp, 0, &agf_bp);
+		if (error) {
+			xfs_perag_put(pag);
 			break;
+		}
 
-		cur = xfs_rmapbt_init_cursor(mp, tp, agf_bp, agf_bp->b_pag);
+		cur = xfs_rmapbt_init_cursor(mp, tp, agf_bp, pag);
 
 		/*
 		 * Set the rmap range from ri_low to ri_high, which represents
@@ -148,6 +153,7 @@ xfs_dax_notify_ddev_failure(
 				xfs_dax_failure_fn, &notify);
 		xfs_btree_del_cursor(cur, error);
 		xfs_trans_brelse(tp, agf_bp);
+		xfs_perag_put(pag);
 		if (error)
 			break;
 

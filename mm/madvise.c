@@ -59,6 +59,7 @@ static int madvise_need_mmap_write(int behavior)
 	case MADV_FREE:
 	case MADV_POPULATE_READ:
 	case MADV_POPULATE_WRITE:
+	case MADV_COLLAPSE:
 		return 0;
 	default:
 		/* be safe, default to 1. list exceptions explicitly */
@@ -1057,6 +1058,8 @@ static int madvise_vma_behavior(struct vm_area_struct *vma,
 		if (error)
 			goto out;
 		break;
+	case MADV_COLLAPSE:
+		return madvise_collapse(vma, prev, start, end);
 	}
 
 	anon_name = anon_vma_name(vma);
@@ -1150,6 +1153,7 @@ madvise_behavior_valid(int behavior)
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	case MADV_HUGEPAGE:
 	case MADV_NOHUGEPAGE:
+	case MADV_COLLAPSE:
 #endif
 	case MADV_DONTDUMP:
 	case MADV_DODUMP:
@@ -1167,13 +1171,15 @@ madvise_behavior_valid(int behavior)
 }
 
 static bool
-process_madvise_behavior_valid(int behavior)
+process_madvise_behavior_valid(int behavior, struct task_struct *task)
 {
 	switch (behavior) {
 	case MADV_COLD:
 	case MADV_PAGEOUT:
 	case MADV_WILLNEED:
 		return true;
+	case MADV_COLLAPSE:
+		return task == current || capable(CAP_SYS_ADMIN);
 	default:
 		return false;
 	}
@@ -1238,7 +1244,7 @@ int madvise_walk_vmas(struct mm_struct *mm, unsigned long start,
 		if (start >= end)
 			break;
 		if (prev)
-			vma = prev->vm_next;
+			vma = find_vma(mm, prev->vm_end);
 		else	/* madvise_remove dropped mmap_lock */
 			vma = find_vma(mm, start);
 	}
@@ -1339,6 +1345,7 @@ int madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
  *  MADV_NOHUGEPAGE - mark the given range as not worth being backed by
  *		transparent huge pages so the existing pages will not be
  *		coalesced into THP and new pages will not be allocated as THP.
+ *  MADV_COLLAPSE - synchronously coalesce pages into new THP.
  *  MADV_DONTDUMP - the application wants to prevent pages in the given range
  *		from being included in its core dump.
  *  MADV_DODUMP - cancel MADV_DONTDUMP: no longer exclude from core dump.
@@ -1450,7 +1457,7 @@ SYSCALL_DEFINE5(process_madvise, int, pidfd, const struct iovec __user *, vec,
 		goto free_iov;
 	}
 
-	if (!process_madvise_behavior_valid(behavior)) {
+	if (!process_madvise_behavior_valid(behavior, task)) {
 		ret = -EINVAL;
 		goto release_task;
 	}
