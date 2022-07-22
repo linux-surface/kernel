@@ -1315,8 +1315,8 @@ int proc_dointvec_ms_jiffies_minmax(struct ctl_table *table, int write,
 int proc_dointvec_userhz_jiffies(struct ctl_table *table, int write,
 				 void *buffer, size_t *lenp, loff_t *ppos)
 {
-    return do_proc_dointvec(table,write,buffer,lenp,ppos,
-		    	    do_proc_dointvec_userhz_jiffies_conv,NULL);
+	return do_proc_dointvec(table, write, buffer, lenp, ppos,
+				do_proc_dointvec_userhz_jiffies_conv, NULL);
 }
 
 /**
@@ -2061,7 +2061,7 @@ static struct ctl_table kern_table[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
-#if defined(CONFIG_TREE_RCU)
+#ifdef CONFIG_TREE_RCU
 	{
 		.procname	= "panic_on_rcu_stall",
 		.data		= &sysctl_panic_on_rcu_stall,
@@ -2071,8 +2071,6 @@ static struct ctl_table kern_table[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
-#endif
-#if defined(CONFIG_TREE_RCU)
 	{
 		.procname	= "max_rcu_stall_to_panic",
 		.data		= &sysctl_max_rcu_stall_to_panic,
