@@ -133,6 +133,7 @@ struct uart_port {
 				      unsigned int old);
 	void			(*handle_break)(struct uart_port *);
 	int			(*rs485_config)(struct uart_port *,
+						struct ktermios *termios,
 						struct serial_rs485 *rs485);
 	int			(*iso7816_config)(struct uart_port *,
 						  struct serial_iso7816 *iso7816);
@@ -232,7 +233,6 @@ struct uart_port {
 
 	int			hw_stopped;		/* sw-assisted CTS flow state */
 	unsigned int		mctrl;			/* current modem ctrl settings */
-	unsigned int		timeout;		/* character-based timeout */
 	unsigned int		frame_time;		/* frame timing in ns */
 	unsigned int		type;			/* port type */
 	const struct uart_ops	*ops;
@@ -255,6 +255,7 @@ struct uart_port {
 	struct attribute_group	*attr_group;		/* port specific attributes */
 	const struct attribute_group **tty_groups;	/* all attributes (serial core use only) */
 	struct serial_rs485     rs485;
+	struct serial_rs485	rs485_supported;	/* Supported mask for serial_rs485 */
 	struct gpio_desc	*rs485_term_gpio;	/* enable RS485 bus termination */
 	struct serial_iso7816   iso7816;
 	void			*private_data;		/* generic platform data pointer */
@@ -334,10 +335,23 @@ unsigned int uart_get_baud_rate(struct uart_port *port, struct ktermios *termios
 				unsigned int max);
 unsigned int uart_get_divisor(struct uart_port *port, unsigned int baud);
 
+/*
+ * Calculates FIFO drain time.
+ */
+static inline unsigned long uart_fifo_timeout(struct uart_port *port)
+{
+	u64 fifo_timeout = (u64)READ_ONCE(port->frame_time) * port->fifosize;
+
+	/* Add .02 seconds of slop */
+	fifo_timeout += 20 * NSEC_PER_MSEC;
+
+	return max(nsecs_to_jiffies(fifo_timeout), 1UL);
+}
+
 /* Base timer interval for polling */
 static inline int uart_poll_timeout(struct uart_port *port)
 {
-	int timeout = port->timeout;
+	int timeout = uart_fifo_timeout(port);
 
 	return timeout > 6 ? (timeout / 2 - 2) : 1;
 }
@@ -598,4 +612,5 @@ static inline int uart_handle_break(struct uart_port *port)
 					 !((cflag) & CLOCAL))
 
 int uart_get_rs485_mode(struct uart_port *port);
+int uart_rs485_config(struct uart_port *port);
 #endif /* LINUX_SERIAL_CORE_H */

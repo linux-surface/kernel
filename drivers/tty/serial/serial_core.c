@@ -327,13 +327,14 @@ static void uart_shutdown(struct tty_struct *tty, struct uart_state *state)
 }
 
 /**
- *	uart_update_timeout - update per-port FIFO timeout.
+ *	uart_update_timeout - update per-port frame timing information.
  *	@port:  uart_port structure describing the port
  *	@cflag: termios cflag value
  *	@baud:  speed of the port
  *
- *	Set the port FIFO timeout value.  The @cflag value should
- *	reflect the actual hardware settings.
+ *	Set the port frame timing information from which the FIFO timeout
+ *	value is derived. The @cflag value should reflect the actual hardware
+ *	settings.
  */
 void
 uart_update_timeout(struct uart_port *port, unsigned int cflag,
@@ -343,13 +344,6 @@ uart_update_timeout(struct uart_port *port, unsigned int cflag,
 	u64 frame_time;
 
 	frame_time = (u64)size * NSEC_PER_SEC;
-	size *= port->fifosize;
-
-	/*
-	 * Figure the timeout to send the above number of bits.
-	 * Add .02 seconds of slop
-	 */
-	port->timeout = (HZ * size) / baud + HZ/50;
 	port->frame_time = DIV64_U64_ROUND_UP(frame_time, baud);
 }
 EXPORT_SYMBOL(uart_update_timeout);
@@ -1276,6 +1270,126 @@ static int uart_get_icount(struct tty_struct *tty,
 	return 0;
 }
 
+#define SER_RS485_LEGACY_FLAGS	(SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND | \
+				 SER_RS485_RTS_AFTER_SEND | SER_RS485_RX_DURING_TX | \
+				 SER_RS485_TERMINATE_BUS)
+
+static int uart_check_rs485_flags(struct uart_port *port, struct serial_rs485 *rs485)
+{
+	u32 flags = rs485->flags;
+
+	/* Don't return -EINVAL for unsupported legacy flags */
+	flags &= ~SER_RS485_LEGACY_FLAGS;
+
+	/*
+	 * For any bit outside of the legacy ones that is not supported by
+	 * the driver, return -EINVAL.
+	 */
+	if (flags & ~port->rs485_supported.flags)
+		return -EINVAL;
+
+	/* Asking for address w/o addressing mode? */
+	if (!(rs485->flags & SER_RS485_ADDRB) &&
+	    (rs485->flags & (SER_RS485_ADDR_RECV|SER_RS485_ADDR_DEST)))
+		return -EINVAL;
+
+	/* Address given but not enabled? */
+	if (!(rs485->flags & SER_RS485_ADDR_RECV) && rs485->addr_recv)
+		return -EINVAL;
+	if (!(rs485->flags & SER_RS485_ADDR_DEST) && rs485->addr_dest)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void uart_sanitize_serial_rs485_delays(struct uart_port *port,
+					      struct serial_rs485 *rs485)
+{
+	if (!port->rs485_supported.delay_rts_before_send) {
+		if (rs485->delay_rts_before_send) {
+			dev_warn_ratelimited(port->dev,
+				"%s (%d): RTS delay before sending not supported\n",
+				port->name, port->line);
+		}
+		rs485->delay_rts_before_send = 0;
+	} else if (rs485->delay_rts_before_send > RS485_MAX_RTS_DELAY) {
+		rs485->delay_rts_before_send = RS485_MAX_RTS_DELAY;
+		dev_warn_ratelimited(port->dev,
+			"%s (%d): RTS delay before sending clamped to %u ms\n",
+			port->name, port->line, rs485->delay_rts_before_send);
+	}
+
+	if (!port->rs485_supported.delay_rts_after_send) {
+		if (rs485->delay_rts_after_send) {
+			dev_warn_ratelimited(port->dev,
+				"%s (%d): RTS delay after sending not supported\n",
+				port->name, port->line);
+		}
+		rs485->delay_rts_after_send = 0;
+	} else if (rs485->delay_rts_after_send > RS485_MAX_RTS_DELAY) {
+		rs485->delay_rts_after_send = RS485_MAX_RTS_DELAY;
+		dev_warn_ratelimited(port->dev,
+			"%s (%d): RTS delay after sending clamped to %u ms\n",
+			port->name, port->line, rs485->delay_rts_after_send);
+	}
+}
+
+static void uart_sanitize_serial_rs485(struct uart_port *port, struct serial_rs485 *rs485)
+{
+	u32 supported_flags = port->rs485_supported.flags;
+
+	if (!(rs485->flags & SER_RS485_ENABLED)) {
+		memset(rs485, 0, sizeof(*rs485));
+		return;
+	}
+
+	/* Pick sane settings if the user hasn't */
+	if ((supported_flags & (SER_RS485_RTS_ON_SEND|SER_RS485_RTS_AFTER_SEND)) &&
+	    !(rs485->flags & SER_RS485_RTS_ON_SEND) ==
+	    !(rs485->flags & SER_RS485_RTS_AFTER_SEND)) {
+		dev_warn_ratelimited(port->dev,
+			"%s (%d): invalid RTS setting, using RTS_ON_SEND instead\n",
+			port->name, port->line);
+		rs485->flags |= SER_RS485_RTS_ON_SEND;
+		rs485->flags &= ~SER_RS485_RTS_AFTER_SEND;
+		supported_flags |= SER_RS485_RTS_ON_SEND|SER_RS485_RTS_AFTER_SEND;
+	}
+
+	rs485->flags &= supported_flags;
+
+	uart_sanitize_serial_rs485_delays(port, rs485);
+
+	/* Return clean padding area to userspace */
+	memset(rs485->padding0, 0, sizeof(rs485->padding0));
+	memset(rs485->padding1, 0, sizeof(rs485->padding1));
+}
+
+static void uart_set_rs485_termination(struct uart_port *port,
+				       const struct serial_rs485 *rs485)
+{
+	if (!(rs485->flags & SER_RS485_ENABLED))
+		return;
+
+	gpiod_set_value_cansleep(port->rs485_term_gpio,
+				 !!(rs485->flags & SER_RS485_TERMINATE_BUS));
+}
+
+int uart_rs485_config(struct uart_port *port)
+{
+	struct serial_rs485 *rs485 = &port->rs485;
+	int ret;
+
+	uart_sanitize_serial_rs485(port, rs485);
+	uart_set_rs485_termination(port, rs485);
+
+	ret = port->rs485_config(port, NULL, rs485);
+	if (ret)
+		memset(rs485, 0, sizeof(*rs485));
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(uart_rs485_config);
+
 static int uart_get_rs485_config(struct uart_port *port,
 			 struct serial_rs485 __user *rs485)
 {
@@ -1292,7 +1406,7 @@ static int uart_get_rs485_config(struct uart_port *port,
 	return 0;
 }
 
-static int uart_set_rs485_config(struct uart_port *port,
+static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
 			 struct serial_rs485 __user *rs485_user)
 {
 	struct serial_rs485 rs485;
@@ -1305,34 +1419,14 @@ static int uart_set_rs485_config(struct uart_port *port,
 	if (copy_from_user(&rs485, rs485_user, sizeof(*rs485_user)))
 		return -EFAULT;
 
-	/* pick sane settings if the user hasn't */
-	if (!(rs485.flags & SER_RS485_RTS_ON_SEND) ==
-	    !(rs485.flags & SER_RS485_RTS_AFTER_SEND)) {
-		dev_warn_ratelimited(port->dev,
-			"%s (%d): invalid RTS setting, using RTS_ON_SEND instead\n",
-			port->name, port->line);
-		rs485.flags |= SER_RS485_RTS_ON_SEND;
-		rs485.flags &= ~SER_RS485_RTS_AFTER_SEND;
-	}
-
-	if (rs485.delay_rts_before_send > RS485_MAX_RTS_DELAY) {
-		rs485.delay_rts_before_send = RS485_MAX_RTS_DELAY;
-		dev_warn_ratelimited(port->dev,
-			"%s (%d): RTS delay before sending clamped to %u ms\n",
-			port->name, port->line, rs485.delay_rts_before_send);
-	}
-
-	if (rs485.delay_rts_after_send > RS485_MAX_RTS_DELAY) {
-		rs485.delay_rts_after_send = RS485_MAX_RTS_DELAY;
-		dev_warn_ratelimited(port->dev,
-			"%s (%d): RTS delay after sending clamped to %u ms\n",
-			port->name, port->line, rs485.delay_rts_after_send);
-	}
-	/* Return clean padding area to userspace */
-	memset(rs485.padding, 0, sizeof(rs485.padding));
+	ret = uart_check_rs485_flags(port, &rs485);
+	if (ret)
+		return ret;
+	uart_sanitize_serial_rs485(port, &rs485);
+	uart_set_rs485_termination(port, &rs485);
 
 	spin_lock_irqsave(&port->lock, flags);
-	ret = port->rs485_config(port, &rs485);
+	ret = port->rs485_config(port, &tty->termios, &rs485);
 	if (!ret)
 		port->rs485 = rs485;
 	spin_unlock_irqrestore(&port->lock, flags);
@@ -1441,6 +1535,10 @@ uart_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 	if (ret != -ENOIOCTLCMD)
 		goto out;
 
+	/* rs485_config requires more locking than others */
+	if (cmd == TIOCGRS485)
+		down_write(&tty->termios_rwsem);
+
 	mutex_lock(&port->mutex);
 	uport = uart_port_check(state);
 
@@ -1464,7 +1562,7 @@ uart_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 		break;
 
 	case TIOCSRS485:
-		ret = uart_set_rs485_config(uport, uarg);
+		ret = uart_set_rs485_config(tty, uport, uarg);
 		break;
 
 	case TIOCSISO7816:
@@ -1481,6 +1579,8 @@ uart_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 	}
 out_up:
 	mutex_unlock(&port->mutex);
+	if (cmd == TIOCGRS485)
+		up_write(&tty->termios_rwsem);
 out:
 	return ret;
 }
@@ -1628,7 +1728,7 @@ static void uart_wait_until_sent(struct tty_struct *tty, int timeout)
 {
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port;
-	unsigned long char_time, expire;
+	unsigned long char_time, expire, fifo_timeout;
 
 	port = uart_port_ref(state);
 	if (!port)
@@ -1658,12 +1758,13 @@ static void uart_wait_until_sent(struct tty_struct *tty, int timeout)
 		 * amount of time to send the entire FIFO, it probably won't
 		 * ever clear.  This assumes the UART isn't doing flow
 		 * control, which is currently the case.  Hence, if it ever
-		 * takes longer than port->timeout, this is probably due to a
+		 * takes longer than FIFO timeout, this is probably due to a
 		 * UART bug of some kind.  So, we clamp the timeout parameter at
-		 * 2*port->timeout.
+		 * 2 * FIFO timeout.
 		 */
-		if (timeout == 0 || timeout > 2 * port->timeout)
-			timeout = 2 * port->timeout;
+		fifo_timeout = uart_fifo_timeout(port);
+		if (timeout == 0 || timeout > 2 * fifo_timeout)
+			timeout = 2 * fifo_timeout;
 	}
 
 	expire = jiffies + timeout;
@@ -3289,6 +3390,8 @@ int uart_get_rs485_mode(struct uart_port *port)
 		rs485conf->delay_rts_after_send = 0;
 	}
 
+	uart_sanitize_serial_rs485_delays(port, rs485conf);
+
 	/*
 	 * Clear full-duplex and enabled flags, set RTS polarity to active high
 	 * to get to a defined state with the following properties:
@@ -3321,10 +3424,20 @@ int uart_get_rs485_mode(struct uart_port *port)
 		port->rs485_term_gpio = NULL;
 		return dev_err_probe(dev, ret, "Cannot get rs485-term-gpios\n");
 	}
+	if (port->rs485_term_gpio)
+		port->rs485_supported.flags |= SER_RS485_TERMINATE_BUS;
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(uart_get_rs485_mode);
+
+/* Compile-time assertions for serial_rs485 layout */
+static_assert(offsetof(struct serial_rs485, padding) ==
+              (offsetof(struct serial_rs485, delay_rts_after_send) + sizeof(__u32)));
+static_assert(offsetof(struct serial_rs485, padding1) ==
+	      offsetof(struct serial_rs485, padding[1]));
+static_assert((offsetof(struct serial_rs485, padding[4]) + sizeof(__u32)) ==
+	      sizeof(struct serial_rs485));
 
 MODULE_DESCRIPTION("Serial driver core");
 MODULE_LICENSE("GPL");
