@@ -64,7 +64,6 @@ TEST_GEN_FILES += io_uring_zerocopy_tx
 
 TEST_FILES := settings
 
-KSFT_KHDR_INSTALL := 1
 include ../lib.mk
 
 include bpf/Makefile
