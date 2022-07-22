@@ -1344,7 +1344,7 @@ static void nvme_warn_reset(struct nvme_dev *dev, u32 csts)
 		 "Try \"nvme_core.default_ps_max_latency_us=0 pcie_aspm=off\" and report a bug\n");
 }
 
-static enum blk_eh_timer_return nvme_timeout(struct request *req, bool reserved)
+static enum blk_eh_timer_return nvme_timeout(struct request *req)
 {
 	struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	struct nvme_queue *nvmeq = iod->nvmeq;
@@ -1760,7 +1760,7 @@ static void nvme_dev_remove_admin(struct nvme_dev *dev)
 		 * queue to flush these to completion.
 		 */
 		nvme_start_admin_queue(&dev->ctrl);
-		blk_cleanup_queue(dev->ctrl.admin_q);
+		blk_mq_destroy_queue(dev->ctrl.admin_q);
 		blk_mq_free_tag_set(&dev->admin_tagset);
 	}
 }
@@ -2725,10 +2725,8 @@ static void nvme_dev_disable(struct nvme_dev *dev, bool shutdown)
 	nvme_pci_disable(dev);
 	nvme_reap_pending_cqes(dev);
 
-	blk_mq_tagset_busy_iter(&dev->tagset, nvme_cancel_request, &dev->ctrl);
-	blk_mq_tagset_busy_iter(&dev->admin_tagset, nvme_cancel_request, &dev->ctrl);
-	blk_mq_tagset_wait_completed_request(&dev->tagset);
-	blk_mq_tagset_wait_completed_request(&dev->admin_tagset);
+	nvme_cancel_tagset(&dev->ctrl);
+	nvme_cancel_admin_tagset(&dev->ctrl);
 
 	/*
 	 * The driver will not be starting up queues again if shutting down so

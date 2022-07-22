@@ -845,11 +845,8 @@ static void apple_nvme_disable(struct apple_nvme *anv, bool shutdown)
 	apple_nvme_handle_cq(&anv->adminq, true);
 	spin_unlock_irqrestore(&anv->lock, flags);
 
-	blk_mq_tagset_busy_iter(&anv->tagset, nvme_cancel_request, &anv->ctrl);
-	blk_mq_tagset_busy_iter(&anv->admin_tagset, nvme_cancel_request,
-				&anv->ctrl);
-	blk_mq_tagset_wait_completed_request(&anv->tagset);
-	blk_mq_tagset_wait_completed_request(&anv->admin_tagset);
+	nvme_cancel_tagset(&anv->ctrl);
+	nvme_cancel_admin_tagset(&anv->ctrl);
 
 	/*
 	 * The driver will not be starting up queues again if shutting down so
@@ -862,8 +859,7 @@ static void apple_nvme_disable(struct apple_nvme *anv, bool shutdown)
 	}
 }
 
-static enum blk_eh_timer_return apple_nvme_timeout(struct request *req,
-						   bool reserved)
+static enum blk_eh_timer_return apple_nvme_timeout(struct request *req)
 {
 	struct apple_nvme_iod *iod = blk_mq_rq_to_pdu(req);
 	struct apple_nvme_queue *q = iod->q;
@@ -1502,7 +1498,7 @@ static int apple_nvme_probe(struct platform_device *pdev)
 
 	if (!blk_get_queue(anv->ctrl.admin_q)) {
 		nvme_start_admin_queue(&anv->ctrl);
-		blk_cleanup_queue(anv->ctrl.admin_q);
+		blk_mq_destroy_queue(anv->ctrl.admin_q);
 		anv->ctrl.admin_q = NULL;
 		ret = -ENODEV;
 		goto put_dev;

@@ -29,7 +29,7 @@
 #include "fabrics.h"
 
 
-#define NVME_RDMA_CONNECT_TIMEOUT_MS	3000		/* 3 second */
+#define NVME_RDMA_CM_TIMEOUT_MS		3000		/* 3 second */
 
 #define NVME_RDMA_MAX_SEGMENTS		256
 
@@ -248,12 +248,9 @@ static int nvme_rdma_wait_for_cm(struct nvme_rdma_queue *queue)
 {
 	int ret;
 
-	ret = wait_for_completion_interruptible_timeout(&queue->cm_done,
-			msecs_to_jiffies(NVME_RDMA_CONNECT_TIMEOUT_MS) + 1);
-	if (ret < 0)
+	ret = wait_for_completion_interruptible(&queue->cm_done);
+	if (ret)
 		return ret;
-	if (ret == 0)
-		return -ETIMEDOUT;
 	WARN_ON_ONCE(queue->cm_error > 0);
 	return queue->cm_error;
 }
@@ -612,7 +609,7 @@ static int nvme_rdma_alloc_queue(struct nvme_rdma_ctrl *ctrl,
 	queue->cm_error = -ETIMEDOUT;
 	ret = rdma_resolve_addr(queue->cm_id, src_addr,
 			(struct sockaddr *)&ctrl->addr,
-			NVME_RDMA_CONNECT_TIMEOUT_MS);
+			NVME_RDMA_CM_TIMEOUT_MS);
 	if (ret) {
 		dev_info(ctrl->ctrl.device,
 			"rdma_resolve_addr failed (%d).\n", ret);
@@ -840,8 +837,8 @@ static void nvme_rdma_destroy_admin_queue(struct nvme_rdma_ctrl *ctrl,
 		bool remove)
 {
 	if (remove) {
-		blk_cleanup_queue(ctrl->ctrl.admin_q);
-		blk_cleanup_queue(ctrl->ctrl.fabrics_q);
+		blk_mq_destroy_queue(ctrl->ctrl.admin_q);
+		blk_mq_destroy_queue(ctrl->ctrl.fabrics_q);
 		blk_mq_free_tag_set(ctrl->ctrl.admin_tagset);
 	}
 	if (ctrl->async_event_sqe.data) {
@@ -935,10 +932,10 @@ out_stop_queue:
 	nvme_cancel_admin_tagset(&ctrl->ctrl);
 out_cleanup_queue:
 	if (new)
-		blk_cleanup_queue(ctrl->ctrl.admin_q);
+		blk_mq_destroy_queue(ctrl->ctrl.admin_q);
 out_cleanup_fabrics_q:
 	if (new)
-		blk_cleanup_queue(ctrl->ctrl.fabrics_q);
+		blk_mq_destroy_queue(ctrl->ctrl.fabrics_q);
 out_free_tagset:
 	if (new)
 		blk_mq_free_tag_set(ctrl->ctrl.admin_tagset);
@@ -957,7 +954,7 @@ static void nvme_rdma_destroy_io_queues(struct nvme_rdma_ctrl *ctrl,
 		bool remove)
 {
 	if (remove) {
-		blk_cleanup_queue(ctrl->ctrl.connect_q);
+		blk_mq_destroy_queue(ctrl->ctrl.connect_q);
 		blk_mq_free_tag_set(ctrl->ctrl.tagset);
 	}
 	nvme_rdma_free_io_queues(ctrl);
@@ -1012,7 +1009,7 @@ out_wait_freeze_timed_out:
 out_cleanup_connect_q:
 	nvme_cancel_tagset(&ctrl->ctrl);
 	if (new)
-		blk_cleanup_queue(ctrl->ctrl.connect_q);
+		blk_mq_destroy_queue(ctrl->ctrl.connect_q);
 out_free_tag_set:
 	if (new)
 		blk_mq_free_tag_set(ctrl->ctrl.tagset);
@@ -1205,6 +1202,7 @@ static void nvme_rdma_error_recovery_work(struct work_struct *work)
 	struct nvme_rdma_ctrl *ctrl = container_of(work,
 			struct nvme_rdma_ctrl, err_work);
 
+	nvme_auth_stop(&ctrl->ctrl);
 	nvme_stop_keep_alive(&ctrl->ctrl);
 	flush_work(&ctrl->ctrl.async_event_work);
 	nvme_rdma_teardown_io_queues(ctrl, false);
@@ -1894,7 +1892,7 @@ static int nvme_rdma_addr_resolved(struct nvme_rdma_queue *queue)
 
 	if (ctrl->opts->tos >= 0)
 		rdma_set_service_type(queue->cm_id, ctrl->opts->tos);
-	ret = rdma_resolve_route(queue->cm_id, NVME_RDMA_CONNECT_TIMEOUT_MS);
+	ret = rdma_resolve_route(queue->cm_id, NVME_RDMA_CM_TIMEOUT_MS);
 	if (ret) {
 		dev_err(ctrl->device, "rdma_resolve_route failed (%d).\n",
 			queue->cm_error);
@@ -2021,8 +2019,7 @@ static void nvme_rdma_complete_timed_out(struct request *rq)
 	nvmf_complete_timed_out_request(rq);
 }
 
-static enum blk_eh_timer_return
-nvme_rdma_timeout(struct request *rq, bool reserved)
+static enum blk_eh_timer_return nvme_rdma_timeout(struct request *rq)
 {
 	struct nvme_rdma_request *req = blk_mq_rq_to_pdu(rq);
 	struct nvme_rdma_queue *queue = req->queue;
