@@ -49,22 +49,29 @@ enum {
 	SD_MAX_XFER_BLOCKS = 0xffffffff,
 	SD_MAX_WS10_BLOCKS = 0xffff,
 	SD_MAX_WS16_BLOCKS = 0x7fffff,
+	SD_MAX_UNMAP_DESCS = 0xffff,
 };
 
-enum {
-	SD_LBP_FULL = 0,	/* Full logical block provisioning */
+enum sd_lbp_mode {
+	SD_LBP_DEFAULT = 0,	/* Select mode based on what device reports */
+	SD_LBP_FULL,		/* Full logical block provisioning */
 	SD_LBP_UNMAP,		/* Use UNMAP command */
 	SD_LBP_WS16,		/* Use WRITE SAME(16) with UNMAP bit */
+	SD_LBP_WS16_NDOB,	/* Use WRITE SAME(16) with UNMAP + NDOB bits */
 	SD_LBP_WS10,		/* Use WRITE SAME(10) with UNMAP bit */
-	SD_LBP_ZERO,		/* Use WRITE SAME(10) with zero payload */
+	SD_LBP_ZERO,		/* Use WRITE SAME(10) with zeroed payload */
 	SD_LBP_DISABLE,		/* Discard disabled due to failed cmd */
 };
 
-enum {
-	SD_ZERO_WRITE = 0,	/* Use WRITE(10/16) command */
+enum sd_zeroing_mode {
+	SD_ZERO_DEFAULT = 0,	/* Default mode based on what device reports */
+	SD_ZERO_WRITE,		/* Use WRITE(10/16) command */
 	SD_ZERO_WS,		/* Use WRITE SAME(10/16) command */
+	SD_ZERO_WS16_UNMAP_NDOB,/* Use WRITE SAME(16) with UNMAP + NDOB bits */
 	SD_ZERO_WS16_UNMAP,	/* Use WRITE SAME(16) with UNMAP */
 	SD_ZERO_WS10_UNMAP,	/* Use WRITE SAME(10) with UNMAP */
+	SD_ZERO_WS16_NDOB,	/* Use WRITE SAME(16) with NDOB */
+	SD_ZERO_DISABLE,	/* Write Zeroes disabled due to failed cmd */
 };
 
 /**
@@ -119,18 +126,25 @@ struct scsi_disk {
 	u32		opt_xfer_blocks;
 	u32		max_ws_blocks;
 	u32		max_unmap_blocks;
+	u32		max_unmap_descriptors;
 	u32		unmap_granularity;
 	u32		unmap_alignment;
 	u32		index;
 	unsigned int	physical_block_size;
 	unsigned int	max_medium_access_timeouts;
 	unsigned int	medium_access_timed_out;
+	unsigned int	sbc_version;
 	u8		media_present;
 	u8		write_prot;
 	u8		protection_type;/* Data Integrity Field */
 	u8		provisioning_mode;
 	u8		zeroing_mode;
 	u8		nr_actuators;		/* Number of actuators */
+	bool		lblvpd;			/* Long Block Limits VPD */
+	bool		provisioning_override;
+	bool		zeroing_override;
+	bool		ndob;
+	bool		reattach_vpds;
 	unsigned	ATO : 1;	/* state of disk ATO bit */
 	unsigned	cache_override : 1; /* temp override of WCE,RCD */
 	unsigned	WCE : 1;	/* state of disk WCE bit */
