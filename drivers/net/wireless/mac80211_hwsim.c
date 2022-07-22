@@ -228,6 +228,7 @@ static inline void hwsim_clear_magic(struct ieee80211_vif *vif)
 
 struct hwsim_sta_priv {
 	u32 magic;
+	unsigned int last_link;
 };
 
 #define HWSIM_STA_MAGIC	0x6d537749
@@ -687,7 +688,7 @@ struct mac80211_hwsim_data {
 	bool ps_poll_pending;
 	struct dentry *debugfs;
 
-	atomic64_t pending_cookie;
+	atomic_t pending_cookie;
 	struct sk_buff_head pending;	/* packets pending */
 	/*
 	 * Only radios in the same group can communicate together (the
@@ -1198,10 +1199,27 @@ struct mac80211_hwsim_addr_match_data {
 static void mac80211_hwsim_addr_iter(void *data, u8 *mac,
 				     struct ieee80211_vif *vif)
 {
+	int i;
 	struct mac80211_hwsim_addr_match_data *md = data;
 
-	if (memcmp(mac, md->addr, ETH_ALEN) == 0)
+	if (memcmp(mac, md->addr, ETH_ALEN) == 0) {
 		md->ret = true;
+		return;
+	}
+
+	/* Match the link address */
+	for (i = 0; i < ARRAY_SIZE(vif->link_conf); i++) {
+		struct ieee80211_bss_conf *conf;
+
+		conf = rcu_dereference(vif->link_conf[i]);
+		if (!conf)
+			continue;
+
+		if (memcmp(conf->addr, md->addr, ETH_ALEN) == 0) {
+			md->ret = true;
+			return;
+		}
+	}
 }
 
 static bool mac80211_hwsim_addr_match(struct mac80211_hwsim_data *data,
@@ -1358,7 +1376,7 @@ static void mac80211_hwsim_tx_frame_nl(struct ieee80211_hw *hw,
 	int i;
 	struct hwsim_tx_rate tx_attempts[IEEE80211_TX_MAX_RATES];
 	struct hwsim_tx_rate_flag tx_attempts_flags[IEEE80211_TX_MAX_RATES];
-	u64 cookie;
+	uintptr_t cookie;
 
 	if (data->ps != PS_DISABLED)
 		hdr->frame_control |= cpu_to_le16(IEEE80211_FCTL_PM);
@@ -1427,7 +1445,7 @@ static void mac80211_hwsim_tx_frame_nl(struct ieee80211_hw *hw,
 		goto nla_put_failure;
 
 	/* We create a cookie to identify this skb */
-	cookie = (u64)atomic64_inc_return(&data->pending_cookie);
+	cookie = atomic_inc_return(&data->pending_cookie);
 	info->rate_driver_data[0] = (void *)cookie;
 	if (nla_put_u64_64bit(skb, HWSIM_ATTR_COOKIE, cookie, HWSIM_ATTR_PAD))
 		goto nla_put_failure;
@@ -1474,15 +1492,26 @@ static void mac80211_hwsim_tx_iter(void *_data, u8 *addr,
 				   struct ieee80211_vif *vif)
 {
 	struct tx_iter_data *data = _data;
+	int i;
 
-	if (!vif->bss_conf.chanctx_conf)
+	for (i = 0; i < ARRAY_SIZE(vif->link_conf); i++) {
+		struct ieee80211_bss_conf *conf;
+		struct ieee80211_chanctx_conf *chanctx;
+
+		conf = rcu_dereference(vif->link_conf[i]);
+		if (!conf)
+			continue;
+
+		chanctx = rcu_dereference(conf->chanctx_conf);
+		if (!chanctx)
+			continue;
+
+		if (!hwsim_chans_compat(data->channel, chanctx->def.chan))
+			continue;
+
+		data->receive = true;
 		return;
-
-	if (!hwsim_chans_compat(data->channel,
-				rcu_dereference(vif->bss_conf.chanctx_conf)->def.chan))
-		return;
-
-	data->receive = true;
+	}
 }
 
 static void mac80211_hwsim_add_vendor_rtap(struct sk_buff *skb)
@@ -1672,6 +1701,60 @@ static bool mac80211_hwsim_tx_frame_no_nl(struct ieee80211_hw *hw,
 	return ack;
 }
 
+static struct ieee80211_bss_conf *
+mac80211_hwsim_select_tx_link(struct mac80211_hwsim_data *data,
+			      struct ieee80211_vif *vif,
+			      struct ieee80211_sta *sta,
+			      struct ieee80211_hdr *hdr)
+{
+	struct hwsim_sta_priv *sp = (void *)sta->drv_priv;
+	int i;
+
+	if (!vif->valid_links)
+		return &vif->bss_conf;
+
+	/* FIXME: handle multicast TX properly */
+	if (is_multicast_ether_addr(hdr->addr1) || WARN_ON_ONCE(!sta)) {
+		unsigned int first_link = ffs(vif->valid_links) - 1;
+
+		return rcu_dereference(vif->link_conf[first_link]);
+	}
+
+	if (WARN_ON_ONCE(!sta->valid_links))
+		return &vif->bss_conf;
+
+	for (i = 0; i < ARRAY_SIZE(vif->link_conf); i++) {
+		struct ieee80211_link_sta *link_sta = NULL;
+		struct ieee80211_bss_conf *bss_conf;
+		unsigned int link_id;
+
+		/* round-robin the available link IDs */
+		link_id = (sp->last_link + i + 1) % ARRAY_SIZE(vif->link_conf);
+
+		link_sta = rcu_dereference(sta->link[link_id]);
+		if (!link_sta)
+			continue;
+
+		bss_conf = rcu_dereference(vif->link_conf[link_id]);
+		if (WARN_ON_ONCE(!bss_conf))
+			continue;
+
+		/* address translation to link addresses on TX */
+		ether_addr_copy(hdr->addr1, link_sta->addr);
+		ether_addr_copy(hdr->addr2, bss_conf->addr);
+		if (ether_addr_equal(hdr->addr3, sta->addr))
+			ether_addr_copy(hdr->addr3, link_sta->addr);
+		else if (ether_addr_equal(hdr->addr3, vif->addr))
+			ether_addr_copy(hdr->addr3, bss_conf->addr);
+		/* no need to look at A4, if present it's SA */
+
+		sp->last_link = link_id;
+		return bss_conf;
+	}
+
+	return NULL;
+}
+
 static void mac80211_hwsim_tx(struct ieee80211_hw *hw,
 			      struct ieee80211_tx_control *control,
 			      struct sk_buff *skb)
@@ -1698,8 +1781,21 @@ static void mac80211_hwsim_tx(struct ieee80211_hw *hw,
 		channel = data->tmp_chan;
 	} else {
 		struct ieee80211_bss_conf *bss_conf;
+		u8 link = u32_get_bits(IEEE80211_SKB_CB(skb)->control.flags,
+				       IEEE80211_TX_CTRL_MLO_LINK);
 
-		bss_conf = &txi->control.vif->bss_conf;
+		if (link != IEEE80211_LINK_UNSPECIFIED)
+			bss_conf = rcu_dereference(txi->control.vif->link_conf[link]);
+		else
+			bss_conf = mac80211_hwsim_select_tx_link(data,
+								 txi->control.vif,
+								 control->sta,
+								 hdr);
+
+		if (WARN_ON(!bss_conf)) {
+			ieee80211_free_txskb(hw, skb);
+			return;
+		}
 
 		chanctx_conf = rcu_dereference(bss_conf->chanctx_conf);
 		if (chanctx_conf) {
@@ -1907,7 +2003,7 @@ static void mac80211_hwsim_beacon_tx(void *arg, u8 *mac,
 {
 	struct mac80211_hwsim_link_data *link_data = arg;
 	u32 link_id = link_data->link_id;
-	struct ieee80211_bss_conf *link_conf = vif->link_conf[link_id];
+	struct ieee80211_bss_conf *link_conf;
 	struct mac80211_hwsim_data *data =
 		container_of(link_data, struct mac80211_hwsim_data,
 			     link_data[link_id]);
@@ -1920,6 +2016,10 @@ static void mac80211_hwsim_beacon_tx(void *arg, u8 *mac,
 	int bitrate = 100;
 
 	hwsim_check_magic(vif);
+
+	link_conf = rcu_dereference(vif->link_conf[link_id]);
+	if (!link_conf)
+		return;
 
 	if (vif->type != NL80211_IFTYPE_AP &&
 	    vif->type != NL80211_IFTYPE_MESH_POINT &&
@@ -2145,12 +2245,12 @@ static void mac80211_hwsim_vif_info_changed(struct ieee80211_hw *hw,
 
 static void mac80211_hwsim_link_info_changed(struct ieee80211_hw *hw,
 					     struct ieee80211_vif *vif,
-					     u32 link_id,
+					     struct ieee80211_bss_conf *info,
 					     u64 changed)
 {
 	struct hwsim_vif_priv *vp = (void *)vif->drv_priv;
 	struct mac80211_hwsim_data *data = hw->priv;
-	struct ieee80211_bss_conf *info = vif->link_conf[link_id];
+	unsigned int link_id = info->link_id;
 	struct mac80211_hwsim_link_data *link_data = &data->link_data[link_id];
 
 	hwsim_check_magic(vif);
@@ -2231,35 +2331,56 @@ mac80211_hwsim_sta_rc_update(struct ieee80211_hw *hw,
 {
 	struct mac80211_hwsim_data *data = hw->priv;
 	u32 bw = U32_MAX;
-	enum nl80211_chan_width confbw = NL80211_CHAN_WIDTH_20_NOHT;
+	int link_id;
 
-	switch (sta->deflink.bandwidth) {
+	rcu_read_lock();
+	for (link_id = 0;
+	     link_id < ARRAY_SIZE(vif->link_conf);
+	     link_id++) {
+		enum nl80211_chan_width confbw = NL80211_CHAN_WIDTH_20_NOHT;
+		struct ieee80211_bss_conf *vif_conf;
+		struct ieee80211_link_sta *link_sta;
+
+		link_sta = rcu_dereference(sta->link[link_id]);
+
+		if (!link_sta)
+			continue;
+
+		switch (link_sta->bandwidth) {
 #define C(_bw) case IEEE80211_STA_RX_BW_##_bw: bw = _bw; break
-	C(20);
-	C(40);
-	C(80);
-	C(160);
-	C(320);
+		C(20);
+		C(40);
+		C(80);
+		C(160);
+		C(320);
 #undef C
+		}
+
+		if (!data->use_chanctx) {
+			confbw = data->bw;
+		} else {
+			struct ieee80211_chanctx_conf *chanctx_conf;
+
+			vif_conf = rcu_dereference(vif->link_conf[link_id]);
+			if (WARN_ON(!vif_conf))
+				continue;
+
+			chanctx_conf = rcu_dereference(vif_conf->chanctx_conf);
+
+			if (!WARN_ON(!chanctx_conf))
+				confbw = chanctx_conf->def.width;
+		}
+
+		WARN(bw > hwsim_get_chanwidth(confbw),
+		     "intf %pM [link=%d]: bad STA %pM bandwidth %d MHz (%d) > channel config %d MHz (%d)\n",
+		     vif->addr, link_id, sta->addr, bw, sta->deflink.bandwidth,
+		     hwsim_get_chanwidth(data->bw), data->bw);
+
+
 	}
+	rcu_read_unlock();
 
-	if (!data->use_chanctx) {
-		confbw = data->bw;
-	} else {
-		struct ieee80211_chanctx_conf *chanctx_conf;
 
-		rcu_read_lock();
-		chanctx_conf = rcu_dereference(vif->bss_conf.chanctx_conf);
-
-		if (!WARN_ON(!chanctx_conf))
-			confbw = chanctx_conf->def.width;
-		rcu_read_unlock();
-	}
-
-	WARN(bw > hwsim_get_chanwidth(confbw),
-	     "intf %pM: bad STA %pM bandwidth %d MHz (%d) > channel config %d MHz (%d)\n",
-	     vif->addr, sta->addr, bw, sta->deflink.bandwidth,
-	     hwsim_get_chanwidth(data->bw), data->bw);
 }
 
 static int mac80211_hwsim_sta_add(struct ieee80211_hw *hw,
@@ -2279,6 +2400,21 @@ static int mac80211_hwsim_sta_remove(struct ieee80211_hw *hw,
 {
 	hwsim_check_magic(vif);
 	hwsim_clear_sta_magic(sta);
+
+	return 0;
+}
+
+static int mac80211_hwsim_sta_state(struct ieee80211_hw *hw,
+				    struct ieee80211_vif *vif,
+				    struct ieee80211_sta *sta,
+				    enum ieee80211_sta_state old_state,
+				    enum ieee80211_sta_state new_state)
+{
+	if (new_state == IEEE80211_STA_NOTEXIST)
+		return mac80211_hwsim_sta_remove(hw, vif, sta);
+
+	if (old_state == IEEE80211_STA_NOTEXIST)
+		return mac80211_hwsim_sta_add(hw, vif, sta);
 
 	return 0;
 }
@@ -2309,10 +2445,10 @@ static int mac80211_hwsim_set_tim(struct ieee80211_hw *hw,
 	return 0;
 }
 
-static int mac80211_hwsim_conf_tx(
-	struct ieee80211_hw *hw,
-	struct ieee80211_vif *vif, u16 queue,
-	const struct ieee80211_tx_queue_params *params)
+static int mac80211_hwsim_conf_tx(struct ieee80211_hw *hw,
+				  struct ieee80211_vif *vif,
+				  unsigned int link_id, u16 queue,
+				  const struct ieee80211_tx_queue_params *params)
 {
 	wiphy_dbg(hw->wiphy,
 		  "%s (queue=%d txop=%d cw_min=%d cw_max=%d aifs=%d)\n",
@@ -2763,7 +2899,7 @@ static void mac80211_hwsim_change_chanctx(struct ieee80211_hw *hw,
 
 static int mac80211_hwsim_assign_vif_chanctx(struct ieee80211_hw *hw,
 					     struct ieee80211_vif *vif,
-					     unsigned int link_id,
+					     struct ieee80211_bss_conf *link_conf,
 					     struct ieee80211_chanctx_conf *ctx)
 {
 	hwsim_check_magic(vif);
@@ -2774,7 +2910,7 @@ static int mac80211_hwsim_assign_vif_chanctx(struct ieee80211_hw *hw,
 
 static void mac80211_hwsim_unassign_vif_chanctx(struct ieee80211_hw *hw,
 						struct ieee80211_vif *vif,
-						unsigned int link_id,
+						struct ieee80211_bss_conf *link_conf,
 						struct ieee80211_chanctx_conf *ctx)
 {
 	hwsim_check_magic(vif);
@@ -2868,8 +3004,6 @@ static int mac80211_hwsim_change_sta_links(struct ieee80211_hw *hw,
 	.vif_cfg_changed = mac80211_hwsim_vif_info_changed,	\
 	.link_info_changed = mac80211_hwsim_link_info_changed,  \
 	.tx_last_beacon = mac80211_hwsim_tx_last_beacon,	\
-	.sta_add = mac80211_hwsim_sta_add,			\
-	.sta_remove = mac80211_hwsim_sta_remove,		\
 	.sta_notify = mac80211_hwsim_sta_notify,		\
 	.sta_rc_update = mac80211_hwsim_sta_rc_update,		\
 	.conf_tx = mac80211_hwsim_conf_tx,			\
@@ -2882,6 +3016,8 @@ static int mac80211_hwsim_change_sta_links(struct ieee80211_hw *hw,
 	.get_et_strings = mac80211_hwsim_get_et_strings,
 
 #define HWSIM_NON_MLO_OPS					\
+	.sta_add = mac80211_hwsim_sta_add,			\
+	.sta_remove = mac80211_hwsim_sta_remove,		\
 	.set_tim = mac80211_hwsim_set_tim,			\
 	.get_tsf = mac80211_hwsim_get_tsf,			\
 	.set_tsf = mac80211_hwsim_set_tsf,
@@ -2916,6 +3052,7 @@ static const struct ieee80211_ops mac80211_hwsim_mlo_ops = {
 	.set_rts_threshold = mac80211_hwsim_set_rts_threshold,
 	.change_vif_links = mac80211_hwsim_change_vif_links,
 	.change_sta_links = mac80211_hwsim_change_sta_links,
+	.sta_state = mac80211_hwsim_sta_state,
 };
 
 struct hwsim_new_radio_params {
@@ -3087,7 +3224,7 @@ static const struct ieee80211_sband_iftype_data sband_capa_2ghz[] = {
 			.has_eht = true,
 			.eht_cap_elem = {
 				.mac_cap_info[0] =
-					IEEE80211_EHT_MAC_CAP0_NSEP_PRIO_ACCESS |
+					IEEE80211_EHT_MAC_CAP0_EPCS_PRIO_ACCESS |
 					IEEE80211_EHT_MAC_CAP0_OM_CONTROL |
 					IEEE80211_EHT_MAC_CAP0_TRIG_TXOP_SHARING_MODE1,
 				.phy_cap_info[0] =
@@ -3240,7 +3377,7 @@ static const struct ieee80211_sband_iftype_data sband_capa_5ghz[] = {
 			.has_eht = true,
 			.eht_cap_elem = {
 				.mac_cap_info[0] =
-					IEEE80211_EHT_MAC_CAP0_NSEP_PRIO_ACCESS |
+					IEEE80211_EHT_MAC_CAP0_EPCS_PRIO_ACCESS |
 					IEEE80211_EHT_MAC_CAP0_OM_CONTROL |
 					IEEE80211_EHT_MAC_CAP0_TRIG_TXOP_SHARING_MODE1,
 				.phy_cap_info[0] =
@@ -3422,7 +3559,7 @@ static const struct ieee80211_sband_iftype_data sband_capa_6ghz[] = {
 			.has_eht = true,
 			.eht_cap_elem = {
 				.mac_cap_info[0] =
-					IEEE80211_EHT_MAC_CAP0_NSEP_PRIO_ACCESS |
+					IEEE80211_EHT_MAC_CAP0_EPCS_PRIO_ACCESS |
 					IEEE80211_EHT_MAC_CAP0_OM_CONTROL |
 					IEEE80211_EHT_MAC_CAP0_TRIG_TXOP_SHARING_MODE1,
 				.phy_cap_info[0] =
@@ -4207,10 +4344,10 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	/* look for the skb matching the cookie passed back from user */
 	spin_lock_irqsave(&data2->pending.lock, flags);
 	skb_queue_walk_safe(&data2->pending, skb, tmp) {
-		u64 skb_cookie;
+		uintptr_t skb_cookie;
 
 		txi = IEEE80211_SKB_CB(skb);
-		skb_cookie = (u64)(uintptr_t)txi->rate_driver_data[0];
+		skb_cookie = (uintptr_t)txi->rate_driver_data[0];
 
 		if (skb_cookie == ret_skb_cookie) {
 			__skb_unlink(skb, &data2->pending);
