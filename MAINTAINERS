@@ -16029,6 +16029,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-pinctrl.git
 F:	Documentation/devicetree/bindings/pinctrl/
 F:	Documentation/driver-api/pin-control.rst
 F:	drivers/pinctrl/
+F:	include/dt-bindings/pinctrl/
 F:	include/linux/pinctrl/
 
 PIN CONTROLLER - AMD
@@ -16041,7 +16042,7 @@ PIN CONTROLLER - FREESCALE
 M:	Dong Aisheng <aisheng.dong@nxp.com>
 M:	Fabio Estevam <festevam@gmail.com>
 M:	Shawn Guo <shawnguo@kernel.org>
-M:	Stefan Agner <stefan@agner.ch>
+M:	Jacky Bai <ping.bai@nxp.com>
 R:	Pengutronix Kernel Team <kernel@pengutronix.de>
 L:	linux-gpio@vger.kernel.org
 S:	Maintained
