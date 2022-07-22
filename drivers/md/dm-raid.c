@@ -1369,7 +1369,7 @@ static int parse_raid_params(struct raid_set *rs, struct dm_arg_set *as,
 			}
 			rs->md.bitmap_info.daemon_sleep = value;
 		} else if (!strcasecmp(key, dm_raid_arg_name_by_flag(CTR_FLAG_DATA_OFFSET))) {
-			/* Userspace passes new data_offset after having extended the the data image LV */
+			/* Userspace passes new data_offset after having extended the data image LV */
 			if (test_and_set_bit(__CTR_FLAG_DATA_OFFSET, &rs->ctr_flags)) {
 				rs->ti->error = "Only one data_offset argument pair allowed";
 				return -EINVAL;
@@ -3335,6 +3335,18 @@ static int raid_map(struct dm_target *ti, struct bio *bio)
 	 */
 	if (unlikely(bio_end_sector(bio) > mddev->array_sectors))
 		return DM_MAPIO_REQUEUE;
+
+	/*
+	 * FIXME: must call bio_associate_blkg() to init bio->bi_blkg; otherwise
+	 * raid5.c:chunk_aligned_read() will crash in submit_bio_noacct()
+	 * (when blk_throtl_bio() dereferences a NULL blkg_to_tg(bio->bi_blkg)
+	 * because bio->bi_blkg is NULL).
+	 *
+	 * This is because raid5.c:chunk_aligned_read() uses @bio to recurse,
+	 * due to bio splitting before issuing any IO. Long-term fix would be
+	 * to refactor md_handle_request() callers to perform bio splitting.
+	 */
+	bio_associate_blkg(bio);
 
 	md_handle_request(mddev, bio);
 
