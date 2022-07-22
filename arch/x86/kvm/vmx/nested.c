@@ -311,11 +311,12 @@ static void free_nested(struct kvm_vcpu *vcpu)
 	vmx->nested.cached_vmcs12 = NULL;
 	kfree(vmx->nested.cached_shadow_vmcs12);
 	vmx->nested.cached_shadow_vmcs12 = NULL;
-	/* Unpin physical memory we referred to in the vmcs02 */
-	if (vmx->nested.apic_access_page) {
-		kvm_release_page_clean(vmx->nested.apic_access_page);
-		vmx->nested.apic_access_page = NULL;
-	}
+	/*
+	 * Unpin physical memory we referred to in the vmcs02.  The APIC access
+	 * page's backing page (yeah, confusing) shouldn't actually be accessed,
+	 * and if it is written, the contents are irrelevant.
+	 */
+	kvm_vcpu_unmap(vcpu, &vmx->nested.apic_access_page_map, false);
 	kvm_vcpu_unmap(vcpu, &vmx->nested.virtual_apic_map, true);
 	kvm_vcpu_unmap(vcpu, &vmx->nested.pi_desc_map, true);
 	vmx->nested.pi_desc = NULL;
@@ -2133,6 +2134,8 @@ static u64 nested_vmx_calc_efer(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 
 static void prepare_vmcs02_constant_state(struct vcpu_vmx *vmx)
 {
+	struct kvm *kvm = vmx->vcpu.kvm;
+
 	/*
 	 * If vmcs02 hasn't been initialized, set the constant vmcs02 state
 	 * according to L0's settings (vmcs12 is irrelevant here).  Host
@@ -2174,6 +2177,9 @@ static void prepare_vmcs02_constant_state(struct vcpu_vmx *vmx)
 
 	if (cpu_has_vmx_encls_vmexit())
 		vmcs_write64(ENCLS_EXITING_BITMAP, INVALID_GPA);
+
+	if (kvm_notify_vmexit_enabled(kvm))
+		vmcs_write32(NOTIFY_WINDOW, kvm->arch.notify_window);
 
 	/*
 	 * Set the MSR load/store lists to match L0's settings.  Only the
@@ -2514,11 +2520,11 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 		vmcs_write64(GUEST_IA32_DEBUGCTL, vmcs12->guest_ia32_debugctl);
 	} else {
 		kvm_set_dr(vcpu, 7, vcpu->arch.dr7);
-		vmcs_write64(GUEST_IA32_DEBUGCTL, vmx->nested.vmcs01_debugctl);
+		vmcs_write64(GUEST_IA32_DEBUGCTL, vmx->nested.pre_vmenter_debugctl);
 	}
 	if (kvm_mpx_supported() && (!vmx->nested.nested_run_pending ||
 	    !(vmcs12->vm_entry_controls & VM_ENTRY_LOAD_BNDCFGS)))
-		vmcs_write64(GUEST_BNDCFGS, vmx->nested.vmcs01_guest_bndcfgs);
+		vmcs_write64(GUEST_BNDCFGS, vmx->nested.pre_vmenter_bndcfgs);
 	vmx_set_rflags(vcpu, vmcs12->guest_rflags);
 
 	/* EXCEPTION_BITMAP and CR0_GUEST_HOST_MASK should basically be the
@@ -2547,7 +2553,7 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 			vmx_get_l2_tsc_multiplier(vcpu));
 
 	vmcs_write64(TSC_OFFSET, vcpu->arch.tsc_offset);
-	if (kvm_has_tsc_control)
+	if (kvm_caps.has_tsc_control)
 		vmcs_write64(TSC_MULTIPLIER, vcpu->arch.tsc_scaling_ratio);
 
 	nested_vmx_transition_tlb_flush(vcpu, vmcs12, true);
@@ -3158,8 +3164,6 @@ static bool nested_get_vmcs12_pages(struct kvm_vcpu *vcpu)
 	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	struct kvm_host_map *map;
-	struct page *page;
-	u64 hpa;
 
 	if (!vcpu->arch.pdptrs_from_userspace &&
 	    !nested_cpu_has_ept(vmcs12) && is_pae_paging(vcpu)) {
@@ -3174,23 +3178,12 @@ static bool nested_get_vmcs12_pages(struct kvm_vcpu *vcpu)
 
 
 	if (nested_cpu_has2(vmcs12, SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES)) {
-		/*
-		 * Translate L1 physical address to host physical
-		 * address for vmcs02. Keep the page pinned, so this
-		 * physical address remains valid. We keep a reference
-		 * to it so we can release it later.
-		 */
-		if (vmx->nested.apic_access_page) { /* shouldn't happen */
-			kvm_release_page_clean(vmx->nested.apic_access_page);
-			vmx->nested.apic_access_page = NULL;
-		}
-		page = kvm_vcpu_gpa_to_page(vcpu, vmcs12->apic_access_addr);
-		if (!is_error_page(page)) {
-			vmx->nested.apic_access_page = page;
-			hpa = page_to_phys(vmx->nested.apic_access_page);
-			vmcs_write64(APIC_ACCESS_ADDR, hpa);
+		map = &vmx->nested.apic_access_page_map;
+
+		if (!kvm_vcpu_map(vcpu, gpa_to_gfn(vmcs12->apic_access_addr), map)) {
+			vmcs_write64(APIC_ACCESS_ADDR, pfn_to_hpa(map->pfn));
 		} else {
-			pr_debug_ratelimited("%s: no backing 'struct page' for APIC-access address in vmcs12\n",
+			pr_debug_ratelimited("%s: no backing for APIC-access address in vmcs12\n",
 					     __func__);
 			vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 			vcpu->run->internal.suberror =
@@ -3373,11 +3366,13 @@ enum nvmx_vmentry_status nested_vmx_enter_non_root_mode(struct kvm_vcpu *vcpu,
 	if (likely(!evaluate_pending_interrupts) && kvm_vcpu_apicv_active(vcpu))
 		evaluate_pending_interrupts |= vmx_has_apicv_interrupt(vcpu);
 
-	if (!(vmcs12->vm_entry_controls & VM_ENTRY_LOAD_DEBUG_CONTROLS))
-		vmx->nested.vmcs01_debugctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	if (!vmx->nested.nested_run_pending ||
+	    !(vmcs12->vm_entry_controls & VM_ENTRY_LOAD_DEBUG_CONTROLS))
+		vmx->nested.pre_vmenter_debugctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
 	if (kvm_mpx_supported() &&
-		!(vmcs12->vm_entry_controls & VM_ENTRY_LOAD_BNDCFGS))
-		vmx->nested.vmcs01_guest_bndcfgs = vmcs_read64(GUEST_BNDCFGS);
+	    (!vmx->nested.nested_run_pending ||
+	     !(vmcs12->vm_entry_controls & VM_ENTRY_LOAD_BNDCFGS)))
+		vmx->nested.pre_vmenter_bndcfgs = vmcs_read64(GUEST_BNDCFGS);
 
 	/*
 	 * Overwrite vmcs01.GUEST_CR3 with L1's CR3 if EPT is disabled *and*
@@ -4096,8 +4091,6 @@ static void sync_vmcs02_to_vmcs12_rare(struct kvm_vcpu *vcpu,
 	vmcs12->guest_idtr_base = vmcs_readl(GUEST_IDTR_BASE);
 	vmcs12->guest_pending_dbg_exceptions =
 		vmcs_readl(GUEST_PENDING_DBG_EXCEPTIONS);
-	if (kvm_mpx_supported())
-		vmcs12->guest_bndcfgs = vmcs_read64(GUEST_BNDCFGS);
 
 	vmx->nested.need_sync_vmcs02_to_vmcs12_rare = false;
 }
@@ -4609,7 +4602,7 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, vmx->msr_autoload.host.nr);
 	vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, vmx->msr_autoload.guest.nr);
 	vmcs_write64(TSC_OFFSET, vcpu->arch.tsc_offset);
-	if (kvm_has_tsc_control)
+	if (kvm_caps.has_tsc_control)
 		vmcs_write64(TSC_MULTIPLIER, vcpu->arch.tsc_scaling_ratio);
 
 	if (vmx->nested.l1_tpr_threshold != -1)
@@ -4626,10 +4619,7 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 	}
 
 	/* Unpin physical memory we referred to in vmcs02 */
-	if (vmx->nested.apic_access_page) {
-		kvm_release_page_clean(vmx->nested.apic_access_page);
-		vmx->nested.apic_access_page = NULL;
-	}
+	kvm_vcpu_unmap(vcpu, &vmx->nested.apic_access_page_map, false);
 	kvm_vcpu_unmap(vcpu, &vmx->nested.virtual_apic_map, true);
 	kvm_vcpu_unmap(vcpu, &vmx->nested.pi_desc_map, true);
 	vmx->nested.pi_desc = NULL;
@@ -6111,6 +6101,9 @@ static bool nested_vmx_l1_wants_exit(struct kvm_vcpu *vcpu,
 			SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE);
 	case EXIT_REASON_ENCLS:
 		return nested_vmx_exit_handled_encls(vcpu, vmcs12);
+	case EXIT_REASON_NOTIFY:
+		/* Notify VM exit is not exposed to L1 */
+		return false;
 	default:
 		return true;
 	}
