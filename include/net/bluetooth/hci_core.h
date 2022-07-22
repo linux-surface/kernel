@@ -243,8 +243,10 @@ struct adv_info {
 	__u16	duration;
 	__u16	adv_data_len;
 	__u8	adv_data[HCI_MAX_EXT_AD_LENGTH];
+	bool	adv_data_changed;
 	__u16	scan_rsp_len;
 	__u8	scan_rsp_data[HCI_MAX_EXT_AD_LENGTH];
+	bool	scan_rsp_changed;
 	__s8	tx_power;
 	__u32   min_interval;
 	__u32   max_interval;
@@ -257,6 +259,15 @@ struct adv_info {
 #define HCI_DEFAULT_ADV_DURATION	2
 
 #define HCI_ADV_TX_POWER_NO_PREFERENCE 0x7F
+
+#define DATA_CMP(_d1, _l1, _d2, _l2) \
+	(_l1 == _l2 ? memcmp(_d1, _d2, _l1) : _l1 - _l2)
+
+#define ADV_DATA_CMP(_adv, _data, _len) \
+	DATA_CMP((_adv)->adv_data, (_adv)->adv_data_len, _data, _len)
+
+#define SCAN_RSP_CMP(_adv, _data, _len) \
+	DATA_CMP((_adv)->scan_rsp_data, (_adv)->scan_rsp_len, _data, _len)
 
 struct monitored_device {
 	struct list_head list;
@@ -1286,6 +1297,8 @@ void hci_free_dev(struct hci_dev *hdev);
 int hci_register_dev(struct hci_dev *hdev);
 void hci_unregister_dev(struct hci_dev *hdev);
 void hci_release_dev(struct hci_dev *hdev);
+int hci_register_suspend_notifier(struct hci_dev *hdev);
+int hci_unregister_suspend_notifier(struct hci_dev *hdev);
 int hci_suspend_dev(struct hci_dev *hdev);
 int hci_resume_dev(struct hci_dev *hdev);
 int hci_reset_dev(struct hci_dev *hdev);
@@ -1407,12 +1420,9 @@ bool hci_adv_instance_is_scannable(struct hci_dev *hdev, u8 instance);
 
 void hci_adv_monitors_clear(struct hci_dev *hdev);
 void hci_free_adv_monitor(struct hci_dev *hdev, struct adv_monitor *monitor);
-int hci_add_adv_patterns_monitor_complete(struct hci_dev *hdev, u8 status);
-int hci_remove_adv_monitor_complete(struct hci_dev *hdev, u8 status);
-bool hci_add_adv_monitor(struct hci_dev *hdev, struct adv_monitor *monitor,
-			int *err);
-bool hci_remove_single_adv_monitor(struct hci_dev *hdev, u16 handle, int *err);
-bool hci_remove_all_adv_monitor(struct hci_dev *hdev, int *err);
+int hci_add_adv_monitor(struct hci_dev *hdev, struct adv_monitor *monitor);
+int hci_remove_single_adv_monitor(struct hci_dev *hdev, u16 handle);
+int hci_remove_all_adv_monitor(struct hci_dev *hdev);
 bool hci_is_adv_monitoring(struct hci_dev *hdev);
 int hci_get_adv_monitor_offload_ext(struct hci_dev *hdev);
 
@@ -1872,8 +1882,6 @@ void mgmt_advertising_removed(struct sock *sk, struct hci_dev *hdev,
 			      u8 instance);
 void mgmt_adv_monitor_removed(struct hci_dev *hdev, u16 handle);
 int mgmt_phy_configuration_changed(struct hci_dev *hdev, struct sock *skip);
-int mgmt_add_adv_patterns_monitor_complete(struct hci_dev *hdev, u8 status);
-int mgmt_remove_adv_monitor_complete(struct hci_dev *hdev, u8 status);
 void mgmt_adv_monitor_device_lost(struct hci_dev *hdev, u16 handle,
 				  bdaddr_t *bdaddr, u8 addr_type);
 
