@@ -230,6 +230,22 @@ config QCOM_TEE
 	tristate
 	select QCOM_SCM
 
+config QCOM_TEE_UEFISECAPP
+	tristate "Qualcomm TrEE UEFI Secure App client driver"
+	select QCOM_TEE
+	depends on EFI
+	help
+	  Various Qualcomm SoCs do not allow direct access to EFI variables.
+	  Instead, these need to be accessed via the UEFI Secure Application
+	  (uefisecapp), residing in the Trusted Execution Environment (TrEE).
+
+	  This module provides a client driver for uefisecapp, installing efivar
+	  operations to allow the kernel accessing EFI variables, and via that also
+	  provide user-space with access to EFI variables to via efivarfs.
+
+	  Select Y or M here to provide access to EFI variables on the
+	  aforementioned platforms.
+
 config SYSFB
 	bool
 	select BOOT_VESA_SUPPORT
