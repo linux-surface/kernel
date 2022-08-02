@@ -848,15 +848,15 @@ static void dwc3_core_exit(struct dwc3 *dwc)
 	dwc3_event_buffers_cleanup(dwc);
 
 	for (i = 0; i < dwc->num_ports; i++) {
-		usb_phy_shutdown(dwc->usb2_phy[i]);
-		usb_phy_shutdown(dwc->usb3_phy[i]);
-		phy_exit(dwc->usb2_generic_phy[i]);
-		phy_exit(dwc->usb3_generic_phy[i]);
-
 		usb_phy_set_suspend(dwc->usb2_phy[i], 1);
 		usb_phy_set_suspend(dwc->usb3_phy[i], 1);
 		phy_power_off(dwc->usb2_generic_phy[i]);
 		phy_power_off(dwc->usb3_generic_phy[i]);
+
+		usb_phy_shutdown(dwc->usb2_phy[i]);
+		usb_phy_shutdown(dwc->usb3_phy[i]);
+		phy_exit(dwc->usb2_generic_phy[i]);
+		phy_exit(dwc->usb3_generic_phy[i]);
 	}
 
 	dwc3_clk_disable(dwc);
@@ -1996,21 +1996,21 @@ err5:
 	dwc3_event_buffers_cleanup(dwc);
 
 	for (i = 0; i < dwc->num_ports; i++) {
-		usb_phy_shutdown(dwc->usb2_phy[i]);
-		usb_phy_shutdown(dwc->usb3_phy[i]);
-	}
-	for (i = 0; i < dwc->num_ports; i++) {
-		phy_exit(dwc->usb2_generic_phy[i]);
-		phy_exit(dwc->usb3_generic_phy[i]);
-	}
-
-	for (i = 0; i < dwc->num_ports; i++) {
 		usb_phy_set_suspend(dwc->usb2_phy[i], 1);
 		usb_phy_set_suspend(dwc->usb3_phy[i], 1);
 	}
 	for (i = 0; i < dwc->num_ports; i++) {
 		phy_power_off(dwc->usb2_generic_phy[i]);
 		phy_power_off(dwc->usb3_generic_phy[i]);
+	}
+
+	for (i = 0; i < dwc->num_ports; i++) {
+		usb_phy_shutdown(dwc->usb2_phy[i]);
+		usb_phy_shutdown(dwc->usb3_phy[i]);
+	}
+	for (i = 0; i < dwc->num_ports; i++) {
+		phy_exit(dwc->usb2_generic_phy[i]);
+		phy_exit(dwc->usb3_generic_phy[i]);
 	}
 
 	dwc3_ulpi_exit(dwc);
