@@ -395,7 +395,7 @@ static void dwc3_qcom_enable_interrupts(struct dwc3_qcom *qcom)
 	dwc3_qcom_enable_wakeup_irq(qcom->ss_phy_irq, 0);
 }
 
-static int dwc3_qcom_suspend(struct dwc3_qcom *qcom)
+static int dwc3_qcom_suspend(struct dwc3_qcom *qcom, bool wakeup)
 {
 	u32 val;
 	int i, ret;
@@ -414,7 +414,7 @@ static int dwc3_qcom_suspend(struct dwc3_qcom *qcom)
 	if (ret)
 		dev_warn(qcom->dev, "failed to disable interconnect: %d\n", ret);
 
-	if (device_may_wakeup(qcom->dev)) {
+	if (wakeup) {
 		qcom->usb2_speed = dwc3_qcom_read_usb2_speed(qcom);
 		dwc3_qcom_enable_interrupts(qcom);
 	}
@@ -424,7 +424,7 @@ static int dwc3_qcom_suspend(struct dwc3_qcom *qcom)
 	return 0;
 }
 
-static int dwc3_qcom_resume(struct dwc3_qcom *qcom)
+static int dwc3_qcom_resume(struct dwc3_qcom *qcom, bool wakeup)
 {
 	int ret;
 	int i;
@@ -432,7 +432,7 @@ static int dwc3_qcom_resume(struct dwc3_qcom *qcom)
 	if (!qcom->is_suspended)
 		return 0;
 
-	if (device_may_wakeup(qcom->dev))
+	if (wakeup)
 		dwc3_qcom_disable_interrupts(qcom);
 
 	for (i = 0; i < qcom->num_clocks; i++) {
@@ -939,9 +939,11 @@ static int dwc3_qcom_remove(struct platform_device *pdev)
 static int __maybe_unused dwc3_qcom_pm_suspend(struct device *dev)
 {
 	struct dwc3_qcom *qcom = dev_get_drvdata(dev);
+	bool wakeup = device_may_wakeup(dev);
 	int ret = 0;
 
-	ret = dwc3_qcom_suspend(qcom);
+
+	ret = dwc3_qcom_suspend(qcom, wakeup);
 	if (!ret)
 		qcom->pm_suspended = true;
 
@@ -951,9 +953,10 @@ static int __maybe_unused dwc3_qcom_pm_suspend(struct device *dev)
 static int __maybe_unused dwc3_qcom_pm_resume(struct device *dev)
 {
 	struct dwc3_qcom *qcom = dev_get_drvdata(dev);
+	bool wakeup = device_may_wakeup(dev);
 	int ret;
 
-	ret = dwc3_qcom_resume(qcom);
+	ret = dwc3_qcom_resume(qcom, wakeup);
 	if (!ret)
 		qcom->pm_suspended = false;
 
@@ -964,14 +967,14 @@ static int __maybe_unused dwc3_qcom_runtime_suspend(struct device *dev)
 {
 	struct dwc3_qcom *qcom = dev_get_drvdata(dev);
 
-	return dwc3_qcom_suspend(qcom);
+	return dwc3_qcom_suspend(qcom, true);
 }
 
 static int __maybe_unused dwc3_qcom_runtime_resume(struct device *dev)
 {
 	struct dwc3_qcom *qcom = dev_get_drvdata(dev);
 
-	return dwc3_qcom_resume(qcom);
+	return dwc3_qcom_resume(qcom, true);
 }
 
 static const struct dev_pm_ops dwc3_qcom_dev_pm_ops = {
