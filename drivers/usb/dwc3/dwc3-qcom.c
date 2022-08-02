@@ -301,8 +301,17 @@ static void dwc3_qcom_interconnect_exit(struct dwc3_qcom *qcom)
 static enum usb_device_speed dwc3_qcom_read_usb2_speed(struct dwc3_qcom *qcom)
 {
 	struct dwc3 *dwc = platform_get_drvdata(qcom->dwc3);
-	struct usb_hcd *hcd = platform_get_drvdata(dwc->xhci);
 	struct usb_device *udev;
+	struct usb_hcd *hcd;
+
+	if (qcom->mode != USB_DR_MODE_HOST)
+		return USB_SPEED_UNKNOWN;
+
+	/*
+	 * FIXME: Fix this nasty layering violation which currently only
+	 *        "works" in host mode.
+	 */
+	hcd = platform_get_drvdata(dwc->xhci);
 
 	/*
 	 * It is possible to query the speed of all children of
