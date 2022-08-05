@@ -4204,7 +4204,7 @@ static struct gdsc pcie_0_gdsc = {
 		.name = "pcie_0_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = POLL_CFG_GDSCR,
+	.flags = POLL_CFG_GDSCR | ALWAYS_ON,
 };
 
 static struct gdsc ufs_card_gdsc = {
@@ -4231,7 +4231,7 @@ static struct gdsc pcie_1_gdsc = {
 		.name = "pcie_1_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = POLL_CFG_GDSCR,
+	.flags = POLL_CFG_GDSCR | ALWAYS_ON,
 };
 
 static struct gdsc pcie_2_gdsc = {
@@ -4240,7 +4240,7 @@ static struct gdsc pcie_2_gdsc = {
 		.name = "pcie_2_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = POLL_CFG_GDSCR,
+	.flags = POLL_CFG_GDSCR | ALWAYS_ON,
 };
 
 static struct gdsc ufs_card_2_gdsc = {
@@ -4258,7 +4258,7 @@ static struct gdsc pcie_3_gdsc = {
 		.name = "pcie_3_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = POLL_CFG_GDSCR,
+	.flags = POLL_CFG_GDSCR | ALWAYS_ON,
 };
 
 static struct gdsc usb30_mp_gdsc = {
