@@ -104,6 +104,23 @@ static int set_processor_mask(u32 id, u32 flags)
 }
 #endif
 
+static int __init
+acpi_parse_processor(union acpi_subtable_headers *header, const unsigned long end)
+{
+	struct acpi_madt_core_pic *processor = NULL;
+
+	processor = (struct acpi_madt_core_pic *)header;
+	if (BAD_MADT_ENTRY(processor, end))
+		return -EINVAL;
+
+	acpi_table_print_madt_entry(&header->common);
+#ifdef CONFIG_SMP
+	set_processor_mask(processor->core_id, processor->flags);
+#endif
+
+	return 0;
+}
+
 static void __init acpi_process_madt(void)
 {
 #ifdef CONFIG_SMP
@@ -114,6 +131,7 @@ static void __init acpi_process_madt(void)
 		__cpu_logical_map[i] = -1;
 	}
 #endif
+	acpi_table_parse_madt(ACPI_MADT_TYPE_CORE_PIC, acpi_parse_processor, MAX_CORE_PIC);
 
 	loongson_sysconf.nr_cpus = num_processors;
 }
