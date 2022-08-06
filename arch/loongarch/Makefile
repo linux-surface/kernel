@@ -7,7 +7,11 @@ boot	:= arch/loongarch/boot
 
 KBUILD_DEFCONFIG := loongson3_defconfig
 
+ifndef CONFIG_EFI_STUB
 KBUILD_IMAGE	= $(boot)/vmlinux
+else
+KBUILD_IMAGE	= $(boot)/vmlinux.efi
+endif
 
 #
 # Select the object file format to substitute into the linker script.
@@ -75,6 +79,7 @@ endif
 head-y := arch/loongarch/kernel/head.o
 
 libs-y += arch/loongarch/lib/
+libs-$(CONFIG_EFI_STUB) += $(objtree)/drivers/firmware/efi/libstub/lib.a
 
 ifeq ($(KBUILD_EXTMOD),)
 prepare: vdso_prepare
