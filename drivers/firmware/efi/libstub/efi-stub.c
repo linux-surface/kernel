@@ -40,9 +40,9 @@
 
 #ifdef CONFIG_ARM64
 # define EFI_RT_VIRTUAL_LIMIT	DEFAULT_MAP_WINDOW_64
-#elif defined(CONFIG_RISCV)
+#elif defined(CONFIG_RISCV) || defined(CONFIG_LOONGARCH)
 # define EFI_RT_VIRTUAL_LIMIT	TASK_SIZE_MIN
-#else
+#else /* Only if TASK_SIZE is a constant */
 # define EFI_RT_VIRTUAL_LIMIT	TASK_SIZE
 #endif
 

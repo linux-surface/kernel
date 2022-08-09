@@ -14,3 +14,7 @@ quiet_cmd_strip = STRIP	  $@
 
 $(obj)/vmlinux: vmlinux FORCE
 	$(call if_changed,strip)
+
+targets += vmlinux.efi
+$(obj)/vmlinux.efi: $(obj)/vmlinux FORCE
+	$(call if_changed,objcopy)

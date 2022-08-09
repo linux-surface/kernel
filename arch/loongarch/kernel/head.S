@@ -12,6 +12,32 @@
 #include <asm/loongarch.h>
 #include <asm/stackframe.h>
 
+#ifdef CONFIG_EFI_STUB
+
+#include "efi-header.S"
+
+	__HEAD
+
+_head:
+	.word	MZ_MAGIC		/* "MZ", MS-DOS header */
+	.org	0x38
+#ifdef CONFIG_32BIT
+	.ascii	"LA32"			/* Magic number for BootLoader */
+#else
+	.ascii	"LA64"			/* Magic number for BootLoader */
+#endif
+	.org	0x3c
+	.long	pe_header - _head	/* Offset to the PE header */
+
+pe_header:
+	__EFI_PE_HEADER
+
+SYM_DATA(kernel_asize, .long _end - _text);
+SYM_DATA(kernel_fsize, .long _edata - _text);
+SYM_DATA(kernel_offset, .long kernel_offset - _text);
+
+#endif
+
 	__REF
 
 SYM_CODE_START(kernel_entry)			# kernel entry point

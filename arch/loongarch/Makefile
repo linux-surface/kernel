@@ -7,7 +7,11 @@ boot	:= arch/loongarch/boot
 
 KBUILD_DEFCONFIG := loongson3_defconfig
 
+ifndef CONFIG_EFI_STUB
 KBUILD_IMAGE	= $(boot)/vmlinux
+else
+KBUILD_IMAGE	= $(boot)/vmlinux.efi
+endif
 
 #
 # Select the object file format to substitute into the linker script.
@@ -47,6 +51,8 @@ cflags-y += $(call cc-option, -mno-check-zero-division)
 load-y		= 0x9000000000200000
 bootvars-y	= VMLINUX_LOAD_ADDRESS=$(load-y)
 
+drivers-$(CONFIG_PCI)		+= arch/loongarch/pci/
+
 KBUILD_AFLAGS	+= $(cflags-y)
 KBUILD_CFLAGS	+= $(cflags-y)
 KBUILD_CPPFLAGS += -DVMLINUX_LOAD_ADDRESS=$(load-y)
@@ -73,6 +79,7 @@ endif
 head-y := arch/loongarch/kernel/head.o
 
 libs-y += arch/loongarch/lib/
+libs-$(CONFIG_EFI_STUB) += $(objtree)/drivers/firmware/efi/libstub/lib.a
 
 ifeq ($(KBUILD_EXTMOD),)
 prepare: vdso_prepare
