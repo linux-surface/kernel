@@ -1245,9 +1245,10 @@ static int spi_hid_ll_raw_request(struct hid_device *hid,
 			break;
 		}
 
-		ret = min_t(size_t, len,
+		ret = min_t(size_t, len - 1,
 			(shid->response.body[0] | (shid->response.body[1] << 8)) - 3);
-		memcpy(buf, &shid->response.content, ret);
+		memcpy(&buf[1], &shid->response.content, ret);
+		buf[0] = reportnum;
 		break;
 	default:
 		dev_err(dev, "invalid request type\n");
