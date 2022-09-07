@@ -1093,18 +1093,10 @@ static int imgu_v4l2_subdev_register(struct imgu_device *imgu,
 			"failed to create subdev v4l2 ctrl with err %d", r);
 		goto fail_subdev;
 	}
-
-	r = v4l2_subdev_init_finalize(&imgu_sd->subdev);
-	if (r) {
-		dev_err(&imgu->pci_dev->dev,
-			"failed to initialize subdev (%d)\n", r);
-		goto fail_subdev;
-	}
-
 	r = v4l2_device_register_subdev(&imgu->v4l2_dev, &imgu_sd->subdev);
 	if (r) {
 		dev_err(&imgu->pci_dev->dev,
-			"failed to register subdev (%d)\n", r);
+			"failed initialize subdev (%d)\n", r);
 		goto fail_subdev;
 	}
 
@@ -1112,7 +1104,6 @@ static int imgu_v4l2_subdev_register(struct imgu_device *imgu,
 	return 0;
 
 fail_subdev:
-	v4l2_subdev_cleanup(&imgu_sd->subdev);
 	v4l2_ctrl_handler_free(imgu_sd->subdev.ctrl_handler);
 	media_entity_cleanup(&imgu_sd->subdev.entity);
 
@@ -1284,7 +1275,6 @@ static void imgu_v4l2_subdev_cleanup(struct imgu_device *imgu, unsigned int i)
 	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[i];
 
 	v4l2_device_unregister_subdev(&imgu_pipe->imgu_sd.subdev);
-	v4l2_subdev_cleanup(&imgu_pipe->imgu_sd.subdev);
 	v4l2_ctrl_handler_free(imgu_pipe->imgu_sd.subdev.ctrl_handler);
 	media_entity_cleanup(&imgu_pipe->imgu_sd.subdev.entity);
 }
