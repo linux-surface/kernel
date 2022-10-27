@@ -35,4 +35,16 @@
 #define small_const_nbits(nbits) \
 	(__builtin_constant_p(nbits) && (nbits) <= BITS_PER_LONG && (nbits) > 0)
 
+/*
+ * small_const_nbits_off(nbits, off) is true precisely when it is known at
+ * compile-time that all bits in range [off, nbits) belong to the same word.
+ * Bitmaps of size 0 are very rare, and a compile-time-known-size 0 is most
+ * likely a sign of error. They will be handled correctly by the bit/bitmap
+ * APIs using the out-of-line functions, so that the inline implementations
+ * can unconditionally dereference the pointer(s).
+ */
+#define small_const_nbits_off(nbits, off) \
+	(__builtin_constant_p(nbits) && __builtin_constant_p(off) && (nbits) > 0 && \
+	 (nbits) > (off) && (off) / BITS_PER_LONG == ((nbits) - 1) / BITS_PER_LONG)
+
 #endif /* __ASM_GENERIC_BITS_PER_LONG */
