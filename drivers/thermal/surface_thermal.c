@@ -19,7 +19,7 @@
 
 SSAM_DEFINE_SYNC_REQUEST_R(__ssam_tmp_get_available_sensors, __le16, {
 	.target_category = SSAM_SSH_TC_TMP,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.command_id      = 0x04,
 	.instance_id     = 0x00,
 });
@@ -142,7 +142,7 @@ static void ssam_thermal_sensor_remove(struct ssam_device *sdev)
 }
 
 static const struct ssam_device_id ssam_thermal_sensor_match[] = {
-	{ SSAM_SDEV(TMP, 0x01, SSAM_ANY_IID, 0x00) },
+	{ SSAM_SDEV(TMP, SAM, SSAM_SSH_IID_ANY, 0x00) },
 	{ },
 };
 MODULE_DEVICE_TABLE(ssam, ssam_thermal_sensor_match);
