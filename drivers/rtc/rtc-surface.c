@@ -21,14 +21,14 @@ struct surface_rtc {
 
 SSAM_DEFINE_SYNC_REQUEST_R(__ssam_rtc_get_unix_time, __le32, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.instance_id     = 0x00,
 	.command_id      = 0x10,
 });
 
 SSAM_DEFINE_SYNC_REQUEST_W(__ssam_rtc_set_unix_time, __le32, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.instance_id     = 0x00,
 	.command_id      = 0x0f,
 });
@@ -108,7 +108,7 @@ static void surface_rtc_remove(struct ssam_device *sdev)
 }
 
 static const struct ssam_device_id surface_rtc_match[] = {
-	{ SSAM_SDEV(SAM, 0x01, 0x00, 0x00) },
+	{ SSAM_SDEV(SAM, SAM, 0x00, 0x00) },
 	{ },
 };
 MODULE_DEVICE_TABLE(ssam, surface_rtc_match);
