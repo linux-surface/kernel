@@ -544,6 +544,7 @@ static const struct of_device_id __maybe_unused qcom_smmu_impl_of_match[] = {
 static struct acpi_platform_list qcom_acpi_platlist[] = {
 	{ "LENOVO", "CB-01   ", 0x8180, ACPI_SIG_IORT, equal, "QCOM SMMU" },
 	{ "QCOM  ", "QCOMEDK2", 0x8180, ACPI_SIG_IORT, equal, "QCOM SMMU" },
+	{ "QCOM  ", "QCOMEDK2", 0x8280, ACPI_SIG_IORT, equal, "QCOM SMMU" },
 	{ }
 };
 #endif
