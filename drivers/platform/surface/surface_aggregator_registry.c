@@ -292,7 +292,11 @@ static const struct software_node *ssam_node_group_sp9[] = {
 	&ssam_node_bat_ac,
 	&ssam_node_bat_main,
 	&ssam_node_tmp_pprof,
-	/* TODO: typecover/KIP devices, we can likely reuse the SP8 node but need validation */
+	/* TODO: POS tablet mode switch */
+	&ssam_node_hid_kip_keyboard,
+	&ssam_node_hid_kip_penstash,
+	&ssam_node_hid_kip_touchpad,
+	&ssam_node_hid_kip_fwupd,
 	&ssam_node_hid_sam_sensors,
 	&ssam_node_hid_sam_ucm_ucsi,
 	NULL,
