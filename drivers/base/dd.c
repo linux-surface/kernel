@@ -261,6 +261,7 @@ static int driver_deferred_probe_timeout = 10;
 #else
 static int driver_deferred_probe_timeout;
 #endif
+static int fw_devlink_timeout = -1;
 
 static int __init deferred_probe_timeout_setup(char *str)
 {
@@ -271,6 +272,16 @@ static int __init deferred_probe_timeout_setup(char *str)
 	return 1;
 }
 __setup("deferred_probe_timeout=", deferred_probe_timeout_setup);
+
+static int __init fw_devlink_timeout_setup(char *str)
+{
+	int timeout;
+
+	if (!kstrtoint(str, 10, &timeout))
+		fw_devlink_timeout = timeout;
+	return 1;
+}
+__setup("fw_devlink.timeout=", fw_devlink_timeout_setup);
 
 /**
  * driver_deferred_probe_check_state() - Check deferred probe state
@@ -320,6 +331,15 @@ static void deferred_probe_timeout_work_func(struct work_struct *work)
 }
 static DECLARE_DELAYED_WORK(deferred_probe_timeout_work, deferred_probe_timeout_work_func);
 
+static void fw_devlink_timeout_work_func(struct work_struct *work)
+{
+	fw_devlink_drivers_done();
+
+	driver_deferred_probe_trigger();
+	flush_work(&deferred_probe_work);
+}
+static DECLARE_DELAYED_WORK(fw_devlink_timeout_work, fw_devlink_timeout_work_func);
+
 void deferred_probe_extend_timeout(void)
 {
 	/*
@@ -331,6 +351,13 @@ void deferred_probe_extend_timeout(void)
 				driver_deferred_probe_timeout * HZ);
 		pr_debug("Extended deferred probe timeout by %d secs\n",
 					driver_deferred_probe_timeout);
+	}
+
+	if (cancel_delayed_work(&fw_devlink_timeout_work)) {
+		schedule_delayed_work(&fw_devlink_timeout_work,
+				      fw_devlink_timeout * HZ);
+		pr_debug("Extended fw_devlink timeout by %d secs\n",
+			 fw_devlink_timeout);
 	}
 }
 
@@ -354,8 +381,11 @@ static int deferred_probe_initcall(void)
 
 	if (!IS_ENABLED(CONFIG_MODULES)) {
 		driver_deferred_probe_timeout = 0;
-		fw_devlink_drivers_done();
+		fw_devlink_timeout = 0;
 	}
+
+	if (!fw_devlink_timeout)
+		fw_devlink_drivers_done();
 
 	/*
 	 * Trigger deferred probe again, this time we won't defer anything
@@ -367,6 +397,11 @@ static int deferred_probe_initcall(void)
 	if (driver_deferred_probe_timeout > 0) {
 		schedule_delayed_work(&deferred_probe_timeout_work,
 			driver_deferred_probe_timeout * HZ);
+	}
+
+	if (fw_devlink_timeout > 0) {
+		schedule_delayed_work(&fw_devlink_timeout_work,
+				      fw_devlink_timeout * HZ);
 	}
 
 	if (!IS_ENABLED(CONFIG_MODULES))
