@@ -352,8 +352,10 @@ static int deferred_probe_initcall(void)
 	flush_work(&deferred_probe_work);
 	initcalls_done = true;
 
-	if (!IS_ENABLED(CONFIG_MODULES))
+	if (!IS_ENABLED(CONFIG_MODULES)) {
+		driver_deferred_probe_timeout = 0;
 		fw_devlink_drivers_done();
+	}
 
 	/*
 	 * Trigger deferred probe again, this time we won't defer anything
