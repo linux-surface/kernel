@@ -1686,6 +1686,13 @@
 				deferred_probe_timeout has expired or by
 				late_initcall() if !CONFIG_MODULES.
 
+	fw_devlink.timeout=
+			[KNL] Debugging option to set a timeout in seconds for
+			drivers to give up waiting on dependencies and to probe
+			these are optional. A timeout of 0 will timeout at the
+			end of initcalls. If the time out hasn't expired, it'll
+			be restarted by each successful driver registration.
+
 	gamecon.map[2|3]=
 			[HW,JOY] Multisystem joystick and NES/SNES/PSX pad
 			support via parallel port (up to 5 devices per port)
