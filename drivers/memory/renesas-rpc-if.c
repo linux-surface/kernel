@@ -578,6 +578,7 @@ int rpcif_manual_xfer(struct rpcif *rpc)
 		}
 		break;
 	default:
+		regmap_write(rpc->regmap, RPCIF_SMADR, rpc->smadr);
 		regmap_write(rpc->regmap, RPCIF_SMENR, rpc->enable);
 		regmap_write(rpc->regmap, RPCIF_SMCR,
 			     rpc->smcr | RPCIF_SMCR_SPIE);
