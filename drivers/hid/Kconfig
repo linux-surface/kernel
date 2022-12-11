@@ -1429,6 +1429,8 @@ source "drivers/hid/surface-hid/Kconfig"
 
 source "drivers/hid/intel-thc-hid/Kconfig"
 
+source "drivers/hid/ipts/Kconfig"
+
 endif # HID
 
 # USB support may be used with HID disabled
