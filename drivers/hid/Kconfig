@@ -1337,4 +1337,6 @@ source "drivers/hid/surface-hid/Kconfig"
 
 source "drivers/hid/ipts/Kconfig"
 
+source "drivers/hid/ithc/Kconfig"
+
 endif # HID_SUPPORT
