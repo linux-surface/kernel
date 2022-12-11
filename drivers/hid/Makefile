@@ -177,3 +177,4 @@ obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
 obj-$(CONFIG_INTEL_THC_HID)     += intel-thc-hid/
 
 obj-$(CONFIG_HID_IPTS)          += ipts/
+obj-$(CONFIG_HID_ITHC)          += ithc/
