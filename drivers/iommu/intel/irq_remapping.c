@@ -382,6 +382,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
 	pci_for_each_dma_alias(dev, set_msi_sid_cb, &data);
 
 	/*
+	 * The Intel Touch Host Controller is at 00:10.6, but for some reason
+	 * the MSI interrupts have request id 01:05.0.
+	 * Disable id verification to work around this.
+	 * FIXME Find proper fix or turn this into a quirk.
+	 */
+	if (dev->vendor == PCI_VENDOR_ID_INTEL && (dev->class >> 8) == PCI_CLASS_INPUT_PEN) {
+		switch(dev->device) {
+		case 0x98d0: case 0x98d1: // LKF
+		case 0xa0d0: case 0xa0d1: // TGL LP
+		case 0x43d0: case 0x43d1: // TGL H
+			set_irte_sid(irte, SVT_NO_VERIFY, SQ_ALL_16, 0);
+			return 0;
+		}
+	}
+
+	/*
 	 * DMA alias provides us with a PCI device and alias.  The only case
 	 * where the it will return an alias on a different bus than the
 	 * device is the case of a PCIe-to-PCI bridge, where the alias is for
