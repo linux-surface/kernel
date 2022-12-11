@@ -172,3 +172,4 @@ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
 obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
 
 obj-$(CONFIG_HID_IPTS)          += ipts/
+obj-$(CONFIG_HID_ITHC)          += ithc/
