@@ -19,7 +19,7 @@ static inline bool within_error_injection_list(unsigned long addr)
 
 static inline int get_injectable_error_type(unsigned long addr)
 {
-	return EI_ETYPE_NONE;
+	return -EOPNOTSUPP;
 }
 
 #endif
