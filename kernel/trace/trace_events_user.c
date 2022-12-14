@@ -1100,8 +1100,10 @@ static int user_event_create(const char *raw_command)
 
 	group = current_user_event_group();
 
-	if (!group)
+	if (!group) {
+		kfree(name);
 		return -ENOENT;
+	}
 
 	mutex_lock(&group->reg_mutex);
 
@@ -1357,6 +1359,7 @@ put_user_lock:
 put_user:
 	user_event_destroy_fields(user);
 	user_event_destroy_validators(user);
+	kfree(user->call.print_fmt);
 	kfree(user);
 	return ret;
 }
