@@ -20,8 +20,7 @@ typedef int (*pm_callback_t)(struct device *);
 
 static pm_callback_t __rpm_get_callback(struct device *dev, size_t cb_offset)
 {
-	pm_callback_t cb;
-	const struct dev_pm_ops *ops;
+	const struct dev_pm_ops *ops = NULL;
 
 	if (dev->pm_domain)
 		ops = &dev->pm_domain->ops;
@@ -31,18 +30,14 @@ static pm_callback_t __rpm_get_callback(struct device *dev, size_t cb_offset)
 		ops = dev->class->pm;
 	else if (dev->bus && dev->bus->pm)
 		ops = dev->bus->pm;
-	else
-		ops = NULL;
 
 	if (ops)
-		cb = *(pm_callback_t *)((void *)ops + cb_offset);
-	else
-		cb = NULL;
+		return *(pm_callback_t *)((void *)ops + cb_offset);
 
-	if (!cb && dev->driver && dev->driver->pm)
-		cb = *(pm_callback_t *)((void *)dev->driver->pm + cb_offset);
+	if (dev->driver && dev->driver->pm)
+		return *(pm_callback_t *)((void *)dev->driver->pm + cb_offset);
 
-	return cb;
+	return NULL;
 }
 
 #define RPM_GET_CALLBACK(dev, callback) \
