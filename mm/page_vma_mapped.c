@@ -169,9 +169,9 @@ bool page_vma_mapped_walk(struct page_vma_mapped_walk *pvmw)
 		if (pvmw->pte)
 			return not_found(pvmw);
 		/*
-                 * All callers that get here will already hold the
-                 * i_mmap_rwsem.  Therefore, no additional locks need to be
-                 * taken before calling hugetlb_walk().
+		 * All callers that get here will already hold the
+		 * i_mmap_rwsem.  Therefore, no additional locks need to be
+		 * taken before calling hugetlb_walk().
 		 */
 		pvmw->pte = hugetlb_walk(vma, pvmw->address, size);
 		if (!pvmw->pte)
