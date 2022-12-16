@@ -308,7 +308,7 @@ SYSCALL_DEFINE2(memfd_create,
 			flags |= MFD_NOEXEC_SEAL;
 			break;
 		default:
-			pr_warn_ratelimited(
+			pr_warn_once(
 				"memfd_create(): MFD_NOEXEC_SEAL is enforced, pid=%d '%s'\n",
 				task_pid_nr(current), get_task_comm(comm, current));
 			return -EINVAL;
@@ -316,7 +316,7 @@ SYSCALL_DEFINE2(memfd_create,
 #else
 		flags |= MFD_EXEC;
 #endif
-		pr_warn_ratelimited(
+		pr_warn_once(
 			"memfd_create() without MFD_EXEC nor MFD_NOEXEC_SEAL, pid=%d '%s'\n",
 			task_pid_nr(current), get_task_comm(comm, current));
 	}
