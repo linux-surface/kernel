@@ -69,7 +69,7 @@ static int dhry_run_set(const char *val, const struct kernel_param *kp)
 	if (dhry_run && system_state == SYSTEM_RUNNING)
 		dhry_benchmark();
 
-	return ret;
+	return 0;
 }
 
 static int __init dhry_init(void)
