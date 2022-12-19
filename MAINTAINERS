@@ -22013,6 +22013,7 @@ F:	drivers/block/virtio_blk.c
 F:	drivers/scsi/virtio_scsi.c
 F:	drivers/vhost/scsi.c
 F:	include/uapi/linux/virtio_blk.h
+F:	include/uapi/linux/virtio_blk_ioctl.h
 F:	include/uapi/linux/virtio_scsi.h
 
 VIRTIO CONSOLE DRIVER
