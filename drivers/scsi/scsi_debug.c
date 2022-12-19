@@ -1899,6 +1899,13 @@ static int resp_readcap16(struct scsi_cmnd *scp,
 			arr[14] |= 0x40;
 	}
 
+	/*
+	 * Since the scsi_debug READ CAPACITY implementation always reports the
+	 * total disk capacity, set RC BASIS = 1 for host-managed ZBC devices.
+	 */
+	if (devip->zmodel == BLK_ZONED_HM)
+		arr[12] |= 1 << 4;
+
 	arr[15] = sdebug_lowest_aligned & 0xff;
 
 	if (have_dif_prot) {
@@ -5695,16 +5702,16 @@ static int schedule_resp(struct scsi_cmnd *cmnd, struct sdebug_dev_info *devip,
 			u64 ns = jiffies_to_nsecs(delta_jiff);
 
 			if (sdebug_random && ns < U32_MAX) {
-				ns = prandom_u32_max((u32)ns);
+				ns = get_random_u32_below((u32)ns);
 			} else if (sdebug_random) {
 				ns >>= 12;	/* scale to 4 usec precision */
 				if (ns < U32_MAX)	/* over 4 hours max */
-					ns = prandom_u32_max((u32)ns);
+					ns = get_random_u32_below((u32)ns);
 				ns <<= 12;
 			}
 			kt = ns_to_ktime(ns);
 		} else {	/* ndelay has a 4.2 second max */
-			kt = sdebug_random ? prandom_u32_max((u32)ndelay) :
+			kt = sdebug_random ? get_random_u32_below((u32)ndelay) :
 					     (u32)ndelay;
 			if (ndelay < INCLUSIVE_TIMING_MAX_NS) {
 				u64 d = ktime_get_boottime_ns() - ns_from_boot;
@@ -7316,8 +7323,12 @@ static int sdebug_add_host_helper(int per_host_idx)
 	dev_set_name(&sdbg_host->dev, "adapter%d", sdebug_num_hosts);
 
 	error = device_register(&sdbg_host->dev);
-	if (error)
+	if (error) {
+		spin_lock(&sdebug_host_list_lock);
+		list_del(&sdbg_host->host_list);
+		spin_unlock(&sdebug_host_list_lock);
 		goto clean;
+	}
 
 	++sdebug_num_hosts;
 	return 0;

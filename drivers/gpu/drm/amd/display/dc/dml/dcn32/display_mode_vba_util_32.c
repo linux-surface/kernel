@@ -3475,7 +3475,6 @@ bool dml32_CalculatePrefetchSchedule(
 	double  min_Lsw;
 	double  Tsw_est1 = 0;
 	double  Tsw_est3 = 0;
-	double  TPreMargin = 0;
 
 	if (v->GPUVMEnable == true && v->HostVMEnable == true)
 		HostVMDynamicLevelsTrips = v->HostVMMaxNonCachedPageTableLevels;
@@ -3669,6 +3668,7 @@ bool dml32_CalculatePrefetchSchedule(
 	dst_y_prefetch_equ = VStartup - (*TSetup + dml_max(TWait + TCalc, *Tdmdl)) / LineTime -
 			(*DSTYAfterScaler + (double) *DSTXAfterScaler / (double) myPipe->HTotal);
 
+	dst_y_prefetch_equ = dml_min(dst_y_prefetch_equ, __DML_VBA_MAX_DST_Y_PRE__);
 #ifdef __DML_VBA_DEBUG__
 	dml_print("DML::%s: HTotal = %d\n", __func__, myPipe->HTotal);
 	dml_print("DML::%s: min_Lsw = %f\n", __func__, min_Lsw);
@@ -3701,8 +3701,6 @@ bool dml32_CalculatePrefetchSchedule(
 
 	dst_y_prefetch_equ = dml_floor(4.0 * (dst_y_prefetch_equ + 0.125), 1) / 4.0;
 	Tpre_rounded = dst_y_prefetch_equ * LineTime;
-
-	TPreMargin = Tpre_rounded - TPreReq;
 #ifdef __DML_VBA_DEBUG__
 	dml_print("DML::%s: dst_y_prefetch_equ: %f (after round)\n", __func__, dst_y_prefetch_equ);
 	dml_print("DML::%s: LineTime: %f\n", __func__, LineTime);
@@ -3730,7 +3728,8 @@ bool dml32_CalculatePrefetchSchedule(
 	*VRatioPrefetchY = 0;
 	*VRatioPrefetchC = 0;
 	*RequiredPrefetchPixDataBWLuma = 0;
-	if (dst_y_prefetch_equ > 1 && TPreMargin > 0.0) {
+	if (dst_y_prefetch_equ > 1 &&
+			(Tpre_rounded >= TPreReq || dst_y_prefetch_equ == __DML_VBA_MAX_DST_Y_PRE__)) {
 		double PrefetchBandwidth1;
 		double PrefetchBandwidth2;
 		double PrefetchBandwidth3;
@@ -6228,4 +6227,73 @@ void dml32_CalculateImmediateFlipBandwithSupport(unsigned int NumberOfActiveSurf
 	}
 	*ImmediateFlipBandwidthSupport = (*TotalBandwidth <= ReturnBW);
 	*FractionOfUrgentBandwidth = *TotalBandwidth / ReturnBW;
+}
+
+bool dml32_CalculateDETSwathFillLatencyHiding(unsigned int NumberOfActiveSurfaces,
+		double ReturnBW,
+		double UrgentLatency,
+		unsigned int SwathHeightY[],
+		unsigned int SwathHeightC[],
+		unsigned int SwathWidthY[],
+		unsigned int SwathWidthC[],
+		double  BytePerPixelInDETY[],
+		double  BytePerPixelInDETC[],
+		unsigned int    DETBufferSizeY[],
+		unsigned int    DETBufferSizeC[],
+		unsigned int	NumOfDPP[],
+		unsigned int	HTotal[],
+		double	PixelClock[],
+		double	VRatioY[],
+		double	VRatioC[],
+		enum dm_use_mall_for_pstate_change_mode UsesMALLForPStateChange[DC__NUM_DPP__MAX])
+{
+	int k;
+	double SwathSizeAllSurfaces = 0;
+	double SwathSizeAllSurfacesInFetchTimeUs;
+	double DETSwathLatencyHidingUs;
+	double DETSwathLatencyHidingYUs;
+	double DETSwathLatencyHidingCUs;
+	double SwathSizePerSurfaceY[DC__NUM_DPP__MAX];
+	double SwathSizePerSurfaceC[DC__NUM_DPP__MAX];
+	bool NotEnoughDETSwathFillLatencyHiding = false;
+
+	/* calculate sum of single swath size for all pipes in bytes*/
+	for (k = 0; k < NumberOfActiveSurfaces; k++) {
+		SwathSizePerSurfaceY[k] += SwathHeightY[k] * SwathWidthY[k] * BytePerPixelInDETY[k] * NumOfDPP[k];
+
+		if (SwathHeightC[k] != 0)
+			SwathSizePerSurfaceC[k] += SwathHeightC[k] * SwathWidthC[k] * BytePerPixelInDETC[k] * NumOfDPP[k];
+		else
+			SwathSizePerSurfaceC[k] = 0;
+
+		SwathSizeAllSurfaces += SwathSizePerSurfaceY[k] + SwathSizePerSurfaceC[k];
+	}
+
+	SwathSizeAllSurfacesInFetchTimeUs = SwathSizeAllSurfaces / ReturnBW + UrgentLatency;
+
+	/* ensure all DET - 1 swath can hide a fetch for all surfaces */
+	for (k = 0; k < NumberOfActiveSurfaces; k++) {
+		double LineTime = HTotal[k] / PixelClock[k];
+
+		/* only care if surface is not phantom */
+		if (UsesMALLForPStateChange[k] != dm_use_mall_pstate_change_phantom_pipe) {
+			DETSwathLatencyHidingYUs = (dml_floor(DETBufferSizeY[k] / BytePerPixelInDETY[k] / SwathWidthY[k], 1.0) - SwathHeightY[k]) / VRatioY[k] * LineTime;
+
+			if (SwathHeightC[k] != 0) {
+				DETSwathLatencyHidingCUs = (dml_floor(DETBufferSizeC[k] / BytePerPixelInDETC[k] / SwathWidthC[k], 1.0) - SwathHeightC[k]) / VRatioC[k] * LineTime;
+
+				DETSwathLatencyHidingUs = dml_min(DETSwathLatencyHidingYUs, DETSwathLatencyHidingCUs);
+			} else {
+				DETSwathLatencyHidingUs = DETSwathLatencyHidingYUs;
+			}
+
+			/* DET must be able to hide time to fetch 1 swath for each surface */
+			if (DETSwathLatencyHidingUs < SwathSizeAllSurfacesInFetchTimeUs) {
+				NotEnoughDETSwathFillLatencyHiding = true;
+				break;
+			}
+		}
+	}
+
+	return NotEnoughDETSwathFillLatencyHiding;
 }
