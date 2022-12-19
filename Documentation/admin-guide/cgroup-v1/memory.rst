@@ -720,7 +720,7 @@ NOTE2:
        otherwise the hard limit will take precedence.
 
 8. Move charges at task migration (DEPRECATED!)
-=================================
+===============================================
 
 THIS IS DEPRECATED!
 
