@@ -1464,8 +1464,10 @@ static int damon_sysfs_set_scheme_filters(struct damos *scheme,
 			err = damon_sysfs_memcg_path_to_id(
 					sysfs_filter->memcg_path,
 					&filter->memcg_id);
-			if (err)
+			if (err) {
+				damos_destroy_filter(filter);
 				return err;
+			}
 		}
 		damos_add_filter(scheme, filter);
 	}
