@@ -1418,6 +1418,7 @@ static int damon_sysfs_memcg_path_to_id(char *memcg_path, unsigned short *id)
 {
 	struct mem_cgroup *memcg;
 	char *path;
+	bool found = false;
 
 	if (!memcg_path)
 		return -EINVAL;
@@ -1433,12 +1434,13 @@ static int damon_sysfs_memcg_path_to_id(char *memcg_path, unsigned short *id)
 			continue;
 		if (damon_sysfs_memcg_path_eq(memcg, path, memcg_path)) {
 			*id = mem_cgroup_id(memcg);
+			found = true;
 			break;
 		}
 	}
 
 	kfree(path);
-	return 0;
+	return found ? 0 : -EINVAL;
 }
 
 static int damon_sysfs_set_scheme_filters(struct damos *scheme,
