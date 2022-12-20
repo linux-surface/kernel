@@ -271,7 +271,6 @@ SYSCALL_DEFINE2(memfd_create,
 		unsigned int, flags)
 {
 	char comm[TASK_COMM_LEN];
-	struct pid_namespace *ns;
 	unsigned int *file_seals;
 	struct file *file;
 	int fd, error;
@@ -295,6 +294,7 @@ SYSCALL_DEFINE2(memfd_create,
 	if (!(flags & (MFD_EXEC | MFD_NOEXEC_SEAL))) {
 #ifdef CONFIG_SYSCTL
 		int sysctl = MEMFD_NOEXEC_SCOPE_EXEC;
+		struct pid_namespace *ns;
 
 		ns = task_active_pid_ns(current);
 		if (ns)
