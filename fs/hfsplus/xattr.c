@@ -677,7 +677,6 @@ ssize_t hfsplus_listxattr(struct dentry *dentry, char *buffer, size_t size)
 	ssize_t res;
 	struct inode *inode = d_inode(dentry);
 	struct hfs_find_data fd;
-	u16 key_len;
 	struct hfsplus_attr_key attr_key;
 	char *strbuf;
 	int xattr_name_len;
@@ -719,7 +718,8 @@ ssize_t hfsplus_listxattr(struct dentry *dentry, char *buffer, size_t size)
 	}
 
 	for (;;) {
-		key_len = hfs_bnode_read_u16(fd.bnode, fd.keyoffset);
+		u16 key_len = hfs_bnode_read_u16(fd.bnode, fd.keyoffset);
+
 		if (key_len == 0 || key_len > fd.tree->max_key_len) {
 			pr_err("invalid xattr key length: %d\n", key_len);
 			res = -EIO;
