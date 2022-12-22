@@ -652,6 +652,12 @@
 			The actual CPUs are chosen randomly, with
 			no replacement if the same CPU is chosen twice.
 
+	clocksource.watchdog_duration= [KNL]
+			Specify the default number of minutes that the
+			clocksource watchdog should run after being
+			started.  Specify -1 to run indefinitely or zero
+			to not run at all.
+
 	clocksource-wdtest.holdoff= [KNL]
 			Set the time in seconds that the clocksource
 			watchdog test waits before commencing its tests.
