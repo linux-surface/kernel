@@ -213,6 +213,9 @@ module_param(max_cswd_read_retries, ulong, 0644);
 EXPORT_SYMBOL_GPL(max_cswd_read_retries);
 static int verify_n_cpus = 8;
 module_param(verify_n_cpus, int, 0644);
+static int watchdog_duration = CONFIG_CLOCKSOURCE_WATCHDOG_DURATION;
+module_param(watchdog_duration, int, 0444);
+static unsigned long watchdog_end_jiffies;
 
 enum wd_read_status {
 	WD_READ_SUCCESS,
@@ -549,7 +552,9 @@ static void clocksource_watchdog(struct timer_list *unused)
 	 * Arm timer if not already pending: could race with concurrent
 	 * pair clocksource_stop_watchdog() clocksource_start_watchdog().
 	 */
-	if (!timer_pending(&watchdog_timer)) {
+	if (!timer_pending(&watchdog_timer) &&
+	    (watchdog_duration < 0 ||
+	     (watchdog_duration >= 0 && time_before(jiffies, watchdog_end_jiffies)))) {
 		watchdog_timer.expires += WATCHDOG_INTERVAL + extra_wait;
 		add_timer_on(&watchdog_timer, next_cpu);
 	}
@@ -559,8 +564,10 @@ out:
 
 static inline void clocksource_start_watchdog(void)
 {
-	if (watchdog_running || !watchdog || list_empty(&watchdog_list))
+	if (watchdog_running || !watchdog || list_empty(&watchdog_list) || !watchdog_duration)
 		return;
+	if (watchdog_duration > 0)
+		watchdog_end_jiffies = jiffies + watchdog_duration * 60 * HZ;
 	timer_setup(&watchdog_timer, clocksource_watchdog, 0);
 	watchdog_timer.expires = jiffies + WATCHDOG_INTERVAL;
 	add_timer_on(&watchdog_timer, cpumask_first(cpu_online_mask));

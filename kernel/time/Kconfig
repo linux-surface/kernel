@@ -209,5 +209,17 @@ config CLOCKSOURCE_WATCHDOG_MAX_SKEW_US
 	  per million.	If the clocksource is good enough for NTP,
 	  it is good enough for the clocksource watchdog!
 
+config CLOCKSOURCE_WATCHDOG_DURATION
+	int "Default time to run clocksource watchdog (in minutes)"
+	depends on CLOCKSOURCE_WATCHDOG
+	range -1 1440
+	default 10
+	help
+	  Specify the default number of minutes that the clocksource
+	  watchdog should run after being started.  Specify -1 to run
+	  indefinitely or zero to not run at all.  This value may be
+	  overridden using the clocksource.watchdog_duration kernel
+	  boot parameter.
+
 endmenu
 endif
