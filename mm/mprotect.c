@@ -514,6 +514,7 @@ unsigned long change_protection(struct mmu_gather *tlb,
 
 	BUG_ON((cp_flags & MM_CP_UFFD_WP_ALL) == MM_CP_UFFD_WP_ALL);
 
+#ifdef CONFIG_NUMA_BALANCING
 	/*
 	 * Ordinary protection updates (mprotect, uffd-wp, softdirty tracking)
 	 * are expected to reflect their requirements via VMA flags such that
@@ -521,6 +522,9 @@ unsigned long change_protection(struct mmu_gather *tlb,
 	 */
 	if (cp_flags & MM_CP_PROT_NUMA)
 		newprot = PAGE_NONE;
+#else
+	WARN_ON_ONCE(cp_flags & MM_CP_PROT_NUMA);
+#endif
 
 	if (is_vm_hugetlb_page(vma))
 		pages = hugetlb_change_protection(vma, start, end, newprot,
