@@ -727,7 +727,7 @@ void uffd_wp_range(struct mm_struct *dst_mm, struct vm_area_struct *dst_vma,
 	 * to be write-protected as default whenever protection changes.
 	 * Try upgrading write permissions manually.
 	 */
-	if (vma_wants_manual_pte_write_upgrade(dst_vma))
+	if (!enable_wp && vma_wants_manual_pte_write_upgrade(dst_vma))
 		mm_cp_flags |= MM_CP_TRY_CHANGE_WRITABLE;
 	tlb_gather_mmu(&tlb, dst_mm);
 	change_protection(&tlb, dst_vma, start, start + len, vma->vm_page_prot,
