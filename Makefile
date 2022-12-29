@@ -1848,6 +1848,12 @@ rust-analyzer:
 # Misc
 # ---------------------------------------------------------------------------
 
+PHONY += misc-check
+misc-check:
+	$(Q)$(srctree)/scripts/misc-check
+
+all: misc-check
+
 PHONY += scripts_gdb
 scripts_gdb: prepare0
 	$(Q)$(MAKE) $(build)=scripts/gdb
