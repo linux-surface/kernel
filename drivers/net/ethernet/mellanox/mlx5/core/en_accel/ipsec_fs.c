@@ -366,6 +366,14 @@ err_pol_ft:
 	return err;
 }
 
+static void tx_destroy(struct mlx5e_ipsec_tx *tx)
+{
+	mlx5_del_flow_rules(tx->pol.rule);
+	mlx5_destroy_flow_group(tx->pol.group);
+	mlx5_destroy_flow_table(tx->ft.pol);
+	mlx5_destroy_flow_table(tx->ft.sa);
+}
+
 static struct mlx5e_ipsec_tx *tx_ft_get(struct mlx5_core_dev *mdev,
 					struct mlx5e_ipsec *ipsec)
 {
@@ -379,6 +387,13 @@ static struct mlx5e_ipsec_tx *tx_ft_get(struct mlx5_core_dev *mdev,
 	err = tx_create(mdev, tx);
 	if (err)
 		goto out;
+
+	err = mlx5_ipsec_fs_roce_tx_create(ipsec->roce_ipsec, tx->ft.pol, ipsec->mdev);
+	if (err) {
+		tx_destroy(tx);
+		goto out;
+	}
+
 skip:
 	tx->ft.refcnt++;
 out:
@@ -397,10 +412,9 @@ static void tx_ft_put(struct mlx5e_ipsec *ipsec)
 	if (tx->ft.refcnt)
 		goto out;
 
-	mlx5_del_flow_rules(tx->pol.rule);
-	mlx5_destroy_flow_group(tx->pol.group);
-	mlx5_destroy_flow_table(tx->ft.pol);
-	mlx5_destroy_flow_table(tx->ft.sa);
+	mlx5_ipsec_fs_roce_tx_destroy(ipsec->roce_ipsec);
+
+	tx_destroy(tx);
 out:
 	mutex_unlock(&tx->ft.mutex);
 }
