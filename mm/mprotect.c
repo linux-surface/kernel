@@ -350,14 +350,14 @@ uffd_wp_protect_file(struct vm_area_struct *vma, unsigned long cp_flags)
  */
 #define  change_prepare(vma, high, low, addr, cp_flags)			\
 	  ({								\
-		  long err = 0;						\
-		  if (unlikely(uffd_wp_protect_file(vma, cp_flags))) {	\
-			  low##_t *p = low##_alloc(vma->vm_mm, high, addr); \
-			  if (p == NULL)				\
-				  err = -ENOMEM;			\
-		  }							\
-		  err;							\
-	  })
+		long err = 0;						\
+		if (unlikely(uffd_wp_protect_file(vma, cp_flags))) {	\
+			low##_t *p = low##_alloc(vma->vm_mm, high, addr); \
+			if (p == NULL)					\
+				err = -ENOMEM;				\
+		}							\
+		err;							\
+	})
 
 static inline long change_pmd_range(struct mmu_gather *tlb,
 		struct vm_area_struct *vma, pud_t *pud, unsigned long addr,
