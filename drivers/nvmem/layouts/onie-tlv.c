@@ -48,7 +48,7 @@ static const char *onie_tlv_cell_name(u8 type)
 	case 0x27:
 		return "label-revision";
 	case 0x28:
-		return "platforn-name";
+		return "platform-name";
 	case 0x29:
 		return "onie-version";
 	case 0x2A:
