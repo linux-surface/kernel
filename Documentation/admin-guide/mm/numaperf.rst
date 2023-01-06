@@ -1,8 +1,8 @@
 .. _numaperf:
 
-================
-NUMA Performance
-================
+=======================
+NUMA Memory Performance
+=======================
 
 NUMA Locality
 =============
