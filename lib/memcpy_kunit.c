@@ -307,8 +307,12 @@ static void set_random_nonzero(struct kunit *test, u8 *byte)
 	}
 }
 
-static void init_large(struct kunit *test)
+static int init_large(struct kunit *test)
 {
+	if (!IS_ENABLED(CONFIG_MEMCPY_SLOW_KUNIT_TEST)) {
+		kunit_skip(test, "Slow test skipped. Enable with CONFIG_MEMCPY_SLOW_KUNIT_TEST=y");
+		return -EBUSY;
+	}
 
 	/* Get many bit patterns. */
 	get_random_bytes(large_src, ARRAY_SIZE(large_src));
@@ -319,6 +323,8 @@ static void init_large(struct kunit *test)
 
 	/* Explicitly zero the entire destination. */
 	memset(large_dst, 0, ARRAY_SIZE(large_dst));
+
+	return 0;
 }
 
 /*
@@ -327,7 +333,9 @@ static void init_large(struct kunit *test)
  */
 static void copy_large_test(struct kunit *test, bool use_memmove)
 {
-	init_large(test);
+
+	if (init_large(test))
+		return;
 
 	/* Copy a growing number of non-overlapping bytes ... */
 	for (int bytes = 1; bytes <= ARRAY_SIZE(large_src); bytes++) {
@@ -472,7 +480,8 @@ static void memmove_overlap_test(struct kunit *test)
 	static const int bytes_start = 1;
 	static const int bytes_end = ARRAY_SIZE(large_src) + 1;
 
-	init_large(test);
+	if (init_large(test))
+		return;
 
 	/* Copy a growing number of overlapping bytes ... */
 	for (int bytes = bytes_start; bytes < bytes_end;
