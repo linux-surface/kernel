@@ -318,6 +318,8 @@ int __init cma_declare_contiguous_nid(phys_addr_t base,
 			ret = -EBUSY;
 			goto err;
 		}
+
+		kmemleak_alloc_phys(base, size, 0);
 	} else {
 		phys_addr_t addr = 0;
 
