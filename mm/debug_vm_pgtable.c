@@ -1089,8 +1089,8 @@ debug_vm_pgtable_alloc_huge_page(struct pgtable_debug_args *args, int order)
  * it's not used on x86.
  */
 static void  __init phys_align_check(phys_addr_t pstart,
-	phys_addr_t pend, unsigned long psize, phys_addr_t *physp,
-	unsigned long *alignp)
+				     phys_addr_t pend, unsigned long psize,
+				     phys_addr_t *physp, unsigned long *alignp)
 {
 	phys_addr_t aligned_start, aligned_end;
 
@@ -1133,20 +1133,19 @@ static void __init init_fixed_pfns(struct pgtable_debug_args *args)
 	for_each_mem_range(idx, &pstart, &pend) {
 		/* First check for a PUD-aligned area */
 		phys_align_check(pstart, pend, PUD_SIZE, &phys,
-				&args->fixed_alignment);
+				 &args->fixed_alignment);
 
 		/* If a PUD-aligned area is found, we're done */
-		if (args->fixed_alignment >= PUD_SIZE)
+		if (args->fixed_alignment == PUD_SIZE)
 			break;
 
 		/*
 		 * If no PMD-aligned area found yet, check for one,
 		 * but continue the loop to look for a PUD-aligned area.
 		 */
-		if (args->fixed_alignment < PMD_SIZE) {
+		if (args->fixed_alignment < PMD_SIZE)
 			phys_align_check(pstart, pend, PMD_SIZE, &phys,
-					&args->fixed_alignment);
-		}
+					 &args->fixed_alignment);
 	}
 
 	args->fixed_pgd_pfn = __phys_to_pfn(phys & PGDIR_MASK);
