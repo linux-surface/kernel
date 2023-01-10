@@ -824,9 +824,11 @@ EXPORT_SYMBOL_GPL(of_nvmem_layout_get_container);
 const void *nvmem_layout_get_match_data(struct nvmem_device *nvmem,
 					struct nvmem_layout *layout)
 {
+	struct device_node __maybe_unused *layout_np;
 	const struct of_device_id *match;
 
-	match = of_match_node(layout->of_match_table, nvmem->dev.of_node);
+	layout_np = of_nvmem_layout_get_container(nvmem);
+	match = of_match_node(layout->of_match_table, layout_np);
 
 	return match ? match->data : NULL;
 }
