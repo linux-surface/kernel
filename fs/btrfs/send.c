@@ -125,6 +125,14 @@ static_assert(offsetof(struct backref_cache_entry, entry) == 0);
  */
 #define SEND_MAX_DIR_CREATED_CACHE_SIZE			64
 
+/*
+ * Max number of entries in the cache that stores directories that were already
+ * created. The cache uses raw struct btrfs_lru_cache_entry entries, so it uses
+ * at most 4096 bytes - sizeof(struct btrfs_lru_cache_entry) is 48 bytes, but
+ * the kmalloc-64 slab is used, so we get 4096 bytes (64 bytes * 64).
+ */
+#define SEND_MAX_DIR_UTIMES_CACHE_SIZE			64
+
 struct send_ctx {
 	struct file *send_filp;
 	loff_t send_off;
@@ -296,6 +304,7 @@ struct send_ctx {
 	u64 backref_cache_last_reloc_trans;
 
 	struct btrfs_lru_cache dir_created_cache;
+	struct btrfs_lru_cache dir_utimes_cache;
 };
 
 struct pending_dir_move {
@@ -2747,6 +2756,46 @@ out:
 	return ret;
 }
 
+static int cache_dir_utimes(struct send_ctx *sctx, u64 dir, u64 gen)
+{
+	struct btrfs_lru_cache_entry *entry;
+	int ret;
+
+	entry = btrfs_lru_cache_lookup(&sctx->dir_utimes_cache, dir, gen);
+	if (entry != NULL)
+		return 0;
+
+	if (btrfs_lru_cache_is_full(&sctx->dir_utimes_cache)) {
+		struct btrfs_lru_cache_entry *lru;
+
+		lru = btrfs_lru_cache_lru_entry(&sctx->dir_utimes_cache);
+		ASSERT(lru != NULL);
+
+		ret = send_utimes(sctx, lru->key, lru->gen);
+		if (ret)
+			return ret;
+
+		btrfs_lru_cache_remove(&sctx->dir_utimes_cache, lru);
+	}
+
+	/* Caching is optional, don't fail if we can't allocate memory. */
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return send_utimes(sctx, dir, gen);
+
+	entry->key = dir;
+	entry->gen = gen;
+
+	ret = btrfs_lru_cache_store(&sctx->dir_utimes_cache, entry, GFP_KERNEL);
+	ASSERT(ret != -EEXIST);
+	if (ret) {
+		kfree(entry);
+		return send_utimes(sctx, dir, gen);
+	}
+
+	return 0;
+}
+
 /*
  * Sends a BTRFS_SEND_C_MKXXX or SYMLINK command to user space. We don't have
  * a valid path yet because we did not process the refs yet. So, the inode
@@ -3540,7 +3589,7 @@ static int apply_dir_move(struct send_ctx *sctx, struct pending_dir_move *pm)
 	}
 
 finish:
-	ret = send_utimes(sctx, pm->ino, pm->gen);
+	ret = cache_dir_utimes(sctx, pm->ino, pm->gen);
 	if (ret < 0)
 		goto out;
 
@@ -3560,7 +3609,7 @@ finish:
 		if (ret < 0)
 			goto out;
 
-		ret = send_utimes(sctx, cur->dir, cur->dir_gen);
+		ret = cache_dir_utimes(sctx, cur->dir, cur->dir_gen);
 		if (ret < 0)
 			goto out;
 	}
@@ -4507,8 +4556,7 @@ static int process_recorded_refs(struct send_ctx *sctx, int *pending_move)
 
 		if (ret == inode_state_did_create ||
 		    ret == inode_state_no_change) {
-			/* TODO delayed utimes */
-			ret = send_utimes(sctx, cur->dir, cur->dir_gen);
+			ret = cache_dir_utimes(sctx, cur->dir, cur->dir_gen);
 			if (ret < 0)
 				goto out;
 		} else if (ret == inode_state_did_delete &&
@@ -6690,7 +6738,18 @@ static int finish_inode_if_needed(struct send_ctx *sctx, int at_end)
 		 * it's moved/renamed, therefore we don't need to do it here.
 		 */
 		sctx->send_progress = sctx->cur_ino + 1;
-		ret = send_utimes(sctx, sctx->cur_ino, sctx->cur_inode_gen);
+
+		/*
+		 * If the current inode is a non-empty directory, delay issuing
+		 * the utimes command for it, as it's very likely we have inodes
+		 * with an higher number inside it. We want to issue the utimes
+		 * command only after adding all dentries to it.
+		 */
+		if (S_ISDIR(sctx->cur_inode_mode) && sctx->cur_inode_size > 0)
+			ret = cache_dir_utimes(sctx, sctx->cur_ino, sctx->cur_inode_gen);
+		else
+			ret = send_utimes(sctx, sctx->cur_ino, sctx->cur_inode_gen);
+
 		if (ret < 0)
 			goto out;
 	}
@@ -7980,6 +8039,8 @@ long btrfs_ioctl_send(struct inode *inode, struct btrfs_ioctl_send_args *arg)
 	int clone_sources_to_rollback = 0;
 	size_t alloc_size;
 	int sort_clone_roots = 0;
+	struct btrfs_lru_cache_entry *entry;
+	struct btrfs_lru_cache_entry *tmp;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -8035,6 +8096,8 @@ long btrfs_ioctl_send(struct inode *inode, struct btrfs_ioctl_send_args *arg)
 	btrfs_lru_cache_init(&sctx->backref_cache, SEND_MAX_BACKREF_CACHE_SIZE);
 	btrfs_lru_cache_init(&sctx->dir_created_cache,
 			     SEND_MAX_DIR_CREATED_CACHE_SIZE);
+	btrfs_lru_cache_init(&sctx->dir_utimes_cache,
+			     SEND_MAX_DIR_UTIMES_CACHE_SIZE);
 
 	sctx->pending_dir_moves = RB_ROOT;
 	sctx->waiting_dir_moves = RB_ROOT;
@@ -8215,6 +8278,13 @@ long btrfs_ioctl_send(struct inode *inode, struct btrfs_ioctl_send_args *arg)
 	if (ret < 0)
 		goto out;
 
+	btrfs_lru_cache_for_each_entry_safe(&sctx->dir_utimes_cache, entry, tmp) {
+		ret = send_utimes(sctx, entry->key, entry->gen);
+		if (ret < 0)
+			goto out;
+		btrfs_lru_cache_remove(&sctx->dir_utimes_cache, entry);
+	}
+
 	if (!(sctx->flags & BTRFS_SEND_FLAG_OMIT_END_CMD)) {
 		ret = begin_cmd(sctx, BTRFS_SEND_C_END);
 		if (ret < 0)
@@ -8299,6 +8369,7 @@ out:
 		btrfs_lru_cache_clear(&sctx->name_cache);
 		btrfs_lru_cache_clear(&sctx->backref_cache);
 		btrfs_lru_cache_clear(&sctx->dir_created_cache);
+		btrfs_lru_cache_clear(&sctx->dir_utimes_cache);
 
 		kfree(sctx);
 	}
