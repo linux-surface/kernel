@@ -8140,7 +8140,7 @@ long btrfs_ioctl_send(struct inode *inode, struct btrfs_ioctl_send_args *arg)
 	INIT_LIST_HEAD(&sctx->name_cache_list);
 
 	INIT_LIST_HEAD(&sctx->backref_cache.lru_list);
-	mt_init(&sctx->backref_cache.entries);
+	mt_init_flags(&sctx->backref_cache.entries, MT_FLAGS_LOCK_EXTERN);
 
 	sctx->flags = arg->flags;
 
