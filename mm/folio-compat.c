@@ -124,6 +124,7 @@ void putback_lru_page(struct page *page)
 	folio_putback_lru(page_folio(page));
 }
 
+#ifdef CONFIG_MMU
 void page_add_new_anon_rmap(struct page *page, struct vm_area_struct *vma,
 		unsigned long address)
 {
@@ -131,3 +132,4 @@ void page_add_new_anon_rmap(struct page *page, struct vm_area_struct *vma,
 
 	return folio_add_new_anon_rmap((struct folio *)page, vma, address);
 }
+#endif
