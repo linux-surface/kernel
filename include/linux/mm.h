@@ -1736,10 +1736,22 @@ static inline long folio_nr_pages(struct folio *folio)
 #endif
 }
 
-/* Returns the number of pages in this potentially compound page. */
+/*
+ * compound_nr() returns the number of pages in this potentially compound
+ * page.  compound_nr() can be called on a tail page, and is defined to
+ * return 1 in that case.
+ */
 static inline unsigned long compound_nr(struct page *page)
 {
-	return folio_nr_pages((struct folio *)page);
+	struct folio *folio = (struct folio *)page;
+
+	if (!test_bit(PG_head, &folio->flags))
+		return 1;
+#ifdef CONFIG_64BIT
+	return folio->_folio_nr_pages;
+#else
+	return 1L << folio->_folio_order;
+#endif
 }
 
 /**
@@ -1748,8 +1760,7 @@ static inline unsigned long compound_nr(struct page *page)
  */
 static inline int thp_nr_pages(struct page *page)
 {
-	VM_BUG_ON_PGFLAGS(PageTail(page), page);
-	return compound_nr(page);
+	return folio_nr_pages((struct folio *)page);
 }
 
 /**
