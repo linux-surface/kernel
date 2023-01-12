@@ -164,52 +164,15 @@ static void finish_compressed_bio_read(struct compressed_bio *cb)
 	kfree(cb);
 }
 
-/*
- * Verify the checksums and kick off repair if needed on the uncompressed data
- * before decompressing it into the original bio and freeing the uncompressed
- * pages.
- */
 static void end_compressed_bio_read(struct btrfs_bio *bbio)
 {
 	struct compressed_bio *cb = bbio->private;
-	struct inode *inode = cb->inode;
-	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
-	struct btrfs_inode *bi = BTRFS_I(inode);
-	bool csum = !(bi->flags & BTRFS_INODE_NODATASUM) &&
-		    !test_bit(BTRFS_FS_STATE_NO_CSUMS, &fs_info->fs_state);
-	blk_status_t status = bbio->bio.bi_status;
-	struct bvec_iter iter;
-	struct bio_vec bv;
-	u32 offset;
 
-	btrfs_bio_for_each_sector(fs_info, bv, bbio, iter, offset) {
-		u64 start = bbio->file_offset + offset;
-
-		if (!status &&
-		    (!csum || !btrfs_check_data_csum(bi, bbio, offset,
-						     bv.bv_page, bv.bv_offset))) {
-			btrfs_clean_io_failure(bi, start, bv.bv_page,
-					       bv.bv_offset);
-		} else {
-			int ret;
-
-			refcount_inc(&cb->pending_ios);
-			ret = btrfs_repair_one_sector(BTRFS_I(inode), bbio, offset,
-						      bv.bv_page, bv.bv_offset,
-						      true);
-			if (ret) {
-				refcount_dec(&cb->pending_ios);
-				status = errno_to_blk_status(ret);
-			}
-		}
-	}
-
-	if (status)
-		cb->status = status;
+	if (bbio->bio.bi_status)
+		cb->status = bbio->bio.bi_status;
 
 	if (refcount_dec_and_test(&cb->pending_ios))
 		finish_compressed_bio_read(cb);
-	btrfs_bio_free_csum(bbio);
 	bio_put(&bbio->bio);
 }
 
@@ -344,7 +307,8 @@ static struct bio *alloc_compressed_bio(struct compressed_bio *cb, u64 disk_byte
 	struct bio *bio;
 	int ret;
 
-	bio = btrfs_bio_alloc(BIO_MAX_VECS, opf, endio_func, cb);
+	bio = btrfs_bio_alloc(BIO_MAX_VECS, opf, BTRFS_I(cb->inode), endio_func,
+			      cb);
 	bio->bi_iter.bi_sector = disk_bytenr >> SECTOR_SHIFT;
 
 	em = btrfs_get_chunk_map(fs_info, disk_bytenr, fs_info->sectorsize);
@@ -788,10 +752,6 @@ void btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 			submit = true;
 
 		if (submit) {
-			/* Save the original iter for read repair */
-			if (bio_op(comp_bio) == REQ_OP_READ)
-				btrfs_bio(comp_bio)->iter = comp_bio->bi_iter;
-
 			/*
 			 * Save the initial offset of this chunk, as there
 			 * is no direct correlation between compressed pages and
@@ -799,12 +759,6 @@ void btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 			 * priting error messages.
 			 */
 			btrfs_bio(comp_bio)->file_offset = file_offset;
-
-			ret = btrfs_lookup_bio_sums(inode, comp_bio, NULL);
-			if (ret) {
-				btrfs_bio_end_io(btrfs_bio(comp_bio), ret);
-				break;
-			}
 
 			ASSERT(comp_bio->bi_iter.bi_size);
 			btrfs_submit_bio(fs_info, comp_bio, mirror_num);
