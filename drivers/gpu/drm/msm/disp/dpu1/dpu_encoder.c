@@ -579,19 +579,18 @@ static struct msm_display_topology dpu_encoder_get_topology(
 			topology.num_dspp = topology.num_lm;
 	}
 
-	topology.num_enc = 0;
 	topology.num_intf = intf_count;
 
 	if (dpu_enc->dsc) {
-		/* In case of Display Stream Compression (DSC), we would use
-		 * 2 encoders, 2 layer mixers and 1 interface
+		/*
+		 * In case of Display Stream Compression (DSC), we would use
+		 * 2 DSC encoders, 2 layer mixers and 1 interface
 		 * this is power optimal and can drive up to (including) 4k
 		 * screens
 		 */
-		topology.num_enc = 2;
 		topology.num_dsc = 2;
-		topology.num_intf = 1;
 		topology.num_lm = 2;
+		topology.num_intf = 1;
 	}
 
 	return topology;
@@ -1829,6 +1828,9 @@ static void dpu_encoder_dsc_pipe_cfg(struct dpu_hw_dsc *hw_dsc,
 
 	if (hw_pp->ops.setup_dsc)
 		hw_pp->ops.setup_dsc(hw_pp);
+
+	if (hw_dsc->ops.dsc_bind_pingpong_blk)
+		hw_dsc->ops.dsc_bind_pingpong_blk(hw_dsc, true, hw_pp->idx);
 
 	if (hw_pp->ops.enable_dsc)
 		hw_pp->ops.enable_dsc(hw_pp);
