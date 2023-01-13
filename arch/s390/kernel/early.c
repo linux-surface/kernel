@@ -18,6 +18,7 @@
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <asm/asm-extable.h>
+#include <linux/memblock.h>
 #include <asm/diag.h>
 #include <asm/ebcdic.h>
 #include <asm/ipl.h>
@@ -160,9 +161,7 @@ static noinline __init void setup_lowcore_early(void)
 	psw_t psw;
 
 	psw.addr = (unsigned long)early_pgm_check_handler;
-	psw.mask = PSW_MASK_BASE | PSW_DEFAULT_KEY | PSW_MASK_EA | PSW_MASK_BA;
-	if (IS_ENABLED(CONFIG_KASAN))
-		psw.mask |= PSW_MASK_DAT;
+	psw.mask = PSW_KERNEL_BITS;
 	S390_lowcore.program_new_psw = psw;
 	S390_lowcore.preempt_count = INIT_PREEMPT_COUNT;
 }
@@ -288,7 +287,6 @@ static void __init sort_amode31_extable(void)
 
 void __init startup_init(void)
 {
-	sclp_early_adjust_va();
 	reset_tod_clock();
 	check_image_bootable();
 	time_early_init();
