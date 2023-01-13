@@ -2708,10 +2708,19 @@ static int scmi_probe(struct platform_device *pdev)
 				dev_err(dev, "Failed to initialize SCMI RAW Mode !\n");
 
 				ret = PTR_ERR(info->raw);
+			}
+
+			if (!IS_ENABLED(CONFIG_ARM_SCMI_RAW_MODE_SUPPORT_COEX)) {
+				if (!ret)
+					return ret;
+				/*
+				 * Bail out if we failed to init raw mode and
+				 * RAW_MODE_SUPPORT_COEX was not configured.
+				 */
 				goto clear_dev_req_notifier;
 			}
 
-			return 0;
+			dev_info(dev, "SCMI RAW Mode COEX enabled !\n");
 		}
 	}
 
