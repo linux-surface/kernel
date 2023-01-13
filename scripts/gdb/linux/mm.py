@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 #
 # gdb helper commands and functions for Linux kernel debugging
 #
@@ -5,8 +6,6 @@
 #
 # Authors:
 #  Dmitrii Bundin <dmitrii.bundin.a@gmail.com>
-#
-# This work is licensed under the terms of the GNU GPL version 2.
 #
 
 import gdb
