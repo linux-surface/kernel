@@ -78,7 +78,7 @@ class Cr3():
             return f"""\
 cr3:
     {'cr3 binary data': <30} {hex(self.cr3)}
-    {'next entry physicall address': <30} {hex(self.next_entry_physical_address)}
+    {'next entry physical address': <30} {hex(self.next_entry_physical_address)}
     ---
     {'bit' : <4} {self.page_level_write_through[0]: <10} {'page level write through': <30} {self.page_level_write_through[1]}
     {'bit' : <4} {self.page_level_cache_disabled[0]: <10} {'page level cache disabled': <30} {self.page_level_cache_disabled[1]}
@@ -159,7 +159,7 @@ level {self.page_hierarchy_level}:
     {'entry address': <30} {hex(self.address)}
     {'page entry binary data': <30} {hex(self.page_entry_binary_data)}
     {'page size': <30} {'1GB' if self.page_hierarchy_level == 3 else '2MB' if self.page_hierarchy_level == 2 else '4KB' if self.page_hierarchy_level == 1 else 'Unknown page size for level:' + self.page_hierarchy_level}
-    {'page physicall address': <30} {hex(self.page_physical_address)}
+    {'page physical address': <30} {hex(self.page_physical_address)}
     ---
     {'bit': <4} {self.entry_present[0]: <10} {'entry present': <30} {self.entry_present[1]}
     {'bit': <4} {self.read_write[0]: <10} {'read/write access allowed': <30} {self.read_write[1]}
@@ -180,7 +180,7 @@ level {self.page_hierarchy_level}:
 level {self.page_hierarchy_level}:
     {'entry address': <30} {hex(self.address)}
     {'page entry binary data': <30} {hex(self.page_entry_binary_data)}
-    {'next entry physicall address': <30} {hex(self.next_entry_physical_address)}
+    {'next entry physical address': <30} {hex(self.next_entry_physical_address)}
     ---
     {'bit': <4} {self.entry_present[0]: <10} {'entry present': <30} {self.entry_present[1]}
     {'bit': <4} {self.read_write[0]: <10} {'read/write access allowed': <30} {self.read_write[1]}
