@@ -121,6 +121,7 @@ torture_param(int, test_boost_duration, 4, "Duration of each boost test, seconds
 torture_param(int, test_boost_interval, 7, "Interval between boost tests, seconds.");
 torture_param(int, test_nmis, 0, "End-test NMI tests, 0 to disable.");
 torture_param(bool, test_no_idle_hz, true, "Test support for tickless idle CPUs");
+torture_param(int, test_srcu_lockdep, 0, "Test specified SRCU deadlock scenario.");
 torture_param(int, verbose, 1, "Enable verbose debugging printk()s");
 
 static char *torture_type = "rcu";
@@ -3491,6 +3492,131 @@ static void rcutorture_sync(void)
 		cur_ops->sync();
 }
 
+static DEFINE_MUTEX(mut1);
+static DEFINE_MUTEX(mut2);
+static DEFINE_MUTEX(mut3);
+DEFINE_STATIC_SRCU(srcu1);
+DEFINE_STATIC_SRCU(srcu2);
+DEFINE_STATIC_SRCU(srcu3);
+
+// Test lockdep on SRCU-based deadlock scenarios.
+static void rcu_torture_init_srcu_lockdep(void)
+{
+	int idx;
+
+	if (!test_srcu_lockdep)
+		return;
+
+	if (test_srcu_lockdep == 1) {
+		pr_info("%s: test_srcu_lockdep = %d: Self deadlock, expect system hang.\n",
+			__func__, test_srcu_lockdep);
+		idx = srcu_read_lock(&srcu1);
+		synchronize_srcu(&srcu1);
+		srcu_read_unlock(&srcu1, idx);
+		return;
+	}
+
+	if (test_srcu_lockdep == 2) {
+		pr_info("%s: test_srcu_lockdep = %d: Two-way deadlock.\n",
+			__func__, test_srcu_lockdep);
+		idx = srcu_read_lock(&srcu1);
+		synchronize_srcu(&srcu2);
+		srcu_read_unlock(&srcu1, idx);
+
+		idx = srcu_read_lock(&srcu2);
+		synchronize_srcu(&srcu1);
+		srcu_read_unlock(&srcu2, idx);
+		return;
+	}
+
+	if (test_srcu_lockdep == 3) {
+		pr_info("%s: test_srcu_lockdep = %d: Three-way deadlock.\n",
+			__func__, test_srcu_lockdep);
+		idx = srcu_read_lock(&srcu1);
+		synchronize_srcu(&srcu2);
+		srcu_read_unlock(&srcu1, idx);
+
+		idx = srcu_read_lock(&srcu2);
+		synchronize_srcu(&srcu3);
+		srcu_read_unlock(&srcu2, idx);
+
+		idx = srcu_read_lock(&srcu3);
+		synchronize_srcu(&srcu1);
+		srcu_read_unlock(&srcu3, idx);
+		return;
+	}
+
+	if (test_srcu_lockdep == 11) {
+		pr_info("%s: test_srcu_lockdep = %d: SRCU/mutex two-task deadlock.\n",
+			__func__, test_srcu_lockdep);
+		idx = srcu_read_lock(&srcu1);
+		mutex_lock(&mut1);
+		mutex_unlock(&mut1);
+		srcu_read_unlock(&srcu1, idx);
+
+		mutex_lock(&mut1);
+		synchronize_srcu(&srcu1);
+		mutex_unlock(&mut1);
+		return;
+	}
+
+	if (test_srcu_lockdep == 12) {
+		pr_info("%s: test_srcu_lockdep = %d: SRCU/mutex four-task deadlock.\n",
+			__func__, test_srcu_lockdep);
+		idx = srcu_read_lock(&srcu1);
+		mutex_lock(&mut1);
+		mutex_unlock(&mut1);
+		srcu_read_unlock(&srcu1, idx);
+
+		mutex_lock(&mut1);
+		synchronize_srcu(&srcu2);
+		mutex_unlock(&mut1);
+
+		idx = srcu_read_lock(&srcu2);
+		mutex_lock(&mut2);
+		mutex_unlock(&mut2);
+		srcu_read_unlock(&srcu2, idx);
+
+		mutex_lock(&mut2);
+		synchronize_srcu(&srcu1);
+		mutex_unlock(&mut2);
+		return; }
+
+	if (test_srcu_lockdep == 13) {
+		pr_info("%s: test_srcu_lockdep = %d: SRCU/mutex six-task deadlock.\n",
+			__func__, test_srcu_lockdep);
+		idx = srcu_read_lock(&srcu1);
+		mutex_lock(&mut1);
+		mutex_unlock(&mut1);
+		srcu_read_unlock(&srcu1, idx);
+
+		mutex_lock(&mut1);
+		synchronize_srcu(&srcu2);
+		mutex_unlock(&mut1);
+
+		idx = srcu_read_lock(&srcu2);
+		mutex_lock(&mut2);
+		mutex_unlock(&mut2);
+		srcu_read_unlock(&srcu2, idx);
+
+		mutex_lock(&mut2);
+		synchronize_srcu(&srcu3);
+		mutex_unlock(&mut2);
+
+		idx = srcu_read_lock(&srcu3);
+		mutex_lock(&mut3);
+		mutex_unlock(&mut3);
+		srcu_read_unlock(&srcu3, idx);
+
+		mutex_lock(&mut3);
+		synchronize_srcu(&srcu1);
+		mutex_unlock(&mut3);
+		return;
+	}
+
+	pr_info("%s: test_srcu_lockdep = %d does nothing.\n", __func__, test_srcu_lockdep);
+}
+
 static int __init
 rcu_torture_init(void)
 {
@@ -3531,6 +3657,8 @@ rcu_torture_init(void)
 	}
 	if (cur_ops->init)
 		cur_ops->init();
+
+	rcu_torture_init_srcu_lockdep();
 
 	if (nreaders >= 0) {
 		nrealreaders = nreaders;
