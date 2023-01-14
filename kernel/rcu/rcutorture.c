@@ -121,6 +121,7 @@ torture_param(int, test_boost_duration, 4, "Duration of each boost test, seconds
 torture_param(int, test_boost_interval, 7, "Interval between boost tests, seconds.");
 torture_param(int, test_nmis, 0, "End-test NMI tests, 0 to disable.");
 torture_param(bool, test_no_idle_hz, true, "Test support for tickless idle CPUs");
+torture_param(int, test_srcu_lockdep, 0, "Test specified SRCU deadlock scenario.");
 torture_param(int, verbose, 1, "Enable verbose debugging printk()s");
 
 static char *torture_type = "rcu";
@@ -3491,6 +3492,119 @@ static void rcutorture_sync(void)
 		cur_ops->sync();
 }
 
+static DEFINE_MUTEX(mut0);
+static DEFINE_MUTEX(mut1);
+static DEFINE_MUTEX(mut2);
+DEFINE_STATIC_SRCU(srcu0);
+DEFINE_STATIC_SRCU(srcu1);
+DEFINE_STATIC_SRCU(srcu2);
+
+// Test lockdep on SRCU-based deadlock scenarios.
+static void rcu_torture_init_srcu_lockdep(void)
+{
+	int cyclelen;
+	int cyclelenmax;
+	int deadlock;
+	bool err = false;
+	int i;
+	int j;
+	int idx;
+	struct mutex *muts[] = { &mut0, &mut1, &mut2 };
+	struct srcu_struct *srcus[] = { &srcu0, &srcu1, &srcu2 };
+	int testtype;
+	int v;
+
+	if (!test_srcu_lockdep)
+		return;
+
+	v = test_srcu_lockdep / 10000;
+	deadlock = test_srcu_lockdep / 1000 % 10;
+	testtype = (test_srcu_lockdep / 10) % 100;
+	cyclelen = test_srcu_lockdep % 10;
+	cyclelenmax = min(ARRAY_SIZE(muts), ARRAY_SIZE(srcus));
+	WARN_ON_ONCE(ARRAY_SIZE(muts) != ARRAY_SIZE(srcus));
+	if (WARN_ONCE(v != !!v,
+		      "%s: test_srcu_lockdep=%d and verbosity digit %d must be zero or one.\n",
+		      __func__, test_srcu_lockdep, v))
+		err = true;
+	if (WARN_ONCE(deadlock != !!deadlock,
+		      "%s: test_srcu_lockdep=%d and deadlock digit %d must be zero or one.\n",
+		      __func__, test_srcu_lockdep, deadlock))
+		err = true;
+	if (WARN_ONCE(cyclelen > cyclelenmax,
+		      "%s: test_srcu_lockdep=%d and cycle-length digit %d must be less than %d.\n",
+		      __func__, test_srcu_lockdep, cyclelen, cyclelenmax))
+		err = true;
+	if (WARN_ONCE(cyclelen <= 0,
+		      "%s: test_srcu_lockdep=%d and cycle-length digit %d must be greater than zero.\n",
+		      __func__, test_srcu_lockdep, cyclelen))
+		err = true;
+	if (err)
+		goto err_out;
+
+	if (testtype == 0) {
+		pr_info("%s: test_srcu_lockdep = %05d: SRCU %d-way %sdeadlock.\n",
+			__func__, test_srcu_lockdep, cyclelen, deadlock ? "" : "non-");
+		if (deadlock && cyclelen == 1)
+			pr_info("%s: Expect hang.\n", __func__);
+		for (i = 0; i < cyclelen; i++) {
+			j = i + 1;
+			if (i >= cyclelen - 1)
+				j = deadlock ? 0 : -1;
+
+			if (v) {
+				if (j >= 0)
+					pr_info("%s: srcu_read_lock(%d), synchronize_srcu(%d), srcu_read_unlock(%d)\n",
+						__func__, i, j, i);
+				else
+					pr_info("%s: srcu_read_lock(%d), srcu_read_unlock(%d)\n",
+						__func__, i, i);
+			}
+			idx = srcu_read_lock(srcus[i]);
+			if (j >= 0)
+				synchronize_srcu(srcus[j]);
+			srcu_read_unlock(srcus[i], idx);
+		}
+		return;
+	}
+
+	if (testtype == 1) {
+		pr_info("%s: test_srcu_lockdep = %05d: SRCU/mutex %d-way %sdeadlock.\n",
+			__func__, test_srcu_lockdep, cyclelen, deadlock ? "" : "non-");
+		for (i = 0; i < cyclelen; i++) {
+			j = i + 1;
+			if (i >= cyclelen - 1)
+				j = deadlock ? 0 : -1;
+
+			if (v) {
+				pr_info("%s: srcu_read_lock(%d), mutex_lock(%d), mutex_unlock(%d), srcu_read_unlock(%d)\n",
+					__func__, i, i, i, i);
+			}
+			idx = srcu_read_lock(srcus[i]);
+			mutex_lock(muts[i]);
+			mutex_unlock(muts[i]);
+			srcu_read_unlock(srcus[i], idx);
+
+			if (j >= 0) {
+				pr_info("%s: mutex_lock(%d), synchronize_srcu(%d), mutex_unlock(%d)\n",
+					__func__, i, j, i);
+				mutex_lock(muts[i]);
+				synchronize_srcu(srcus[j]);
+				mutex_unlock(muts[i]);
+			}
+		}
+		return;
+	}
+
+err_out:
+	pr_info("%s: test_srcu_lockdep = %05d does nothing.\n", __func__, test_srcu_lockdep);
+	pr_info("%s: test_srcu_lockdep = VDTTC.\n", __func__);
+	pr_info("%s: V: Verbosity, print operations if nonzero.\n", __func__);
+	pr_info("%s: D: Deadlock if nonzero.\n", __func__);
+	pr_info("%s: TT: Test number, 0=SRCU, 1=SRCU/mutex.\n", __func__);
+	pr_info("%s: C: Cycle length.\n", __func__);
+}
+
 static int __init
 rcu_torture_init(void)
 {
@@ -3531,6 +3645,8 @@ rcu_torture_init(void)
 	}
 	if (cur_ops->init)
 		cur_ops->init();
+
+	rcu_torture_init_srcu_lockdep();
 
 	if (nreaders >= 0) {
 		nrealreaders = nreaders;
