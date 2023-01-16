@@ -230,6 +230,8 @@
 			rpmcc: clock-controller {
 				compatible = "qcom,rpmcc-qcs404", "qcom,rpmcc";
 				#clock-cells = <1>;
+				clocks = <&xo_board>;
+				clock-names = "xo";
 			};
 
 			rpmpd: power-controller {
@@ -485,27 +487,31 @@
 			interrupt-names = "wdog", "fatal", "ready",
 					  "handover", "stop-ack";
 
-			clocks = <&xo_board>,
-				 <&gcc GCC_CDSP_CFG_AHB_CLK>,
-				 <&gcc GCC_CDSP_TBU_CLK>,
-				 <&gcc GCC_BIMC_CDSP_CLK>,
-				 <&turingcc TURING_WRAPPER_AON_CLK>,
-				 <&turingcc TURING_Q6SS_AHBS_AON_CLK>,
-				 <&turingcc TURING_Q6SS_AHBM_AON_CLK>,
-				 <&turingcc TURING_Q6SS_Q6_AXIM_CLK>;
-			clock-names = "xo",
-				      "sway",
-				      "tbu",
-				      "bimc",
-				      "ahb_aon",
-				      "q6ss_slave",
-				      "q6ss_master",
-				      "q6_axim";
+			clocks = <&xo_board>;
+			clock-names = "xo";
 
-			resets = <&gcc GCC_CDSP_RESTART>;
-			reset-names = "restart";
-
-			qcom,halt-regs = <&tcsr 0x19004>;
+			/*
+			 * If the node was using the PIL binding, then include properties:
+			 * clocks = <&xo_board>,
+			 *          <&gcc GCC_CDSP_CFG_AHB_CLK>,
+			 *          <&gcc GCC_CDSP_TBU_CLK>,
+			 *          <&gcc GCC_BIMC_CDSP_CLK>,
+			 *          <&turingcc TURING_WRAPPER_AON_CLK>,
+			 *          <&turingcc TURING_Q6SS_AHBS_AON_CLK>,
+			 *          <&turingcc TURING_Q6SS_AHBM_AON_CLK>,
+			 *          <&turingcc TURING_Q6SS_Q6_AXIM_CLK>;
+			 * clock-names = "xo",
+			 *               "sway",
+			 *               "tbu",
+			 *               "bimc",
+			 *               "ahb_aon",
+			 *               "q6ss_slave",
+			 *               "q6ss_master",
+			 *               "q6_axim";
+			 * resets = <&gcc GCC_CDSP_RESTART>;
+			 * reset-names = "restart";
+			 * qcom,halt-regs = <&tcsr 0x19004>;
+			 */
 
 			memory-region = <&cdsp_fw_mem>;
 
@@ -729,6 +735,14 @@
 			reg = <0x01800000 0x80000>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
+			#power-domain-cells = <1>;
+
+			clocks = <&xo_board>,
+				 <&sleep_clk>,
+				 <&pcie_phy>,
+				 <0>,
+				 <0>,
+				 <0>;
 
 			assigned-clocks = <&gcc GCC_APSS_AHB_CLK_SRC>;
 			assigned-clock-rates = <19200000>;
@@ -806,10 +820,11 @@
 
 			clocks = <&gcc GCC_PCIE_0_PIPE_CLK>;
 			resets = <&gcc GCC_PCIEPHY_0_PHY_BCR>,
-				 <&gcc 21>;
+				 <&gcc GCC_PCIE_0_PIPE_ARES>;
 			reset-names = "phy", "pipe";
 
 			clock-output-names = "pcie_0_pipe_clk";
+			#clock-cells = <0>;
 			#phy-cells = <0>;
 
 			status = "disabled";
@@ -1336,12 +1351,12 @@
 				 <&gcc GCC_PCIE_0_SLV_AXI_CLK>;
 			clock-names = "iface", "aux", "master_bus", "slave_bus";
 
-			resets = <&gcc 18>,
-				 <&gcc 17>,
-				 <&gcc 15>,
-				 <&gcc 19>,
+			resets = <&gcc GCC_PCIE_0_AXI_MASTER_ARES>,
+				 <&gcc GCC_PCIE_0_AXI_SLAVE_ARES>,
+				 <&gcc GCC_PCIE_0_AXI_MASTER_STICKY_ARES>,
+				 <&gcc GCC_PCIE_0_CORE_STICKY_ARES>,
 				 <&gcc GCC_PCIE_0_BCR>,
-				 <&gcc 16>;
+				 <&gcc GCC_PCIE_0_AHB_ARES>;
 			reset-names = "axi_m",
 				      "axi_s",
 				      "axi_m_sticky",
@@ -1502,7 +1517,7 @@
 					hysteresis = <2000>;
 					type = "passive";
 				};
-				cluster_crit: cluster_crit {
+				cluster_crit: cluster-crit {
 					temperature = <120000>;
 					hysteresis = <2000>;
 					type = "critical";
@@ -1536,7 +1551,7 @@
 					hysteresis = <2000>;
 					type = "passive";
 				};
-				cpu0_crit: cpu_crit {
+				cpu0_crit: cpu-crit {
 					temperature = <120000>;
 					hysteresis = <2000>;
 					type = "critical";
@@ -1570,7 +1585,7 @@
 					hysteresis = <2000>;
 					type = "passive";
 				};
-				cpu1_crit: cpu_crit {
+				cpu1_crit: cpu-crit {
 					temperature = <120000>;
 					hysteresis = <2000>;
 					type = "critical";
@@ -1604,7 +1619,7 @@
 					hysteresis = <2000>;
 					type = "passive";
 				};
-				cpu2_crit: cpu_crit {
+				cpu2_crit: cpu-crit {
 					temperature = <120000>;
 					hysteresis = <2000>;
 					type = "critical";
@@ -1638,7 +1653,7 @@
 					hysteresis = <2000>;
 					type = "passive";
 				};
-				cpu3_crit: cpu_crit {
+				cpu3_crit: cpu-crit {
 					temperature = <120000>;
 					hysteresis = <2000>;
 					type = "critical";
