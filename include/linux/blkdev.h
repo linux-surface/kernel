@@ -288,6 +288,7 @@ struct queue_limits {
 	unsigned int		max_dev_sectors;
 	unsigned int		chunk_sectors;
 	unsigned int		max_sectors;
+	unsigned int		max_user_sectors;
 	unsigned int		max_segment_size;
 	unsigned int		physical_block_size;
 	unsigned int		logical_block_size;
@@ -1095,10 +1096,11 @@ static inline bool bdev_is_partition(struct block_device *bdev)
 enum blk_default_limits {
 	BLK_MAX_SEGMENTS	= 128,
 	BLK_SAFE_MAX_SECTORS	= 255,
-	BLK_DEF_MAX_SECTORS	= 2560,
 	BLK_MAX_SEGMENT_SIZE	= 65536,
 	BLK_SEG_BOUNDARY_MASK	= 0xFFFFFFFFUL,
 };
+
+#define BLK_DEF_MAX_SECTORS 2560u
 
 static inline unsigned long queue_segment_boundary(const struct request_queue *q)
 {
