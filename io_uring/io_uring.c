@@ -245,17 +245,15 @@ static __cold void io_fallback_req_func(struct work_struct *work)
 						fallback_work.work);
 	struct llist_node *node = llist_del_all(&ctx->fallback_llist);
 	struct io_kiocb *req, *tmp;
-	bool locked = false;
+	bool locked = true;
 
-	percpu_ref_get(&ctx->refs);
+	mutex_lock(&ctx->uring_lock);
 	llist_for_each_entry_safe(req, tmp, node, io_task_work.node)
 		req->io_task_work.func(req, &locked);
-
-	if (locked) {
-		io_submit_flush_completions(ctx);
-		mutex_unlock(&ctx->uring_lock);
-	}
-	percpu_ref_put(&ctx->refs);
+	if (WARN_ON_ONCE(!locked))
+		return;
+	io_submit_flush_completions(ctx);
+	mutex_unlock(&ctx->uring_lock);
 }
 
 static int io_alloc_hash_table(struct io_hash_table *table, unsigned bits)
@@ -715,7 +713,7 @@ static void io_cqring_overflow_flush(struct io_ring_ctx *ctx)
 		io_cqring_do_overflow_flush(ctx);
 }
 
-void __io_put_task(struct task_struct *task, int nr)
+static void __io_put_task(struct task_struct *task, int nr)
 {
 	struct io_uring_task *tctx = task->io_uring;
 
@@ -723,6 +721,15 @@ void __io_put_task(struct task_struct *task, int nr)
 	if (unlikely(atomic_read(&tctx->in_idle)))
 		wake_up(&tctx->wait);
 	put_task_struct_many(task, nr);
+}
+
+/* must to be called somewhat shortly after putting a request */
+static inline void io_put_task(struct task_struct *task, int nr)
+{
+	if (likely(task == current))
+		task->io_uring->cached_refs += nr;
+	else
+		__io_put_task(task, nr);
 }
 
 void io_task_refs_refill(struct io_uring_task *tctx)
@@ -967,14 +974,14 @@ static void __io_req_complete_post(struct io_kiocb *req)
 				req->link = NULL;
 			}
 		}
+		io_put_kbuf_comp(req);
+		io_dismantle_req(req);
 		io_req_put_rsrc(req);
 		/*
 		 * Selected buffer deallocation in io_clean_op() assumes that
 		 * we don't hold ->completion_lock. Clean them here to avoid
 		 * deadlocks.
 		 */
-		io_put_kbuf_comp(req);
-		io_dismantle_req(req);
 		io_put_task(req->task, 1);
 		wq_list_add_head(&req->comp_list, &ctx->locked_free_list);
 		ctx->locked_free_nr++;
@@ -1344,8 +1351,11 @@ again:
 
 	if (!llist_empty(&ctx->work_llist))
 		goto again;
-	if (*locked)
+	if (*locked) {
 		io_submit_flush_completions(ctx);
+		if (!llist_empty(&ctx->work_llist))
+			goto again;
+	}
 	trace_io_uring_local_work_run(ctx, ret, loops);
 	return ret;
 }
