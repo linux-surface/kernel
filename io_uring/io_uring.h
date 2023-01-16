@@ -28,8 +28,6 @@ enum {
 struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx, bool overflow);
 bool io_req_cqe_overflow(struct io_kiocb *req);
 int io_run_task_work_sig(struct io_ring_ctx *ctx);
-int __io_run_local_work(struct io_ring_ctx *ctx, bool *locked);
-int io_run_local_work(struct io_ring_ctx *ctx);
 void io_req_defer_failed(struct io_kiocb *req, s32 res);
 void io_req_complete_post(struct io_kiocb *req, unsigned issue_flags);
 bool io_post_aux_cqe(struct io_ring_ctx *ctx, u64 user_data, s32 res, u32 cflags);
@@ -222,6 +220,13 @@ static inline void io_commit_cqring(struct io_ring_ctx *ctx)
 	smp_store_release(&ctx->rings->cq.tail, ctx->cached_cq_tail);
 }
 
+static inline void io_poll_wq_wake(struct io_ring_ctx *ctx)
+{
+	if (wq_has_sleeper(&ctx->poll_wq))
+		__wake_up(&ctx->poll_wq, TASK_NORMAL, 0,
+				poll_to_key(EPOLL_URING_WAKE | EPOLLIN));
+}
+
 /* requires smb_mb() prior, see wq_has_sleeper() */
 static inline void __io_cqring_wake(struct io_ring_ctx *ctx)
 {
@@ -284,42 +289,6 @@ static inline bool io_task_work_pending(struct io_ring_ctx *ctx)
 	return task_work_pending(current) || !wq_list_empty(&ctx->work_llist);
 }
 
-static inline int io_run_task_work_ctx(struct io_ring_ctx *ctx)
-{
-	int ret = 0;
-	int ret2;
-
-	if (ctx->flags & IORING_SETUP_DEFER_TASKRUN)
-		ret = io_run_local_work(ctx);
-
-	/* want to run this after in case more is added */
-	ret2 = io_run_task_work();
-
-	/* Try propagate error in favour of if tasks were run,
-	 * but still make sure to run them if requested
-	 */
-	if (ret >= 0)
-		ret += ret2;
-
-	return ret;
-}
-
-static inline int io_run_local_work_locked(struct io_ring_ctx *ctx)
-{
-	bool locked;
-	int ret;
-
-	if (llist_empty(&ctx->work_llist))
-		return 0;
-
-	locked = true;
-	ret = __io_run_local_work(ctx, &locked);
-	/* shouldn't happen! */
-	if (WARN_ON_ONCE(!locked))
-		mutex_lock(&ctx->uring_lock);
-	return ret;
-}
-
 static inline void io_tw_lock(struct io_ring_ctx *ctx, bool *locked)
 {
 	if (!*locked) {
@@ -345,7 +314,8 @@ static inline void io_req_complete_defer(struct io_kiocb *req)
 
 static inline void io_commit_cqring_flush(struct io_ring_ctx *ctx)
 {
-	if (unlikely(ctx->off_timeout_used || ctx->drain_active || ctx->has_evfd))
+	if (unlikely(ctx->off_timeout_used || ctx->drain_active ||
+		     ctx->has_evfd || ctx->poll_activated))
 		__io_commit_cqring_flush(ctx);
 }
 
@@ -385,6 +355,11 @@ static inline struct io_kiocb *io_alloc_req(struct io_ring_ctx *ctx)
 
 	node = wq_stack_extract(&ctx->submit_state.free_list);
 	return container_of(node, struct io_kiocb, comp_list);
+}
+
+static inline bool io_allowed_defer_tw_run(struct io_ring_ctx *ctx)
+{
+	return likely(ctx->submitter_task == current);
 }
 
 static inline bool io_allowed_run_tw(struct io_ring_ctx *ctx)
