@@ -1221,6 +1221,31 @@ struct deferred_split {
 };
 #endif
 
+#ifdef CONFIG_MEMORY_FAILURE
+/*
+ * Per NUMA node memory failure handling statistics.
+ */
+struct memory_failure_stats {
+	/*
+	 * Number of pages poisoned.
+	 * Cases not accounted: memory outside kernel control, offline page,
+	 * arch-specific memory_failure (SGX), and hwpoison_filter()
+	 * filtered error events.
+	 */
+	unsigned long pages_poisoned;
+	/*
+	 * Recovery results of poisoned pages handled by memory_failure,
+	 * in sync with mf_result.
+	 * pages_poisoned = pages_ignored + pages_failed +
+	 *		    pages_delayed + pages_recovered
+	 */
+	unsigned long pages_ignored;
+	unsigned long pages_failed;
+	unsigned long pages_delayed;
+	unsigned long pages_recovered;
+};
+#endif
+
 /*
  * On NUMA machines, each NUMA node would have a pg_data_t to describe
  * it's memory layout. On UMA machines there is a single pglist_data which
@@ -1365,6 +1390,9 @@ typedef struct pglist_data {
 	atomic_long_t		vm_stat[NR_VM_NODE_STAT_ITEMS];
 #ifdef CONFIG_NUMA
 	struct memory_tier __rcu *memtier;
+#endif
+#ifdef CONFIG_MEMORY_FAILURE
+	struct memory_failure_stats mf_stats;
 #endif
 } pg_data_t;
 

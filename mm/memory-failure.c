@@ -87,6 +87,41 @@ inline void num_poisoned_pages_sub(unsigned long pfn, long i)
 		memblk_nr_poison_sub(pfn, i);
 }
 
+/**
+ * MF_ATTR_RO - Create sysfs entry for each memory failure statistics.
+ * @_name: name of the file in the per NUMA sysfs directory.
+ */
+#define MF_ATTR_RO(_name)					\
+static ssize_t _name##_show(struct device *dev,		\
+			    struct device_attribute *attr,	\
+			    char *buf)				\
+{								\
+	struct memory_failure_stats *mf_stats =			\
+		&NODE_DATA(dev->id)->mf_stats;			\
+	return sprintf(buf, "%lu\n", mf_stats->_name);		\
+}								\
+static DEVICE_ATTR_RO(_name)
+
+MF_ATTR_RO(pages_poisoned);
+MF_ATTR_RO(pages_ignored);
+MF_ATTR_RO(pages_failed);
+MF_ATTR_RO(pages_delayed);
+MF_ATTR_RO(pages_recovered);
+
+static struct attribute *memory_failure_attr[] = {
+	&dev_attr_pages_poisoned.attr,
+	&dev_attr_pages_ignored.attr,
+	&dev_attr_pages_failed.attr,
+	&dev_attr_pages_delayed.attr,
+	&dev_attr_pages_recovered.attr,
+	NULL,
+};
+
+const struct attribute_group memory_failure_attr_group = {
+	.name = "memory_failure",
+	.attrs = memory_failure_attr,
+};
+
 /*
  * Return values:
  *   1:   the page is dissolved (if needed) and taken off from buddy,
