@@ -410,7 +410,7 @@ static noinline int ntfs_set_ea(struct inode *inode, const char *name,
 
 	/*
 	 * 1. Check ea_info.size_pack for overflow.
-	 * 2. New attibute size must fit value from $AttrDef
+	 * 2. New attribute size must fit value from $AttrDef
 	 */
 	if (new_pack > 0xffff || size > sbi->ea_max_size) {
 		ntfs_inode_warn(
@@ -780,7 +780,7 @@ static int ntfs_getxattr(const struct xattr_handler *handler, struct dentry *de,
 			err = sizeof(u32);
 			*(u32 *)buffer = le32_to_cpu(ni->std_fa);
 			if (!strcmp(name, SYSTEM_NTFS_ATTRIB_BE))
-				*(u32 *)buffer = cpu_to_be32(*(u32 *)buffer);
+				*(__be32 *)buffer = cpu_to_be32(*(u32 *)buffer);
 		}
 		goto out;
 	}
@@ -857,7 +857,7 @@ static noinline int ntfs_setxattr(const struct xattr_handler *handler,
 		if (size != sizeof(u32))
 			goto out;
 		if (!strcmp(name, SYSTEM_NTFS_ATTRIB_BE))
-			new_fa = cpu_to_le32(be32_to_cpu(*(u32 *)value));
+			new_fa = cpu_to_le32(be32_to_cpu(*(__be32 *)value));
 		else
 			new_fa = cpu_to_le32(*(u32 *)value);
 
