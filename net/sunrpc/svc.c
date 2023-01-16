@@ -1225,22 +1225,18 @@ EXPORT_SYMBOL_GPL(svc_generic_init_request);
  * Common routine for processing the RPC request.
  */
 static int
-svc_process_common(struct svc_rqst *rqstp, struct kvec *argv, struct kvec *resv)
+svc_process_common(struct svc_rqst *rqstp, struct kvec *resv)
 {
 	struct svc_program	*progp;
 	const struct svc_procedure *procp = NULL;
 	struct svc_serv		*serv = rqstp->rq_server;
 	struct svc_process_info process;
-	__be32			*statp;
-	u32			prog, vers;
+	__be32			*p, *statp;
 	__be32			rpc_stat;
 	int			auth_res, rc;
 	__be32			*reply_statp;
 
 	rpc_stat = rpc_success;
-
-	if (argv->iov_len < 6*4)
-		goto err_short_len;
 
 	/* Will be turned off by GSS integrity and privacy services */
 	set_bit(RQ_SPLICE_OK, &rqstp->rq_flags);
@@ -1248,27 +1244,25 @@ svc_process_common(struct svc_rqst *rqstp, struct kvec *argv, struct kvec *resv)
 	set_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
 	clear_bit(RQ_DROPME, &rqstp->rq_flags);
 
+	/* Construct the first words of the reply: */
 	svc_putu32(resv, rqstp->rq_xid);
-
-	vers = svc_getnl(argv);
-
-	/* First words of reply: */
-	svc_putnl(resv, 1);		/* REPLY */
-
-	if (vers != 2)		/* RPC version number */
-		goto err_bad_rpc;
-
-	/* Save position in case we later decide to reject: */
+	svc_putnl(resv, RPC_REPLY);
 	reply_statp = resv->iov_base + resv->iov_len;
+
+	p = xdr_inline_decode(&rqstp->rq_arg_stream, XDR_UNIT * 4);
+	if (unlikely(!p))
+		goto err_short_len;
+	if (*p++ != cpu_to_be32(RPC_VERSION))
+		goto err_bad_rpc;
 
 	svc_putnl(resv, 0);		/* ACCEPT */
 
-	rqstp->rq_prog = prog = svc_getnl(argv);	/* program number */
-	rqstp->rq_vers = svc_getnl(argv);	/* version number */
-	rqstp->rq_proc = svc_getnl(argv);	/* procedure number */
+	rqstp->rq_prog = be32_to_cpup(p++);
+	rqstp->rq_vers = be32_to_cpup(p++);
+	rqstp->rq_proc = be32_to_cpup(p);
 
 	for (progp = serv->sv_program; progp; progp = progp->pg_next)
-		if (prog == progp->pg_prog)
+		if (rqstp->rq_prog == progp->pg_prog)
 			break;
 
 	/*
@@ -1368,8 +1362,8 @@ close_xprt:
 	return 0;
 
 err_short_len:
-	svc_printk(rqstp, "short len %zd, dropping request\n",
-			argv->iov_len);
+	svc_printk(rqstp, "short len %u, dropping request\n",
+		   rqstp->rq_arg.len);
 	goto close_xprt;
 
 err_bad_rpc:
@@ -1392,7 +1386,7 @@ err_bad_auth:
 	goto sendit;
 
 err_bad_prog:
-	dprintk("svc: unknown program %d\n", prog);
+	dprintk("svc: unknown program %d\n", rqstp->rq_prog);
 	serv->sv_stats->rpcbadfmt++;
 	svc_putnl(resv, RPC_PROG_UNAVAIL);
 	goto sendit;
@@ -1430,9 +1424,8 @@ err_bad:
 int
 svc_process(struct svc_rqst *rqstp)
 {
-	struct kvec		*argv = &rqstp->rq_arg.head[0];
 	struct kvec		*resv = &rqstp->rq_res.head[0];
-	__be32			dir;
+	__be32 *p;
 
 #if IS_ENABLED(CONFIG_FAIL_SUNRPC)
 	if (!fail_sunrpc.ignore_server_disconnect &&
@@ -1455,16 +1448,21 @@ svc_process(struct svc_rqst *rqstp)
 	rqstp->rq_res.tail[0].iov_base = NULL;
 	rqstp->rq_res.tail[0].iov_len = 0;
 
-	dir = svc_getu32(argv);
-	if (dir != rpc_call)
+	svcxdr_init_decode(rqstp);
+	p = xdr_inline_decode(&rqstp->rq_arg_stream, XDR_UNIT * 2);
+	if (unlikely(!p))
+		goto out_drop;
+	rqstp->rq_xid = *p++;
+	if (unlikely(*p != rpc_call))
 		goto out_baddir;
-	if (!svc_process_common(rqstp, argv, resv))
+
+	if (!svc_process_common(rqstp, resv))
 		goto out_drop;
 	return svc_send(rqstp);
 
 out_baddir:
 	svc_printk(rqstp, "bad direction 0x%08x, dropping request\n",
-		   be32_to_cpu(dir));
+		   be32_to_cpu(*p));
 	rqstp->rq_server->sv_stats->rpcbadfmt++;
 out_drop:
 	svc_drop(rqstp);
@@ -1481,7 +1479,6 @@ int
 bc_svc_process(struct svc_serv *serv, struct rpc_rqst *req,
 	       struct svc_rqst *rqstp)
 {
-	struct kvec	*argv = &rqstp->rq_arg.head[0];
 	struct kvec	*resv = &rqstp->rq_res.head[0];
 	struct rpc_task *task;
 	int proc_error;
@@ -1516,15 +1513,19 @@ bc_svc_process(struct svc_serv *serv, struct rpc_rqst *req,
 	/* reset result send buffer "put" position */
 	resv->iov_len = 0;
 
+	svcxdr_init_decode(rqstp);
+
 	/*
-	 * Skip the next two words because they've already been
-	 * processed in the transport
+	 * Skip the XID and calldir fields because they've already
+	 * been processed by the caller.
 	 */
-	svc_getu32(argv);	/* XID */
-	svc_getnl(argv);	/* CALLDIR */
+	if (!xdr_inline_decode(&rqstp->rq_arg_stream, XDR_UNIT * 2)) {
+		error = -EINVAL;
+		goto out;
+	}
 
 	/* Parse and execute the bc call */
-	proc_error = svc_process_common(rqstp, argv, resv);
+	proc_error = svc_process_common(rqstp, resv);
 
 	atomic_dec(&req->rq_xprt->bc_slot_count);
 	if (!proc_error) {

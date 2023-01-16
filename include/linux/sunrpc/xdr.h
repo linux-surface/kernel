@@ -188,7 +188,6 @@ xdr_adjust_iovec(struct kvec *iov, __be32 *p)
 /*
  * XDR buffer helper functions
  */
-extern void xdr_shift_buf(struct xdr_buf *, size_t);
 extern void xdr_buf_from_iov(const struct kvec *, struct xdr_buf *);
 extern int xdr_buf_subsegment(const struct xdr_buf *, struct xdr_buf *, unsigned int, unsigned int);
 extern void xdr_buf_trim(struct xdr_buf *, unsigned int);
@@ -247,6 +246,7 @@ extern int xdr_reserve_space_vec(struct xdr_stream *xdr, struct kvec *vec,
 		size_t nbytes);
 extern void __xdr_commit_encode(struct xdr_stream *xdr);
 extern void xdr_truncate_encode(struct xdr_stream *xdr, size_t len);
+extern void xdr_truncate_decode(struct xdr_stream *xdr, size_t len);
 extern int xdr_restrict_buflen(struct xdr_stream *xdr, int newbuflen);
 extern void xdr_write_pages(struct xdr_stream *xdr, struct page **pages,
 		unsigned int base, unsigned int len);
@@ -346,6 +346,9 @@ ssize_t xdr_stream_decode_string(struct xdr_stream *xdr, char *str,
 		size_t size);
 ssize_t xdr_stream_decode_string_dup(struct xdr_stream *xdr, char **str,
 		size_t maxlen, gfp_t gfp_flags);
+ssize_t xdr_stream_decode_opaque_auth(struct xdr_stream *xdr, u32 *flavor,
+		void **body, unsigned int *body_len);
+
 /**
  * xdr_align_size - Calculate padded size of an object
  * @n: Size of an object being XDR encoded (in bytes)
