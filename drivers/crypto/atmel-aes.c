@@ -1879,7 +1879,7 @@ static int atmel_aes_xts_setkey(struct crypto_skcipher *tfm, const u8 *key,
 	struct atmel_aes_xts_ctx *ctx = crypto_skcipher_ctx(tfm);
 	int err;
 
-	err = xts_check_key(crypto_skcipher_tfm(tfm), key, keylen);
+	err = xts_verify_key(tfm, key, keylen);
 	if (err)
 		return err;
 
@@ -2510,6 +2510,7 @@ static void atmel_aes_get_cap(struct atmel_aes_dev *dd)
 	/* keep only major version number */
 	switch (dd->hw_version & 0xff0) {
 	case 0x700:
+	case 0x600:
 	case 0x500:
 		dd->caps.has_dualbuff = 1;
 		dd->caps.has_cfb64 = 1;
