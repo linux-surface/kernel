@@ -240,6 +240,7 @@ struct led_classdev *of_led_get(struct device_node *np, int index)
 		return ERR_PTR(-EPROBE_DEFER);
 
 	led_cdev = dev_get_drvdata(led_dev);
+	put_device(led_dev);
 
 	if (!try_module_get(led_cdev->dev->parent->driver->owner))
 		return ERR_PTR(-ENODEV);
