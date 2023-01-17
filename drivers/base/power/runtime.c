@@ -20,8 +20,7 @@ typedef int (*pm_callback_t)(struct device *);
 
 static pm_callback_t __rpm_get_callback(struct device *dev, size_t cb_offset)
 {
-	pm_callback_t cb;
-	const struct dev_pm_ops *ops;
+	const struct dev_pm_ops *ops = NULL;
 
 	if (dev->pm_domain)
 		ops = &dev->pm_domain->ops;
@@ -31,18 +30,14 @@ static pm_callback_t __rpm_get_callback(struct device *dev, size_t cb_offset)
 		ops = dev->class->pm;
 	else if (dev->bus && dev->bus->pm)
 		ops = dev->bus->pm;
-	else
-		ops = NULL;
 
 	if (ops)
-		cb = *(pm_callback_t *)((void *)ops + cb_offset);
-	else
-		cb = NULL;
+		return *(pm_callback_t *)((void *)ops + cb_offset);
 
-	if (!cb && dev->driver && dev->driver->pm)
-		cb = *(pm_callback_t *)((void *)dev->driver->pm + cb_offset);
+	if (dev->driver && dev->driver->pm)
+		return *(pm_callback_t *)((void *)dev->driver->pm + cb_offset);
 
-	return cb;
+	return NULL;
 }
 
 #define RPM_GET_CALLBACK(dev, callback) \
@@ -1864,6 +1859,10 @@ static bool pm_runtime_need_not_resume(struct device *dev)
  * sure the device is put into low power state and it should only be used during
  * system-wide PM transitions to sleep states.  It assumes that the analogous
  * pm_runtime_force_resume() will be used to resume the device.
+ *
+ * Do not use with DPM_FLAG_SMART_SUSPEND as this can lead to an inconsistent
+ * state where this function has called the ->runtime_suspend callback but the
+ * PM core marks the driver as runtime active.
  */
 int pm_runtime_force_suspend(struct device *dev)
 {
