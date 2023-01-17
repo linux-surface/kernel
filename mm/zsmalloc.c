@@ -937,7 +937,7 @@ static bool obj_tagged(struct page *page, void *obj, unsigned long *phandle,
 	return true;
 }
 
-static bool obj_allocated(struct page *page, void *obj, unsigned long *phandle)
+static inline bool obj_allocated(struct page *page, void *obj, unsigned long *phandle)
 {
 	return obj_tagged(page, obj, phandle, OBJ_ALLOCATED_TAG);
 }
