@@ -198,7 +198,7 @@ static struct bio *do_mpage_readpage(struct mpage_readpage_args *args)
 	/*
 	 * Then do more get_blocks calls until we are done with this folio.
 	 */
-	map_bh->b_page = &folio->page;
+	map_bh->b_folio = folio;
 	while (page_block < blocks_per_page) {
 		map_bh->b_state = 0;
 		map_bh->b_size = 0;
@@ -524,6 +524,12 @@ static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 	 */
 	BUG_ON(!PageUptodate(page));
 	block_in_file = (sector_t)page->index << (PAGE_SHIFT - blkbits);
+	/*
+	 * Whole page beyond EOF? Skip allocating blocks to avoid leaking
+	 * space.
+	 */
+	if (block_in_file >= (i_size + (1 << blkbits) - 1) >> blkbits)
+		goto page_is_mapped;
 	last_block = (i_size - 1) >> blkbits;
 	map_bh.b_page = page;
 	for (page_block = 0; page_block < blocks_per_page; ) {
@@ -641,14 +647,6 @@ out:
  *
  * This is a library function, which implements the writepages()
  * address_space_operation.
- *
- * If a page is already under I/O, generic_writepages() skips it, even
- * if it's dirty.  This is desirable behaviour for memory-cleaning writeback,
- * but it is INCORRECT for data-integrity system calls such as fsync().  fsync()
- * and msync() need to guarantee that all the data which was dirty at the time
- * the call was made get new I/O started against them.  If wbc->sync_mode is
- * WB_SYNC_ALL then we were called for data integrity and we must wait for
- * existing IO to complete.
  */
 int
 mpage_writepages(struct address_space *mapping,
