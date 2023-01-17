@@ -13,6 +13,11 @@
 #include "filetable.h"
 #include "msg_ring.h"
 
+
+/* All valid masks for MSG_RING */
+#define IORING_MSG_RING_MASK		(IORING_MSG_RING_CQE_SKIP | \
+					IORING_MSG_RING_FLAGS_PASS)
+
 struct io_msg {
 	struct file			*file;
 	struct file			*src_file;
@@ -21,7 +26,10 @@ struct io_msg {
 	u32 len;
 	u32 cmd;
 	u32 src_fd;
-	u32 dst_fd;
+	union {
+		u32 dst_fd;
+		u32 cqe_flags;
+	};
 	u32 flags;
 };
 
@@ -57,9 +65,16 @@ static int io_msg_ring_data(struct io_kiocb *req)
 {
 	struct io_ring_ctx *target_ctx = req->file->private_data;
 	struct io_msg *msg = io_kiocb_to_cmd(req, struct io_msg);
+	u32 flags = 0;
 
-	if (msg->src_fd || msg->dst_fd || msg->flags)
+	if (msg->src_fd || msg->flags & ~IORING_MSG_RING_FLAGS_PASS)
 		return -EINVAL;
+
+	if (!(msg->flags & IORING_MSG_RING_FLAGS_PASS) && msg->dst_fd)
+		return -EINVAL;
+
+	if (msg->flags & IORING_MSG_RING_FLAGS_PASS)
+		flags = msg->cqe_flags;
 
 	if (target_ctx->task_complete && current != target_ctx->submitter_task) {
 		init_task_work(&msg->tw, io_msg_tw_complete);
@@ -71,7 +86,7 @@ static int io_msg_ring_data(struct io_kiocb *req)
 		return IOU_ISSUE_SKIP_COMPLETE;
 	}
 
-	if (io_post_aux_cqe(target_ctx, msg->user_data, msg->len, 0))
+	if (io_post_aux_cqe(target_ctx, msg->user_data, msg->len, flags))
 		return 0;
 
 	return -EOVERFLOW;
@@ -207,7 +222,7 @@ int io_msg_ring_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	msg->src_fd = READ_ONCE(sqe->addr3);
 	msg->dst_fd = READ_ONCE(sqe->file_index);
 	msg->flags = READ_ONCE(sqe->msg_ring_flags);
-	if (msg->flags & ~IORING_MSG_RING_CQE_SKIP)
+	if (msg->flags & ~IORING_MSG_RING_MASK)
 		return -EINVAL;
 
 	return 0;
