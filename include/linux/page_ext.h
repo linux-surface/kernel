@@ -8,29 +8,31 @@
 
 struct pglist_data;
 
-/*
+/**
+ * struct page_ext_operations - per page_ext client operations
+ * @offset: Offset to the client's data within page_ext. Offset is returned to
+ *          the client by page_ext_init.
+ * @size: The size of the client data within page_ext.
+ * @need: Function that returns true if client requires page_ext.
+ * @init: (optional) Called to initialize client once page_exts are allocated.
+ * @need_shared_flags: True when client is using shared page_ext->flags
+ *                     field.
+ *
  * Each Page Extension client must define page_ext_operations in
  * page_ext_ops array.
- * offset  offset to the client's data within page_ext. Offset is returned to
- *         the client by page_ext_init.
- * size    the size of the client data within page_ext.
- * need()  function that returns true if client requires page_ext
- * init()  (optional) called to initialize client once page_exts are allocated.
- * using_shared_ext_flags  true when client is using shared page_ext->flags
- *         field.
  */
 struct page_ext_operations {
 	size_t offset;
 	size_t size;
 	bool (*need)(void);
 	void (*init)(void);
-	bool using_shared_ext_flags;
+	bool need_shared_flags;
 };
 
 #ifdef CONFIG_PAGE_EXTENSION
 
 /*
- * The page_ext_flags users must set using_shared_ext_flags to true.
+ * The page_ext_flags users must set need_shared_flags to true.
  */
 enum page_ext_flags {
 	PAGE_EXT_OWNER,
@@ -47,9 +49,6 @@ enum page_ext_flags {
  * page_ext helps us add more information about the page.
  * All page_ext are allocated at boot or memory hotplug event,
  * then the page_ext for pfn always exists.
- * Note: that if none of the users of page_ext is setting
- * using_shared_ext_flags to true, the field cannot be used,
- * as it will be overlapped with another data.
  */
 struct page_ext {
 	unsigned long flags;

@@ -71,7 +71,7 @@ static bool need_page_idle(void)
 }
 static struct page_ext_operations page_idle_ops __initdata = {
 	.need = need_page_idle,
-	.using_shared_ext_flags = true,
+	.need_shared_flags = true,
 };
 #endif
 
@@ -108,7 +108,7 @@ static bool __init invoke_need_callbacks(void)
 
 	for (i = 0; i < entries; i++) {
 		if (page_ext_ops[i]->need()) {
-			if (page_ext_ops[i]->using_shared_ext_flags) {
+			if (page_ext_ops[i]->need_shared_flags) {
 				page_ext_size = sizeof(struct page_ext);
 				break;
 			}
