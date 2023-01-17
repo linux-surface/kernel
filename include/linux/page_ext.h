@@ -54,6 +54,7 @@ struct page_ext {
 	unsigned long flags;
 };
 
+extern bool deferred_struct_pages;
 extern bool early_page_ext;
 extern unsigned long page_ext_size;
 extern void pgdat_page_ext_init(struct pglist_data *pgdat);
