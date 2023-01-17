@@ -321,6 +321,16 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 		vfree(stack);
 		return -ENOMEM;
 	}
+
+	/*
+	 * A virtually-allocated stack's memory should only be accessed through
+	 * the vmalloc area, not through the linear mapping.
+	 * Inform KASAN that all accesses through the linear mapping should be
+	 * reported (instead of permitting all accesses through the linear
+	 * mapping).
+	 */
+	vmalloc_poison_backing_pages(stack);
+
 	/*
 	 * We can't call find_vm_area() in interrupt context, and
 	 * free_thread_stack() can be called in interrupt context,

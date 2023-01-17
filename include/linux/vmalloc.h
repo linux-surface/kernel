@@ -298,4 +298,10 @@ bool vmalloc_dump_obj(void *object);
 static inline bool vmalloc_dump_obj(void *object) { return false; }
 #endif
 
+#if defined(CONFIG_MMU) && (defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS))
+void vmalloc_poison_backing_pages(const void *addr);
+#else
+static inline void vmalloc_poison_backing_pages(const void *addr) {}
+#endif
+
 #endif /* _LINUX_VMALLOC_H */

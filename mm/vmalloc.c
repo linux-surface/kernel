@@ -4147,6 +4147,30 @@ void pcpu_free_vm_areas(struct vm_struct **vms, int nr_vms)
 }
 #endif	/* CONFIG_SMP */
 
+#if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
+/*
+ * Poison the KASAN shadow for the linear mapping of the pages used as stack
+ * memory.
+ * NOTE: This makes no sense in HW_TAGS mode because HW_TAGS marks physical
+ * memory, not virtual memory.
+ */
+void vmalloc_poison_backing_pages(const void *addr)
+{
+	struct vm_struct *area;
+	int i;
+
+	if (WARN(!PAGE_ALIGNED(addr), "bad address (%p)\n", addr))
+		return;
+
+	area = find_vm_area(addr);
+	if (WARN(!area, "nonexistent vm area (%p)\n", addr))
+		return;
+
+	for (i = 0; i < area->nr_pages; i++)
+		kasan_poison_pages(area->pages[i], 0, false);
+}
+#endif
+
 #ifdef CONFIG_PRINTK
 bool vmalloc_dump_obj(void *object)
 {
