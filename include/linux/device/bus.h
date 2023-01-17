@@ -150,17 +150,6 @@ int device_match_acpi_handle(struct device *dev, const void *handle);
 int device_match_any(struct device *dev, const void *unused);
 
 /* iterator helpers for buses */
-struct subsys_dev_iter {
-	struct klist_iter		ki;
-	const struct device_type	*type;
-};
-void subsys_dev_iter_init(struct subsys_dev_iter *iter,
-			 struct bus_type *subsys,
-			 struct device *start,
-			 const struct device_type *type);
-struct device *subsys_dev_iter_next(struct subsys_dev_iter *iter);
-void subsys_dev_iter_exit(struct subsys_dev_iter *iter);
-
 int bus_for_each_dev(struct bus_type *bus, struct device *start, void *data,
 		     int (*fn)(struct device *dev, void *data));
 struct device *bus_find_device(struct bus_type *bus, struct device *start,
@@ -250,8 +239,6 @@ bus_find_device_by_acpi_dev(struct bus_type *bus, const void *adev)
 }
 #endif
 
-struct device *subsys_find_device_by_id(struct bus_type *bus, unsigned int id,
-					struct device *hint);
 int bus_for_each_drv(struct bus_type *bus, struct device_driver *start,
 		     void *data, int (*fn)(struct device_driver *, void *));
 void bus_sort_breadthfirst(struct bus_type *bus,
@@ -287,6 +274,5 @@ extern int bus_unregister_notifier(struct bus_type *bus,
 #define BUS_NOTIFY_DRIVER_NOT_BOUND	0x00000008 /* driver fails to be bound */
 
 extern struct kset *bus_get_kset(struct bus_type *bus);
-extern struct klist *bus_get_device_klist(struct bus_type *bus);
 
 #endif
