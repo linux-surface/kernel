@@ -183,7 +183,7 @@ VM_LOCKED VMA, or found in a VMA being VM_LOCKED.
 
 
 Vmscan's Handling of Unevictable Folios
---------------------------------------
+---------------------------------------
 
 If unevictable folios are culled in the fault path, or moved to the unevictable
 list at mlock() or mmap() time, vmscan will not encounter the folios until they
