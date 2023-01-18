@@ -4443,7 +4443,7 @@ static void reset_memory_tiering(void)
 	}
 }
 
-int sysctl_numa_balancing(struct ctl_table *table, int write,
+static int sysctl_numa_balancing(struct ctl_table *table, int write,
 			  void *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct ctl_table t;
@@ -4570,6 +4570,17 @@ static struct ctl_table sched_core_sysctls[] = {
 		.proc_handler   = sysctl_sched_uclamp_handler,
 	},
 #endif /* CONFIG_UCLAMP_TASK */
+#ifdef CONFIG_NUMA_BALANCING
+	{
+		.procname	= "numa_balancing",
+		.data		= NULL, /* filled in by handler */
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sysctl_numa_balancing,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_FOUR,
+	},
+#endif /* CONFIG_NUMA_BALANCING */
 	{}
 };
 static int __init sched_core_sysctl_init(void)
@@ -5771,8 +5782,7 @@ static noinline void __schedule_bug(struct task_struct *prev)
 		pr_err("Preemption disabled at:");
 		print_ip_sym(KERN_ERR, preempt_disable_ip);
 	}
-	if (panic_on_warn)
-		panic("scheduling while atomic\n");
+	check_panic_on_warn("scheduling while atomic");
 
 	dump_stack();
 	add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
