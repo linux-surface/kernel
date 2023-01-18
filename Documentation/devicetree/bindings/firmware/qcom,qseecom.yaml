@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/firmware/qcom,qseecom.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm Secure Execution Environment Communication Interface
+
+maintainers:
+  - Maximilian Luz <luzmaximilian@gmail.com>
+
+description: |
+  QSEECOM provides an interface to Qualcomm's Secure Execution Environment
+  (SEE) running in the Trust Zone via SCM calls. In particular, it allows
+  communication with secure applications running therein.
+
+  Applications running in this environment can, for example, include
+  'uefisecapp', which is required for accessing UEFI variables on certain
+  systems as these cannot be accessed directly.
+
+properties:
+  compatible:
+    items:
+      - enum:
+          - qcom,qseecom-sc8280xp
+      - const: qcom,qseecom
+
+  qcom,scm:
+    $ref: '/schemas/types.yaml#/definitions/phandle'
+    description:
+      A phandle pointing to the QCOM SCM device (see ./qcom,scm.yaml).
+
+required:
+  - compatible
+  - qcom,scm
+
+additionalProperties: false
+
+examples:
+  - |
+    firmware {
+        scm {
+            compatible = "qcom,scm-sc8280xp", "qcom,scm";
+        };
+        qseecom {
+            compatible = "qcom,qseecom-sc8280xp", "qcom,qseecom";
+            qcom,scm = <&scm>;
+        };
+    };
