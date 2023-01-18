@@ -216,8 +216,17 @@ struct qseecom_data {
 	int num_cells;
 };
 
+static const struct mfd_cell qseecom_cells_sc8280xp[] = {
+	{ .name = "qcom_qseecom_uefisecapp", },
+};
+
+static const struct qseecom_data qseecom_data_sc8280xp = {
+	.cells = qseecom_cells_sc8280xp,
+	.num_cells = ARRAY_SIZE(qseecom_cells_sc8280xp),
+};
+
 static const struct of_device_id qseecom_dt_match[] = {
-	{ .compatible = "qcom,qseecom-sc8280xp", },
+	{ .compatible = "qcom,qseecom-sc8280xp", .data = &qseecom_data_sc8280xp },
 	{ .compatible = "qcom,qseecom", },
 	{ }
 };
