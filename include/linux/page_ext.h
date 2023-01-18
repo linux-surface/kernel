@@ -29,6 +29,8 @@ struct page_ext_operations {
 	bool need_shared_flags;
 };
 
+extern bool deferred_struct_pages;
+
 #ifdef CONFIG_PAGE_EXTENSION
 
 /*
@@ -54,7 +56,6 @@ struct page_ext {
 	unsigned long flags;
 };
 
-extern bool deferred_struct_pages;
 extern bool early_page_ext;
 extern unsigned long page_ext_size;
 extern void pgdat_page_ext_init(struct pglist_data *pgdat);
