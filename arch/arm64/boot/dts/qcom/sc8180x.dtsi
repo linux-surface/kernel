@@ -466,6 +466,11 @@
 		scm: scm {
 			compatible = "qcom,scm-sc8180x", "qcom,scm";
 		};
+
+		qseecom {
+			compatible = "qcom,qseecom-sc8280xp", "qcom,qseecom";
+			qcom,scm = <&scm>;
+		};
 	};
 
 	camnoc_virt: interconnect-camnoc-virt {
