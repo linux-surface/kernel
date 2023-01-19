@@ -151,7 +151,7 @@ void putback_movable_pages(struct list_head *l)
 
 	list_for_each_entry_safe(page, page2, l, lru) {
 		if (unlikely(PageHuge(page))) {
-			putback_active_hugepage(page);
+			putback_active_hugetlb_folio(page_folio(page));
 			continue;
 		}
 		list_del(&page->lru);
@@ -1374,7 +1374,7 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
 
 	if (folio_ref_count(src) == 1) {
 		/* page was freed from under us. So we are done. */
-		putback_active_hugepage(hpage);
+		putback_active_hugetlb_folio(src);
 		return MIGRATEPAGE_SUCCESS;
 	}
 
@@ -1459,7 +1459,7 @@ out_unlock:
 	folio_unlock(src);
 out:
 	if (rc == MIGRATEPAGE_SUCCESS)
-		putback_active_hugepage(hpage);
+		putback_active_hugetlb_folio(src);
 	else if (rc != -EAGAIN)
 		list_move_tail(&src->lru, ret);
 
@@ -1471,7 +1471,7 @@ out:
 	if (put_new_page)
 		put_new_page(new_hpage, private);
 	else
-		putback_active_hugepage(new_hpage);
+		putback_active_hugetlb_folio(dst);
 
 	return rc;
 }
