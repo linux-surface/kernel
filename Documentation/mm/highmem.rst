@@ -57,8 +57,8 @@ list shows them in order of preference of use.
   It can be invoked from any context (including interrupts) but the mappings
   can only be used in the context which acquired them.
 
-  This function should always be used. kmap_atomic() and kmap() have been
-  deprecated.
+  This function should always be used, whereas kmap_atomic() and kmap() have
+  been deprecated.
 
   These mappings are thread-local and CPU-local, meaning that the mapping
   can only be accessed from within this thread and the thread is bound to the
