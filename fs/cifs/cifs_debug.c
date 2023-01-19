@@ -475,7 +475,7 @@ skip_rdma:
 				cifs_dump_iface(m, iface);
 
 				iface_weight = iface->speed / iface_min_speed;
-				seq_printf(m, "\t\tWeight (cur,total): (%lu,%lu)"
+				seq_printf(m, "\t\tWeight (cur,total): (%zu,%zu)"
 					   "\n\t\tAllocated channels: %u\n",
 					   iface->weight_fulfilled,
 					   iface_weight,
