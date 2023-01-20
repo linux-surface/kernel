@@ -160,9 +160,7 @@
 	status = "okay";
 
 	gmac0: mac@0 {
-		compatible = "mediatek,eth-mac";
-		reg = <0>;
-		phy-mode = "trgmii";
+		status = "okay";
 
 		fixed-link {
 			speed = <1000>;
@@ -172,9 +170,7 @@
 	};
 
 	mac@1 {
-		compatible = "mediatek,eth-mac";
-		reg = <1>;
-		phy-mode = "rgmii";
+		status = "okay";
 		phy-handle = <&phy5>;
 	};
 
