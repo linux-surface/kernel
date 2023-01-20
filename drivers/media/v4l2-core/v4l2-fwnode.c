@@ -17,7 +17,6 @@
 #include <linux/acpi.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/property.h>
 #include <linux/slab.h>
@@ -1328,8 +1327,3 @@ out_cleanup:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(v4l2_async_register_subdev_sensor);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Sakari Ailus <sakari.ailus@linux.intel.com>");
-MODULE_AUTHOR("Sylwester Nawrocki <s.nawrocki@samsung.com>");
-MODULE_AUTHOR("Guennadi Liakhovetski <g.liakhovetski@gmx.de>");
