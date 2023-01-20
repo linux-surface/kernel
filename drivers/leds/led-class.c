@@ -234,6 +234,28 @@ static struct led_classdev *led_module_get(struct device *led_dev)
 	return led_cdev;
 }
 
+static struct led_classdev *__of_led_get(struct device_node *np, int index,
+					 const char *name)
+{
+	struct device *led_dev;
+	struct device_node *led_node;
+
+	/*
+	 * For named LEDs, first look up the name in the "led-names" property.
+	 * If it cannot be found, then of_parse_phandle() will propagate the error.
+	 */
+	if (name)
+		index = of_property_match_string(np, "led-names", name);
+	led_node = of_parse_phandle(np, "leds", index);
+	if (!led_node)
+		return ERR_PTR(-ENOENT);
+
+	led_dev = class_find_device_by_of_node(leds_class, led_node);
+	of_node_put(led_node);
+
+	return led_module_get(led_dev);
+}
+
 /**
  * of_led_get() - request a LED device via the LED framework
  * @np: device node to get the LED device from
@@ -244,17 +266,7 @@ static struct led_classdev *led_module_get(struct device *led_dev)
  */
 struct led_classdev *of_led_get(struct device_node *np, int index)
 {
-	struct device *led_dev;
-	struct device_node *led_node;
-
-	led_node = of_parse_phandle(np, "leds", index);
-	if (!led_node)
-		return ERR_PTR(-ENOENT);
-
-	led_dev = class_find_device_by_of_node(leds_class, led_node);
-	of_node_put(led_node);
-
-	return led_module_get(led_dev);
+	return __of_led_get(np, index, NULL);
 }
 EXPORT_SYMBOL_GPL(of_led_get);
 
@@ -329,8 +341,15 @@ EXPORT_SYMBOL_GPL(devm_of_led_get);
 struct led_classdev *led_get(struct device *dev, char *con_id)
 {
 	struct led_lookup_data *lookup;
+	struct led_classdev *led_cdev;
 	const char *provider = NULL;
 	struct device *led_dev;
+
+	if (dev->of_node) {
+		led_cdev = __of_led_get(dev->of_node, -1, con_id);
+		if (!IS_ERR(led_cdev) || PTR_ERR(led_cdev) != -ENOENT)
+			return led_cdev;
+	}
 
 	mutex_lock(&leds_lookup_lock);
 	list_for_each_entry(lookup, &leds_lookup_list, list) {
