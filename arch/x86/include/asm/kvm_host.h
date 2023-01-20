@@ -678,6 +678,11 @@ struct kvm_vcpu_hv {
 	} nested;
 };
 
+struct kvm_hypervisor_cpuid {
+	u32 base;
+	u32 limit;
+};
+
 /* Xen HVM per vcpu emulation context */
 struct kvm_vcpu_xen {
 	u64 hypercall_rip;
@@ -698,6 +703,7 @@ struct kvm_vcpu_xen {
 	struct hrtimer timer;
 	int poll_evtchn;
 	struct timer_list poll_timer;
+	struct kvm_hypervisor_cpuid cpuid;
 };
 
 struct kvm_queued_exception {
@@ -826,7 +832,7 @@ struct kvm_vcpu_arch {
 
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 *cpuid_entries;
-	u32 kvm_cpuid_base;
+	struct kvm_hypervisor_cpuid kvm_cpuid;
 
 	u64 reserved_gpa_bits;
 	int maxphyaddr;
@@ -1145,6 +1151,18 @@ struct kvm_x86_msr_filter {
 	struct msr_bitmap_range ranges[16];
 };
 
+struct kvm_x86_pmu_event_filter {
+	__u32 action;
+	__u32 nevents;
+	__u32 fixed_counter_bitmap;
+	__u32 flags;
+	__u32 nr_includes;
+	__u32 nr_excludes;
+	__u64 *includes;
+	__u64 *excludes;
+	__u64 events[];
+};
+
 enum kvm_apicv_inhibit {
 
 	/********************************************************************/
@@ -1327,7 +1345,6 @@ struct kvm_arch {
 	u32 bsp_vcpu_id;
 
 	u64 disabled_quirks;
-	int cpu_dirty_logging_count;
 
 	enum kvm_irqchip_mode irqchip_mode;
 	u8 nr_reserved_ioapic_pins;
@@ -1363,7 +1380,7 @@ struct kvm_arch {
 	/* Guest can access the SGX PROVISIONKEY. */
 	bool sgx_provisioning_allowed;
 
-	struct kvm_pmu_event_filter __rcu *pmu_event_filter;
+	struct kvm_x86_pmu_event_filter __rcu *pmu_event_filter;
 	struct task_struct *nx_huge_page_recovery_thread;
 
 #ifdef CONFIG_X86_64
