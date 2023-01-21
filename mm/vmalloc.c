@@ -2722,7 +2722,7 @@ static void delayed_vfree_work(struct work_struct *w)
 	struct llist_node *t, *llnode;
 
 	llist_for_each_safe(llnode, t, llist_del_all(&p->list))
-		__vunmap((void *)llnode, 1);
+		vfree(llnode);
 }
 
 /**
