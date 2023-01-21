@@ -226,7 +226,8 @@ static void btrfs_check_read_bio(struct btrfs_bio *bbio,
 		offset += sectorsize;
 	}
 
-	btrfs_bio_free_csum(bbio);
+	if (bbio->csum != bbio->csum_inline)
+		kfree(bbio->csum);
 
 	if (unlikely(fbio))
 		btrfs_repair_done(fbio);
