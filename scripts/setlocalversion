@@ -113,8 +113,10 @@ if [ -z "${KERNELVERSION}" ]; then
 	exit 1
 fi
 
+res="${KERNELVERSION}"
+
 # localversion* files in the build and source directory
-res="$(collect_files localversion*)"
+res="${res}$(collect_files localversion*)"
 if test ! "$srctree" -ef .; then
 	res="$res$(collect_files "$srctree"/localversion*)"
 fi
