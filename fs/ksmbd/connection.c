@@ -20,7 +20,7 @@ static DEFINE_MUTEX(init_lock);
 static struct ksmbd_conn_ops default_conn_ops;
 
 LIST_HEAD(conn_list);
-DEFINE_RWLOCK(conn_list_lock);
+DEFINE_SPINLOCK(conn_list_lock);
 
 /**
  * ksmbd_conn_free() - free resources of the connection instance
@@ -32,9 +32,9 @@ DEFINE_RWLOCK(conn_list_lock);
  */
 void ksmbd_conn_free(struct ksmbd_conn *conn)
 {
-	write_lock(&conn_list_lock);
-	list_del(&conn->conns_list);
-	write_unlock(&conn_list_lock);
+	spin_lock(&conn_list_lock);
+	list_del_rcu(&conn->conns_list);
+	spin_unlock(&conn_list_lock);
 
 	xa_destroy(&conn->sessions);
 	kvfree(conn->request_buf);
@@ -84,9 +84,9 @@ struct ksmbd_conn *ksmbd_conn_alloc(void)
 	spin_lock_init(&conn->llist_lock);
 	INIT_LIST_HEAD(&conn->lock_list);
 
-	write_lock(&conn_list_lock);
-	list_add(&conn->conns_list, &conn_list);
-	write_unlock(&conn_list_lock);
+	spin_lock(&conn_list_lock);
+	list_add_rcu(&conn->conns_list, &conn_list);
+	spin_unlock(&conn_list_lock);
 	return conn;
 }
 
@@ -95,15 +95,15 @@ bool ksmbd_conn_lookup_dialect(struct ksmbd_conn *c)
 	struct ksmbd_conn *t;
 	bool ret = false;
 
-	read_lock(&conn_list_lock);
-	list_for_each_entry(t, &conn_list, conns_list) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(t, &conn_list, conns_list) {
 		if (memcmp(t->ClientGUID, c->ClientGUID, SMB2_CLIENT_GUID_SIZE))
 			continue;
 
 		ret = true;
 		break;
 	}
-	read_unlock(&conn_list_lock);
+	rcu_read_unlock();
 	return ret;
 }
 
@@ -114,7 +114,7 @@ void ksmbd_conn_enqueue_request(struct ksmbd_work *work)
 
 	if (conn->ops->get_cmd_val(work) != SMB2_CANCEL_HE) {
 		requests_queue = &conn->requests;
-		work->syncronous = true;
+		work->synchronous = true;
 	}
 
 	if (requests_queue) {
@@ -139,7 +139,7 @@ int ksmbd_conn_try_dequeue_request(struct ksmbd_work *work)
 	spin_lock(&conn->request_lock);
 	if (!work->multiRsp) {
 		list_del_init(&work->request_entry);
-		if (work->syncronous == false)
+		if (!work->synchronous)
 			list_del_init(&work->async_request_entry);
 		ret = 0;
 	}
@@ -402,8 +402,8 @@ static void stop_sessions(void)
 	struct ksmbd_transport *t;
 
 again:
-	read_lock(&conn_list_lock);
-	list_for_each_entry(conn, &conn_list, conns_list) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(conn, &conn_list, conns_list) {
 		struct task_struct *task;
 
 		t = conn->transport;
@@ -413,12 +413,12 @@ again:
 				    task->comm, task_pid_nr(task));
 		conn->status = KSMBD_SESS_EXITING;
 		if (t->ops->shutdown) {
-			read_unlock(&conn_list_lock);
+			rcu_read_unlock();
 			t->ops->shutdown(t);
-			read_lock(&conn_list_lock);
+			rcu_read_lock();
 		}
 	}
-	read_unlock(&conn_list_lock);
+	rcu_read_unlock();
 
 	if (!list_empty(&conn_list)) {
 		schedule_timeout_interruptible(HZ / 10); /* 100ms */
