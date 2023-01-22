@@ -35,11 +35,6 @@ struct sparx5_tc_flower_parse_usage {
 	unsigned int used_keys;
 };
 
-struct sparx5_tc_rule_pkt_cnt {
-	u64 cookie;
-	u32 pkts;
-};
-
 /* These protocols have dedicated keysets in IS2 and a TC dissector
  * ETH_P_ARP does not have a TC dissector
  */
@@ -573,8 +568,8 @@ static int sparx5_tc_use_dissectors(struct flow_cls_offload *fco,
 }
 
 static int sparx5_tc_flower_action_check(struct vcap_control *vctrl,
-					 struct flow_cls_offload *fco,
-					 struct vcap_admin *admin)
+					 struct net_device *ndev,
+					 struct flow_cls_offload *fco)
 {
 	struct flow_rule *rule = flow_cls_offload_flow_rule(fco);
 	struct flow_action_entry *actent, *last_actent = NULL;
@@ -600,18 +595,20 @@ static int sparx5_tc_flower_action_check(struct vcap_control *vctrl,
 		last_actent = actent; /* Save last action for later check */
 	}
 
-	/* Check that last action is a goto */
-	if (last_actent->id != FLOW_ACTION_GOTO) {
+	/* Check if last action is a goto
+	 * The last chain/lookup does not need to have a goto action
+	 */
+	if (last_actent->id == FLOW_ACTION_GOTO) {
+		/* Check if the destination chain is in one of the VCAPs */
+		if (!vcap_is_next_lookup(vctrl, fco->common.chain_index,
+					 last_actent->chain_index)) {
+			NL_SET_ERR_MSG_MOD(fco->common.extack,
+					   "Invalid goto chain");
+			return -EINVAL;
+		}
+	} else if (!vcap_is_last_chain(vctrl, fco->common.chain_index)) {
 		NL_SET_ERR_MSG_MOD(fco->common.extack,
 				   "Last action must be 'goto'");
-		return -EINVAL;
-	}
-
-	/* Check if the goto chain is in the next lookup */
-	if (!vcap_is_next_lookup(vctrl, fco->common.chain_index,
-				 last_actent->chain_index)) {
-		NL_SET_ERR_MSG_MOD(fco->common.extack,
-				   "Invalid goto chain");
 		return -EINVAL;
 	}
 
@@ -833,7 +830,7 @@ static int sparx5_tc_flower_replace(struct net_device *ndev,
 
 	vctrl = port->sparx5->vcap_ctrl;
 
-	err = sparx5_tc_flower_action_check(vctrl, fco, admin);
+	err = sparx5_tc_flower_action_check(vctrl, ndev, fco);
 	if (err)
 		return err;
 
@@ -945,44 +942,21 @@ static int sparx5_tc_flower_destroy(struct net_device *ndev,
 	return err;
 }
 
-/* Collect packet counts from all rules with the same cookie */
-static int sparx5_tc_rule_counter_cb(void *arg, struct vcap_rule *rule)
-{
-	struct sparx5_tc_rule_pkt_cnt *rinfo = arg;
-	struct vcap_counter counter;
-	int err = 0;
-
-	if (rule->cookie == rinfo->cookie) {
-		err = vcap_rule_get_counter(rule, &counter);
-		if (err)
-			return err;
-		rinfo->pkts += counter.value;
-		/* Reset the rule counter */
-		counter.value = 0;
-		vcap_rule_set_counter(rule, &counter);
-	}
-	return err;
-}
-
 static int sparx5_tc_flower_stats(struct net_device *ndev,
 				  struct flow_cls_offload *fco,
 				  struct vcap_admin *admin)
 {
 	struct sparx5_port *port = netdev_priv(ndev);
-	struct sparx5_tc_rule_pkt_cnt rinfo = {};
+	struct vcap_counter ctr = {};
 	struct vcap_control *vctrl;
 	ulong lastused = 0;
-	u64 drops = 0;
-	u32 pkts = 0;
 	int err;
 
-	rinfo.cookie = fco->cookie;
 	vctrl = port->sparx5->vcap_ctrl;
-	err = vcap_rule_iter(vctrl, sparx5_tc_rule_counter_cb, &rinfo);
+	err = vcap_get_rule_count_by_cookie(vctrl, &ctr, fco->cookie);
 	if (err)
 		return err;
-	pkts = rinfo.pkts;
-	flow_stats_update(&fco->stats, 0x0, pkts, drops, lastused,
+	flow_stats_update(&fco->stats, 0x0, ctr.value, 0, lastused,
 			  FLOW_ACTION_HW_STATS_IMMEDIATE);
 	return err;
 }

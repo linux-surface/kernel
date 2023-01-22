@@ -4,6 +4,8 @@
 #ifndef _WX_TYPE_H_
 #define _WX_TYPE_H_
 
+#include <linux/bitfield.h>
+
 /* Vendor ID */
 #ifndef PCI_VENDOR_ID_WANGXUN
 #define PCI_VENDOR_ID_WANGXUN                   0x8088
@@ -36,12 +38,11 @@
 #define WX_SPI_CMD                   0x10104
 #define WX_SPI_CMD_READ_DWORD        0x1
 #define WX_SPI_CLK_DIV               0x3
-#define WX_SPI_CMD_CMD(_v)           (((_v) & 0x7) << 28)
-#define WX_SPI_CMD_CLK(_v)           (((_v) & 0x7) << 25)
-#define WX_SPI_CMD_ADDR(_v)          (((_v) & 0xFFFFFF))
+#define WX_SPI_CMD_CMD(_v)           FIELD_PREP(GENMASK(30, 28), _v)
+#define WX_SPI_CMD_CLK(_v)           FIELD_PREP(GENMASK(27, 25), _v)
+#define WX_SPI_CMD_ADDR(_v)          FIELD_PREP(GENMASK(23, 0), _v)
 #define WX_SPI_DATA                  0x10108
 #define WX_SPI_DATA_BYPASS           BIT(31)
-#define WX_SPI_DATA_STATUS(_v)       (((_v) & 0xFF) << 16)
 #define WX_SPI_DATA_OP_DONE          BIT(0)
 #define WX_SPI_STATUS                0x1010C
 #define WX_SPI_STATUS_OPDONE         BIT(0)
@@ -113,8 +114,8 @@
 /* mac switcher */
 #define WX_PSR_MAC_SWC_AD_L          0x16200
 #define WX_PSR_MAC_SWC_AD_H          0x16204
-#define WX_PSR_MAC_SWC_AD_H_AD(v)       (((v) & 0xFFFF))
-#define WX_PSR_MAC_SWC_AD_H_ADTYPE(v)   (((v) & 0x1) << 30)
+#define WX_PSR_MAC_SWC_AD_H_AD(v)       FIELD_PREP(U16_MAX, v)
+#define WX_PSR_MAC_SWC_AD_H_ADTYPE(v)   FIELD_PREP(BIT(30), v)
 #define WX_PSR_MAC_SWC_AD_H_AV       BIT(31)
 #define WX_PSR_MAC_SWC_VM_L          0x16208
 #define WX_PSR_MAC_SWC_VM_H          0x1620C
@@ -133,11 +134,14 @@
 /************************************* ETH MAC *****************************/
 #define WX_MAC_TX_CFG                0x11000
 #define WX_MAC_TX_CFG_TE             BIT(0)
+#define WX_MAC_TX_CFG_SPEED_MASK     GENMASK(30, 29)
+#define WX_MAC_TX_CFG_SPEED_1G       FIELD_PREP(WX_MAC_TX_CFG_SPEED_MASK, 3)
 #define WX_MAC_RX_CFG                0x11004
 #define WX_MAC_RX_CFG_RE             BIT(0)
 #define WX_MAC_RX_CFG_JE             BIT(8)
 #define WX_MAC_PKT_FLT               0x11008
 #define WX_MAC_PKT_FLT_PR            BIT(0) /* promiscuous mode */
+#define WX_MAC_WDG_TIMEOUT           0x1100C
 #define WX_MAC_RX_FLOW_CTRL          0x11090
 #define WX_MAC_RX_FLOW_CTRL_RFE      BIT(0) /* receive fc enable */
 #define WX_MMC_CONTROL               0x11800
@@ -184,6 +188,12 @@
 #define FW_CEM_RESP_STATUS_SUCCESS   0x1
 
 #define WX_SW_REGION_PTR             0x1C
+
+#define WX_MAC_STATE_DEFAULT         0x1
+#define WX_MAC_STATE_MODIFIED        0x2
+#define WX_MAC_STATE_IN_USE          0x4
+
+#define WX_CFG_PORT_ST               0x14404
 
 /* Host Interface Command Structures */
 struct wx_hic_hdr {
@@ -249,6 +259,12 @@ enum wx_mac_type {
 	wx_mac_em
 };
 
+enum em_mac_type {
+	em_mac_type_unknown = 0,
+	em_mac_type_mdi,
+	em_mac_type_rgmii
+};
+
 struct wx_mac_info {
 	enum wx_mac_type type;
 	bool set_lben;
@@ -284,19 +300,28 @@ struct wx_addr_filter_info {
 	bool user_set_promisc;
 };
 
+struct wx_mac_addr {
+	u8 addr[ETH_ALEN];
+	u16 state; /* bitmask */
+	u64 pools;
+};
+
 enum wx_reset_type {
 	WX_LAN_RESET = 0,
 	WX_SW_RESET,
 	WX_GLOBAL_RESET
 };
 
-struct wx_hw {
+struct wx {
 	u8 __iomem *hw_addr;
 	struct pci_dev *pdev;
+	struct net_device *netdev;
 	struct wx_bus_info bus;
 	struct wx_mac_info mac;
+	enum em_mac_type mac_type;
 	struct wx_eeprom_info eeprom;
 	struct wx_addr_filter_info addr_ctrl;
+	struct wx_mac_addr *mac_table;
 	u16 device_id;
 	u16 vendor_id;
 	u16 subsystem_device_id;
@@ -304,8 +329,45 @@ struct wx_hw {
 	u8 revision_id;
 	u16 oem_ssid;
 	u16 oem_svid;
+	u16 msg_enable;
 	bool adapter_stopped;
+	char eeprom_id[32];
 	enum wx_reset_type reset_type;
+
+	/* PHY stuff */
+	unsigned int link;
+	int speed;
+	int duplex;
+	struct phy_device *phydev;
+
+	bool wol_enabled;
+	bool ncsi_enabled;
+	bool gpio_ctrl;
+
+	/* Tx fast path data */
+	int num_tx_queues;
+	u16 tx_itr_setting;
+	u16 tx_work_limit;
+
+	/* Rx fast path data */
+	int num_rx_queues;
+	u16 rx_itr_setting;
+	u16 rx_work_limit;
+
+	int num_q_vectors;      /* current number of q_vectors for device */
+	int max_q_vectors;      /* upper limit of q_vectors for device */
+
+	u32 tx_ring_count;
+	u32 rx_ring_count;
+
+#define WX_MAX_RETA_ENTRIES 128
+	u8 rss_indir_tbl[WX_MAX_RETA_ENTRIES];
+
+#define WX_RSS_KEY_SIZE     40  /* size of RSS Hash Key in bytes */
+	u32 *rss_key;
+	u32 wol;
+
+	u16 bd_number;
 };
 
 #define WX_INTR_ALL (~0ULL)
@@ -319,23 +381,23 @@ struct wx_hw {
 	wr32((a), (reg) + ((off) << 2), (val))
 
 static inline u32
-rd32m(struct wx_hw *wxhw, u32 reg, u32 mask)
+rd32m(struct wx *wx, u32 reg, u32 mask)
 {
 	u32 val;
 
-	val = rd32(wxhw, reg);
+	val = rd32(wx, reg);
 	return val & mask;
 }
 
 static inline void
-wr32m(struct wx_hw *wxhw, u32 reg, u32 mask, u32 field)
+wr32m(struct wx *wx, u32 reg, u32 mask, u32 field)
 {
 	u32 val;
 
-	val = rd32(wxhw, reg);
+	val = rd32(wx, reg);
 	val = ((val & ~mask) | (field & mask));
 
-	wr32(wxhw, reg, val);
+	wr32(wx, reg, val);
 }
 
 /* On some domestic CPU platforms, sometimes IO is not synchronized with
@@ -343,10 +405,10 @@ wr32m(struct wx_hw *wxhw, u32 reg, u32 mask, u32 field)
  */
 #define WX_WRITE_FLUSH(H) rd32(H, WX_MIS_PWR)
 
-#define wx_err(wxhw, fmt, arg...) \
-	dev_err(&(wxhw)->pdev->dev, fmt, ##arg)
+#define wx_err(wx, fmt, arg...) \
+	dev_err(&(wx)->pdev->dev, fmt, ##arg)
 
-#define wx_dbg(wxhw, fmt, arg...) \
-	dev_dbg(&(wxhw)->pdev->dev, fmt, ##arg)
+#define wx_dbg(wx, fmt, arg...) \
+	dev_dbg(&(wx)->pdev->dev, fmt, ##arg)
 
 #endif /* _WX_TYPE_H_ */
