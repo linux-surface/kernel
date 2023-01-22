@@ -27,6 +27,7 @@ fi
 scm_version()
 {
 	local short
+	local tag
 	short=false
 
 	cd "$srctree"
@@ -42,9 +43,14 @@ scm_version()
 		return
 	fi
 
-	# If we are at a tagged commit (like "v2.6.30-rc6"), we ignore it
-	# because this version is defined in the top level Makefile.
-	if [ -z "$(git describe --exact-match 2>/dev/null)" ]; then
+	# convert the version to a tag
+	#   mainline kernel:  6.2.0-rc5  ->  v6.2-rc5
+	#   stable kernel:    6.1.7      ->  v6.1.7
+	tag=v$(echo "${KERNELVERSION}" | sed 's/^\(.*\..*\)\.0\(.*\)$/\1\2/')
+
+	# If we are at a tagged commit and the tag matches the version defined
+	# in the top level Makefile, we ignore it.
+	if [ -z "$(git describe --exact-match --match=$tag 2>/dev/null)" ]; then
 
 		# If only the short version is requested, don't bother
 		# running further git commands
@@ -52,9 +58,9 @@ scm_version()
 			echo "+"
 			return
 		fi
-		# If we are past a tagged commit (like
-		# "v2.6.30-rc5-302-g72357d5"), we pretty print it.
-		if atag="$(git describe 2>/dev/null)"; then
+		# If we are past the release tag, we pretty print it.
+		# (like 6.1.0-14595-g292a089d78d3)
+		if atag="$(git describe --match=$tag 2>/dev/null)"; then
 			echo "$atag" | awk -F- '{printf("-%05d", $(NF-1))}'
 		fi
 
@@ -99,6 +105,11 @@ collect_files()
 
 if ! test -e include/config/auto.conf; then
 	echo "Error: kernelrelease not valid - run 'make prepare' to update it" >&2
+	exit 1
+fi
+
+if [ -z "${KERNELVERSION}" ]; then
+	echo "KERNELVERSION is not set" >&2
 	exit 1
 fi
 
