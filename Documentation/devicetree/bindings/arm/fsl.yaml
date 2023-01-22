@@ -173,6 +173,7 @@ properties:
               - kiebackpeter,imx53-ddc        # K+P imx53 DDC
               - kiebackpeter,imx53-hsc        # K+P imx53 HSC
               - menlo,m53menlo                # i.MX53 Menlo board
+              - starterkit,sk-imx53
               - voipac,imx53-dmm-668          # Voipac i.MX53 X53-DMM-668
           - const: fsl,imx53
 
@@ -815,7 +816,6 @@ properties:
           - enum:
               - beacon,imx8mm-beacon-kit  # i.MX8MM Beacon Development Kit
               - boundary,imx8mm-nitrogen8mm  # i.MX8MM Nitrogen Board
-              - cloos,imx8mm-phg          # i.MX8MM Cloos PHG Board
               - dmo,imx8mm-data-modul-edm-sbc # i.MX8MM eDM SBC
               - emtrion,emcon-mx8mm-avari # emCON-MX8MM SoM on Avari Base
               - fsl,imx8mm-ddr4-evk       # i.MX8MM DDR4 EVK Board
@@ -830,7 +830,6 @@ properties:
               - innocomm,wb15-evk         # i.MX8MM Innocomm EVK board with WB15 SoM
               - kontron,imx8mm-sl         # i.MX8MM Kontron SL (N801X) SOM
               - kontron,imx8mm-osm-s      # i.MX8MM Kontron OSM-S (N802X) SOM
-              - menlo,mx8menlo            # i.MX8MM Menlo board with Verdin SoM
               - toradex,verdin-imx8mm     # Verdin iMX8M Mini Modules
               - toradex,verdin-imx8mm-nonwifi  # Verdin iMX8M Mini Modules without Wi-Fi / BT
               - toradex,verdin-imx8mm-wifi  # Verdin iMX8M Mini Wi-Fi / BT Modules
@@ -861,6 +860,7 @@ properties:
       - description: Toradex Boards with Verdin iMX8M Mini Modules
         items:
           - enum:
+              - menlo,mx8menlo                       # Verdin iMX8M Mini Module on i.MX8MM Menlo board
               - toradex,verdin-imx8mm-nonwifi-dahlia # Verdin iMX8M Mini Module on Dahlia
               - toradex,verdin-imx8mm-nonwifi-dev    # Verdin iMX8M Mini Module on Verdin Development Board
           - const: toradex,verdin-imx8mm-nonwifi     # Verdin iMX8M Mini Module without Wi-Fi / BT
@@ -895,6 +895,7 @@ properties:
           one compatible is needed.
         items:
           - enum:
+              - cloos,imx8mm-phg           # i.MX8MM Cloos PHG Board
               - tq,imx8mm-tqma8mqml-mba8mx # TQ-Systems GmbH i.MX8MM TQMa8MQML SOM on MBa8Mx
           - const: tq,imx8mm-tqma8mqml     # TQ-Systems GmbH i.MX8MM TQMa8MQML SOM
           - const: fsl,imx8mm
@@ -931,10 +932,10 @@ properties:
       - description: i.MX8MP based Boards
         items:
           - enum:
-              - dh,imx8mp-dhcom-som       # i.MX8MP DHCOM SoM
-              - dh,imx8mp-dhcom-pdk2      # i.MX8MP DHCOM SoM on PDK2 board
               - fsl,imx8mp-evk            # i.MX8MP EVK Board
               - gateworks,imx8mp-gw74xx   # i.MX8MP Gateworks Board
+              - polyhex,imx8mp-debix      # Polyhex Debix boards
+              - polyhex,imx8mp-debix-model-a # Polyhex Debix Model A Board
               - toradex,verdin-imx8mp     # Verdin iMX8M Plus Modules
               - toradex,verdin-imx8mp-nonwifi  # Verdin iMX8M Plus Modules without Wi-Fi / BT
               - toradex,verdin-imx8mp-wifi  # Verdin iMX8M Plus Wi-Fi / BT Modules
@@ -945,6 +946,12 @@ properties:
           - const: avnet,sm2s-imx8mp-14N0600E-ep1 # SM2S-IMX8PLUS-14N0600E on SM2-MB-EP1 Carrier Board
           - const: avnet,sm2s-imx8mp-14N0600E     # 14N0600E variant of SM2S-IMX8PLUS SoM
           - const: avnet,sm2s-imx8mp              # SM2S-IMX8PLUS SoM
+          - const: fsl,imx8mp
+
+      - description: i.MX8MP DHCOM based Boards
+        items:
+          - const: dh,imx8mp-dhcom-pdk2      # i.MX8MP DHCOM SoM on PDK2 board
+          - const: dh,imx8mp-dhcom-som       # i.MX8MP DHCOM SoM
           - const: fsl,imx8mp
 
       - description: Engicam i.Core MX8M Plus SoM based boards
@@ -999,10 +1006,15 @@ properties:
               - fsl,imx8mq-evk            # i.MX8MQ EVK Board
               - google,imx8mq-phanbell    # Google Coral Edge TPU
               - kontron,pitx-imx8m        # Kontron pITX-imx8m Board
-              - mntre,reform2             # MNT Reform2 Laptop
               - purism,librem5-devkit     # Purism Librem5 devkit
               - solidrun,hummingboard-pulse # SolidRun Hummingboard Pulse
               - technexion,pico-pi-imx8m  # TechNexion PICO-PI-8M evk
+          - const: fsl,imx8mq
+
+      - description: i.MX8MQ NITROGEN SoM based Boards
+        items:
+          - const: mntre,reform2                  # MNT Reform2 Laptop
+          - const: boundary,imx8mq-nitrogen8m-som # i.MX8MQ NITROGEN SoM
           - const: fsl,imx8mq
 
       - description: Purism Librem5 phones
