@@ -323,15 +323,52 @@ static char *demangle_sym(struct dso *dso, int kmodule, const char *elf_name)
 	return demangled;
 }
 
-#define elf_section__for_each_rel(reldata, pos, pos_mem, idx, nr_entries) \
-	for (idx = 0, pos = gelf_getrel(reldata, 0, &pos_mem); \
-	     idx < nr_entries; \
-	     ++idx, pos = gelf_getrel(reldata, idx, &pos_mem))
+struct rel_info {
+	bool		is_rela;
+	Elf_Data	*reldata;
+	GElf_Rela	rela;
+	GElf_Rel	rel;
+};
 
-#define elf_section__for_each_rela(reldata, pos, pos_mem, idx, nr_entries) \
-	for (idx = 0, pos = gelf_getrela(reldata, 0, &pos_mem); \
-	     idx < nr_entries; \
-	     ++idx, pos = gelf_getrela(reldata, idx, &pos_mem))
+static u32 get_rel_symidx(struct rel_info *ri, u32 idx)
+{
+	if (ri->is_rela) {
+		gelf_getrela(ri->reldata, idx, &ri->rela);
+		return GELF_R_SYM(ri->rela.r_info);
+	}
+	gelf_getrel(ri->reldata, idx, &ri->rel);
+	return GELF_R_SYM(ri->rel.r_info);
+}
+
+static bool get_plt_sizes(struct dso *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr_plt,
+			  u64 *plt_header_size, u64 *plt_entry_size)
+{
+	switch (ehdr->e_machine) {
+	case EM_ARM:
+		*plt_header_size = 20;
+		*plt_entry_size = 12;
+		return true;
+	case EM_AARCH64:
+		*plt_header_size = 32;
+		*plt_entry_size = 16;
+		return true;
+	case EM_SPARC:
+		*plt_header_size = 48;
+		*plt_entry_size = 12;
+		return true;
+	case EM_SPARCV9:
+		*plt_header_size = 128;
+		*plt_entry_size = 32;
+		return true;
+	default: /* FIXME: s390/alpha/mips/parisc/poperpc/sh/xtensa need to be checked */
+		*plt_header_size = shdr_plt->sh_entsize;
+		*plt_entry_size = shdr_plt->sh_entsize;
+		if (*plt_entry_size)
+			return true;
+		pr_debug("Missing PLT entry size for %s\n", dso->long_name);
+		return false;
+	}
+}
 
 /*
  * We need to check if we have a .dynsym, so that we can handle the
@@ -348,26 +385,45 @@ int dso__synthesize_plt_symbols(struct dso *dso, struct symsrc *ss)
 	GElf_Shdr shdr_plt;
 	struct symbol *f;
 	GElf_Shdr shdr_rel_plt, shdr_dynsym;
-	Elf_Data *reldata, *syms, *symstrs;
+	Elf_Data *syms, *symstrs;
 	Elf_Scn *scn_plt_rel, *scn_symstrs, *scn_dynsym;
 	size_t dynsym_idx;
 	GElf_Ehdr ehdr;
 	char sympltname[1024];
 	Elf *elf;
-	int nr = 0, symidx, err = 0;
-
-	if (!ss->dynsym)
-		return 0;
+	int nr = 0, err = -1;
+	struct rel_info ri = { .is_rela = false };
 
 	elf = ss->elf;
 	ehdr = ss->ehdr;
+
+	if (!elf_section_by_name(elf, &ehdr, &shdr_plt, ".plt", NULL))
+		return 0;
+
+	/*
+	 * A symbol from a previous section (e.g. .init) can have been expanded
+	 * by symbols__fixup_end() to overlap .plt. Truncate it before adding
+	 * a symbol for .plt header.
+	 */
+	f = dso__find_symbol_nocache(dso, shdr_plt.sh_offset);
+	if (f && f->start < shdr_plt.sh_offset && f->end > shdr_plt.sh_offset)
+		f->end = shdr_plt.sh_offset;
+
+	if (!get_plt_sizes(dso, &ehdr, &shdr_plt, &plt_header_size, &plt_entry_size))
+		return 0;
+
+	/* Add a symbol for .plt header */
+	f = symbol__new(shdr_plt.sh_offset, plt_header_size, STB_GLOBAL, STT_FUNC, ".plt");
+	if (!f)
+		goto out_elf_end;
+	symbols__insert(&dso->symbols, f);
 
 	scn_dynsym = ss->dynsym;
 	shdr_dynsym = ss->dynshdr;
 	dynsym_idx = ss->dynsym_idx;
 
 	if (scn_dynsym == NULL)
-		goto out_elf_end;
+		return 0;
 
 	scn_plt_rel = elf_section_by_name(elf, &ehdr, &shdr_rel_plt,
 					  ".rela.plt", NULL);
@@ -375,23 +431,22 @@ int dso__synthesize_plt_symbols(struct dso *dso, struct symsrc *ss)
 		scn_plt_rel = elf_section_by_name(elf, &ehdr, &shdr_rel_plt,
 						  ".rel.plt", NULL);
 		if (scn_plt_rel == NULL)
-			goto out_elf_end;
+			return 0;
 	}
 
-	err = -1;
+	if (shdr_rel_plt.sh_type != SHT_RELA &&
+	    shdr_rel_plt.sh_type != SHT_REL)
+		return 0;
 
 	if (shdr_rel_plt.sh_link != dynsym_idx)
-		goto out_elf_end;
-
-	if (elf_section_by_name(elf, &ehdr, &shdr_plt, ".plt", NULL) == NULL)
 		goto out_elf_end;
 
 	/*
 	 * Fetch the relocation section to find the idxes to the GOT
 	 * and the symbols in the .dynsym they refer to.
 	 */
-	reldata = elf_getdata(scn_plt_rel, NULL);
-	if (reldata == NULL)
+	ri.reldata = elf_getdata(scn_plt_rel, NULL);
+	if (!ri.reldata)
 		goto out_elf_end;
 
 	syms = elf_getdata(scn_dynsym, NULL);
@@ -411,87 +466,34 @@ int dso__synthesize_plt_symbols(struct dso *dso, struct symsrc *ss)
 
 	nr_rel_entries = shdr_rel_plt.sh_size / shdr_rel_plt.sh_entsize;
 	plt_offset = shdr_plt.sh_offset;
-	switch (ehdr.e_machine) {
-		case EM_ARM:
-			plt_header_size = 20;
-			plt_entry_size = 12;
-			break;
-
-		case EM_AARCH64:
-			plt_header_size = 32;
-			plt_entry_size = 16;
-			break;
-
-		case EM_SPARC:
-			plt_header_size = 48;
-			plt_entry_size = 12;
-			break;
-
-		case EM_SPARCV9:
-			plt_header_size = 128;
-			plt_entry_size = 32;
-			break;
-
-		default: /* FIXME: s390/alpha/mips/parisc/poperpc/sh/xtensa need to be checked */
-			plt_header_size = shdr_plt.sh_entsize;
-			plt_entry_size = shdr_plt.sh_entsize;
-			break;
-	}
 	plt_offset += plt_header_size;
 
-	if (shdr_rel_plt.sh_type == SHT_RELA) {
-		GElf_Rela pos_mem, *pos;
+	ri.is_rela = shdr_rel_plt.sh_type == SHT_RELA;
 
-		elf_section__for_each_rela(reldata, pos, pos_mem, idx,
-					   nr_rel_entries) {
-			const char *elf_name = NULL;
-			char *demangled = NULL;
-			symidx = GELF_R_SYM(pos->r_info);
-			gelf_getsym(syms, symidx, &sym);
+	for (idx = 0; idx < nr_rel_entries; idx++) {
+		const char *elf_name = NULL;
+		char *demangled = NULL;
 
-			elf_name = elf_sym__name(&sym, symstrs);
-			demangled = demangle_sym(dso, 0, elf_name);
-			if (demangled != NULL)
-				elf_name = demangled;
+		gelf_getsym(syms, get_rel_symidx(&ri, idx), &sym);
+
+		elf_name = elf_sym__name(&sym, symstrs);
+		demangled = demangle_sym(dso, 0, elf_name);
+		if (demangled)
+			elf_name = demangled;
+		if (*elf_name)
+			snprintf(sympltname, sizeof(sympltname), "%s@plt", elf_name);
+		else
 			snprintf(sympltname, sizeof(sympltname),
-				 "%s@plt", elf_name);
-			free(demangled);
+				 "offset_%#" PRIx64 "@plt", plt_offset);
+		free(demangled);
 
-			f = symbol__new(plt_offset, plt_entry_size,
-					STB_GLOBAL, STT_FUNC, sympltname);
-			if (!f)
-				goto out_elf_end;
+		f = symbol__new(plt_offset, plt_entry_size, STB_GLOBAL, STT_FUNC, sympltname);
+		if (!f)
+			goto out_elf_end;
 
-			plt_offset += plt_entry_size;
-			symbols__insert(&dso->symbols, f);
-			++nr;
-		}
-	} else if (shdr_rel_plt.sh_type == SHT_REL) {
-		GElf_Rel pos_mem, *pos;
-		elf_section__for_each_rel(reldata, pos, pos_mem, idx,
-					  nr_rel_entries) {
-			const char *elf_name = NULL;
-			char *demangled = NULL;
-			symidx = GELF_R_SYM(pos->r_info);
-			gelf_getsym(syms, symidx, &sym);
-
-			elf_name = elf_sym__name(&sym, symstrs);
-			demangled = demangle_sym(dso, 0, elf_name);
-			if (demangled != NULL)
-				elf_name = demangled;
-			snprintf(sympltname, sizeof(sympltname),
-				 "%s@plt", elf_name);
-			free(demangled);
-
-			f = symbol__new(plt_offset, plt_entry_size,
-					STB_GLOBAL, STT_FUNC, sympltname);
-			if (!f)
-				goto out_elf_end;
-
-			plt_offset += plt_entry_size;
-			symbols__insert(&dso->symbols, f);
-			++nr;
-		}
+		plt_offset += plt_entry_size;
+		symbols__insert(&dso->symbols, f);
+		++nr;
 	}
 
 	err = 0;
