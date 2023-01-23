@@ -4,6 +4,8 @@
 #define BTRFS_MESSAGES_H
 
 #include <linux/types.h>
+#include <linux/printk.h>
+#include <linux/bug.h>
 
 struct btrfs_fs_info;
 
@@ -160,7 +162,12 @@ do {								\
 } while (0)
 
 #ifdef CONFIG_BTRFS_ASSERT
-void __cold btrfs_assertfail(const char *expr, const char *file, int line);
+static inline void __cold __noreturn btrfs_assertfail(const char *expr,
+						      const char *file, int line)
+{
+	pr_err("assertion failed: %s, in %s:%d\n", expr, file, line);
+	BUG();
+}
 
 #define ASSERT(expr)						\
 	(likely(expr) ? (void)0 : btrfs_assertfail(#expr, __FILE__, __LINE__))
