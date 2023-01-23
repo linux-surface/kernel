@@ -231,11 +231,11 @@ struct fotg210_ep {
 struct fotg210_udc {
 	spinlock_t		lock; /* protect the struct */
 	void __iomem		*reg;
-	struct clk		*pclk;
 
 	unsigned long		irq_trigger;
 
 	struct device			*dev;
+	struct fotg210			*fotg;
 	struct usb_phy			*phy;
 	struct usb_gadget		gadget;
 	struct usb_gadget_driver	*driver;
