@@ -76,6 +76,7 @@ struct vmap_area {
 		unsigned long subtree_max_size; /* in "free" tree */
 		struct vm_struct *vm;           /* in "busy" tree */
 	};
+	unsigned long flags; /* mark type of vm_map_ram area */
 };
 
 /* archs that select HAVE_ARCH_HUGE_VMAP should override one or more of these */
@@ -295,6 +296,12 @@ int unregister_vmap_purge_notifier(struct notifier_block *nb);
 bool vmalloc_dump_obj(void *object);
 #else
 static inline bool vmalloc_dump_obj(void *object) { return false; }
+#endif
+
+#if defined(CONFIG_MMU) && (defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS))
+void vmalloc_poison_backing_pages(const void *addr);
+#else
+static inline void vmalloc_poison_backing_pages(const void *addr) {}
 #endif
 
 #endif /* _LINUX_VMALLOC_H */

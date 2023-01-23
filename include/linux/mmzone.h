@@ -368,15 +368,6 @@ struct page_vma_mapped_walk;
 #define LRU_GEN_MASK		((BIT(LRU_GEN_WIDTH) - 1) << LRU_GEN_PGOFF)
 #define LRU_REFS_MASK		((BIT(LRU_REFS_WIDTH) - 1) << LRU_REFS_PGOFF)
 
-/* see the comment on MEMCG_NR_GENS */
-enum {
-	MEMCG_LRU_NOP,
-	MEMCG_LRU_HEAD,
-	MEMCG_LRU_TAIL,
-	MEMCG_LRU_OLD,
-	MEMCG_LRU_YOUNG,
-};
-
 #ifdef CONFIG_LRU_GEN
 
 enum {
@@ -557,7 +548,7 @@ void lru_gen_exit_memcg(struct mem_cgroup *memcg);
 void lru_gen_online_memcg(struct mem_cgroup *memcg);
 void lru_gen_offline_memcg(struct mem_cgroup *memcg);
 void lru_gen_release_memcg(struct mem_cgroup *memcg);
-void lru_gen_rotate_memcg(struct lruvec *lruvec, int op);
+void lru_gen_soft_reclaim(struct lruvec *lruvec);
 
 #else /* !CONFIG_MEMCG */
 
@@ -608,7 +599,7 @@ static inline void lru_gen_release_memcg(struct mem_cgroup *memcg)
 {
 }
 
-static inline void lru_gen_rotate_memcg(struct lruvec *lruvec, int op)
+static inline void lru_gen_soft_reclaim(struct lruvec *lruvec)
 {
 }
 
@@ -1221,6 +1212,31 @@ struct deferred_split {
 };
 #endif
 
+#ifdef CONFIG_MEMORY_FAILURE
+/*
+ * Per NUMA node memory failure handling statistics.
+ */
+struct memory_failure_stats {
+	/*
+	 * Number of pages poisoned.
+	 * Cases not accounted: memory outside kernel control, offline page,
+	 * arch-specific memory_failure (SGX), and hwpoison_filter()
+	 * filtered error events.
+	 */
+	unsigned long pages_poisoned;
+	/*
+	 * Recovery results of poisoned pages handled by memory_failure,
+	 * in sync with mf_result.
+	 * pages_poisoned = pages_ignored + pages_failed +
+	 *		    pages_delayed + pages_recovered
+	 */
+	unsigned long pages_ignored;
+	unsigned long pages_failed;
+	unsigned long pages_delayed;
+	unsigned long pages_recovered;
+};
+#endif
+
 /*
  * On NUMA machines, each NUMA node would have a pg_data_t to describe
  * it's memory layout. On UMA machines there is a single pglist_data which
@@ -1365,6 +1381,9 @@ typedef struct pglist_data {
 	atomic_long_t		vm_stat[NR_VM_NODE_STAT_ITEMS];
 #ifdef CONFIG_NUMA
 	struct memory_tier __rcu *memtier;
+#endif
+#ifdef CONFIG_MEMORY_FAILURE
+	struct memory_failure_stats mf_stats;
 #endif
 } pg_data_t;
 

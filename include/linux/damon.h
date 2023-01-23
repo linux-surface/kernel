@@ -91,6 +91,12 @@ struct damon_target {
  * @DAMOS_LRU_DEPRIO:	Deprioritize the region on its LRU lists.
  * @DAMOS_STAT:		Do nothing but count the stat.
  * @NR_DAMOS_ACTIONS:	Total number of DAMOS actions
+ *
+ * The support of each action is up to running &struct damon_operations.
+ * &enum DAMON_OPS_VADDR and &enum DAMON_OPS_FVADDR supports all actions except
+ * &enum DAMOS_LRU_PRIO and &enum DAMOS_LRU_DEPRIO.  &enum DAMON_OPS_PADDR
+ * supports only &enum DAMOS_PAGEOUT, &enum DAMOS_LRU_PRIO, &enum
+ * DAMOS_LRU_DEPRIO, and &DAMOS_STAT.
  */
 enum damos_action {
 	DAMOS_WILLNEED,
@@ -221,6 +227,11 @@ struct damos_stat {
  * @DAMOS_FILTER_TYPE_ANON:	Anonymous pages.
  * @DAMOS_FILTER_TYPE_MEMCG:	Specific memcg's pages.
  * @NR_DAMOS_FILTER_TYPES:	Number of filter types.
+ *
+ * The support of each filter type is up to running &struct damon_operations.
+ * &enum DAMON_OPS_PADDR is supporting all filter types, while
+ * &enum DAMON_OPS_VADDR and &enum DAMON_OPS_FVADDR are not supporting any
+ * filter types.
  */
 enum damos_filter_type {
 	DAMOS_FILTER_TYPE_ANON,
@@ -343,10 +354,10 @@ struct damon_ctx;
  * users should register the low level operations for their target address
  * space and usecase via the &damon_ctx.ops.  Then, the monitoring thread
  * (&damon_ctx.kdamond) calls @init and @prepare_access_checks before starting
- * the monitoring, @update after each &damon_ctx.ops_update_interval, and
+ * the monitoring, @update after each &damon_attrs.ops_update_interval, and
  * @check_accesses, @target_valid and @prepare_access_checks after each
- * &damon_ctx.sample_interval.  Finally, @reset_aggregated is called after each
- * &damon_ctx.aggr_interval.
+ * &damon_attrs.sample_interval.  Finally, @reset_aggregated is called after
+ * each &damon_attrs.aggr_interval.
  *
  * Each &struct damon_operations instance having valid @id can be registered
  * via damon_register_ops() and selected by damon_select_ops() later.

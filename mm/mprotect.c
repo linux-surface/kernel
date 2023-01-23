@@ -398,7 +398,7 @@ static inline long change_pmd_range(struct mmu_gather *tlb,
 		if (!range.start) {
 			mmu_notifier_range_init(&range,
 				MMU_NOTIFY_PROTECTION_VMA, 0,
-				vma, vma->vm_mm, addr, end);
+				vma->vm_mm, addr, end);
 			mmu_notifier_invalidate_range_start(&range);
 		}
 
@@ -797,6 +797,11 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 		if ((newflags & ~(newflags >> 4)) & VM_ACCESS_FLAGS) {
 			error = -EACCES;
 			break;
+		}
+
+		if (map_deny_write_exec(vma, newflags)) {
+			error = -EACCES;
+			goto out;
 		}
 
 		/* Allow architectures to sanity-check the new flags */

@@ -103,6 +103,13 @@ static void __init cma_activate_area(struct cma *cma)
 		goto out_error;
 
 	/*
+	 * The CMA region was marked as allocated by kmemleak when it was either
+	 * dynamically allocated or statically reserved. In any case,
+	 * inform kmemleak that the region is about to be freed to the page allocator.
+	 */
+	kmemleak_free_part_phys(cma_get_base(cma), cma_get_size(cma));
+
+	/*
 	 * alloc_contig_range() requires the pfn range specified to be in the
 	 * same zone. Simplify by forcing the entire CMA resv range to be in the
 	 * same zone.
@@ -318,20 +325,10 @@ int __init cma_declare_contiguous_nid(phys_addr_t base,
 			ret = -EBUSY;
 			goto err;
 		}
+
+		kmemleak_alloc_phys(base, size, 0);
 	} else {
 		phys_addr_t addr = 0;
-
-		/*
-		 * All pages in the reserved area must come from the same zone.
-		 * If the requested region crosses the low/high memory boundary,
-		 * try allocating from high memory first and fall back to low
-		 * memory in case of failure.
-		 */
-		if (base < highmem_start && limit > highmem_start) {
-			addr = memblock_alloc_range_nid(size, alignment,
-					highmem_start, limit, nid, true);
-			limit = highmem_start;
-		}
 
 		/*
 		 * If there is enough memory, try a bottom-up allocation first.
@@ -350,6 +347,18 @@ int __init cma_declare_contiguous_nid(phys_addr_t base,
 		}
 #endif
 
+		/*
+		 * All pages in the reserved area must come from the same zone.
+		 * If the requested region crosses the low/high memory boundary,
+		 * try allocating from high memory first and fall back to low
+		 * memory in case of failure.
+		 */
+		if (!addr && base < highmem_start && limit > highmem_start) {
+			addr = memblock_alloc_range_nid(size, alignment,
+					highmem_start, limit, nid, true);
+			limit = highmem_start;
+		}
+
 		if (!addr) {
 			addr = memblock_alloc_range_nid(size, alignment, base,
 					limit, nid, true);
@@ -359,11 +368,6 @@ int __init cma_declare_contiguous_nid(phys_addr_t base,
 			}
 		}
 
-		/*
-		 * kmemleak scans/reads tracked objects for pointers to other
-		 * objects but this address isn't mapped and accessible
-		 */
-		kmemleak_ignore_phys(addr);
 		base = addr;
 	}
 
