@@ -1040,7 +1040,6 @@ struct efivar_operations {
 
 struct efivars {
 	struct kset *kset;
-	struct kobject *kobject;
 	const struct efivar_operations *ops;
 };
 
@@ -1054,12 +1053,16 @@ struct efivars {
 #define EFI_VAR_NAME_LEN	1024
 
 int efivars_register(struct efivars *efivars,
-		     const struct efivar_operations *ops,
-		     struct kobject *kobject);
+		     const struct efivar_operations *ops);
 int efivars_unregister(struct efivars *efivars);
-struct kobject *efivars_kobject(void);
 
-int efivar_supports_writes(void);
+#ifdef CONFIG_EFI
+bool efivar_is_available(void);
+#else
+static inline bool efivar_is_available(void) { return false; }
+#endif
+
+bool efivar_supports_writes(void);
 
 int efivar_lock(void);
 int efivar_trylock(void);
