@@ -202,8 +202,6 @@ struct xmit_buf {
 	struct submit_ctx *sctx;
 	u32	ff_hwaddr;
 	struct urb *pxmit_urb;
-	dma_addr_t dma_transfer_addr;	/* (in) dma addr for transfer_buffer */
-	u8 bpending[8];
 	int last[8];
 };
 
@@ -259,21 +257,16 @@ struct agg_pkt_info {
 
 struct	xmit_priv {
 	spinlock_t lock;
-	struct semaphore terminate_xmitthread_sema;
 	struct __queue be_pending;
 	struct __queue bk_pending;
 	struct __queue vi_pending;
 	struct __queue vo_pending;
-	struct __queue bm_pending;
 	u8 *pallocated_frame_buf;
 	u8 *pxmit_frame_buf;
 	uint free_xmitframe_cnt;
 	struct __queue free_xmit_queue;
 	uint	frag_len;
 	struct adapter	*adapter;
-	u8   vcs_setting;
-	u8	vcs;
-	u8	vcs_type;
 	u64	tx_bytes;
 	u64	tx_pkts;
 	u64	tx_drop;
@@ -284,14 +277,7 @@ struct	xmit_priv {
 	u8	wmm_para_seq[4];/* sequence for wmm ac parameter strength
 				 * from large to small. it's value is 0->vo,
 				 * 1->vi, 2->be, 3->bk. */
-	struct semaphore tx_retevt;/* all tx return event; */
-	u8		txirp_cnt;/*  */
 	struct tasklet_struct xmit_tasklet;
-	/* per AC pending irp */
-	int beq_cnt;
-	int bkq_cnt;
-	int viq_cnt;
-	int voq_cnt;
 	struct __queue free_xmitbuf_queue;
 	struct __queue pending_xmitbuf_queue;
 	u8 *pallocated_xmitbuf;
@@ -324,7 +310,6 @@ s32 rtw_free_xmitbuf(struct xmit_priv *pxmitpriv,
 		     struct xmit_buf *pxmitbuf);
 void rtw_count_tx_stats(struct adapter *padapter,
 			struct xmit_frame *pxmitframe, int sz);
-void rtw_update_protection(struct adapter *padapter, u8 *ie, uint ie_len);
 s32 rtw_make_wlanhdr(struct adapter *padapter, u8 *hdr,
 		     struct pkt_attrib *pattrib);
 s32 rtw_put_snap(u8 *data, u16 h_proto);
@@ -350,7 +335,6 @@ void _rtw_init_sta_xmit_priv(struct sta_xmit_priv *psta_xmitpriv);
 s32 rtw_txframes_pending(struct adapter *padapter);
 s32 rtw_txframes_sta_ac_pending(struct adapter *padapter,
 				struct pkt_attrib *pattrib);
-void rtw_init_hwxmits(struct hw_xmit *phwxmit, int entry);
 int _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter);
 void _rtw_free_xmit_priv(struct xmit_priv *pxmitpriv);
 int rtw_alloc_hwxmits(struct adapter *padapter);
