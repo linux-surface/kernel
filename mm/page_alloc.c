@@ -2521,7 +2521,8 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 		} else {
 			/*
 			 * KASAN decided to exclude this allocation from being
-			 * unpoisoned due to sampling. Skip poisoning as well.
+			 * (un)poisoned due to sampling. Make KASAN skip
+			 * poisoning when the allocation is freed.
 			 */
 			SetPageSkipKASanPoison(page);
 		}
