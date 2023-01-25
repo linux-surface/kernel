@@ -1855,6 +1855,23 @@ static inline size_t folio_size(struct folio *folio)
 	return PAGE_SIZE << folio_order(folio);
 }
 
+/**
+ * folio_estimated_mapcount - Estimate a folio's per-page mapcount.
+ * @folio: The folio.
+ *
+ * folio_estimated_mapcount() aims to serve as a function to efficiently
+ * estimate the number of times each page in a folio is mapped.
+ * This may not be accurate for large folios. If you want exact mapcounts,
+ * look at page_mapcount() or folio_total_mapcount().
+ *
+ * Return: The precise mapcount of the first subpage, meant to estimate
+ * the precise mapcount of any subpage.
+ */
+static inline int folio_estimated_mapcount(struct folio *folio)
+{
+	return page_mapcount(folio_page(folio, 0));
+}
+
 #ifndef HAVE_ARCH_MAKE_PAGE_ACCESSIBLE
 static inline int arch_make_page_accessible(struct page *page)
 {
