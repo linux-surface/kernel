@@ -8,6 +8,8 @@ arm/soc
 	patch
 		ARM: ep93xx: Convert to use descriptors for GPIO LEDs
 		arm64: drop redundant "ARMv8" from Kconfig option title
+	at91/soc
+		https://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-soc-6.3
 
 soc/dt
 
@@ -135,6 +137,12 @@ arm/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.3/dt-signed
 	samsung/bindings
 		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-drivers-6.3
+	gemini/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/linusw/linux-nomadik tags/gemini-dts-v6.3
+	patch
+		ARM: dts: intel-ixp42x-welltech-epbx100: add ethernet node
+	dt/cleanup
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt-cleanup-6.3
 
 soc/defconfig
 	patch
@@ -146,4 +154,5 @@ soc/defconfig
 		ARM: multi_v7_defconfig: Add options to support TQMLS102xA series
 		kbuild: Add config fragment merge functionality
 		ARM: add multi_v7_lpae_defconfig
+		ARM: multi_v7_defconfig: Add GXP Fan and SPI support
 
