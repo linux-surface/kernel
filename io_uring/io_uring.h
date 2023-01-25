@@ -79,6 +79,19 @@ bool __io_alloc_req_refill(struct io_ring_ctx *ctx);
 bool io_match_task_safe(struct io_kiocb *head, struct task_struct *task,
 			bool cancel_all);
 
+#define io_lockdep_assert_cq_locked(ctx)				\
+	do {								\
+		if (ctx->flags & IORING_SETUP_IOPOLL) {			\
+			lockdep_assert_held(&ctx->uring_lock);		\
+		} else if (!ctx->task_complete) {			\
+			lockdep_assert_held(&ctx->completion_lock);	\
+		} else if (ctx->submitter_task->flags & PF_EXITING) {	\
+			lockdep_assert(current_work());			\
+		} else {						\
+			lockdep_assert(current == ctx->submitter_task);	\
+		}							\
+	} while (0)
+
 static inline void io_req_task_work_add(struct io_kiocb *req)
 {
 	__io_req_task_work_add(req, true);
@@ -87,22 +100,13 @@ static inline void io_req_task_work_add(struct io_kiocb *req)
 #define io_for_each_link(pos, head) \
 	for (pos = (head); pos; pos = pos->link)
 
-static inline void io_cq_lock(struct io_ring_ctx *ctx)
-	__acquires(ctx->completion_lock)
-{
-	spin_lock(&ctx->completion_lock);
-}
-
-static inline void io_cq_unlock(struct io_ring_ctx *ctx)
-{
-	spin_unlock(&ctx->completion_lock);
-}
-
 void io_cq_unlock_post(struct io_ring_ctx *ctx);
 
 static inline struct io_uring_cqe *io_get_cqe_overflow(struct io_ring_ctx *ctx,
 						       bool overflow)
 {
+	io_lockdep_assert_cq_locked(ctx);
+
 	if (likely(ctx->cqe_cached < ctx->cqe_sentinel)) {
 		struct io_uring_cqe *cqe = ctx->cqe_cached;
 
@@ -277,8 +281,7 @@ static inline int io_run_task_work(void)
 
 static inline bool io_task_work_pending(struct io_ring_ctx *ctx)
 {
-	return test_thread_flag(TIF_NOTIFY_SIGNAL) ||
-		!wq_list_empty(&ctx->work_llist);
+	return task_work_pending(current) || !wq_list_empty(&ctx->work_llist);
 }
 
 static inline int io_run_task_work_ctx(struct io_ring_ctx *ctx)
