@@ -432,7 +432,7 @@ static inline size_t memcpy_from_file_folio(char *to, struct folio *folio,
 	char *from = kmap_local_folio(folio, offset);
 
 	if (folio_test_highmem(folio))
-		len = min(len, PAGE_SIZE - offset);
+		len = min_t(size_t, len, PAGE_SIZE - offset);
 	else
 		len = min(len, folio_size(folio) - offset);
 
