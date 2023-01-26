@@ -585,7 +585,7 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 	unsigned long hiwater_vm;
 	int err = 0;
 	bool need_rmap_locks;
-	VMA_ITERATOR(vmi, mm, old_addr);
+	struct vma_iterator vmi;
 
 	/*
 	 * We'd prefer to avoid failure later on in do_munmap:
@@ -701,6 +701,7 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 		return new_addr;
 	}
 
+	vma_iter_init(&vmi, mm, old_addr);
 	if (do_vmi_munmap(&vmi, mm, old_addr, old_len, uf_unmap, false) < 0) {
 		/* OOM: unable to split vma, just get accounts right */
 		if (vm_flags & VM_ACCOUNT && !(flags & MREMAP_DONTUNMAP))
