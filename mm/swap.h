@@ -66,7 +66,6 @@ struct swap_iocb;
 static inline void swap_readpage(struct page *page, bool do_poll,
 		struct swap_iocb **plug)
 {
-	return 0;
 }
 static inline void swap_write_unplug(struct swap_iocb *sio)
 {
