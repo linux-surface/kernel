@@ -332,7 +332,7 @@ typedef uint32_t char32_t;
  * scrolling only implies some pointer shuffling.
  */
 struct uni_screen {
-	char32_t *lines[0];
+	DECLARE_FLEX_ARRAY(char32_t *, lines);
 };
 
 static struct uni_screen *vc_uniscr_alloc(unsigned int cols, unsigned int rows)
