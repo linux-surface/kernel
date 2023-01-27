@@ -38,6 +38,7 @@ struct v4l2_subdev;
 struct v4l2_subdev_fh;
 struct tuner_setup;
 struct v4l2_mbus_frame_desc;
+struct led_classdev;
 
 /**
  * struct v4l2_decode_vbi_line - used to decode_vbi_line
@@ -981,6 +982,8 @@ struct v4l2_subdev {
 	 * The fields below are private, and should only be accessed via
 	 * appropriate functions.
 	 */
+
+	struct led_classdev *privacy_led;
 
 	/*
 	 * TODO: active_state should most likely be changed from a pointer to an
