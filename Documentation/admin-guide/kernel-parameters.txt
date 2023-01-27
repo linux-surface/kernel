@@ -650,6 +650,12 @@
 			The actual CPUs are chosen randomly, with
 			no replacement if the same CPU is chosen twice.
 
+	clocksource.watchdog_duration= [KNL]
+			Specify the default number of minutes that the
+			clocksource watchdog should run after being
+			started.  Specify -1 to run indefinitely or zero
+			to not run at all.
+
 	clocksource-wdtest.holdoff= [KNL]
 			Set the time in seconds that the clocksource
 			watchdog test waits before commencing its tests.
@@ -890,11 +896,9 @@
 			handling. When switched on, additional debug data is
 			printed to the console in case a hanging CPU is
 			detected, and that CPU is pinged again in order to try
-			to resolve the hang situation.
-			0: disable csdlock debugging (default)
-			1: enable basic csdlock debugging (minor impact)
-			ext: enable extended csdlock debugging (more impact,
-			     but more data)
+			to resolve the hang situation.  The default value of
+			this option depends on the CSD_LOCK_WAIT_DEBUG_DEFAULT
+			Kconfig option.
 
 	dasd=		[HW,NET]
 			See header of drivers/s390/block/dasd_devmap.c.
@@ -5116,6 +5120,17 @@
 			rcupdate.rcu_cpu_stall_timeout to be used (after
 			conversion from seconds to milliseconds).
 
+	rcupdate.rcu_cpu_stall_cputime= [KNL]
+			Provide statistics on the cputime and count of
+			interrupts and tasks during the sampling period. For
+			multiple continuous RCU stalls, all sampling periods
+			begin at half of the first RCU stall timeout.
+
+	rcupdate.rcu_exp_stall_task_details= [KNL]
+			Print stack dumps of any tasks blocking the
+			current expedited RCU grace period during an
+			expedited RCU CPU stall warning.
+
 	rcupdate.rcu_expedited= [KNL]
 			Use expedited grace-period primitives, for
 			example, synchronize_rcu_expedited() instead
@@ -6384,6 +6399,10 @@
 			in situations with strict latency requirements (where
 			interruptions from clocksource watchdog are not
 			acceptable).
+			[x86] recalibrate: force recalibration against a HW timer
+			(HPET or PM timer) on systems whose TSC frequency was
+			obtained from HW or FW using either an MSR or CPUID(0x15).
+			Warn if the difference is more than 500 ppm.
 
 	tsc_early_khz=  [X86] Skip early TSC calibration and use the given
 			value instead. Useful when the early TSC frequency discovery
