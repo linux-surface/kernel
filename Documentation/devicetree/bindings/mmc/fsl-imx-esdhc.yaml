@@ -10,7 +10,7 @@ maintainers:
   - Shawn Guo <shawnguo@kernel.org>
 
 allOf:
-  - $ref: "mmc-controller.yaml"
+  - $ref: mmc-controller.yaml
 
 description: |
   The Enhanced Secure Digital Host Controller on Freescale i.MX family
@@ -29,14 +29,23 @@ properties:
           - fsl,imx53-esdhc
           - fsl,imx6q-usdhc
           - fsl,imx6sl-usdhc
-          - fsl,imx6sll-usdhc
           - fsl,imx6sx-usdhc
-          - fsl,imx6ull-usdhc
           - fsl,imx7d-usdhc
           - fsl,imx7ulp-usdhc
           - fsl,imx8mm-usdhc
           - fsl,imxrt1050-usdhc
           - nxp,s32g2-usdhc
+      - items:
+          - const: fsl,imx50-esdhc
+          - const: fsl,imx53-esdhc
+      - items:
+          - enum:
+              - fsl,imx6sll-usdhc
+              - fsl,imx6ull-usdhc
+          - const: fsl,imx6sx-usdhc
+      - items:
+          - const: fsl,imx7d-usdhc
+          - const: fsl,imx6sl-usdhc
       - items:
           - enum:
               - fsl,imx8mq-usdhc
@@ -103,7 +112,7 @@ properties:
     default: 0
 
   voltage-ranges:
-    $ref: '/schemas/types.yaml#/definitions/uint32-matrix'
+    $ref: /schemas/types.yaml#/definitions/uint32-matrix
     description: |
       Specify the voltage range in case there are software transparent level
       shifters on the outputs of the controller. Two cells are required, first
