@@ -263,6 +263,7 @@ static int mlx5_devlink_trap_action_set(struct devlink *devlink,
 					struct netlink_ext_ack *extack)
 {
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
+	struct mlx5_devlink_trap_event_ctx trap_event_ctx;
 	enum devlink_trap_action action_orig;
 	struct mlx5_devlink_trap *dl_trap;
 	int err = 0;
@@ -289,10 +290,14 @@ static int mlx5_devlink_trap_action_set(struct devlink *devlink,
 
 	action_orig = dl_trap->trap.action;
 	dl_trap->trap.action = action;
+	trap_event_ctx.trap = &dl_trap->trap;
+	trap_event_ctx.err = 0;
 	err = mlx5_blocking_notifier_call_chain(dev, MLX5_DRIVER_EVENT_TYPE_TRAP,
-						&dl_trap->trap);
-	if (err)
+						&trap_event_ctx);
+	if (err == NOTIFY_BAD) {
 		dl_trap->trap.action = action_orig;
+		err = trap_event_ctx.err;
+	}
 out:
 	return err;
 }
