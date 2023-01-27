@@ -310,6 +310,8 @@ ENDPROC_CFI(flush_data_cache_local)
 /* Clear page using kernel mapping.  */
 
 ENTRY_CFI(clear_page_asm)
+	depi_safe	0, 31,PAGE_SHIFT, %r26	/* Clear any offset bits */
+
 #ifdef CONFIG_64BIT
 
 	/* Unroll the loop.  */
@@ -373,6 +375,9 @@ ENDPROC_CFI(clear_page_asm)
 /* Copy page using kernel mapping.  */
 
 ENTRY_CFI(copy_page_asm)
+	depi_safe	0, 31,PAGE_SHIFT, %r26	/* Clear any offset bits */
+	depi_safe	0, 31,PAGE_SHIFT, %r25	/* Clear any offset bits */
+
 #ifdef CONFIG_64BIT
 	/* PA8x00 CPUs can consume 2 loads or 1 store per cycle.
 	 * Unroll the loop by hand and arrange insn appropriately.
@@ -525,6 +530,9 @@ ENDPROC_CFI(copy_page_asm)
 	 */
 
 ENTRY_CFI(copy_user_page_asm)
+	depi_safe	0, 31,PAGE_SHIFT, %r26	/* Clear any offset bits */
+	depi_safe	0, 31,PAGE_SHIFT, %r25	/* Clear any offset bits */
+
 	/* Convert virtual `to' and `from' addresses to physical addresses.
 	   Move `from' physical address to non shadowed register.  */
 	ldil		L%(__PAGE_OFFSET), %r1
@@ -662,6 +670,7 @@ ENTRY_CFI(copy_user_page_asm)
 ENDPROC_CFI(copy_user_page_asm)
 
 ENTRY_CFI(clear_user_page_asm)
+	depi_safe	0, 31,PAGE_SHIFT, %r26			/* Clear any offset bits */
 	tophys_r1	%r26
 
 	ldil		L%(TMPALIAS_MAP_START), %r28
@@ -889,6 +898,7 @@ ENDPROC_CFI(flush_icache_page_asm)
 ENTRY_CFI(flush_kernel_dcache_page_asm)
 88:	ldil		L%dcache_stride, %r1
 	ldw		R%dcache_stride(%r1), %r23
+	depi_safe	0, 31,PAGE_SHIFT, %r26		/* Clear any offset bits */
 
 #ifdef CONFIG_64BIT
 	depdi,z		1, 63-PAGE_SHIFT,1, %r25
@@ -925,6 +935,7 @@ ENDPROC_CFI(flush_kernel_dcache_page_asm)
 ENTRY_CFI(purge_kernel_dcache_page_asm)
 88:	ldil		L%dcache_stride, %r1
 	ldw		R%dcache_stride(%r1), %r23
+	depi_safe	0, 31,PAGE_SHIFT, %r26		/* Clear any offset bits */
 
 #ifdef CONFIG_64BIT
 	depdi,z		1, 63-PAGE_SHIFT,1, %r25
@@ -1125,6 +1136,7 @@ ENDPROC_CFI(flush_user_icache_range_asm)
 ENTRY_CFI(flush_kernel_icache_page)
 88:	ldil		L%icache_stride, %r1
 	ldw		R%icache_stride(%r1), %r23
+	depi_safe	0, 31,PAGE_SHIFT, %r26		/* Clear any offset bits */
 
 #ifdef CONFIG_64BIT
 	depdi,z		1, 63-PAGE_SHIFT,1, %r25
