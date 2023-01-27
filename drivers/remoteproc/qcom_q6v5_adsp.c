@@ -367,7 +367,8 @@ static int adsp_map_carveout(struct rproc *rproc)
 	iova =  adsp->mem_phys | (sid << 32);
 
 	ret = iommu_map(rproc->domain, iova, adsp->mem_phys,
-			adsp->mem_size,	IOMMU_READ | IOMMU_WRITE);
+			adsp->mem_size,	IOMMU_READ | IOMMU_WRITE,
+			GFP_KERNEL);
 	if (ret) {
 		dev_err(adsp->dev, "Unable to map ADSP Physical Memory\n");
 		return ret;
