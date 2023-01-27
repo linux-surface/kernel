@@ -4655,13 +4655,13 @@ static inline void *mas_next_nentry(struct ma_state *mas,
 	pivots = ma_pivots(node, type);
 	slots = ma_slots(node, type);
 	mas->index = mas_safe_min(mas, pivots, mas->offset);
+	count = ma_data_end(node, type, pivots, mas->max);
 	if (ma_dead_node(node))
 		return NULL;
 
 	if (mas->index > max)
 		return NULL;
 
-	count = ma_data_end(node, type, pivots, mas->max);
 	if (mas->offset > count)
 		return NULL;
 
@@ -4732,6 +4732,11 @@ static inline void *mas_next_entry(struct ma_state *mas, unsigned long limit)
 	unsigned long last;
 	enum maple_type mt;
 
+	if (mas->index > limit) {
+		mas->index = mas->last = limit;
+		mas_pause(mas);
+		return NULL;
+	}
 	last = mas->last;
 retry:
 	offset = mas->offset;
@@ -4838,6 +4843,11 @@ static inline void *mas_prev_entry(struct ma_state *mas, unsigned long min)
 {
 	void *entry;
 
+	if (mas->index < min) {
+		mas->index = mas->last = min;
+		mas->node = MAS_NONE;
+		return NULL;
+	}
 retry:
 	while (likely(!mas_is_none(mas))) {
 		entry = mas_prev_nentry(mas, min, mas->index);
@@ -5579,8 +5589,8 @@ free_leaf:
 
 /*
  * mte_destroy_walk() - Free a tree or sub-tree.
- * @enode - the encoded maple node (maple_enode) to start
- * @mn - the tree to free - needed for node types.
+ * @enode: the encoded maple node (maple_enode) to start
+ * @mt: the tree to free - needed for node types.
  *
  * Must hold the write lock.
  */
@@ -5599,6 +5609,9 @@ static inline void mte_destroy_walk(struct maple_enode *enode,
 
 static void mas_wr_store_setup(struct ma_wr_state *wr_mas)
 {
+	if (unlikely(mas_is_paused(wr_mas->mas)))
+		mas_reset(wr_mas->mas);
+
 	if (!mas_is_start(wr_mas->mas)) {
 		if (mas_is_none(wr_mas->mas)) {
 			mas_reset(wr_mas->mas);
@@ -5700,12 +5713,11 @@ EXPORT_SYMBOL_GPL(mas_store_prealloc);
 /**
  * mas_preallocate() - Preallocate enough nodes for a store operation
  * @mas: The maple state
- * @entry: The entry that will be stored
  * @gfp: The GFP_FLAGS to use for allocations.
  *
  * Return: 0 on success, -ENOMEM if memory could not be allocated.
  */
-int mas_preallocate(struct ma_state *mas, void *entry, gfp_t gfp)
+int mas_preallocate(struct ma_state *mas, gfp_t gfp)
 {
 	int ret;
 
@@ -5907,6 +5919,7 @@ void *mas_prev(struct ma_state *mas, unsigned long min)
 	if (!mas->index) {
 		/* Nothing comes before 0 */
 		mas->last = 0;
+		mas->node = MAS_NONE;
 		return NULL;
 	}
 
@@ -5996,6 +6009,9 @@ void *mas_find(struct ma_state *mas, unsigned long max)
 		mas->node = MAS_START;
 		mas->index = ++mas->last;
 	}
+
+	if (unlikely(mas_is_none(mas)))
+		mas->node = MAS_START;
 
 	if (unlikely(mas_is_start(mas))) {
 		/* First run or continue */

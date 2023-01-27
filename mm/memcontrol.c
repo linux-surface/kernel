@@ -350,21 +350,19 @@ EXPORT_SYMBOL(memcg_kmem_enabled_key);
 #endif
 
 /**
- * mem_cgroup_css_from_page - css of the memcg associated with a page
- * @page: page of interest
+ * mem_cgroup_css_from_folio - css of the memcg associated with a folio
+ * @folio: folio of interest
  *
  * If memcg is bound to the default hierarchy, css of the memcg associated
- * with @page is returned.  The returned css remains associated with @page
+ * with @folio is returned.  The returned css remains associated with @folio
  * until it is released.
  *
  * If memcg is bound to a traditional hierarchy, the css of root_mem_cgroup
  * is returned.
  */
-struct cgroup_subsys_state *mem_cgroup_css_from_page(struct page *page)
+struct cgroup_subsys_state *mem_cgroup_css_from_folio(struct folio *folio)
 {
-	struct mem_cgroup *memcg;
-
-	memcg = page_memcg(page);
+	struct mem_cgroup *memcg = folio_memcg(folio);
 
 	if (!memcg || !cgroup_subsys_on_dfl(memory_cgrp_subsys))
 		memcg = root_mem_cgroup;
@@ -478,12 +476,8 @@ static void mem_cgroup_update_tree(struct mem_cgroup *memcg, int nid)
 	struct mem_cgroup_tree_per_node *mctz;
 
 	if (lru_gen_enabled()) {
-		struct lruvec *lruvec = &memcg->nodeinfo[nid]->lruvec;
-
-		/* see the comment on MEMCG_NR_GENS */
-		if (soft_limit_excess(memcg) && lru_gen_memcg_seg(lruvec) != MEMCG_LRU_HEAD)
-			lru_gen_rotate_memcg(lruvec, MEMCG_LRU_HEAD);
-
+		if (soft_limit_excess(memcg))
+			lru_gen_soft_reclaim(&memcg->nodeinfo[nid]->lruvec);
 		return;
 	}
 

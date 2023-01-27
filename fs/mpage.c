@@ -269,11 +269,6 @@ static struct bio *do_mpage_readpage(struct mpage_readpage_args *args)
 
 alloc_new:
 	if (args->bio == NULL) {
-		if (first_hole == blocks_per_page) {
-			if (!bdev_read_page(bdev, blocks[0] << (blkbits - 9),
-								&folio->page))
-				goto out;
-		}
 		args->bio = bio_alloc(bdev, bio_max_segs(args->nr_pages), opf,
 				      gfp);
 		if (args->bio == NULL)
@@ -445,15 +440,14 @@ void clean_page_buffers(struct page *page)
 	clean_buffers(page, ~0U);
 }
 
-static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
+static int __mpage_writepage(struct folio *folio, struct writeback_control *wbc,
 		      void *data)
 {
 	struct mpage_data *mpd = data;
 	struct bio *bio = mpd->bio;
-	struct address_space *mapping = page->mapping;
-	struct inode *inode = page->mapping->host;
+	struct address_space *mapping = folio->mapping;
+	struct inode *inode = mapping->host;
 	const unsigned blkbits = inode->i_blkbits;
-	unsigned long end_index;
 	const unsigned blocks_per_page = PAGE_SIZE >> blkbits;
 	sector_t last_block;
 	sector_t block_in_file;
@@ -464,13 +458,13 @@ static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 	int boundary = 0;
 	sector_t boundary_block = 0;
 	struct block_device *boundary_bdev = NULL;
-	int length;
+	size_t length;
 	struct buffer_head map_bh;
 	loff_t i_size = i_size_read(inode);
 	int ret = 0;
+	struct buffer_head *head = folio_buffers(folio);
 
-	if (page_has_buffers(page)) {
-		struct buffer_head *head = page_buffers(page);
+	if (head) {
 		struct buffer_head *bh = head;
 
 		/* If they're all mapped and dirty, do it */
@@ -522,8 +516,8 @@ static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 	/*
 	 * The page has no buffers: map it to disk
 	 */
-	BUG_ON(!PageUptodate(page));
-	block_in_file = (sector_t)page->index << (PAGE_SHIFT - blkbits);
+	BUG_ON(!folio_test_uptodate(folio));
+	block_in_file = (sector_t)folio->index << (PAGE_SHIFT - blkbits);
 	/*
 	 * Whole page beyond EOF? Skip allocating blocks to avoid leaking
 	 * space.
@@ -531,7 +525,7 @@ static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 	if (block_in_file >= (i_size + (1 << blkbits) - 1) >> blkbits)
 		goto page_is_mapped;
 	last_block = (i_size - 1) >> blkbits;
-	map_bh.b_page = page;
+	map_bh.b_folio = folio;
 	for (page_block = 0; page_block < blocks_per_page; ) {
 
 		map_bh.b_state = 0;
@@ -562,8 +556,8 @@ static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 	first_unmapped = page_block;
 
 page_is_mapped:
-	end_index = i_size >> PAGE_SHIFT;
-	if (page->index >= end_index) {
+	length = folio_size(folio);
+	if (folio_pos(folio) + length > i_size) {
 		/*
 		 * The page straddles i_size.  It must be zeroed out on each
 		 * and every writepage invocation because it may be mmapped.
@@ -572,11 +566,10 @@ page_is_mapped:
 		 * is zeroed when mapped, and writes to that region are not
 		 * written out to the file."
 		 */
-		unsigned offset = i_size & (PAGE_SIZE - 1);
-
-		if (page->index > end_index || !offset)
+		length = i_size - folio_pos(folio);
+		if (WARN_ON_ONCE(folio_pos(folio) >= i_size))
 			goto confused;
-		zero_user_segment(page, offset, PAGE_SIZE);
+		folio_zero_segment(folio, length, folio_size(folio));
 	}
 
 	/*
@@ -587,11 +580,6 @@ page_is_mapped:
 
 alloc_new:
 	if (bio == NULL) {
-		if (first_unmapped == blocks_per_page) {
-			if (!bdev_write_page(bdev, blocks[0] << (blkbits - 9),
-								page, wbc))
-				goto out;
-		}
 		bio = bio_alloc(bdev, BIO_MAX_VECS,
 				REQ_OP_WRITE | wbc_to_write_flags(wbc),
 				GFP_NOFS);
@@ -604,18 +592,18 @@ alloc_new:
 	 * the confused fail path above (OOM) will be very confused when
 	 * it finds all bh marked clean (i.e. it will not write anything)
 	 */
-	wbc_account_cgroup_owner(wbc, page, PAGE_SIZE);
+	wbc_account_cgroup_owner(wbc, &folio->page, folio_size(folio));
 	length = first_unmapped << blkbits;
-	if (bio_add_page(bio, page, length, 0) < length) {
+	if (!bio_add_folio(bio, folio, length, 0)) {
 		bio = mpage_bio_submit(bio);
 		goto alloc_new;
 	}
 
-	clean_buffers(page, first_unmapped);
+	clean_buffers(&folio->page, first_unmapped);
 
-	BUG_ON(PageWriteback(page));
-	set_page_writeback(page);
-	unlock_page(page);
+	BUG_ON(folio_test_writeback(folio));
+	folio_start_writeback(folio);
+	folio_unlock(folio);
 	if (boundary || (first_unmapped != blocks_per_page)) {
 		bio = mpage_bio_submit(bio);
 		if (boundary_block) {
@@ -634,7 +622,7 @@ confused:
 	/*
 	 * The caller has a ref on the inode, so *mapping is stable
 	 */
-	ret = block_write_full_page(page, mpd->get_block, wbc);
+	ret = block_write_full_page(&folio->page, mpd->get_block, wbc);
 	mapping_set_error(mapping, ret);
 out:
 	mpd->bio = bio;

@@ -424,7 +424,7 @@ static int hfi1_file_mmap(struct file *fp, struct vm_area_struct *vma)
 			ret = -EPERM;
 			goto done;
 		}
-		vma->vm_flags &= ~VM_MAYWRITE;
+		vm_flags_clear(vma, VM_MAYWRITE);
 		/*
 		 * Mmap multiple separate allocations into a single vma.  From
 		 * here, dma_mmap_coherent() calls dma_direct_mmap(), which
@@ -560,7 +560,7 @@ static int hfi1_file_mmap(struct file *fp, struct vm_area_struct *vma)
 		goto done;
 	}
 
-	vma->vm_flags = flags;
+	vm_flags_reset(vma, flags);
 	mmap_cdbg(ctxt, subctxt, type, mapio, vmf, memaddr, memvirt, memdma, 
 		  memlen, vma);
 	if (vmf) {
