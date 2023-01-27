@@ -79,18 +79,14 @@ Options
 
   cache=mode	specifies a caching policy.  By default, no caches are used.
 
-                        none
-				default no cache policy, metadata and data
-                                alike are synchronous.
-			loose
-				no attempts are made at consistency,
-                                intended for exclusive, read-only mounts
-                        fscache
-				use FS-Cache for a persistent, read-only
-				cache backend.
-                        mmap
-				minimal cache that is only used for read-write
-                                mmap.  Northing else is cached, like cache=none
+			=========	=============================================
+			none		no cache of file or metadata
+			readahead	readahead caching of files
+			writeback	delayed writeback of files
+			mmap		support mmap operations read/write with cache
+			loose		meta-data and file cache with no coherency
+			fscache		use FS-Cache for a persistent cache backend
+			=========	=============================================
 
   debug=n	specifies debug level.  The debug level is a bitmask.
 
@@ -136,6 +132,12 @@ Options
   nodevmap	do not map special files - represent them as normal files.
   		This can be used to share devices/named pipes/sockets between
 		hosts.  This functionality will be expanded in later versions.
+
+  directio	bypass page cache on all read/write operations
+
+  ignoreqv	ignore qid.version==0 as a marker to ignore cache
+
+  noxattr	do not offer xattr functions on this mount.
 
   access	there are four access modes.
 			user
