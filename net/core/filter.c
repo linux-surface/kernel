@@ -4128,9 +4128,13 @@ static const struct bpf_func_proto bpf_xdp_adjust_meta_proto = {
  *    bpf_redirect_info to actually enqueue the frame into a map type-specific
  *    bulk queue structure.
  *
- * 3. Before exiting its NAPI poll loop, the driver will call xdp_do_flush(),
- *    which will flush all the different bulk queues, thus completing the
- *    redirect.
+ * 3. Before exiting its NAPI poll loop, the driver will call
+ *    xdp_do_flush(), which will flush all the different bulk queues,
+ *    thus completing the redirect. Note that xdp_do_flush() must be
+ *    called before napi_complete_done() in the driver, as the
+ *    XDP_REDIRECT logic relies on being inside a single NAPI instance
+ *    through to the xdp_do_flush() call for RCU protection of all
+ *    in-kernel data structures.
  */
 /*
  * Pointers to the map entries will be kept around for this whole sequence of
@@ -4618,7 +4622,8 @@ BPF_CALL_4(bpf_skb_set_tunnel_key, struct sk_buff *, skb,
 	struct ip_tunnel_info *info;
 
 	if (unlikely(flags & ~(BPF_F_TUNINFO_IPV6 | BPF_F_ZERO_CSUM_TX |
-			       BPF_F_DONT_FRAGMENT | BPF_F_SEQ_NUMBER)))
+			       BPF_F_DONT_FRAGMENT | BPF_F_SEQ_NUMBER |
+			       BPF_F_NO_TUNNEL_KEY)))
 		return -EINVAL;
 	if (unlikely(size != sizeof(struct bpf_tunnel_key))) {
 		switch (size) {
@@ -4656,6 +4661,8 @@ BPF_CALL_4(bpf_skb_set_tunnel_key, struct sk_buff *, skb,
 		info->key.tun_flags &= ~TUNNEL_CSUM;
 	if (flags & BPF_F_SEQ_NUMBER)
 		info->key.tun_flags |= TUNNEL_SEQ;
+	if (flags & BPF_F_NO_TUNNEL_KEY)
+		info->key.tun_flags &= ~TUNNEL_KEY;
 
 	info->key.tun_id = cpu_to_be64(from->tunnel_id);
 	info->key.tos = from->tunnel_tos;
