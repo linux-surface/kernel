@@ -73,6 +73,7 @@ Hardware Monitoring Kernel Drivers
    g762
    gsc-hwmon
    gl518sm
+   gxp-fan-ctrl
    hih6130
    ibmaem
    ibm-cffps
@@ -144,6 +145,7 @@ Hardware Monitoring Kernel Drivers
    max6697
    max8688
    mc13783-adc
+   mc34vr500
    mcp3021
    menf21bmc
    mlxreg-fan
