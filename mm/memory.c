@@ -625,6 +625,16 @@ out:
 	return pfn_to_page(pfn);
 }
 
+struct folio *vm_normal_folio(struct vm_area_struct *vma, unsigned long addr,
+			    pte_t pte)
+{
+	struct page *page = vm_normal_page(vma, addr, pte);
+
+	if (page)
+		return page_folio(page);
+	return NULL;
+}
+
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 struct page *vm_normal_page_pmd(struct vm_area_struct *vma, unsigned long addr,
 				pmd_t pmd)
@@ -878,7 +888,7 @@ copy_present_page(struct vm_area_struct *dst_vma, struct vm_area_struct *src_vma
 	pte = maybe_mkwrite(pte_mkdirty(pte), dst_vma);
 	if (userfaultfd_pte_wp(dst_vma, *src_pte))
 		/* Uffd-wp needs to be delivered to dest pte as well */
-		pte = pte_wrprotect(pte_mkuffd_wp(pte));
+		pte = pte_mkuffd_wp(pte);
 	set_pte_at(dst_vma->vm_mm, addr, dst_pte, pte);
 	return 0;
 }
@@ -1392,8 +1402,7 @@ again:
 						force_flush = 1;
 					}
 				}
-				if (pte_young(ptent) &&
-				    likely(!(vma->vm_flags & VM_SEQ_READ)))
+				if (pte_young(ptent) && likely(vma_has_recency(vma)))
 					mark_page_accessed(page);
 			}
 			rss[mm_counter(page)]--;
@@ -1681,36 +1690,6 @@ void unmap_vmas(struct mmu_gather *tlb, struct maple_tree *mt,
 		unmap_single_vma(tlb, vma, start_addr, end_addr, &details);
 	} while ((vma = mas_find(&mas, end_addr - 1)) != NULL);
 	mmu_notifier_invalidate_range_end(&range);
-}
-
-/**
- * zap_page_range - remove user pages in a given range
- * @vma: vm_area_struct holding the applicable pages
- * @start: starting address of pages to zap
- * @size: number of bytes to zap
- *
- * Caller must protect the VMA list
- */
-void zap_page_range(struct vm_area_struct *vma, unsigned long start,
-		unsigned long size)
-{
-	struct maple_tree *mt = &vma->vm_mm->mm_mt;
-	unsigned long end = start + size;
-	struct mmu_notifier_range range;
-	struct mmu_gather tlb;
-	MA_STATE(mas, mt, vma->vm_end, vma->vm_end);
-
-	lru_add_drain();
-	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma, vma->vm_mm,
-				start, start + size);
-	tlb_gather_mmu(&tlb, vma->vm_mm);
-	update_hiwater_rss(vma->vm_mm);
-	mmu_notifier_invalidate_range_start(&range);
-	do {
-		unmap_single_vma(&tlb, vma, start, range.end, NULL);
-	} while ((vma = mas_find(&mas, end - 1)) != NULL);
-	mmu_notifier_invalidate_range_end(&range);
-	tlb_finish_mmu(&tlb);
 }
 
 /**
@@ -3953,10 +3932,8 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	flush_icache_page(vma, page);
 	if (pte_swp_soft_dirty(vmf->orig_pte))
 		pte = pte_mksoft_dirty(pte);
-	if (pte_swp_uffd_wp(vmf->orig_pte)) {
+	if (pte_swp_uffd_wp(vmf->orig_pte))
 		pte = pte_mkuffd_wp(pte);
-		pte = pte_wrprotect(pte);
-	}
 	vmf->orig_pte = pte;
 
 	/* ksm created a completely new copy */
@@ -4299,7 +4276,7 @@ void do_set_pte(struct vm_fault *vmf, struct page *page, unsigned long addr)
 	if (write)
 		entry = maybe_mkwrite(pte_mkdirty(entry), vma);
 	if (unlikely(uffd_wp))
-		entry = pte_mkuffd_wp(pte_wrprotect(entry));
+		entry = pte_mkuffd_wp(entry);
 	/* copy-on-write page */
 	if (write && !(vma->vm_flags & VM_SHARED)) {
 		inc_mm_counter(vma->vm_mm, MM_ANONPAGES);
@@ -5140,8 +5117,8 @@ static inline void mm_account_fault(struct pt_regs *regs,
 #ifdef CONFIG_LRU_GEN
 static void lru_gen_enter_fault(struct vm_area_struct *vma)
 {
-	/* the LRU algorithm doesn't apply to sequential or random reads */
-	current->in_lru_fault = !(vma->vm_flags & (VM_SEQ_READ | VM_RAND_READ));
+	/* the LRU algorithm only applies to accesses with recency */
+	current->in_lru_fault = vma_has_recency(vma);
 }
 
 static void lru_gen_exit_fault(void)

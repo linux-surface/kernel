@@ -892,28 +892,35 @@ static unsigned long determine_vm_flags(struct file *file,
 	unsigned long vm_flags;
 
 	vm_flags = calc_vm_prot_bits(prot, 0) | calc_vm_flag_bits(flags);
-	/* vm_flags |= mm->def_flags; */
 
-	if (!(capabilities & NOMMU_MAP_DIRECT)) {
-		/* attempt to share read-only copies of mapped file chunks */
+	if (!file) {
+		/*
+		 * MAP_ANONYMOUS. MAP_SHARED is mapped to MAP_PRIVATE, because
+		 * there is no fork().
+		 */
 		vm_flags |= VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC;
-		if (file && !(prot & PROT_WRITE))
-			vm_flags |= VM_MAYSHARE;
-	} else {
-		/* overlay a shareable mapping on the backing device or inode
-		 * if possible - used for chardevs, ramfs/tmpfs/shmfs and
-		 * romfs/cramfs */
-		vm_flags |= VM_MAYSHARE | (capabilities & NOMMU_VMFLAGS);
-		if (flags & MAP_SHARED)
-			vm_flags |= VM_SHARED;
-	}
+	} else if (flags & MAP_PRIVATE) {
+		/* MAP_PRIVATE file mapping */
+		if (capabilities & NOMMU_MAP_DIRECT)
+			vm_flags |= (capabilities & NOMMU_VMFLAGS);
+		else
+			vm_flags |= VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC;
 
-	/* refuse to let anyone share private mappings with this process if
-	 * it's being traced - otherwise breakpoints set in it may interfere
-	 * with another untraced process
-	 */
-	if ((flags & MAP_PRIVATE) && current->ptrace)
-		vm_flags &= ~VM_MAYSHARE;
+		if (!(prot & PROT_WRITE) && !current->ptrace)
+			/*
+			 * R/O private file mapping which cannot be used to
+			 * modify memory, especially also not via active ptrace
+			 * (e.g., set breakpoints) or later by upgrading
+			 * permissions (no mprotect()). We can try overlaying
+			 * the file mapping, which will work e.g., on chardevs,
+			 * ramfs/tmpfs/shmfs and romfs/cramf.
+			 */
+			vm_flags |= VM_MAYOVERLAY;
+	} else {
+		/* MAP_SHARED file mapping: NOMMU_MAP_DIRECT is set. */
+		vm_flags |= VM_SHARED | VM_MAYSHARE |
+			    (capabilities & NOMMU_VMFLAGS);
+	}
 
 	return vm_flags;
 }
@@ -952,15 +959,18 @@ static int do_mmap_private(struct vm_area_struct *vma,
 	void *base;
 	int ret, order;
 
-	/* invoke the file's mapping function so that it can keep track of
-	 * shared mappings on devices or memory
-	 * - VM_MAYSHARE will be set if it may attempt to share
+	/*
+	 * Invoke the file's mapping function so that it can keep track of
+	 * shared mappings on devices or memory. VM_MAYOVERLAY will be set if
+	 * it may attempt to share, which will make is_nommu_shared_mapping()
+	 * happy.
 	 */
 	if (capabilities & NOMMU_MAP_DIRECT) {
 		ret = call_mmap(vma->vm_file, vma);
+		/* shouldn't return success if we're not sharing */
+		if (WARN_ON_ONCE(!is_nommu_shared_mapping(vma->vm_flags)))
+			ret = -ENOSYS;
 		if (ret == 0) {
-			/* shouldn't return success if we're not sharing */
-			BUG_ON(!(vma->vm_flags & VM_MAYSHARE));
 			vma->vm_region->vm_top = vma->vm_region->vm_end;
 			return 0;
 		}
@@ -1106,7 +1116,7 @@ unsigned long do_mmap(struct file *file,
 	 *   these cases, sharing is handled in the driver or filesystem rather
 	 *   than here
 	 */
-	if (vm_flags & VM_MAYSHARE) {
+	if (is_nommu_shared_mapping(vm_flags)) {
 		struct vm_region *pregion;
 		unsigned long pglen, rpglen, pgend, rpgend, start;
 
@@ -1116,7 +1126,7 @@ unsigned long do_mmap(struct file *file,
 		for (rb = rb_first(&nommu_region_tree); rb; rb = rb_next(rb)) {
 			pregion = rb_entry(rb, struct vm_region, vm_rb);
 
-			if (!(pregion->vm_flags & VM_MAYSHARE))
+			if (!is_nommu_shared_mapping(pregion->vm_flags))
 				continue;
 
 			/* search for overlapping mappings on the same file */
@@ -1600,7 +1610,7 @@ static unsigned long do_mremap(unsigned long addr,
 	if (vma->vm_end != vma->vm_start + old_len)
 		return (unsigned long) -EFAULT;
 
-	if (vma->vm_flags & VM_MAYSHARE)
+	if (is_nommu_shared_mapping(vma->vm_flags))
 		return (unsigned long) -EPERM;
 
 	if (new_len > vma->vm_region->vm_end - vma->vm_region->vm_start)
