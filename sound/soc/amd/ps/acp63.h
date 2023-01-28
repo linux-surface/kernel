@@ -11,7 +11,6 @@
 #define ACP63_REG_START		0x1240000
 #define ACP63_REG_END		0x1250200
 #define ACP63_DEVS		3
-#define ACP63_PDM_MODE		1
 
 #define ACP_SOFT_RESET_SOFTRESET_AUDDONE_MASK	0x00010001
 #define ACP_PGFSM_CNTL_POWER_ON_MASK	1
@@ -54,6 +53,11 @@
 /* time in ms for runtime suspend delay */
 #define ACP_SUSPEND_DELAY_MS	2000
 
+#define ACP63_DMIC_ADDR		2
+#define ACP63_PDM_MODE_DEVS		3
+#define ACP63_PDM_DEV_MASK		1
+#define ACP_DMIC_DEV	2
+
 enum acp_config {
 	ACP_CONFIG_0 = 0,
 	ACP_CONFIG_1,
@@ -84,6 +88,7 @@ struct pdm_stream_instance {
 struct pdm_dev_data {
 	u32 pdm_irq;
 	void __iomem *acp63_base;
+	struct mutex *acp_lock;
 	struct snd_pcm_substream *capture_stream;
 };
 
@@ -100,6 +105,9 @@ static inline void acp63_writel(u32 val, void __iomem *base_addr)
 struct acp63_dev_data {
 	void __iomem *acp63_base;
 	struct resource *res;
-	bool acp63_audio_mode;
 	struct platform_device *pdev[ACP63_DEVS];
+	struct mutex acp_lock; /* protect shared registers */
+	u16 pdev_mask;
+	u16 pdev_count;
+	u16 pdm_dev_index;
 };
