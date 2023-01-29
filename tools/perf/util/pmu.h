@@ -7,6 +7,7 @@
 #include <linux/perf_event.h>
 #include <linux/list.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include "parse-events.h"
 #include "pmu-events/pmu-events.h"
 
@@ -22,8 +23,6 @@ enum {
 };
 
 #define PERF_PMU_FORMAT_BITS 64
-#define EVENT_SOURCE_DEVICE_PATH "/bus/event_source/devices/"
-#define CPUS_TEMPLATE_CPU	"%s/bus/event_source/devices/%s/cpus"
 #define MAX_PMU_NAME_LEN 128
 
 struct perf_event_attr;
@@ -231,6 +230,8 @@ bool pmu_have_event(const char *pname, const char *name);
 
 int perf_pmu__scan_file(struct perf_pmu *pmu, const char *name, const char *fmt, ...) __scanf(3, 4);
 
+bool perf_pmu__file_exists(struct perf_pmu *pmu, const char *name);
+
 int perf_pmu__test(void);
 
 struct perf_event_attr *perf_pmu__get_default_config(struct perf_pmu *pmu);
@@ -259,4 +260,10 @@ int perf_pmu__cpus_match(struct perf_pmu *pmu, struct perf_cpu_map *cpus,
 
 char *pmu_find_real_name(const char *name);
 char *pmu_find_alias_name(const char *name);
+double perf_pmu__cpu_slots_per_cycle(void);
+int perf_pmu__event_source_devices_scnprintf(char *pathname, size_t size);
+int perf_pmu__pathname_scnprintf(char *buf, size_t size,
+				 const char *pmu_name, const char *filename);
+FILE *perf_pmu__open_file(struct perf_pmu *pmu, const char *name);
+
 #endif /* __PMU_H */
