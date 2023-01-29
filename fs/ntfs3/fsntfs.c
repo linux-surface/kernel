@@ -1683,6 +1683,7 @@ struct ntfs_inode *ntfs_new_inode(struct ntfs_sb_info *sbi, CLST rno, bool dir)
 
 out:
 	if (err) {
+		make_bad_inode(inode);
 		iput(inode);
 		ni = ERR_PTR(err);
 	}
@@ -1875,10 +1876,12 @@ int ntfs_security_init(struct ntfs_sb_info *sbi)
 		goto out;
 	}
 
-	root_sdh = resident_data_ex(attr, sizeof(struct INDEX_ROOT));
-	if (root_sdh->type != ATTR_ZERO ||
+	if(!(root_sdh = resident_data_ex(attr, sizeof(struct INDEX_ROOT))) ||
+	    root_sdh->type != ATTR_ZERO ||
 	    root_sdh->rule != NTFS_COLLATION_TYPE_SECURITY_HASH ||
-	    offsetof(struct INDEX_ROOT, ihdr) + root_sdh->ihdr.used > attr->res.data_size) {
+	    offsetof(struct INDEX_ROOT, ihdr) +
+			le32_to_cpu(root_sdh->ihdr.used) >
+			le32_to_cpu(attr->res.data_size)) {
 		err = -EINVAL;
 		goto out;
 	}
@@ -1894,10 +1897,12 @@ int ntfs_security_init(struct ntfs_sb_info *sbi)
 		goto out;
 	}
 
-	root_sii = resident_data_ex(attr, sizeof(struct INDEX_ROOT));
-	if (root_sii->type != ATTR_ZERO ||
+	if(!(root_sii = resident_data_ex(attr, sizeof(struct INDEX_ROOT))) ||
+	    root_sii->type != ATTR_ZERO ||
 	    root_sii->rule != NTFS_COLLATION_TYPE_UINT ||
-	    offsetof(struct INDEX_ROOT, ihdr) + root_sii->ihdr.used > attr->res.data_size) {
+	    offsetof(struct INDEX_ROOT, ihdr) +
+			le32_to_cpu(root_sii->ihdr.used) >
+			le32_to_cpu(attr->res.data_size)) {
 		err = -EINVAL;
 		goto out;
 	}
@@ -2594,8 +2599,10 @@ static inline bool is_reserved_name(struct ntfs_sb_info *sbi,
 	if (len == 4 || (len > 4 && le16_to_cpu(name[4]) == '.')) {
 		port_digit = le16_to_cpu(name[3]);
 		if (port_digit >= '1' && port_digit <= '9')
-			if (!ntfs_cmp_names(name, 3, COM_NAME, 3, upcase, false) ||
-			    !ntfs_cmp_names(name, 3, LPT_NAME, 3, upcase, false))
+			if (!ntfs_cmp_names(name, 3, COM_NAME, 3, upcase,
+					    false) ||
+			    !ntfs_cmp_names(name, 3, LPT_NAME, 3, upcase,
+					    false))
 				return true;
 	}
 
