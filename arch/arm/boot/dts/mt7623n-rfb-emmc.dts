@@ -160,9 +160,7 @@
 	status = "okay";
 
 	gmac0: mac@0 {
-		compatible = "mediatek,eth-mac";
-		reg = <0>;
-		phy-mode = "trgmii";
+		status = "okay";
 
 		fixed-link {
 			speed = <1000>;
@@ -172,9 +170,7 @@
 	};
 
 	mac@1 {
-		compatible = "mediatek,eth-mac";
-		reg = <1>;
-		phy-mode = "rgmii";
+		status = "okay";
 		phy-handle = <&phy5>;
 	};
 
@@ -187,9 +183,9 @@
 			phy-mode = "rgmii-rxid";
 		};
 
-		switch@0 {
+		switch@1f {
 			compatible = "mediatek,mt7530";
-			reg = <0>;
+			reg = <0x1f>;
 			reset-gpios = <&pio 33 0>;
 			core-supply = <&mt6323_vpa_reg>;
 			io-supply = <&mt6323_vemc3v3_reg>;
@@ -232,6 +228,7 @@
 					fixed-link {
 						speed = <1000>;
 						full-duplex;
+						pause;
 					};
 				};
 			};
