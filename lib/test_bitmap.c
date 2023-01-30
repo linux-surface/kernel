@@ -221,7 +221,7 @@ static void __init test_zero_clear(void)
 	expect_eq_pbl("", bmap, 1024);
 }
 
-static void __init test_find_nth_bit(void)
+static void __init test_find_bit(void)
 {
 	unsigned long b, bit, cnt = 0;
 	DECLARE_BITMAP(bmap, 64 * 3);
@@ -235,6 +235,25 @@ static void __init test_find_nth_bit(void)
 	__set_bit(60, bmap);
 	__set_bit(80, bmap);
 	__set_bit(123, bmap);
+
+	expect_eq_uint(10,  find_next_bit(bmap, 64 * 3, 0));
+	expect_eq_uint(20,  find_next_bit(bmap, 64 * 3, 11));
+	expect_eq_uint(30,  find_next_bit(bmap, 64 * 3, 21));
+	expect_eq_uint(40,  find_next_bit(bmap, 64 * 3, 31));
+	expect_eq_uint(50,  find_next_bit(bmap, 64 * 3, 41));
+	expect_eq_uint(60,  find_next_bit(bmap, 64 * 3, 51));
+	expect_eq_uint(80,  find_next_bit(bmap, 64 * 3, 61));
+	expect_eq_uint(123, find_next_bit(bmap, 64 * 3, 81));
+
+	/* Test small_const_nbits_off() optimization path */
+	expect_eq_uint(10,  find_next_bit(bmap, 20 + 0,  0));
+	expect_eq_uint(20,  find_next_bit(bmap, 20 + 11, 11));
+	expect_eq_uint(30,  find_next_bit(bmap, 20 + 21, 21));
+	expect_eq_uint(40,  find_next_bit(bmap, 20 + 31, 31));
+	expect_eq_uint(50,  find_next_bit(bmap, 20 + 41, 41));
+	expect_eq_uint(60,  find_next_bit(bmap, 20 + 51, 51));
+	expect_eq_uint(80,  find_next_bit(bmap, 20 + 61, 61));
+	expect_eq_uint(90,  find_next_bit(bmap, 20 + 70, 81));
 
 	expect_eq_uint(10,  find_nth_bit(bmap, 64 * 3, 0));
 	expect_eq_uint(20,  find_nth_bit(bmap, 64 * 3, 1));
@@ -1226,7 +1245,7 @@ static void __init selftest(void)
 	test_bitmap_print_buf();
 	test_bitmap_const_eval();
 
-	test_find_nth_bit();
+	test_find_bit();
 	test_for_each_set_bit();
 	test_for_each_set_bit_from();
 	test_for_each_clear_bit();
