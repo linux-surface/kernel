@@ -97,7 +97,7 @@ union txdesc {
 };
 
 struct	hw_xmit	{
-	struct __queue *sta_queue;
+	struct list_head *sta_list;
 	int	accnt;
 };
 
@@ -202,8 +202,6 @@ struct xmit_buf {
 	struct submit_ctx *sctx;
 	u32	ff_hwaddr;
 	struct urb *pxmit_urb;
-	dma_addr_t dma_transfer_addr;	/* (in) dma addr for transfer_buffer */
-	u8 bpending[8];
 	int last[8];
 };
 
@@ -230,8 +228,6 @@ struct tx_servq {
 struct sta_xmit_priv {
 	spinlock_t lock;
 	int	option;
-	int	apsd_setting;	/* When bit mask is on, the associated edca
-				 * queue supports APSD. */
 	struct tx_servq	be_q;			/* priority == 0,3 */
 	struct tx_servq	bk_q;			/* priority == 1,2 */
 	struct tx_servq	vi_q;			/* priority == 4,5 */
@@ -252,46 +248,28 @@ struct	hw_txqueue {
 	int	ac_tag;
 };
 
-struct agg_pkt_info {
-	u16 offset;
-	u16 pkt_len;
-};
-
 struct	xmit_priv {
 	spinlock_t lock;
-	struct semaphore terminate_xmitthread_sema;
-	struct __queue be_pending;
-	struct __queue bk_pending;
-	struct __queue vi_pending;
-	struct __queue vo_pending;
-	struct __queue bm_pending;
+	struct list_head be_pending;
+	struct list_head bk_pending;
+	struct list_head vi_pending;
+	struct list_head vo_pending;
 	u8 *pallocated_frame_buf;
 	u8 *pxmit_frame_buf;
 	uint free_xmitframe_cnt;
 	struct __queue free_xmit_queue;
 	uint	frag_len;
 	struct adapter	*adapter;
-	u8   vcs_setting;
-	u8	vcs;
-	u8	vcs_type;
 	u64	tx_bytes;
 	u64	tx_pkts;
 	u64	tx_drop;
 	u64	last_tx_bytes;
 	u64	last_tx_pkts;
 	struct hw_xmit *hwxmits;
-	u8	hwxmit_entry;
 	u8	wmm_para_seq[4];/* sequence for wmm ac parameter strength
 				 * from large to small. it's value is 0->vo,
 				 * 1->vi, 2->be, 3->bk. */
-	struct semaphore tx_retevt;/* all tx return event; */
-	u8		txirp_cnt;/*  */
 	struct tasklet_struct xmit_tasklet;
-	/* per AC pending irp */
-	int beq_cnt;
-	int bkq_cnt;
-	int viq_cnt;
-	int voq_cnt;
 	struct __queue free_xmitbuf_queue;
 	struct __queue pending_xmitbuf_queue;
 	u8 *pallocated_xmitbuf;
@@ -324,7 +302,6 @@ s32 rtw_free_xmitbuf(struct xmit_priv *pxmitpriv,
 		     struct xmit_buf *pxmitbuf);
 void rtw_count_tx_stats(struct adapter *padapter,
 			struct xmit_frame *pxmitframe, int sz);
-void rtw_update_protection(struct adapter *padapter, u8 *ie, uint ie_len);
 s32 rtw_make_wlanhdr(struct adapter *padapter, u8 *hdr,
 		     struct pkt_attrib *pattrib);
 s32 rtw_put_snap(u8 *data, u16 h_proto);
@@ -336,10 +313,8 @@ void rtw_free_xmitframe_queue(struct xmit_priv *pxmitpriv,
 			      struct __queue *pframequeue);
 struct tx_servq *rtw_get_sta_pending(struct adapter *padapter,
 				     struct sta_info *psta, int up, u8 *ac);
-s32 rtw_xmitframe_enqueue(struct adapter *padapter,
-			  struct xmit_frame *pxmitframe);
 struct xmit_frame *rtw_dequeue_xframe(struct xmit_priv *pxmitpriv,
-				      struct hw_xmit *phwxmit_i, int entry);
+				      struct hw_xmit *phwxmit_i);
 
 s32 rtw_xmit_classifier(struct adapter *padapter,
 			struct xmit_frame *pxmitframe);
@@ -350,11 +325,9 @@ void _rtw_init_sta_xmit_priv(struct sta_xmit_priv *psta_xmitpriv);
 s32 rtw_txframes_pending(struct adapter *padapter);
 s32 rtw_txframes_sta_ac_pending(struct adapter *padapter,
 				struct pkt_attrib *pattrib);
-void rtw_init_hwxmits(struct hw_xmit *phwxmit, int entry);
 int _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter);
 void _rtw_free_xmit_priv(struct xmit_priv *pxmitpriv);
 int rtw_alloc_hwxmits(struct adapter *padapter);
-void rtw_free_hwxmits(struct adapter *padapter);
 s32 rtw_xmit(struct adapter *padapter, struct sk_buff **pkt);
 
 int xmitframe_enqueue_for_sleeping_sta(struct adapter *padapter, struct xmit_frame *pxmitframe);

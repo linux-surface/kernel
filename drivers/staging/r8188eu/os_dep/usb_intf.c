@@ -290,8 +290,6 @@ static int rtw_usb_if1_init(struct dvobj_priv *dvobj, struct usb_interface *pusb
 {
 	struct adapter *padapter = NULL;
 	struct net_device *pnetdev = NULL;
-	struct io_priv *piopriv;
-	struct intf_hdl *pintf;
 	int ret;
 
 	padapter = vzalloc(sizeof(*padapter));
@@ -317,13 +315,6 @@ static int rtw_usb_if1_init(struct dvobj_priv *dvobj, struct usb_interface *pusb
 
 	padapter->intf_start = &usb_intf_start;
 	padapter->intf_stop = &usb_intf_stop;
-
-	/* step init_io_priv */
-	piopriv = &padapter->iopriv;
-	pintf = &piopriv->intf;
-	piopriv->padapter = padapter;
-	pintf->padapter = padapter;
-	pintf->pintf_dev = adapter_to_dvobj(padapter);
 
 	/* step read_chip_version */
 	rtl8188e_read_chip_version(padapter);

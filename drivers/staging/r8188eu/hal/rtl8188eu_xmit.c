@@ -9,16 +9,6 @@
 #include "../include/usb_ops.h"
 #include "../include/rtl8188e_hal.h"
 
-s32	rtl8188eu_init_xmit_priv(struct adapter *adapt)
-{
-	struct xmit_priv	*pxmitpriv = &adapt->xmitpriv;
-
-	tasklet_init(&pxmitpriv->xmit_tasklet,
-		     rtl8188eu_xmit_tasklet,
-		     (unsigned long)adapt);
-	return _SUCCESS;
-}
-
 static void rtl8188eu_cal_txdesc_chksum(struct tx_desc	*ptxdesc)
 {
 	u16	*usptr = (u16 *)ptxdesc;
@@ -375,11 +365,13 @@ static u32 xmitframe_need_length(struct xmit_frame *pxmitframe)
 	return len;
 }
 
-bool rtl8188eu_xmitframe_complete(struct adapter *adapt, struct xmit_priv *pxmitpriv, struct xmit_buf *pxmitbuf)
+bool rtl8188eu_xmitframe_complete(struct adapter *adapt)
 {
+	struct xmit_priv *pxmitpriv = &adapt->xmitpriv;
 	struct dvobj_priv *pdvobjpriv = adapter_to_dvobj(adapt);
 	struct xmit_frame *pxmitframe = NULL;
 	struct xmit_frame *pfirstframe = NULL;
+	struct xmit_buf *pxmitbuf;
 
 	/*  aggregate variable */
 	struct hw_xmit *phwxmit;
@@ -403,17 +395,11 @@ bool rtl8188eu_xmitframe_complete(struct adapter *adapt, struct xmit_priv *pxmit
 	else
 		bulksize = USB_FULL_SPEED_BULK_SIZE;
 
-	/*  check xmitbuffer is ok */
-	if (!pxmitbuf) {
-		pxmitbuf = rtw_alloc_xmitbuf(pxmitpriv);
-		if (!pxmitbuf)
-			return false;
-	}
+	pxmitbuf = rtw_alloc_xmitbuf(pxmitpriv);
+	if (!pxmitbuf)
+		return false;
 
-	/* 3 1. pick up first frame */
-	rtw_free_xmitframe(pxmitpriv, pxmitframe);
-
-	pxmitframe = rtw_dequeue_xframe(pxmitpriv, pxmitpriv->hwxmits, pxmitpriv->hwxmit_entry);
+	pxmitframe = rtw_dequeue_xframe(pxmitpriv, pxmitpriv->hwxmits);
 	if (!pxmitframe) {
 		/*  no more xmit frame, release xmit buffer */
 		rtw_free_xmitbuf(pxmitpriv, pxmitbuf);
@@ -610,7 +596,7 @@ static s32 pre_xmitframe(struct adapter *adapt, struct xmit_frame *pxmitframe)
 	return true;
 
 enqueue:
-	res = rtw_xmitframe_enqueue(adapt, pxmitframe);
+	res = rtw_xmit_classifier(adapt, pxmitframe);
 	spin_unlock_bh(&pxmitpriv->lock);
 
 	if (res != _SUCCESS) {

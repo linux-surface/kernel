@@ -41,7 +41,6 @@ static int rtw_xmit_resource_alloc(struct adapter *padapter, struct xmit_buf *px
 		return -ENOMEM;
 
 	pxmitbuf->pbuf = (u8 *)ALIGN((size_t)(pxmitbuf->pallocated_buf), XMITBUF_ALIGN_SZ);
-	pxmitbuf->dma_transfer_addr = 0;
 
 	pxmitbuf->pxmit_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!pxmitbuf->pxmit_urb) {
@@ -70,7 +69,6 @@ int _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter)
 	/*  We don't need to memset padapter->XXX to zero, because adapter is allocated by vzalloc(). */
 
 	spin_lock_init(&pxmitpriv->lock);
-	sema_init(&pxmitpriv->terminate_xmitthread_sema, 0);
 
 	/*
 	 * Please insert all the queue initializaiton using rtw_init_queue below
@@ -78,11 +76,10 @@ int _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter)
 
 	pxmitpriv->adapter = padapter;
 
-	rtw_init_queue(&pxmitpriv->be_pending);
-	rtw_init_queue(&pxmitpriv->bk_pending);
-	rtw_init_queue(&pxmitpriv->vi_pending);
-	rtw_init_queue(&pxmitpriv->vo_pending);
-	rtw_init_queue(&pxmitpriv->bm_pending);
+	INIT_LIST_HEAD(&pxmitpriv->be_pending);
+	INIT_LIST_HEAD(&pxmitpriv->bk_pending);
+	INIT_LIST_HEAD(&pxmitpriv->vi_pending);
+	INIT_LIST_HEAD(&pxmitpriv->vo_pending);
 
 	rtw_init_queue(&pxmitpriv->free_xmit_queue);
 
@@ -192,26 +189,14 @@ int _rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, struct adapter *padapter)
 	if (rtw_alloc_hwxmits(padapter))
 		goto free_xmit_extbuf;
 
-	rtw_init_hwxmits(pxmitpriv->hwxmits, pxmitpriv->hwxmit_entry);
-
 	for (i = 0; i < 4; i++)
 		pxmitpriv->wmm_para_seq[i] = i;
-
-	pxmitpriv->txirp_cnt = 1;
-
-	sema_init(&pxmitpriv->tx_retevt, 0);
-
-	/* per AC pending irp */
-	pxmitpriv->beq_cnt = 0;
-	pxmitpriv->bkq_cnt = 0;
-	pxmitpriv->viq_cnt = 0;
-	pxmitpriv->voq_cnt = 0;
 
 	pxmitpriv->ack_tx = false;
 	mutex_init(&pxmitpriv->ack_tx_mutex);
 	rtw_sctx_init(&pxmitpriv->ack_tx_ops, 0);
 
-	rtl8188eu_init_xmit_priv(padapter);
+	tasklet_init(&pxmitpriv->xmit_tasklet, rtl8188eu_xmit_tasklet, (unsigned long)padapter);
 
 	return 0;
 
@@ -296,7 +281,7 @@ void _rtw_free_xmit_priv(struct xmit_priv *pxmitpriv)
 
 	vfree(pxmitpriv->pallocated_xmit_extbuf);
 
-	rtw_free_hwxmits(padapter);
+	kfree(pxmitpriv->hwxmits);
 
 	mutex_destroy(&pxmitpriv->ack_tx_mutex);
 }
@@ -761,28 +746,27 @@ static s32 xmitframe_addmic(struct adapter *padapter, struct xmit_frame *pxmitfr
 	return _SUCCESS;
 }
 
-static s32 xmitframe_swencrypt(struct adapter *padapter, struct xmit_frame *pxmitframe)
+static void xmitframe_swencrypt(struct adapter *padapter, struct xmit_frame *pxmitframe)
 {
 	struct	pkt_attrib	 *pattrib = &pxmitframe->attrib;
 
-	if (pattrib->bswenc) {
-		switch (pattrib->encrypt) {
-		case _WEP40_:
-		case _WEP104_:
-			rtw_wep_encrypt(padapter, pxmitframe);
-			break;
-		case _TKIP_:
-			rtw_tkip_encrypt(padapter, pxmitframe);
-			break;
-		case _AES_:
-			rtw_aes_encrypt(padapter, pxmitframe);
-			break;
-		default:
-			break;
-		}
-	}
+	if (!pattrib->bswenc)
+		return;
 
-	return _SUCCESS;
+	switch (pattrib->encrypt) {
+	case _WEP40_:
+	case _WEP104_:
+		rtw_wep_encrypt(padapter, pxmitframe);
+		break;
+	case _TKIP_:
+		rtw_tkip_encrypt(padapter, pxmitframe);
+		break;
+	case _AES_:
+		rtw_aes_encrypt(padapter, pxmitframe);
+		break;
+	default:
+		break;
+	}
 }
 
 s32 rtw_make_wlanhdr(struct adapter *padapter, u8 *hdr, struct pkt_attrib *pattrib)
@@ -792,9 +776,7 @@ s32 rtw_make_wlanhdr(struct adapter *padapter, u8 *hdr, struct pkt_attrib *pattr
 	struct ieee80211_hdr *pwlanhdr = (struct ieee80211_hdr *)hdr;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct qos_priv *pqospriv = &pmlmepriv->qospriv;
-	u8 qos_option = false;
-
-	int res = _SUCCESS;
+	bool qos_option;
 	__le16 *fctrl = &pwlanhdr->frame_control;
 
 	struct sta_info *psta;
@@ -810,106 +792,99 @@ s32 rtw_make_wlanhdr(struct adapter *padapter, u8 *hdr, struct pkt_attrib *pattr
 
 	SetFrameSubType(fctrl, pattrib->subtype);
 
-	if (pattrib->subtype & IEEE80211_FTYPE_DATA) {
-		if (check_fwstate(pmlmepriv, WIFI_STATION_STATE)) {
-			/* to_ds = 1, fr_ds = 0; */
-			/* Data transfer to AP */
-			SetToDs(fctrl);
-			memcpy(pwlanhdr->addr1, get_bssid(pmlmepriv), ETH_ALEN);
-			memcpy(pwlanhdr->addr2, pattrib->src, ETH_ALEN);
-			memcpy(pwlanhdr->addr3, pattrib->dst, ETH_ALEN);
+	if (!(pattrib->subtype & IEEE80211_FTYPE_DATA))
+		return _SUCCESS;
 
-			if (pqospriv->qos_option)
-				qos_option = true;
-		} else if (check_fwstate(pmlmepriv,  WIFI_AP_STATE)) {
-			/* to_ds = 0, fr_ds = 1; */
-			SetFrDs(fctrl);
-			memcpy(pwlanhdr->addr1, pattrib->dst, ETH_ALEN);
-			memcpy(pwlanhdr->addr2, get_bssid(pmlmepriv), ETH_ALEN);
-			memcpy(pwlanhdr->addr3, pattrib->src, ETH_ALEN);
+	if (check_fwstate(pmlmepriv, WIFI_STATION_STATE)) {
+		/* to_ds = 1, fr_ds = 0; */
+		/* Data transfer to AP */
+		SetToDs(fctrl);
+		memcpy(pwlanhdr->addr1, get_bssid(pmlmepriv), ETH_ALEN);
+		memcpy(pwlanhdr->addr2, pattrib->src, ETH_ALEN);
+		memcpy(pwlanhdr->addr3, pattrib->dst, ETH_ALEN);
+		qos_option = pqospriv->qos_option;
+	} else if (check_fwstate(pmlmepriv,  WIFI_AP_STATE)) {
+		/* to_ds = 0, fr_ds = 1; */
+		SetFrDs(fctrl);
+		memcpy(pwlanhdr->addr1, pattrib->dst, ETH_ALEN);
+		memcpy(pwlanhdr->addr2, get_bssid(pmlmepriv), ETH_ALEN);
+		memcpy(pwlanhdr->addr3, pattrib->src, ETH_ALEN);
+		qos_option = psta->qos_option;
+	} else if (check_fwstate(pmlmepriv, WIFI_ADHOC_STATE) ||
+		   check_fwstate(pmlmepriv, WIFI_ADHOC_MASTER_STATE)) {
+		memcpy(pwlanhdr->addr1, pattrib->dst, ETH_ALEN);
+		memcpy(pwlanhdr->addr2, pattrib->src, ETH_ALEN);
+		memcpy(pwlanhdr->addr3, get_bssid(pmlmepriv), ETH_ALEN);
+		qos_option = psta->qos_option;
+	} else {
+		return _FAIL;
+	}
 
-			if (psta->qos_option)
-				qos_option = true;
-		} else if (check_fwstate(pmlmepriv, WIFI_ADHOC_STATE) ||
-			   check_fwstate(pmlmepriv, WIFI_ADHOC_MASTER_STATE)) {
-			memcpy(pwlanhdr->addr1, pattrib->dst, ETH_ALEN);
-			memcpy(pwlanhdr->addr2, pattrib->src, ETH_ALEN);
-			memcpy(pwlanhdr->addr3, get_bssid(pmlmepriv), ETH_ALEN);
+	if (pattrib->mdata)
+		SetMData(fctrl);
 
-			if (psta->qos_option)
-				qos_option = true;
-		} else {
-			res = _FAIL;
-			goto exit;
+	if (pattrib->encrypt)
+		SetPrivacy(fctrl);
+
+	if (qos_option) {
+		qc = (unsigned short *)(hdr + pattrib->hdrlen - 2);
+
+		if (pattrib->priority)
+			SetPriority(qc, pattrib->priority);
+
+		SetEOSP(qc, pattrib->eosp);
+
+		SetAckpolicy(qc, pattrib->ack_policy);
+	}
+
+	/* TODO: fill HT Control Field */
+
+	/* Update Seq Num will be handled by f/w */
+	if (psta) {
+		psta->sta_xmitpriv.txseq_tid[pattrib->priority]++;
+		psta->sta_xmitpriv.txseq_tid[pattrib->priority] &= 0xFFF;
+
+		pattrib->seqnum = psta->sta_xmitpriv.txseq_tid[pattrib->priority];
+
+		SetSeqNum(hdr, pattrib->seqnum);
+
+		/* check if enable ampdu */
+		if (pattrib->ht_en && psta->htpriv.ampdu_enable) {
+			if (psta->htpriv.agg_enable_bitmap & BIT(pattrib->priority))
+				pattrib->ampdu_en = true;
 		}
 
-		if (pattrib->mdata)
-			SetMData(fctrl);
+		/* re-check if enable ampdu by BA_starting_seqctrl */
+		if (pattrib->ampdu_en) {
+			u16 tx_seq;
 
-		if (pattrib->encrypt)
-			SetPrivacy(fctrl);
+			tx_seq = psta->BA_starting_seqctrl[pattrib->priority & 0x0f];
 
-		if (qos_option) {
-			qc = (unsigned short *)(hdr + pattrib->hdrlen - 2);
+			/* check BA_starting_seqctrl */
+			if (SN_LESS(pattrib->seqnum, tx_seq)) {
+				pattrib->ampdu_en = false;/* AGG BK */
+			} else if (SN_EQUAL(pattrib->seqnum, tx_seq)) {
+				psta->BA_starting_seqctrl[pattrib->priority & 0x0f] = (tx_seq + 1) & 0xfff;
 
-			if (pattrib->priority)
-				SetPriority(qc, pattrib->priority);
-
-			SetEOSP(qc, pattrib->eosp);
-
-			SetAckpolicy(qc, pattrib->ack_policy);
-		}
-
-		/* TODO: fill HT Control Field */
-
-		/* Update Seq Num will be handled by f/w */
-		if (psta) {
-			psta->sta_xmitpriv.txseq_tid[pattrib->priority]++;
-			psta->sta_xmitpriv.txseq_tid[pattrib->priority] &= 0xFFF;
-
-			pattrib->seqnum = psta->sta_xmitpriv.txseq_tid[pattrib->priority];
-
-			SetSeqNum(hdr, pattrib->seqnum);
-
-			/* check if enable ampdu */
-			if (pattrib->ht_en && psta->htpriv.ampdu_enable) {
-				if (psta->htpriv.agg_enable_bitmap & BIT(pattrib->priority))
-					pattrib->ampdu_en = true;
-			}
-
-			/* re-check if enable ampdu by BA_starting_seqctrl */
-			if (pattrib->ampdu_en) {
-				u16 tx_seq;
-
-				tx_seq = psta->BA_starting_seqctrl[pattrib->priority & 0x0f];
-
-				/* check BA_starting_seqctrl */
-				if (SN_LESS(pattrib->seqnum, tx_seq)) {
-					pattrib->ampdu_en = false;/* AGG BK */
-				} else if (SN_EQUAL(pattrib->seqnum, tx_seq)) {
-					psta->BA_starting_seqctrl[pattrib->priority & 0x0f] = (tx_seq + 1) & 0xfff;
-
-					pattrib->ampdu_en = true;/* AGG EN */
-				} else {
-					psta->BA_starting_seqctrl[pattrib->priority & 0x0f] = (pattrib->seqnum + 1) & 0xfff;
-					pattrib->ampdu_en = true;/* AGG EN */
-				}
+				pattrib->ampdu_en = true;/* AGG EN */
+			} else {
+				psta->BA_starting_seqctrl[pattrib->priority & 0x0f] = (pattrib->seqnum + 1) & 0xfff;
+				pattrib->ampdu_en = true;/* AGG EN */
 			}
 		}
 	}
-exit:
 
-	return res;
+	return _SUCCESS;
 }
 
 s32 rtw_txframes_pending(struct adapter *padapter)
 {
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 
-	return (!list_empty(&pxmitpriv->be_pending.queue) ||
-			!list_empty(&pxmitpriv->bk_pending.queue) ||
-			!list_empty(&pxmitpriv->vi_pending.queue) ||
-			!list_empty(&pxmitpriv->vo_pending.queue));
+	return (!list_empty(&pxmitpriv->be_pending) ||
+		!list_empty(&pxmitpriv->bk_pending) ||
+		!list_empty(&pxmitpriv->vi_pending) ||
+		!list_empty(&pxmitpriv->vo_pending));
 }
 
 s32 rtw_txframes_sta_ac_pending(struct adapter *padapter, struct pkt_attrib *pattrib)
@@ -1010,25 +985,23 @@ s32 rtw_xmitframe_coalesce(struct adapter *padapter, struct sk_buff *pkt, struct
 
 		/* adding icv, if necessary... */
 		if (pattrib->iv_len) {
-			if (psta) {
-				switch (pattrib->encrypt) {
-				case _WEP40_:
-				case _WEP104_:
-					WEP_IV(pattrib->iv, psta->dot11txpn, pattrib->key_idx);
-					break;
-				case _TKIP_:
-					if (bmcst)
-						TKIP_IV(pattrib->iv, psta->dot11txpn, pattrib->key_idx);
-					else
-						TKIP_IV(pattrib->iv, psta->dot11txpn, 0);
-					break;
-				case _AES_:
-					if (bmcst)
-						AES_IV(pattrib->iv, psta->dot11txpn, pattrib->key_idx);
-					else
-						AES_IV(pattrib->iv, psta->dot11txpn, 0);
-					break;
-				}
+			switch (pattrib->encrypt) {
+			case _WEP40_:
+			case _WEP104_:
+				WEP_IV(pattrib->iv, psta->dot11txpn, pattrib->key_idx);
+				break;
+			case _TKIP_:
+				if (bmcst)
+					TKIP_IV(pattrib->iv, psta->dot11txpn, pattrib->key_idx);
+				else
+					TKIP_IV(pattrib->iv, psta->dot11txpn, 0);
+				break;
+			case _AES_:
+				if (bmcst)
+					AES_IV(pattrib->iv, psta->dot11txpn, pattrib->key_idx);
+				else
+					AES_IV(pattrib->iv, psta->dot11txpn, 0);
+				break;
 			}
 
 			memcpy(pframe, pattrib->iv, pattrib->iv_len);
@@ -1124,40 +1097,6 @@ s32 rtw_put_snap(u8 *data, u16 h_proto)
 	*(__be16 *)(data + SNAP_SIZE) = htons(h_proto);
 
 	return SNAP_SIZE + sizeof(u16);
-}
-
-void rtw_update_protection(struct adapter *padapter, u8 *ie, uint ie_len)
-{
-	uint	protection;
-	u8	*perp;
-	int	 erp_len;
-	struct	xmit_priv *pxmitpriv = &padapter->xmitpriv;
-	struct	registry_priv *pregistrypriv = &padapter->registrypriv;
-
-	switch (pxmitpriv->vcs_setting) {
-	case DISABLE_VCS:
-		pxmitpriv->vcs = NONE_VCS;
-		break;
-	case ENABLE_VCS:
-		break;
-	case AUTO_VCS:
-	default:
-		perp = rtw_get_ie(ie, _ERPINFO_IE_, &erp_len, ie_len);
-		if (!perp) {
-			pxmitpriv->vcs = NONE_VCS;
-		} else {
-			protection = (*(perp + 2)) & BIT(1);
-			if (protection) {
-				if (pregistrypriv->vcs_type == RTS_CTS)
-					pxmitpriv->vcs = RTS_CTS;
-				else
-					pxmitpriv->vcs = CTS_TO_SELF;
-			} else {
-				pxmitpriv->vcs = NONE_VCS;
-			}
-		}
-		break;
-	}
 }
 
 void rtw_count_tx_stats(struct adapter *padapter, struct xmit_frame *pxmitframe, int sz)
@@ -1406,81 +1345,41 @@ void rtw_free_xmitframe_queue(struct xmit_priv *pxmitpriv, struct __queue *pfram
 	spin_unlock_bh(&pframequeue->lock);
 }
 
-s32 rtw_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe)
+struct xmit_frame *rtw_dequeue_xframe(struct xmit_priv *pxmitpriv, struct hw_xmit *phwxmit_i)
 {
-	if (rtw_xmit_classifier(padapter, pxmitframe) == _FAIL) {
-/* 		pxmitframe->pkt = NULL; */
-		return _FAIL;
-	}
-
-	return _SUCCESS;
-}
-
-static struct xmit_frame *dequeue_one_xmitframe(struct xmit_priv *pxmitpriv, struct hw_xmit *phwxmit, struct tx_servq *ptxservq, struct __queue *pframe_queue)
-{
-	struct list_head *xmitframe_plist, *xmitframe_phead;
-	struct	xmit_frame	*pxmitframe = NULL;
-
-	xmitframe_phead = get_list_head(pframe_queue);
-	xmitframe_plist = xmitframe_phead->next;
-
-	if (xmitframe_phead != xmitframe_plist) {
-		pxmitframe = container_of(xmitframe_plist, struct xmit_frame, list);
-
-		xmitframe_plist = xmitframe_plist->next;
-
-		list_del_init(&pxmitframe->list);
-
-		ptxservq->qcnt--;
-	}
-	return pxmitframe;
-}
-
-struct xmit_frame *rtw_dequeue_xframe(struct xmit_priv *pxmitpriv, struct hw_xmit *phwxmit_i, int entry)
-{
-	struct list_head *sta_plist, *sta_phead;
 	struct hw_xmit *phwxmit;
-	struct tx_servq *ptxservq = NULL;
-	struct __queue *pframe_queue = NULL;
+	struct tx_servq *ptxservq, *tmp_txservq;
+	struct list_head *xframe_list;
 	struct xmit_frame *pxmitframe = NULL;
 	struct adapter *padapter = pxmitpriv->adapter;
 	struct registry_priv	*pregpriv = &padapter->registrypriv;
-	int i, inx[4];
-
-	inx[0] = 0; inx[1] = 1; inx[2] = 2; inx[3] = 3;
+	int i, inx[] = { 0, 1, 2, 3 };
 
 	if (pregpriv->wifi_spec == 1) {
-		int j;
-
-		for (j = 0; j < 4; j++)
-			inx[j] = pxmitpriv->wmm_para_seq[j];
+		for (i = 0; i < ARRAY_SIZE(inx); i++)
+			inx[i] = pxmitpriv->wmm_para_seq[i];
 	}
 
 	spin_lock_bh(&pxmitpriv->lock);
 
-	for (i = 0; i < entry; i++) {
+	for (i = 0; i < HWXMIT_ENTRY; i++) {
 		phwxmit = phwxmit_i + inx[i];
+		list_for_each_entry_safe(ptxservq, tmp_txservq, phwxmit->sta_list, tx_pending) {
+			xframe_list = get_list_head(&ptxservq->sta_pending);
+			if (list_empty(xframe_list))
+				continue;
 
-		sta_phead = get_list_head(phwxmit->sta_queue);
-		sta_plist = sta_phead->next;
+			pxmitframe = container_of(xframe_list->next, struct xmit_frame, list);
+			list_del_init(&pxmitframe->list);
 
-		while (sta_phead != sta_plist) {
-			ptxservq = container_of(sta_plist, struct tx_servq, tx_pending);
+			phwxmit->accnt--;
+			ptxservq->qcnt--;
 
-			pframe_queue = &ptxservq->sta_pending;
+			/* Remove sta node when there are no pending packets. */
+			if (list_empty(xframe_list))
+				list_del_init(&ptxservq->tx_pending);
 
-			pxmitframe = dequeue_one_xmitframe(pxmitpriv, phwxmit, ptxservq, pframe_queue);
-
-			if (pxmitframe) {
-				phwxmit->accnt--;
-
-				/* Remove sta node when there are no pending packets. */
-				if (list_empty(&pframe_queue->queue)) /* must be done after get_next and before break */
-					list_del_init(&ptxservq->tx_pending);
-				goto exit;
-			}
-
-			sta_plist = sta_plist->next;
+			goto exit;
 		}
 	}
 exit:
@@ -1547,7 +1446,7 @@ s32 rtw_xmit_classifier(struct adapter *padapter, struct xmit_frame *pxmitframe)
 	ptxservq = rtw_get_sta_pending(padapter, psta, pattrib->priority, (u8 *)(&ac_index));
 
 	if (list_empty(&ptxservq->tx_pending))
-		list_add_tail(&ptxservq->tx_pending, get_list_head(phwxmits[ac_index].sta_queue));
+		list_add_tail(&ptxservq->tx_pending, phwxmits[ac_index].sta_list);
 
 	list_add_tail(&pxmitframe->list, get_list_head(&ptxservq->sta_pending));
 	ptxservq->qcnt++;
@@ -1562,37 +1461,18 @@ int rtw_alloc_hwxmits(struct adapter *padapter)
 	struct hw_xmit *hwxmits;
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 
-	pxmitpriv->hwxmit_entry = HWXMIT_ENTRY;
-
-	pxmitpriv->hwxmits = kzalloc(sizeof(struct hw_xmit) * pxmitpriv->hwxmit_entry, GFP_KERNEL);
+	pxmitpriv->hwxmits = kcalloc(HWXMIT_ENTRY, sizeof(struct hw_xmit), GFP_KERNEL);
 	if (!pxmitpriv->hwxmits)
 		return -ENOMEM;
 
 	hwxmits = pxmitpriv->hwxmits;
 
-	hwxmits[0].sta_queue = &pxmitpriv->vo_pending;
-	hwxmits[1].sta_queue = &pxmitpriv->vi_pending;
-	hwxmits[2].sta_queue = &pxmitpriv->be_pending;
-	hwxmits[3].sta_queue = &pxmitpriv->bk_pending;
+	hwxmits[0].sta_list = &pxmitpriv->vo_pending;
+	hwxmits[1].sta_list = &pxmitpriv->vi_pending;
+	hwxmits[2].sta_list = &pxmitpriv->be_pending;
+	hwxmits[3].sta_list = &pxmitpriv->bk_pending;
 
 	return 0;
-}
-
-void rtw_free_hwxmits(struct adapter *padapter)
-{
-	struct hw_xmit *hwxmits;
-	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
-
-	hwxmits = pxmitpriv->hwxmits;
-	kfree(hwxmits);
-}
-
-void rtw_init_hwxmits(struct hw_xmit *phwxmit, int entry)
-{
-	int i;
-
-	for (i = 0; i < entry; i++, phwxmit++)
-		phwxmit->accnt = 0;
 }
 
 static int rtw_br_client_tx(struct adapter *padapter, struct sk_buff **pskb)
