@@ -53,6 +53,8 @@
 
 #define ALH_MAX_NUMBER_OF_GTW   16
 
+#define SOF_IPC4_INVALID_NODE_ID	0xffffffff
+
 /*
  * The base of multi-gateways. Multi-gateways addressing starts from
  * ALH_MULTI_GTW_BASE and there are ALH_MULTI_GTW_COUNT multi-sources
@@ -71,6 +73,7 @@
  * @mem_usage: Memory usage
  * @state: Pipeline state
  * @msg: message structure for pipeline
+ * @skip_during_fe_trigger: skip triggering this pipeline during the FE DAI trigger
  */
 struct sof_ipc4_pipeline {
 	uint32_t priority;
@@ -78,7 +81,18 @@ struct sof_ipc4_pipeline {
 	uint32_t mem_usage;
 	int state;
 	struct sof_ipc4_msg msg;
+	bool skip_during_fe_trigger;
 };
+
+/**
+ * struct sof_ipc4_multi_pipeline_data - multi pipeline trigger IPC data
+ * @count: Number of pipelines to be triggered
+ * @pipeline_ids: Flexible array of IDs of the pipelines to be triggered
+ */
+struct ipc4_pipeline_set_state_data {
+	u32 count;
+	DECLARE_FLEX_ARRAY(u32, pipeline_ids);
+} __packed;
 
 /**
  * struct sof_ipc4_available_audio_format - Available audio formats
