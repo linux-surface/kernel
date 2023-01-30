@@ -3150,7 +3150,7 @@ ASPEED CRYPTO DRIVER
 M:	Neal Liu <neal_liu@aspeedtech.com>
 L:	linux-aspeed@lists.ozlabs.org (moderated for non-subscribers)
 S:	Maintained
-F:	Documentation/devicetree/bindings/crypto/aspeed,ast2500-hace.yaml
+F:	Documentation/devicetree/bindings/crypto/aspeed,*
 F:	drivers/crypto/aspeed/
 
 ASUS NOTEBOOKS AND EEEPC ACPI/WMI EXTRAS DRIVERS
@@ -19783,6 +19783,12 @@ S:	Supported
 F:	Documentation/devicetree/bindings/power/starfive*
 F:	drivers/soc/starfive/jh71xx_pmu.c
 F:	include/dt-bindings/power/starfive,jh7110-pmu.h
+
+STARFIVE TRNG DRIVER
+M:	Jia Jie Ho <jiajie.ho@starfivetech.com>
+S:	Supported
+F:	Documentation/devicetree/bindings/rng/starfive*
+F:	drivers/char/hw_random/starfive-trng.c
 
 STATIC BRANCH/CALL
 M:	Peter Zijlstra <peterz@infradead.org>
