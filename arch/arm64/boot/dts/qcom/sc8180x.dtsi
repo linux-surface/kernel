@@ -532,6 +532,13 @@
 		reg = <0x0 0x80000000 0x0 0x0>;
 	};
 
+	mmcx_reg: mmcx-reg {
+		compatible = "regulator-fixed-domain";
+		power-domains = <&rpmhpd SC8180X_MMCX>;
+		required-opps = <&rpmhpd_opp_nom>;
+		regulator-name = "MMCX";
+	};
+
 	pmu {
 		compatible = "arm,armv8-pmuv3";
 		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH>;
@@ -3082,7 +3089,7 @@
 					      "bus";
 
 				operating-points-v2 = <&dsi_opp_table>;
-				power-domains = <&rpmhpd SC8180X_MMCX>;
+				mmcx-supply = <&mmcx_reg>;
 
 				phys = <&mdss_dsi0_phy>;
 				phy-names = "dsi";
