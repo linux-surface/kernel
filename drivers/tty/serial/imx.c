@@ -476,7 +476,8 @@ static void imx_uart_stop_tx(struct uart_port *port)
 				imx_uart_rts_inactive(sport, &ucr2);
 			imx_uart_writel(sport, ucr2, UCR2);
 
-			imx_uart_start_rx(port);
+			if (!port->rs485_rx_during_tx_gpio)
+				imx_uart_start_rx(port);
 
 			sport->tx_state = OFF;
 		}
@@ -705,7 +706,8 @@ static void imx_uart_start_tx(struct uart_port *port)
 				imx_uart_rts_inactive(sport, &ucr2);
 			imx_uart_writel(sport, ucr2, UCR2);
 
-			if (!(port->rs485.flags & SER_RS485_RX_DURING_TX))
+			if (!(port->rs485.flags & SER_RS485_RX_DURING_TX) &&
+			    !port->rs485_rx_during_tx_gpio)
 				imx_uart_stop_rx(port);
 
 			sport->tx_state = WAIT_AFTER_RTS;
@@ -771,7 +773,7 @@ static irqreturn_t __imx_uart_rtsint(int irq, void *dev_id)
 
 	imx_uart_writel(sport, USR1_RTSD, USR1);
 	usr1 = imx_uart_readl(sport, USR1) & USR1_RTSS;
-	uart_handle_cts_change(&sport->port, !!usr1);
+	uart_handle_cts_change(&sport->port, usr1);
 	wake_up_interruptible(&sport->port.state->port.delta_msr_wait);
 
 	return IRQ_HANDLED;
@@ -1564,7 +1566,8 @@ static void imx_uart_shutdown(struct uart_port *port)
 	spin_lock_irqsave(&sport->port.lock, flags);
 
 	ucr1 = imx_uart_readl(sport, UCR1);
-	ucr1 &= ~(UCR1_TRDYEN | UCR1_RRDYEN | UCR1_RTSDEN | UCR1_RXDMAEN | UCR1_ATDMAEN);
+	ucr1 &= ~(UCR1_TRDYEN | UCR1_RRDYEN | UCR1_RTSDEN | UCR1_RXDMAEN |
+		  UCR1_ATDMAEN | UCR1_SNDBRK);
 	/* See SER_RS485_ENABLED/UTS_LOOP comment in imx_uart_probe() */
 	if (port->rs485.flags & SER_RS485_ENABLED &&
 	    port->rs485.flags & SER_RS485_RTS_ON_SEND &&
@@ -1954,6 +1957,10 @@ static int imx_uart_rs485_config(struct uart_port *port, struct ktermios *termio
 	if (!(rs485conf->flags & SER_RS485_ENABLED) ||
 	    rs485conf->flags & SER_RS485_RX_DURING_TX)
 		imx_uart_start_rx(port);
+
+	if (port->rs485_rx_during_tx_gpio)
+		gpiod_set_value_cansleep(port->rs485_rx_during_tx_gpio,
+					 !!(rs485conf->flags & SER_RS485_RX_DURING_TX));
 
 	return 0;
 }

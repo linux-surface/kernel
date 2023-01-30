@@ -2059,7 +2059,7 @@ static void gsm_dlci_close(struct gsm_dlci *dlci)
 		tty_port_tty_hangup(&dlci->port, false);
 		gsm_dlci_clear_queues(dlci->gsm, dlci);
 		/* Ensure that gsmtty_open() can return. */
-		tty_port_set_initialized(&dlci->port, 0);
+		tty_port_set_initialized(&dlci->port, false);
 		wake_up_interruptible(&dlci->port.open_wait);
 	} else
 		dlci->gsm->dead = true;
@@ -3770,16 +3770,16 @@ static int gsm_modem_update(struct gsm_dlci *dlci, u8 brk)
 	return -EPROTONOSUPPORT;
 }
 
-static int gsm_carrier_raised(struct tty_port *port)
+static bool gsm_carrier_raised(struct tty_port *port)
 {
 	struct gsm_dlci *dlci = container_of(port, struct gsm_dlci, port);
 	struct gsm_mux *gsm = dlci->gsm;
 
 	/* Not yet open so no carrier info */
 	if (dlci->state != DLCI_OPEN)
-		return 0;
+		return false;
 	if (debug & DBG_CD_ON)
-		return 1;
+		return true;
 
 	/*
 	 * Basic mode with control channel in ADM mode may not respond
@@ -3787,16 +3787,16 @@ static int gsm_carrier_raised(struct tty_port *port)
 	 */
 	if (gsm->encoding == GSM_BASIC_OPT &&
 	    gsm->dlci[0]->mode == DLCI_MODE_ADM && !dlci->modem_rx)
-		return 1;
+		return true;
 
 	return dlci->modem_rx & TIOCM_CD;
 }
 
-static void gsm_dtr_rts(struct tty_port *port, int onoff)
+static void gsm_dtr_rts(struct tty_port *port, bool active)
 {
 	struct gsm_dlci *dlci = container_of(port, struct gsm_dlci, port);
 	unsigned int modem_tx = dlci->modem_tx;
-	if (onoff)
+	if (active)
 		modem_tx |= TIOCM_DTR | TIOCM_RTS;
 	else
 		modem_tx &= ~(TIOCM_DTR | TIOCM_RTS);
@@ -3880,7 +3880,7 @@ static int gsmtty_open(struct tty_struct *tty, struct file *filp)
 	dlci->modem_rx = 0;
 	/* We could in theory open and close before we wait - eg if we get
 	   a DM straight back. This is ok as that will have caused a hangup */
-	tty_port_set_initialized(port, 1);
+	tty_port_set_initialized(port, true);
 	/* Start sending off SABM messages */
 	if (gsm->initiator)
 		gsm_dlci_begin_open(dlci);

@@ -5,6 +5,8 @@
  *  Copyright 2012-2014 Freescale Semiconductor, Inc.
  */
 
+#include <linux/bitfield.h>
+#include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/console.h>
 #include <linux/delay.h>
@@ -181,7 +183,7 @@
 #define UARTCTRL_SBK		0x00010000
 #define UARTCTRL_MA1IE		0x00008000
 #define UARTCTRL_MA2IE		0x00004000
-#define UARTCTRL_IDLECFG	0x00000100
+#define UARTCTRL_IDLECFG	GENMASK(10, 8)
 #define UARTCTRL_LOOPS		0x00000080
 #define UARTCTRL_DOZEEN		0x00000040
 #define UARTCTRL_RSRC		0x00000020
@@ -238,7 +240,7 @@
 
 #define DRIVER_NAME	"fsl-lpuart"
 #define DEV_NAME	"ttyLP"
-#define UART_NR		6
+#define UART_NR		8
 
 /* IMX lpuart has four extra unused regs located at the beginning */
 #define IMX_REG_OFF	0x10
@@ -1462,12 +1464,32 @@ static void lpuart_break_ctl(struct uart_port *port, int break_state)
 
 static void lpuart32_break_ctl(struct uart_port *port, int break_state)
 {
-	unsigned long temp;
+	unsigned long temp, modem;
+	struct tty_struct *tty;
+	unsigned int cflag = 0;
+
+	tty = tty_port_tty_get(&port->state->port);
+	if (tty) {
+		cflag = tty->termios.c_cflag;
+		tty_kref_put(tty);
+	}
 
 	temp = lpuart32_read(port, UARTCTRL) & ~UARTCTRL_SBK;
+	modem = lpuart32_read(port, UARTMODIR);
 
-	if (break_state != 0)
+	if (break_state != 0) {
 		temp |= UARTCTRL_SBK;
+		/*
+		 * LPUART CTS has higher priority than SBK, need to disable CTS before
+		 * asserting SBK to avoid any interference if flow control is enabled.
+		 */
+		if (cflag & CRTSCTS && modem & UARTMODIR_TXCTSE)
+			lpuart32_write(port, modem & ~UARTMODIR_TXCTSE, UARTMODIR);
+	} else {
+		/* Re-enable the CTS when break off. */
+		if (cflag & CRTSCTS && !(modem & UARTMODIR_TXCTSE))
+			lpuart32_write(port, modem | UARTMODIR_TXCTSE, UARTMODIR);
+	}
 
 	lpuart32_write(port, temp, UARTCTRL);
 }
@@ -1523,7 +1545,7 @@ static void lpuart32_setup_watermark(struct lpuart_port *sport)
 	ctrl = lpuart32_read(&sport->port, UARTCTRL);
 	ctrl_saved = ctrl;
 	ctrl &= ~(UARTCTRL_TIE | UARTCTRL_TCIE | UARTCTRL_TE |
-			UARTCTRL_RIE | UARTCTRL_RE);
+			UARTCTRL_RIE | UARTCTRL_RE | UARTCTRL_ILIE);
 	lpuart32_write(&sport->port, ctrl, UARTCTRL);
 
 	/* enable FIFO mode */
@@ -1547,7 +1569,8 @@ static void lpuart32_setup_watermark_enable(struct lpuart_port *sport)
 	lpuart32_setup_watermark(sport);
 
 	temp = lpuart32_read(&sport->port, UARTCTRL);
-	temp |= UARTCTRL_RE | UARTCTRL_TE | UARTCTRL_ILIE;
+	temp |= UARTCTRL_RE | UARTCTRL_TE;
+	temp |= FIELD_PREP(UARTCTRL_IDLECFG, 0x7);
 	lpuart32_write(&sport->port, temp, UARTCTRL);
 }
 
@@ -1691,7 +1714,7 @@ static void lpuart32_configure(struct lpuart_port *sport)
 	}
 	temp = lpuart32_read(&sport->port, UARTCTRL);
 	if (!sport->lpuart_dma_rx_use)
-		temp |= UARTCTRL_RIE;
+		temp |= UARTCTRL_RIE | UARTCTRL_ILIE;
 	if (!sport->lpuart_dma_tx_use)
 		temp |= UARTCTRL_TIE;
 	lpuart32_write(&sport->port, temp, UARTCTRL);
@@ -1796,10 +1819,19 @@ static void lpuart32_shutdown(struct uart_port *port)
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	/* disable Rx/Tx and interrupts */
+	/* clear status */
+	temp = lpuart32_read(&sport->port, UARTSTAT);
+	lpuart32_write(&sport->port, temp, UARTSTAT);
+
+	/* disable Rx/Tx DMA */
+	temp = lpuart32_read(port, UARTBAUD);
+	temp &= ~(UARTBAUD_TDMAE | UARTBAUD_RDMAE);
+	lpuart32_write(port, temp, UARTBAUD);
+
+	/* disable Rx/Tx and interrupts and break condition */
 	temp = lpuart32_read(port, UARTCTRL);
-	temp &= ~(UARTCTRL_TE | UARTCTRL_RE |
-			UARTCTRL_TIE | UARTCTRL_TCIE | UARTCTRL_RIE);
+	temp &= ~(UARTCTRL_TE | UARTCTRL_RE | UARTCTRL_ILIE |
+			UARTCTRL_TIE | UARTCTRL_TCIE | UARTCTRL_RIE | UARTCTRL_SBK);
 	lpuart32_write(port, temp, UARTCTRL);
 
 	spin_unlock_irqrestore(&port->lock, flags);
