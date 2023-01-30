@@ -142,16 +142,13 @@ static int vfio_platform_regions_init(struct vfio_platform_device *vdev)
 		cnt++;
 
 	vdev->regions = kcalloc(cnt, sizeof(struct vfio_platform_region),
-				GFP_KERNEL);
+				GFP_KERNEL_ACCOUNT);
 	if (!vdev->regions)
 		return -ENOMEM;
 
 	for (i = 0; i < cnt;  i++) {
 		struct resource *res =
 			vdev->get_resource(vdev, i);
-
-		if (!res)
-			goto err;
 
 		vdev->regions[i].addr = res->start;
 		vdev->regions[i].size = resource_size(res);
