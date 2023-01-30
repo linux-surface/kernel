@@ -53,7 +53,7 @@ struct subsys_private {
 	struct kset glue_dirs;
 	struct class *class;
 };
-#define to_subsys_private(obj) container_of(obj, struct subsys_private, subsys.kobj)
+#define to_subsys_private(obj) container_of_const(obj, struct subsys_private, subsys.kobj)
 
 struct driver_private {
 	struct kobject kobj;
@@ -130,6 +130,7 @@ struct kobject *virtual_device_parent(struct device *dev);
 extern int bus_add_device(struct device *dev);
 extern void bus_probe_device(struct device *dev);
 extern void bus_remove_device(struct device *dev);
+void bus_notify(struct device *dev, enum bus_notifier_event value);
 
 extern int bus_add_driver(struct device_driver *drv);
 extern void bus_remove_driver(struct device_driver *drv);
@@ -158,6 +159,8 @@ extern void device_block_probing(void);
 extern void device_unblock_probing(void);
 extern void deferred_probe_extend_timeout(void);
 extern void driver_deferred_probe_trigger(void);
+const char *device_get_devnode(const struct device *dev, umode_t *mode,
+			       kuid_t *uid, kgid_t *gid, const char **tmp);
 
 /* /sys/devices directory */
 extern struct kset *devices_kset;

@@ -441,11 +441,9 @@ static int __platform_get_irq_byname(struct platform_device *dev,
 	struct resource *r;
 	int ret;
 
-	if (!dev->dev.of_node || IS_ENABLED(CONFIG_OF_IRQ)) {
-		ret = fwnode_irq_get_byname(dev_fwnode(&dev->dev), name);
-		if (ret > 0 || ret == -EPROBE_DEFER)
-			return ret;
-	}
+	ret = fwnode_irq_get_byname(dev_fwnode(&dev->dev), name);
+	if (ret > 0 || ret == -EPROBE_DEFER)
+		return ret;
 
 	r = platform_get_resource_byname(dev, IORESOURCE_IRQ, name);
 	if (r) {
@@ -499,6 +497,8 @@ EXPORT_SYMBOL_GPL(platform_get_irq_byname_optional);
  * platform_add_devices - add a numbers of platform devices
  * @devs: array of platform devices to add
  * @num: number of platform devices in array
+ *
+ * Return: 0 on success, negative error number on failure.
  */
 int platform_add_devices(struct platform_device **devs, int num)
 {
@@ -1353,9 +1353,9 @@ static int platform_match(struct device *dev, struct device_driver *drv)
 	return (strcmp(pdev->name, drv->name) == 0);
 }
 
-static int platform_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int platform_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct platform_device	*pdev = to_platform_device(dev);
+	const struct platform_device *pdev = to_platform_device(dev);
 	int rc;
 
 	/* Some devices have extra OF data and an OF-style MODALIAS */
@@ -1416,7 +1416,9 @@ static void platform_remove(struct device *_dev)
 	struct platform_driver *drv = to_platform_driver(_dev->driver);
 	struct platform_device *dev = to_platform_device(_dev);
 
-	if (drv->remove) {
+	if (drv->remove_new) {
+		drv->remove_new(dev);
+	} else if (drv->remove) {
 		int ret = drv->remove(dev);
 
 		if (ret)
