@@ -138,6 +138,7 @@ struct mlx5e_ipsec {
 	struct mlx5e_ipsec_tx *tx;
 	struct mlx5e_ipsec_aso *aso;
 	struct notifier_block nb;
+	struct mlx5_ipsec_fs *roce_ipsec;
 };
 
 struct mlx5e_ipsec_esn_state {
