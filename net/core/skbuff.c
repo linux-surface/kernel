@@ -79,6 +79,7 @@
 #include <linux/capability.h>
 #include <linux/user_namespace.h>
 #include <linux/indirect_call_wrapper.h>
+#include <linux/textsearch.h>
 
 #include "dev.h"
 #include "sock_destructor.h"
@@ -386,8 +387,6 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 
 /* build_skb() is wrapper over __build_skb(), that specifically
  * takes care of skb->head and skb->pfmemalloc
- * This means that if @frag_size is not zero, then @data must be backed
- * by a page fragment, not kmalloc() or vmalloc()
  */
 struct sk_buff *build_skb(void *data, unsigned int frag_size)
 {
@@ -406,7 +405,7 @@ EXPORT_SYMBOL(build_skb);
  * build_skb_around - build a network buffer around provided skb
  * @skb: sk_buff provide by caller, must be memset cleared
  * @data: data buffer provided by caller
- * @frag_size: size of data, or 0 if head was kmalloced
+ * @frag_size: size of data
  */
 struct sk_buff *build_skb_around(struct sk_buff *skb,
 				 void *data, unsigned int frag_size)
@@ -428,7 +427,7 @@ EXPORT_SYMBOL(build_skb_around);
 /**
  * __napi_build_skb - build a network buffer
  * @data: data buffer provided by caller
- * @frag_size: size of data, or 0 if head was kmalloced
+ * @frag_size: size of data
  *
  * Version of __build_skb() that uses NAPI percpu caches to obtain
  * skbuff_head instead of inplace allocation.
@@ -452,7 +451,7 @@ static struct sk_buff *__napi_build_skb(void *data, unsigned int frag_size)
 /**
  * napi_build_skb - build a network buffer
  * @data: data buffer provided by caller
- * @frag_size: size of data, or 0 if head was kmalloced
+ * @frag_size: size of data
  *
  * Version of __napi_build_skb() that takes care of skb->head_frag
  * and skb->pfmemalloc when the data is a page or page fragment.
@@ -932,6 +931,21 @@ void __kfree_skb(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(__kfree_skb);
 
+static __always_inline
+bool __kfree_skb_reason(struct sk_buff *skb, enum skb_drop_reason reason)
+{
+	if (unlikely(!skb_unref(skb)))
+		return false;
+
+	DEBUG_NET_WARN_ON_ONCE(reason <= 0 || reason >= SKB_DROP_REASON_MAX);
+
+	if (reason == SKB_CONSUMED)
+		trace_consume_skb(skb);
+	else
+		trace_kfree_skb(skb, __builtin_return_address(0), reason);
+	return true;
+}
+
 /**
  *	kfree_skb_reason - free an sk_buff with special reason
  *	@skb: buffer to free
@@ -944,28 +958,57 @@ EXPORT_SYMBOL(__kfree_skb);
 void __fix_address
 kfree_skb_reason(struct sk_buff *skb, enum skb_drop_reason reason)
 {
-	if (unlikely(!skb_unref(skb)))
-		return;
-
-	DEBUG_NET_WARN_ON_ONCE(reason <= 0 || reason >= SKB_DROP_REASON_MAX);
-
-	if (reason == SKB_CONSUMED)
-		trace_consume_skb(skb);
-	else
-		trace_kfree_skb(skb, __builtin_return_address(0), reason);
-	__kfree_skb(skb);
+	if (__kfree_skb_reason(skb, reason))
+		__kfree_skb(skb);
 }
 EXPORT_SYMBOL(kfree_skb_reason);
 
-void kfree_skb_list_reason(struct sk_buff *segs,
-			   enum skb_drop_reason reason)
+#define KFREE_SKB_BULK_SIZE	16
+
+struct skb_free_array {
+	unsigned int skb_count;
+	void *skb_array[KFREE_SKB_BULK_SIZE];
+};
+
+static void kfree_skb_add_bulk(struct sk_buff *skb,
+			       struct skb_free_array *sa,
+			       enum skb_drop_reason reason)
 {
+	/* if SKB is a clone, don't handle this case */
+	if (unlikely(skb->fclone != SKB_FCLONE_UNAVAILABLE)) {
+		__kfree_skb(skb);
+		return;
+	}
+
+	skb_release_all(skb, reason);
+	sa->skb_array[sa->skb_count++] = skb;
+
+	if (unlikely(sa->skb_count == KFREE_SKB_BULK_SIZE)) {
+		kmem_cache_free_bulk(skbuff_head_cache, KFREE_SKB_BULK_SIZE,
+				     sa->skb_array);
+		sa->skb_count = 0;
+	}
+}
+
+void __fix_address
+kfree_skb_list_reason(struct sk_buff *segs, enum skb_drop_reason reason)
+{
+	struct skb_free_array sa;
+
+	sa.skb_count = 0;
+
 	while (segs) {
 		struct sk_buff *next = segs->next;
 
-		kfree_skb_reason(segs, reason);
+		if (__kfree_skb_reason(segs, reason))
+			kfree_skb_add_bulk(segs, &sa, reason);
+
 		segs = next;
 	}
+
+	if (sa.skb_count)
+		kmem_cache_free_bulk(skbuff_head_cache, sa.skb_count,
+				     sa.skb_array);
 }
 EXPORT_SYMBOL(kfree_skb_list_reason);
 

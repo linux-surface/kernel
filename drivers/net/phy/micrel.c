@@ -2088,7 +2088,8 @@ static int ksz886x_cable_test_get_status(struct phy_device *phydev,
 	const struct kszphy_type *type = phydev->drv->driver_data;
 	unsigned long pair_mask = type->pair_mask;
 	int retries = 20;
-	int pair, ret;
+	int ret = 0;
+	int pair;
 
 	*finished = false;
 
@@ -2794,13 +2795,11 @@ static void lan8814_get_rx_ts(struct kszphy_ptp_priv *ptp_priv)
 	} while (PTP_CAP_INFO_RX_TS_CNT_GET_(reg) > 0);
 }
 
-static void lan8814_handle_ptp_interrupt(struct phy_device *phydev)
+static void lan8814_handle_ptp_interrupt(struct phy_device *phydev, u16 status)
 {
 	struct kszphy_priv *priv = phydev->priv;
 	struct kszphy_ptp_priv *ptp_priv = &priv->ptp_priv;
-	u16 status;
 
-	status = lanphy_read_page_reg(phydev, 5, PTP_TSU_INT_STS);
 	if (status & PTP_TSU_INT_STS_PTP_TX_TS_EN_)
 		lan8814_get_tx_ts(ptp_priv);
 
@@ -2899,8 +2898,8 @@ static int lan8804_config_intr(struct phy_device *phydev)
 
 static irqreturn_t lan8814_handle_interrupt(struct phy_device *phydev)
 {
-	int irq_status, tsu_irq_status;
 	int ret = IRQ_NONE;
+	int irq_status;
 
 	irq_status = phy_read(phydev, LAN8814_INTS);
 	if (irq_status < 0) {
@@ -2913,20 +2912,13 @@ static irqreturn_t lan8814_handle_interrupt(struct phy_device *phydev)
 		ret = IRQ_HANDLED;
 	}
 
-	while (1) {
-		tsu_irq_status = lanphy_read_page_reg(phydev, 4,
-						      LAN8814_INTR_STS_REG);
-
-		if (tsu_irq_status > 0 &&
-		    (tsu_irq_status & (LAN8814_INTR_STS_REG_1588_TSU0_ |
-				       LAN8814_INTR_STS_REG_1588_TSU1_ |
-				       LAN8814_INTR_STS_REG_1588_TSU2_ |
-				       LAN8814_INTR_STS_REG_1588_TSU3_))) {
-			lan8814_handle_ptp_interrupt(phydev);
-			ret = IRQ_HANDLED;
-		} else {
+	while (true) {
+		irq_status = lanphy_read_page_reg(phydev, 5, PTP_TSU_INT_STS);
+		if (!irq_status)
 			break;
-		}
+
+		lan8814_handle_ptp_interrupt(phydev, irq_status);
+		ret = IRQ_HANDLED;
 	}
 
 	return ret;
@@ -3016,10 +3008,6 @@ static int lan8814_ptp_probe_once(struct phy_device *phydev)
 {
 	struct lan8814_shared_priv *shared = phydev->shared->priv;
 
-	if (!IS_ENABLED(CONFIG_PTP_1588_CLOCK) ||
-	    !IS_ENABLED(CONFIG_NETWORK_PHY_TIMESTAMPING))
-		return 0;
-
 	/* Initialise shared lock for clock*/
 	mutex_init(&shared->shared_lock);
 
@@ -3039,11 +3027,15 @@ static int lan8814_ptp_probe_once(struct phy_device *phydev)
 
 	shared->ptp_clock = ptp_clock_register(&shared->ptp_clock_info,
 					       &phydev->mdio.dev);
-	if (IS_ERR_OR_NULL(shared->ptp_clock)) {
+	if (IS_ERR(shared->ptp_clock)) {
 		phydev_err(phydev, "ptp_clock_register failed %lu\n",
 			   PTR_ERR(shared->ptp_clock));
 		return -EINVAL;
 	}
+
+	/* Check if PHC support is missing at the configuration level */
+	if (!shared->ptp_clock)
+		return 0;
 
 	phydev_dbg(phydev, "successfully registered ptp clock\n");
 

@@ -201,6 +201,13 @@ struct vcap_keyset_list {
 	enum vcap_keyfield_set *keysets; /* the list of keysets */
 };
 
+/* List of actionsets */
+struct vcap_actionset_list {
+	int max; /* size of the actionset list */
+	int cnt; /* count of actionsets actually in the list */
+	enum vcap_actionfield_set *actionsets; /* the list of actionsets */
+};
+
 /* Client output printf-like function with destination */
 struct vcap_output_print {
 	__printf(2, 3)
@@ -259,11 +266,6 @@ struct vcap_operations {
 		(struct net_device *ndev,
 		 struct vcap_admin *admin,
 		 struct vcap_output_print *out);
-	/* enable/disable the lookups in a vcap instance */
-	int (*enable)
-		(struct net_device *ndev,
-		 struct vcap_admin *admin,
-		 bool enable);
 };
 
 /* VCAP API Client control interface */

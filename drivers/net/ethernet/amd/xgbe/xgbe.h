@@ -294,6 +294,7 @@
 
 #define XGBE_SGMII_AN_LINK_STATUS	BIT(1)
 #define XGBE_SGMII_AN_LINK_SPEED	(BIT(2) | BIT(3))
+#define XGBE_SGMII_AN_LINK_SPEED_10	0x00
 #define XGBE_SGMII_AN_LINK_SPEED_100	0x04
 #define XGBE_SGMII_AN_LINK_SPEED_1000	0x08
 #define XGBE_SGMII_AN_LINK_DUPLEX	BIT(4)
@@ -595,6 +596,7 @@ enum xgbe_mode {
 	XGBE_MODE_KX_2500,
 	XGBE_MODE_KR,
 	XGBE_MODE_X,
+	XGBE_MODE_SGMII_10,
 	XGBE_MODE_SGMII_100,
 	XGBE_MODE_SGMII_1000,
 	XGBE_MODE_SFI,
@@ -774,8 +776,11 @@ struct xgbe_hw_if {
 
 	int (*set_ext_mii_mode)(struct xgbe_prv_data *, unsigned int,
 				enum xgbe_mdio_mode);
-	int (*read_ext_mii_regs)(struct xgbe_prv_data *, int, int);
-	int (*write_ext_mii_regs)(struct xgbe_prv_data *, int, int, u16);
+	int (*read_ext_mii_regs_c22)(struct xgbe_prv_data *, int, int);
+	int (*write_ext_mii_regs_c22)(struct xgbe_prv_data *, int, int, u16);
+	int (*read_ext_mii_regs_c45)(struct xgbe_prv_data *, int, int, int);
+	int (*write_ext_mii_regs_c45)(struct xgbe_prv_data *, int, int, int,
+				      u16);
 
 	int (*set_gpio)(struct xgbe_prv_data *, unsigned int);
 	int (*clr_gpio)(struct xgbe_prv_data *, unsigned int);
