@@ -480,10 +480,6 @@ DEFINE_HIST_FIELD_FN(u8);
 #define for_each_hist_key_field(i, hist_data)	\
 	for ((i) = (hist_data)->n_vals; (i) < (hist_data)->n_fields; (i)++)
 
-#define HIST_STACKTRACE_DEPTH	16
-#define HIST_STACKTRACE_SIZE	(HIST_STACKTRACE_DEPTH * sizeof(unsigned long))
-#define HIST_STACKTRACE_SKIP	5
-
 #define HITCOUNT_IDX		0
 #define HIST_KEY_SIZE_MAX	(MAX_FILTER_STR_VAL + HIST_STACKTRACE_SIZE)
 
@@ -1360,6 +1356,8 @@ static const char *hist_field_name(struct hist_field *field,
 			field_name = field->name;
 	} else if (field->flags & HIST_FIELD_FL_TIMESTAMP)
 		field_name = "common_timestamp";
+	else if (field->flags & HIST_FIELD_FL_STACKTRACE)
+		field_name = "stacktrace";
 	else if (field->flags & HIST_FIELD_FL_HITCOUNT)
 		field_name = "hitcount";
 
@@ -1718,6 +1716,8 @@ static const char *get_hist_field_flags(struct hist_field *hist_field)
 		flags_str = "percent";
 	else if (hist_field->flags & HIST_FIELD_FL_GRAPH)
 		flags_str = "graph";
+	else if (hist_field->flags & HIST_FIELD_FL_STACKTRACE)
+		flags_str = "stacktrace";
 
 	return flags_str;
 }
@@ -1980,6 +1980,10 @@ static struct hist_field *create_hist_field(struct hist_trigger_data *hist_data,
 
 	if (flags & HIST_FIELD_FL_STACKTRACE) {
 		hist_field->fn_num = HIST_FIELD_FN_NOP;
+		hist_field->size = HIST_STACKTRACE_SIZE;
+		hist_field->type = kstrdup_const("unsigned long[]", GFP_KERNEL);
+		if (!hist_field->type)
+			goto free;
 		goto out;
 	}
 
@@ -2312,6 +2316,8 @@ parse_field(struct hist_trigger_data *hist_data, struct trace_event_file *file,
 			*flags |= HIST_FIELD_FL_EXECNAME;
 		else if (strcmp(modifier, "syscall") == 0)
 			*flags |= HIST_FIELD_FL_SYSCALL;
+		else if (strcmp(modifier, "stacktrace") == 0)
+			*flags |= HIST_FIELD_FL_STACKTRACE;
 		else if (strcmp(modifier, "log2") == 0)
 			*flags |= HIST_FIELD_FL_LOG2;
 		else if (strcmp(modifier, "usecs") == 0)
@@ -2351,6 +2357,8 @@ parse_field(struct hist_trigger_data *hist_data, struct trace_event_file *file,
 		hist_data->enable_timestamps = true;
 		if (*flags & HIST_FIELD_FL_TIMESTAMP_USECS)
 			hist_data->attrs->ts_in_usecs = true;
+	} else if (strcmp(field_name, "stacktrace") == 0) {
+		*flags |= HIST_FIELD_FL_STACKTRACE;
 	} else if (strcmp(field_name, "common_cpu") == 0)
 		*flags |= HIST_FIELD_FL_CPU;
 	else if (strcmp(field_name, "hitcount") == 0)
@@ -3119,13 +3127,24 @@ static inline void __update_field_vars(struct tracing_map_elt *elt,
 		var_val = hist_fn_call(val, elt, buffer, rbe, rec);
 		var_idx = var->var.idx;
 
-		if (val->flags & HIST_FIELD_FL_STRING) {
+		if (val->flags & (HIST_FIELD_FL_STRING |
+				  HIST_FIELD_FL_STACKTRACE)) {
 			char *str = elt_data->field_var_str[j++];
 			char *val_str = (char *)(uintptr_t)var_val;
 			unsigned int size;
 
-			size = min(val->size, STR_VAR_LEN_MAX);
-			strscpy(str, val_str, size);
+			if (val->flags & HIST_FIELD_FL_STRING) {
+				size = min(val->size, STR_VAR_LEN_MAX);
+				strscpy(str, val_str, size);
+			} else {
+				int e;
+
+				e = stack_trace_save((void *)str,
+						     HIST_STACKTRACE_DEPTH,
+						     HIST_STACKTRACE_SKIP);
+				if (e < HIST_STACKTRACE_DEPTH - 1)
+					((unsigned long *)str)[e] = 0;
+			}
 			var_val = (u64)(uintptr_t)str;
 		}
 		tracing_map_set_var(elt, var_idx, var_val);
@@ -3824,7 +3843,8 @@ static void save_field_var(struct hist_trigger_data *hist_data,
 {
 	hist_data->field_vars[hist_data->n_field_vars++] = field_var;
 
-	if (field_var->val->flags & HIST_FIELD_FL_STRING)
+	/* Stack traces are saved in the string storage too */
+	if (field_var->val->flags & (HIST_FIELD_FL_STRING | HIST_FIELD_FL_STACKTRACE))
 		hist_data->n_field_var_str++;
 }
 
@@ -3847,6 +3867,9 @@ static int check_synth_field(struct synth_event *event,
 	 */
 	if (strstr(hist_field->type, "char[") && field->is_string
 	    && field->is_dynamic)
+		return 0;
+
+	if (strstr(hist_field->type, "long[") && field->is_stack)
 		return 0;
 
 	if (strcmp(field->type, hist_field->type) != 0) {
@@ -4103,7 +4126,8 @@ static int action_create(struct hist_trigger_data *hist_data,
 			}
 
 			hist_data->save_vars[hist_data->n_save_vars++] = field_var;
-			if (field_var->val->flags & HIST_FIELD_FL_STRING)
+			if (field_var->val->flags &
+			    (HIST_FIELD_FL_STRING | HIST_FIELD_FL_STACKTRACE))
 				hist_data->n_save_var_str++;
 			kfree(param);
 		}
@@ -4351,7 +4375,8 @@ static int create_var_field(struct hist_trigger_data *hist_data,
 	if (!ret && hist_data->fields[val_idx]->flags & HIST_FIELD_FL_EXECNAME)
 		update_var_execname(hist_data->fields[val_idx]);
 
-	if (!ret && hist_data->fields[val_idx]->flags & HIST_FIELD_FL_STRING)
+	if (!ret && hist_data->fields[val_idx]->flags &
+	    (HIST_FIELD_FL_STRING | HIST_FIELD_FL_STACKTRACE))
 		hist_data->fields[val_idx]->var_str_idx = hist_data->n_var_str++;
 
 	return ret;
@@ -5092,7 +5117,8 @@ static void hist_trigger_elt_update(struct hist_trigger_data *hist_data,
 		if (hist_field->flags & HIST_FIELD_FL_VAR) {
 			var_idx = hist_field->var.idx;
 
-			if (hist_field->flags & HIST_FIELD_FL_STRING) {
+			if (hist_field->flags &
+			    (HIST_FIELD_FL_STRING | HIST_FIELD_FL_STACKTRACE)) {
 				unsigned int str_start, var_str_idx, idx;
 				char *str, *val_str;
 				unsigned int size;
@@ -5105,9 +5131,18 @@ static void hist_trigger_elt_update(struct hist_trigger_data *hist_data,
 				str = elt_data->field_var_str[idx];
 				val_str = (char *)(uintptr_t)hist_val;
 
-				size = min(hist_field->size, STR_VAR_LEN_MAX);
-				strscpy(str, val_str, size);
+				if (hist_field->flags & HIST_FIELD_FL_STRING) {
+					size = min(hist_field->size, STR_VAR_LEN_MAX);
+					strscpy(str, val_str, size);
+				} else {
+					int e;
 
+					e = stack_trace_save((void *)str,
+							     HIST_STACKTRACE_DEPTH,
+							     HIST_STACKTRACE_SKIP);
+					if (e < HIST_STACKTRACE_DEPTH - 1)
+						((unsigned long *)str)[e] = 0;
+				}
 				hist_val = (u64)(uintptr_t)str;
 			}
 			tracing_map_set_var(elt, var_idx, hist_val);
