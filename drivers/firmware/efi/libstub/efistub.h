@@ -43,6 +43,9 @@ extern const efi_system_table_t *efi_system_table;
 typedef union efi_dxe_services_table efi_dxe_services_table_t;
 extern const efi_dxe_services_table_t *efi_dxe_table;
 
+typedef union efi_memory_attribute_protocol efi_memory_attribute_protocol_t;
+extern efi_memory_attribute_protocol_t *efi_mem_attrib_proto;
+
 efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 				   efi_system_table_t *sys_table_arg);
 
@@ -439,6 +442,25 @@ union efi_dxe_services_table {
 		u32 trust;
 		u32 process_firmware_volume;
 		u32 set_memory_space_capabilities;
+	} mixed_mode;
+};
+
+union  efi_memory_attribute_protocol {
+	struct {
+		void *get_memory_attributes;
+		efi_status_t (__efiapi *set_memory_attributes)(efi_memory_attribute_protocol_t *,
+								efi_physical_addr_t,
+								u64,
+								u64);
+		efi_status_t (__efiapi *clear_memory_attributes)(efi_memory_attribute_protocol_t *,
+								  efi_physical_addr_t,
+								  u64,
+								  u64);
+	};
+	struct {
+		u32 get_memory_attributes;
+		u32 set_memory_attributes;
+		u32 clear_memory_attributes;
 	} mixed_mode;
 };
 
