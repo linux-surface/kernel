@@ -14,6 +14,43 @@
 
 /*
  * Grace-period counter management.
+ *
+ * The two least significant bits contain the control flags.
+ * The most significant bits contain the grace-period sequence counter.
+ *
+ * When both control flags are zero, no grace period is in progress.
+ * When either bit is non-zero, a grace period has started and is in
+ * progress. When the grace period completes, the control flags are reset
+ * to 0 and the grace-period sequence counter is incremented.
+ *
+ * However some specific RCU usages make use of custom values.
+ *
+ * SRCU special control values:
+ *
+ *	SRCU_SNP_INIT_SEQ	:	Invalid/init value set when SRCU node
+ *					is initialized.
+ *
+ *	SRCU_STATE_IDLE		:	No SRCU gp is in progress
+ *
+ *	SRCU_STATE_SCAN1	:	State set by rcu_seq_start(). Indicates
+ *					we are scanning the readers on the slot
+ *					defined as inactive (there might well
+ *					be pending readers that will use that
+ *					index, but their number is bounded).
+ *
+ *	SRCU_STATE_SCAN2	:	State set manually via rcu_seq_set_state()
+ *					Indicates we are flipping the readers
+ *					index and then scanning the readers on the
+ *					slot newly designated as inactive (again,
+ *					the number of pending readers that will use
+ *					this inactive index is bounded).
+ *
+ * RCU polled GP special control value:
+ *
+ *	RCU_GET_STATE_COMPLETED :	State value indicating an already-completed
+ *					polled GP has completed.  This value covers
+ *					both the state and the counter of the
+ *					grace-period sequence number.
  */
 
 #define RCU_SEQ_CTR_SHIFT	2
@@ -224,6 +261,8 @@ extern int rcu_cpu_stall_ftrace_dump;
 extern int rcu_cpu_stall_suppress;
 extern int rcu_cpu_stall_timeout;
 extern int rcu_exp_cpu_stall_timeout;
+extern int rcu_cpu_stall_cputime;
+extern bool rcu_exp_stall_task_details __read_mostly;
 int rcu_jiffies_till_stall_check(void);
 int rcu_exp_jiffies_till_stall_check(void);
 
@@ -447,14 +486,20 @@ do {									\
 /* Tiny RCU doesn't expedite, as its purpose in life is instead to be tiny. */
 static inline bool rcu_gp_is_normal(void) { return true; }
 static inline bool rcu_gp_is_expedited(void) { return false; }
+static inline bool rcu_async_should_hurry(void) { return false; }
 static inline void rcu_expedite_gp(void) { }
 static inline void rcu_unexpedite_gp(void) { }
+static inline void rcu_async_hurry(void) { }
+static inline void rcu_async_relax(void) { }
 static inline void rcu_request_urgent_qs_task(struct task_struct *t) { }
 #else /* #ifdef CONFIG_TINY_RCU */
 bool rcu_gp_is_normal(void);     /* Internal RCU use. */
 bool rcu_gp_is_expedited(void);  /* Internal RCU use. */
+bool rcu_async_should_hurry(void);  /* Internal RCU use. */
 void rcu_expedite_gp(void);
 void rcu_unexpedite_gp(void);
+void rcu_async_hurry(void);
+void rcu_async_relax(void);
 void rcupdate_announce_bootup_oddness(void);
 #ifdef CONFIG_TASKS_RCU_GENERIC
 void show_rcu_tasks_gp_kthreads(void);
