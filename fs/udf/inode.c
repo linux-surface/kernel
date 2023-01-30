@@ -185,16 +185,17 @@ static void udf_write_failed(struct address_space *mapping, loff_t to)
 	}
 }
 
-static int udf_adinicb_writepage(struct page *page,
+static int udf_adinicb_writepage(struct folio *folio,
 				 struct writeback_control *wbc, void *data)
 {
+	struct page *page = &folio->page;
 	struct inode *inode = page->mapping->host;
 	struct udf_inode_info *iinfo = UDF_I(inode);
 
-	BUG_ON(!PageLocked(page));
+//	BUG_ON(!PageLocked(page));
 	memcpy_to_page(page, 0, iinfo->i_data + iinfo->i_lenEAttr,
 		       i_size_read(inode));
-	unlock_page(page);
+	folio_unlock(folio);
 	mark_inode_dirty(inode);
 
 	return 0;

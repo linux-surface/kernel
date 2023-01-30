@@ -191,6 +191,25 @@ config ZSMALLOC_STAT
 	  information to userspace via debugfs.
 	  If unsure, say N.
 
+config ZSMALLOC_CHAIN_SIZE
+	int "Maximum number of physical pages per-zspage"
+	default 8
+	range 4 16
+	depends on ZSMALLOC
+	help
+	  This option sets the upper limit on the number of physical pages
+	  that a zmalloc page (zspage) can consist of. The optimal zspage
+	  chain size is calculated for each size class during the
+	  initialization of the pool.
+
+	  Changing this option can alter the characteristics of size classes,
+	  such as the number of pages per zspage and the number of objects
+	  per zspage. This can also result in different configurations of
+	  the pool, as zsmalloc merges size classes with similar
+	  characteristics.
+
+	  For more information, see zsmalloc documentation.
+
 menu "SLAB allocator options"
 
 choice
@@ -1079,6 +1098,15 @@ comment "GUP_TEST needs to have DEBUG_FS enabled"
 
 config GUP_GET_PXX_LOW_HIGH
 	bool
+
+config DMAPOOL_TEST
+	tristate "Enable a module to run time tests on dma_pool"
+	depends on HAS_DMA
+	help
+	  Provides a test module that will allocate and free many blocks of
+	  various sizes and report how long it takes. This is intended to
+	  provide a consistent way to measure how changes to the
+	  dma_pool_alloc/free routines affect performance.
 
 config ARCH_HAS_PTE_SPECIAL
 	bool

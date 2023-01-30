@@ -432,6 +432,7 @@ struct ma_wr_state {
 		.min = 0,						\
 		.max = ULONG_MAX,					\
 		.alloc = NULL,						\
+		.mas_flags = 0,						\
 	}
 
 #define MA_WR_STATE(name, ma_state, wr_entry)				\
@@ -455,7 +456,7 @@ int mas_store_gfp(struct ma_state *mas, void *entry, gfp_t gfp);
 void mas_store_prealloc(struct ma_state *mas, void *entry);
 void *mas_find(struct ma_state *mas, unsigned long max);
 void *mas_find_rev(struct ma_state *mas, unsigned long min);
-int mas_preallocate(struct ma_state *mas, void *entry, gfp_t gfp);
+int mas_preallocate(struct ma_state *mas, gfp_t gfp);
 bool mas_is_err(struct ma_state *mas);
 
 bool mas_nomem(struct ma_state *mas, gfp_t gfp);
@@ -469,6 +470,16 @@ void *mas_next(struct ma_state *mas, unsigned long max);
 
 int mas_empty_area(struct ma_state *mas, unsigned long min, unsigned long max,
 		   unsigned long size);
+
+static inline void mas_init(struct ma_state *mas, struct maple_tree *tree,
+			    unsigned long addr)
+{
+	memset(mas, 0, sizeof(struct ma_state));
+	mas->tree = tree;
+	mas->index = mas->last = addr;
+	mas->max = ULONG_MAX;
+	mas->node = MAS_START;
+}
 
 /* Checks if a mas has not found anything */
 static inline bool mas_is_none(struct ma_state *mas)
