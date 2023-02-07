@@ -99,6 +99,12 @@
 # define DISABLE_TDX_GUEST	(1 << (X86_FEATURE_TDX_GUEST & 31))
 #endif
 
+#ifdef CONFIG_IPC_CLASSES
+# define DISABLE_ITD	0
+#else
+# define DISABLE_ITD	(1 << (X86_FEATURE_ITD & 31))
+#endif
+
 /*
  * Make sure to add features to the correct mask
  */
@@ -117,7 +123,7 @@
 			 DISABLE_CALL_DEPTH_TRACKING)
 #define DISABLED_MASK12	0
 #define DISABLED_MASK13	0
-#define DISABLED_MASK14	0
+#define DISABLED_MASK14	(DISABLE_ITD)
 #define DISABLED_MASK15	0
 #define DISABLED_MASK16	(DISABLE_PKU|DISABLE_OSPKE|DISABLE_LA57|DISABLE_UMIP| \
 			 DISABLE_ENQCMD)
