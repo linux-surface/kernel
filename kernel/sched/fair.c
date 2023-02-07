@@ -10306,11 +10306,20 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 		    nr_running == 1)
 			continue;
 
-		/* Make sure we only pull tasks from a CPU of lower priority */
+		/*
+		 * Make sure we only pull tasks from a CPU of lower priority
+		 * when balancing between SMT siblings.
+		 *
+		 * If balancing between cores, let lower priority CPUs help
+		 * SMT cores with more than one busy sibling.
+		 */
 		if ((env->sd->flags & SD_ASYM_PACKING) &&
 		    sched_asym_prefer(i, env->dst_cpu) &&
-		    nr_running == 1)
-			continue;
+		    nr_running == 1) {
+			if (env->sd->flags & SD_SHARE_CPUCAPACITY ||
+			    (!(env->sd->flags & SD_SHARE_CPUCAPACITY) && is_core_idle(i)))
+				continue;
+		}
 
 		switch (env->migration_type) {
 		case migrate_load:
@@ -10400,8 +10409,20 @@ asym_active_balance(struct lb_env *env)
 	 * lower priority CPUs in order to pack all tasks in the
 	 * highest priority CPUs.
 	 */
-	return env->idle != CPU_NOT_IDLE && (env->sd->flags & SD_ASYM_PACKING) &&
-	       sched_asym_prefer(env->dst_cpu, env->src_cpu);
+	if (env->idle != CPU_NOT_IDLE && (env->sd->flags & SD_ASYM_PACKING)) {
+		/* Always obey priorities between SMT siblings. */
+		if (env->sd->flags & SD_SHARE_CPUCAPACITY)
+			return sched_asym_prefer(env->dst_cpu, env->src_cpu);
+
+		/*
+		 * A lower priority CPU can help an SMT core with more than one
+		 * busy sibling.
+		 */
+		return sched_asym_prefer(env->dst_cpu, env->src_cpu) ||
+		       !is_core_idle(env->src_cpu);
+	}
+
+	return false;
 }
 
 static inline bool
