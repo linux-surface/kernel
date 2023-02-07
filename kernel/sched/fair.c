@@ -9120,12 +9120,14 @@ group_type group_classify(unsigned int imbalance_pct,
  * Check the state of the SMT siblings of both @sds::local and @sg and decide
  * if @dst_cpu can pull tasks.
  *
+ * This function must be called only if all the SMT siblings of @dst_cpu are
+ * idle, if any.
+ *
  * If @dst_cpu does not have SMT siblings, it can pull tasks if two or more of
  * the SMT siblings of @sg are busy. If only one CPU in @sg is busy, pull tasks
  * only if @dst_cpu has higher priority.
  *
- * If @dst_cpu has SMT siblings, check if there are no running tasks in
- * @sds::local. In such case, decide based on the priority of @sg. Do it only
+ * If @dst_cpu has SMT siblings, decide based on the priority of @sg. Do it only
  * if @sg has exactly one busy CPU (i.e., one more than @sds::local). Bigger
  * imbalances in the number of busy CPUs will be dealt with in
  * find_busiest_group().
@@ -9162,15 +9164,13 @@ static bool asym_smt_can_pull_tasks(int dst_cpu, struct sd_lb_stats *sds,
 	}
 
 	/*
-	 * @dst_cpu has SMT siblings. Do asym_packing load balancing only if
-	 * all its siblings are idle (moving tasks between physical cores in
-	 * which some SMT siblings are busy results in the same throughput).
+	 * @dst_cpu has SMT siblings and are also idle.
 	 *
 	 * If the difference in the number of busy CPUs is two or more, let
 	 * find_busiest_group() take care of it. We only care if @sg has
 	 * exactly one busy CPU. This covers SMT and non-SMT sched groups.
 	 */
-	if (sg_busy_cpus == 1 && !sds->local_stat.sum_nr_running)
+	if (sg_busy_cpus == 1)
 		return sched_asym_prefer(dst_cpu, sg->asym_prefer_cpu);
 
 	return false;
@@ -9184,7 +9184,14 @@ static inline bool
 sched_asym(struct lb_env *env, struct sd_lb_stats *sds,  struct sg_lb_stats *sgs,
 	   struct sched_group *group)
 {
-	/* Only do SMT checks if either local or candidate have SMT siblings */
+	/*
+	 * If the destination CPU has SMT siblings, env->idle != CPU_NOT_IDLE
+	 * is not sufficient. We need to make sure the whole core is idle.
+	 */
+	if (sds->local->flags & SD_SHARE_CPUCAPACITY && !is_core_idle(env->dst_cpu))
+		return false;
+
+	/* Only do SMT checks if either local or candidate have SMT siblings. */
 	if ((sds->local->flags & SD_SHARE_CPUCAPACITY) ||
 	    (group->flags & SD_SHARE_CPUCAPACITY))
 		return asym_smt_can_pull_tasks(env->dst_cpu, sds, sgs, group);
@@ -11131,8 +11138,17 @@ static void nohz_balancer_kick(struct rq *rq)
 		 */
 		for_each_cpu_and(i, sched_domain_span(sd), nohz.idle_cpus_mask) {
 			if (sched_asym_prefer(i, cpu)) {
-				flags = NOHZ_STATS_KICK | NOHZ_BALANCE_KICK;
-				goto unlock;
+				/*
+				 * Always do ASYM_PACKING balance in the SMT
+				 * domain. In upper domains, the core must be
+				 * fully idle.
+				 */
+				if (sd->flags & SD_SHARE_CPUCAPACITY ||
+				    (!(sd->flags & SD_SHARE_CPUCAPACITY) &&
+				     is_core_idle(i))) {
+					flags = NOHZ_STATS_KICK | NOHZ_BALANCE_KICK;
+					goto unlock;
+				}
 			}
 		}
 	}
