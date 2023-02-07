@@ -29,6 +29,7 @@
 #include <linux/kernel.h>
 #include <linux/math.h>
 #include <linux/mutex.h>
+#include <linux/percpu.h>
 #include <linux/percpu-defs.h>
 #include <linux/printk.h>
 #include <linux/processor.h>
@@ -170,6 +171,43 @@ static struct workqueue_struct *hfi_updates_wq;
 #define HFI_UPDATE_INTERVAL		HZ
 #define HFI_MAX_THERM_NOTIFY_COUNT	16
 
+#ifdef CONFIG_IPC_CLASSES
+static int __percpu *hfi_ipcc_scores;
+
+static int alloc_hfi_ipcc_scores(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_ITD))
+		return 0;
+
+	hfi_ipcc_scores = __alloc_percpu(sizeof(*hfi_ipcc_scores) *
+					 hfi_features.nr_classes,
+					 sizeof(*hfi_ipcc_scores));
+
+	return !hfi_ipcc_scores;
+}
+
+static void set_hfi_ipcc_score(void *caps, int cpu)
+{
+	int i, *hfi_class;
+
+	if (!cpu_feature_enabled(X86_FEATURE_ITD))
+		return;
+
+	hfi_class = per_cpu_ptr(hfi_ipcc_scores, cpu);
+
+	for (i = 0;  i < hfi_features.nr_classes; i++) {
+		struct hfi_cpu_data *class_caps;
+
+		class_caps = caps + i * hfi_features.class_stride;
+		WRITE_ONCE(hfi_class[i], class_caps->perf_cap);
+	}
+}
+
+#else
+static int alloc_hfi_ipcc_scores(void) { return 0; }
+static void set_hfi_ipcc_score(void *caps, int cpu) { }
+#endif /* CONFIG_IPC_CLASSES */
+
 static void get_hfi_caps(struct hfi_instance *hfi_instance,
 			 struct thermal_genl_cpu_caps *cpu_caps)
 {
@@ -192,6 +230,8 @@ static void get_hfi_caps(struct hfi_instance *hfi_instance,
 		cpu_caps[i].efficiency = caps->ee_cap << 2;
 
 		++i;
+
+		set_hfi_ipcc_score(caps, cpu);
 	}
 	raw_spin_unlock_irq(&hfi_instance->table_lock);
 }
@@ -580,7 +620,13 @@ void __init intel_hfi_init(void)
 	if (!hfi_updates_wq)
 		goto err_nomem;
 
+	if (alloc_hfi_ipcc_scores())
+		goto err_ipcc;
+
 	return;
+
+err_ipcc:
+	destroy_workqueue(hfi_updates_wq);
 
 err_nomem:
 	for (j = 0; j < i; ++j) {
