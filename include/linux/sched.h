@@ -1535,7 +1535,17 @@ struct task_struct {
 	 * A hardware-defined classification of task that reflects but is
 	 * not identical to the number of instructions per cycle.
 	 */
-	unsigned short			ipcc;
+	unsigned int			ipcc : 9;
+	/*
+	 * A candidate classification that arch-specific implementations
+	 * qualify for correctness.
+	 */
+	unsigned int			ipcc_tmp : 9;
+	/*
+	 * Counter to filter out transient candidate classifications
+	 * of a task.
+	 */
+	unsigned int			ipcc_cntr : 14;
 #endif
 
 	/*
