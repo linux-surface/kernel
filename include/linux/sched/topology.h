@@ -280,4 +280,10 @@ static inline int task_node(const struct task_struct *p)
 	return cpu_to_node(task_cpu(p));
 }
 
+#ifdef CONFIG_IPC_CLASSES
+extern void sched_enable_ipc_classes(void);
+#else
+static inline void sched_enable_ipc_classes(void) { }
+#endif
+
 #endif /* _LINUX_SCHED_TOPOLOGY_H */
