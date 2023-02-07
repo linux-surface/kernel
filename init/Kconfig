@@ -867,6 +867,18 @@ config UCLAMP_BUCKETS_COUNT
 
 	  If in doubt, use the default value.
 
+config IPC_CLASSES
+	bool "IPC classes of tasks"
+	depends on SMP
+	help
+	  If selected, each task is assigned a classification value that
+	  reflects the type of instructions that the task executes. This
+	  classification reflects but is not equal to the number of
+	  instructions retired per cycle.
+
+	  The scheduler uses the classification value to improve the placement
+	  of tasks.
+
 endmenu
 
 #
