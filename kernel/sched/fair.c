@@ -9215,6 +9215,60 @@ static void update_sg_lb_stats_scores(struct sg_lb_stats *sgs,
 	sgs->ipcc_score_before = before;
 }
 
+/**
+ * sched_asym_ipcc_prefer - Select a sched group based on its IPCC score
+ * @a:	Load balancing statistics of a sched group
+ * @b:	Load balancing statistics of a second sched group
+ *
+ * Returns: true if @a has a higher IPCC score than @b after load balance.
+ * False otherwise.
+ */
+static bool sched_asym_ipcc_prefer(struct sg_lb_stats *a,
+				   struct sg_lb_stats *b)
+{
+	if (!sched_ipcc_enabled())
+		return false;
+
+	/* @a increases overall throughput after load balance. */
+	if (a->ipcc_score_after > b->ipcc_score_after)
+		return true;
+
+	/*
+	 * If @a and @b yield the same overall throughput, pick @a if
+	 * its current throughput is lower than that of @b.
+	 */
+	if (a->ipcc_score_after == b->ipcc_score_after)
+		return a->ipcc_score_before < b->ipcc_score_before;
+
+	return false;
+}
+
+/**
+ * sched_asym_ipcc_pick - Select a sched group based on its IPCC score
+ * @a:		A scheduling group
+ * @b:		A second scheduling group
+ * @a_stats:	Load balancing statistics of @a
+ * @b_stats:	Load balancing statistics of @b
+ *
+ * Returns: true if @a has the same priority and @a has tasks with IPC classes
+ * that yield higher overall throughput after load balance. False otherwise.
+ */
+static bool sched_asym_ipcc_pick(struct sched_group *a,
+				 struct sched_group *b,
+				 struct sg_lb_stats *a_stats,
+				 struct sg_lb_stats *b_stats)
+{
+	/*
+	 * Only use the class-specific preference selection if both sched
+	 * groups have the same priority.
+	 */
+	if (arch_asym_cpu_priority(a->asym_prefer_cpu) !=
+	    arch_asym_cpu_priority(b->asym_prefer_cpu))
+		return false;
+
+	return sched_asym_ipcc_prefer(a_stats, b_stats);
+}
+
 #else /* CONFIG_IPC_CLASSES */
 static void update_sg_lb_ipcc_stats(int dst_cpu, struct sg_lb_stats *sgs,
 				    struct rq *rq)
@@ -9229,6 +9283,14 @@ static void update_sg_lb_stats_scores(struct sg_lb_stats *sgs,
 				      struct sched_group *sg,
 				      struct lb_env *env)
 {
+}
+
+static bool sched_asym_ipcc_pick(struct sched_group *a,
+				 struct sched_group *b,
+				 struct sg_lb_stats *a_stats,
+				 struct sg_lb_stats *b_stats)
+{
+	return false;
 }
 
 #endif /* CONFIG_IPC_CLASSES */
@@ -9466,6 +9528,16 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		/* Prefer to move from lowest priority CPU's work */
 		if (sched_asym_prefer(sg->asym_prefer_cpu, sds->busiest->asym_prefer_cpu))
 			return false;
+
+		/*
+		 * Unlike other callers of sched_asym_prefer(), here both @sg
+		 * and @sds::busiest have tasks running. When they have equal
+		 * priority, their IPC class scores can be used to select a
+		 * better busiest.
+		 */
+		if (sched_asym_ipcc_pick(sds->busiest, sg, &sds->busiest_stat, sgs))
+			return false;
+
 		break;
 
 	case group_misfit_task:
