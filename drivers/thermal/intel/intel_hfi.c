@@ -72,6 +72,17 @@ union cpuid6_edx {
 	u32 full;
 };
 
+#ifdef CONFIG_IPC_CLASSES
+union hfi_thread_feedback_char_msr {
+	struct {
+		u64	classid : 8;
+		u64	__reserved : 55;
+		u64	valid : 1;
+	} split;
+	u64 full;
+};
+#endif
+
 /**
  * struct hfi_cpu_data - HFI capabilities per CPU
  * @perf_cap:		Performance capability
@@ -173,6 +184,27 @@ static struct workqueue_struct *hfi_updates_wq;
 
 #ifdef CONFIG_IPC_CLASSES
 static int __percpu *hfi_ipcc_scores;
+
+void intel_hfi_update_ipcc(struct task_struct *curr)
+{
+	union hfi_thread_feedback_char_msr msr;
+
+	/* We should not be here if ITD is not supported. */
+	if (!cpu_feature_enabled(X86_FEATURE_ITD)) {
+		pr_warn_once("task classification requested but not supported!");
+		return;
+	}
+
+	rdmsrl(MSR_IA32_HW_FEEDBACK_CHAR, msr.full);
+	if (!msr.split.valid)
+		return;
+
+	/*
+	 * 0 is a valid classification for Intel Thread Director. A scheduler
+	 * IPCC class of 0 means that the task is unclassified. Adjust.
+	 */
+	curr->ipcc = msr.split.classid + 1;
+}
 
 static int alloc_hfi_ipcc_scores(void)
 {
