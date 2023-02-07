@@ -227,4 +227,10 @@ void init_freq_invariance_cppc(void);
 #define arch_init_invariance_cppc init_freq_invariance_cppc
 #endif
 
+#if defined(CONFIG_IPC_CLASSES) && defined(CONFIG_INTEL_HFI_THERMAL)
+void intel_hfi_update_ipcc(struct task_struct *curr);
+
+#define arch_update_ipcc intel_hfi_update_ipcc
+#endif /* defined(CONFIG_IPC_CLASSES) && defined(CONFIG_INTEL_HFI_THERMAL) */
+
 #endif /* _ASM_X86_TOPOLOGY_H */
