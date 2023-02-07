@@ -9285,6 +9285,12 @@ static void update_sg_lb_stats_scores(struct sg_lb_stats *sgs,
 {
 }
 
+static bool sched_asym_ipcc_prefer(struct sg_lb_stats *a,
+				   struct sg_lb_stats *b)
+{
+	return false;
+}
+
 static bool sched_asym_ipcc_pick(struct sched_group *a,
 				 struct sched_group *b,
 				 struct sg_lb_stats *a_stats,
@@ -9568,10 +9574,21 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		if (sgs->avg_load == busiest->avg_load) {
 			/*
 			 * SMT sched groups need more help than non-SMT groups.
-			 * If @sg happens to also be SMT, either choice is good.
 			 */
-			if (sds->busiest->flags & SD_SHARE_CPUCAPACITY)
-				return false;
+			if (sds->busiest->flags & SD_SHARE_CPUCAPACITY) {
+				if (!(sg->flags & SD_SHARE_CPUCAPACITY))
+					return false;
+
+				/*
+				 * Between two SMT groups, use IPCC scores to pick the
+				 * one that would improve throughput the most (only
+				 * asym_packing uses IPCC scores for now).
+				 */
+				if (sched_ipcc_enabled() &&
+				    env->sd->flags & SD_ASYM_PACKING &&
+				    sched_asym_ipcc_prefer(busiest, sgs))
+					return false;
+			}
 		}
 
 		break;
