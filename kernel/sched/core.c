@@ -5562,6 +5562,9 @@ void scheduler_tick(bool user_tick)
 	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
 		arch_scale_freq_tick();
 
+	if (sched_ipcc_enabled() && user_tick)
+		arch_update_ipcc(curr);
+
 	sched_clock_tick();
 
 	rq_lock(rq, &rf);
