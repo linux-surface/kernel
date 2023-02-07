@@ -8767,6 +8767,11 @@ struct sg_lb_stats {
 	unsigned int nr_numa_running;
 	unsigned int nr_preferred_running;
 #endif
+#ifdef CONFIG_IPC_CLASSES
+	unsigned long min_score; /* Min(score(rq->curr->ipcc)) */
+	unsigned short min_ipcc; /* Class of the task with the minimum IPCC score in the rq */
+	unsigned long sum_score; /* Sum(score(rq->curr->ipcc)) */
+#endif
 };
 
 /*
@@ -9110,6 +9115,59 @@ group_type group_classify(unsigned int imbalance_pct,
 	return group_has_spare;
 }
 
+#ifdef CONFIG_IPC_CLASSES
+static void init_rq_ipcc_stats(struct sg_lb_stats *sgs)
+{
+	/* All IPCC stats have been set to zero in update_sg_lb_stats(). */
+	sgs->min_score = ULONG_MAX;
+}
+
+/* Called only if cpu_of(@rq) is not idle and has tasks running. */
+static void update_sg_lb_ipcc_stats(int dst_cpu, struct sg_lb_stats *sgs,
+				    struct rq *rq)
+{
+	struct task_struct *curr;
+	unsigned short ipcc;
+	unsigned long score;
+
+	if (!sched_ipcc_enabled())
+		return;
+
+	curr = rcu_dereference(rq->curr);
+	if (!curr || (curr->flags & PF_EXITING) || is_idle_task(curr) ||
+	    task_is_realtime(curr) ||
+	    !cpumask_test_cpu(dst_cpu, curr->cpus_ptr))
+		return;
+
+	ipcc = curr->ipcc;
+	score = arch_get_ipcc_score(ipcc, cpu_of(rq));
+
+	/*
+	 * Ignore tasks with invalid scores. When finding the busiest group, we
+	 * prefer those with higher sum_score. This group will not be selected.
+	 */
+	if (IS_ERR_VALUE(score))
+		return;
+
+	sgs->sum_score += score;
+
+	if (score < sgs->min_score) {
+		sgs->min_score = score;
+		sgs->min_ipcc = ipcc;
+	}
+}
+
+#else /* CONFIG_IPC_CLASSES */
+static void update_sg_lb_ipcc_stats(int dst_cpu, struct sg_lb_stats *sgs,
+				    struct rq *rq)
+{
+}
+
+static void init_rq_ipcc_stats(struct sg_lb_stats *sgs)
+{
+}
+#endif /* CONFIG_IPC_CLASSES */
+
 /**
  * asym_smt_can_pull_tasks - Check whether the load balancing CPU can pull tasks
  * @dst_cpu:	Destination CPU of the load balancing
@@ -9202,6 +9260,7 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 	int i, nr_running, local_group;
 
 	memset(sgs, 0, sizeof(*sgs));
+	init_rq_ipcc_stats(sgs);
 
 	local_group = group == sds->local;
 
@@ -9251,6 +9310,8 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 			if (sgs->group_misfit_task_load < load)
 				sgs->group_misfit_task_load = load;
 		}
+
+		update_sg_lb_ipcc_stats(env->dst_cpu, sgs, rq);
 	}
 
 	sgs->group_capacity = group->sgc->capacity;
