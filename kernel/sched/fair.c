@@ -1064,7 +1064,14 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
  * Scheduling class queueing methods:
  */
 
-static inline bool is_core_idle(int cpu)
+/**
+ * sched_smt_siblings_idle - Check whether SMT siblings of a CPU are idle
+ * @cpu:	The CPU to check
+ *
+ * Returns true if all the SMT siblings of @cpu are idle or @cpu does not have
+ * SMT siblings. The idle state of @cpu is not considered.
+ */
+bool sched_smt_siblings_idle(int cpu)
 {
 #ifdef CONFIG_SCHED_SMT
 	int sibling;
@@ -1767,7 +1774,7 @@ static inline int numa_idle_core(int idle_core, int cpu)
 	 * Prefer cores instead of packing HT siblings
 	 * and triggering future load balancing.
 	 */
-	if (is_core_idle(cpu))
+	if (sched_smt_siblings_idle(cpu))
 		idle_core = cpu;
 
 	return idle_core;
@@ -9388,7 +9395,8 @@ sched_asym(struct lb_env *env, struct sd_lb_stats *sds,  struct sg_lb_stats *sgs
 	 * If the destination CPU has SMT siblings, env->idle != CPU_NOT_IDLE
 	 * is not sufficient. We need to make sure the whole core is idle.
 	 */
-	if (sds->local->flags & SD_SHARE_CPUCAPACITY && !is_core_idle(env->dst_cpu))
+	if (sds->local->flags & SD_SHARE_CPUCAPACITY &&
+	    !sched_smt_siblings_idle(env->dst_cpu))
 		return false;
 
 	/* Only do SMT checks if either local or candidate have SMT siblings. */
@@ -10557,7 +10565,8 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 		    sched_asym_prefer(i, env->dst_cpu) &&
 		    nr_running == 1) {
 			if (env->sd->flags & SD_SHARE_CPUCAPACITY ||
-			    (!(env->sd->flags & SD_SHARE_CPUCAPACITY) && is_core_idle(i)))
+			    (!(env->sd->flags & SD_SHARE_CPUCAPACITY) &&
+			     sched_smt_siblings_idle(i)))
 				continue;
 		}
 
@@ -10686,7 +10695,7 @@ asym_active_balance(struct lb_env *env)
 		 * busy sibling.
 		 */
 		return sched_asym_prefer(env->dst_cpu, env->src_cpu) ||
-		       !is_core_idle(env->src_cpu);
+		       !sched_smt_siblings_idle(env->src_cpu);
 	}
 
 	return false;
@@ -11433,7 +11442,7 @@ static void nohz_balancer_kick(struct rq *rq)
 				 */
 				if (sd->flags & SD_SHARE_CPUCAPACITY ||
 				    (!(sd->flags & SD_SHARE_CPUCAPACITY) &&
-				     is_core_idle(i))) {
+				     sched_smt_siblings_idle(i))) {
 					flags = NOHZ_STATS_KICK | NOHZ_BALANCE_KICK;
 					goto unlock;
 				}
