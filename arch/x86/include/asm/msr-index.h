@@ -1092,6 +1092,9 @@
 #define MSR_IA32_HW_FEEDBACK_THREAD_CONFIG 0x17d4
 #define MSR_IA32_HW_FEEDBACK_CHAR	0x17d2
 
+/* Hardware History Reset  */
+#define MSR_IA32_HW_HRESET_ENABLE	0x17da
+
 /* x2APIC locked status */
 #define MSR_IA32_XAPIC_DISABLE_STATUS	0xBD
 #define LEGACY_XAPIC_DISABLED		BIT(0) /*
@@ -1099,5 +1102,4 @@
 						* disabling x2APIC will cause
 						* a #GP
 						*/
-
 #endif /* _ASM_X86_MSR_INDEX_H */
