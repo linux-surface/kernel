@@ -206,6 +206,33 @@ void intel_hfi_update_ipcc(struct task_struct *curr)
 	curr->ipcc = msr.split.classid + 1;
 }
 
+unsigned long intel_hfi_get_ipcc_score(unsigned short ipcc, int cpu)
+{
+	unsigned short hfi_class;
+	int *scores;
+
+	if (cpu < 0 || cpu >= nr_cpu_ids)
+		return -EINVAL;
+
+	if (ipcc == IPC_CLASS_UNCLASSIFIED)
+		return -EINVAL;
+
+	/*
+	 * Scheduler IPC classes start at 1. HFI classes start at 0.
+	 * See note intel_hfi_update_ipcc().
+	 */
+	hfi_class = ipcc - 1;
+
+	if (hfi_class >= hfi_features.nr_classes)
+		return -EINVAL;
+
+	scores = per_cpu_ptr(hfi_ipcc_scores, cpu);
+	if (!scores)
+		return -ENODEV;
+
+	return READ_ONCE(scores[hfi_class]);
+}
+
 static int alloc_hfi_ipcc_scores(void)
 {
 	if (!cpu_feature_enabled(X86_FEATURE_ITD))
