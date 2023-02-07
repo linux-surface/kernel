@@ -9117,20 +9117,15 @@ group_type group_classify(unsigned int imbalance_pct,
  * @sgs:	Load-balancing statistics of the candidate busiest group
  * @sg:		The candidate busiest group
  *
- * Check the state of the SMT siblings of both @sds::local and @sg and decide
- * if @dst_cpu can pull tasks.
+ * Check the state of the SMT siblings of @sg and decide if @dst_cpu can pull
+ * tasks.
  *
  * This function must be called only if all the SMT siblings of @dst_cpu are
  * idle, if any.
  *
- * If @dst_cpu does not have SMT siblings, it can pull tasks if two or more of
- * the SMT siblings of @sg are busy. If only one CPU in @sg is busy, pull tasks
- * only if @dst_cpu has higher priority.
- *
- * If @dst_cpu has SMT siblings, decide based on the priority of @sg. Do it only
- * if @sg has exactly one busy CPU (i.e., one more than @sds::local). Bigger
- * imbalances in the number of busy CPUs will be dealt with in
- * find_busiest_group().
+ * @dst_cpu can pull tasks if @sg has exactly one busy CPU (i.e., one more than
+ * @sds::local) and has lower group priority than @sds::local. Bigger imbalances
+ * in the number of busy CPUs will be dealt with in find_busiest_group().
  *
  * Return: true if @dst_cpu can pull tasks, false otherwise.
  */
@@ -9139,33 +9134,11 @@ static bool asym_smt_can_pull_tasks(int dst_cpu, struct sd_lb_stats *sds,
 				    struct sched_group *sg)
 {
 #ifdef CONFIG_SCHED_SMT
-	bool local_is_smt;
 	int sg_busy_cpus;
 
-	local_is_smt = sds->local->flags & SD_SHARE_CPUCAPACITY;
 	sg_busy_cpus = sgs->group_weight - sgs->idle_cpus;
 
-	if (!local_is_smt) {
-		/*
-		 * If we are here, @dst_cpu is idle and does not have SMT
-		 * siblings. Pull tasks if candidate group has two or more
-		 * busy CPUs.
-		 */
-		if (sg_busy_cpus >= 2) /* implies sg_is_smt */
-			return true;
-
-		/*
-		 * @dst_cpu does not have SMT siblings. @sg may have SMT
-		 * siblings and only one is busy. In such case, @dst_cpu
-		 * can help if it has higher priority and is idle (i.e.,
-		 * it has no running tasks).
-		 */
-		return sched_asym_prefer(dst_cpu, sg->asym_prefer_cpu);
-	}
-
 	/*
-	 * @dst_cpu has SMT siblings and are also idle.
-	 *
 	 * If the difference in the number of busy CPUs is two or more, let
 	 * find_busiest_group() take care of it. We only care if @sg has
 	 * exactly one busy CPU. This covers SMT and non-SMT sched groups.
