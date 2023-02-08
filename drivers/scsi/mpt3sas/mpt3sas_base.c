@@ -7922,26 +7922,20 @@ mpt3sas_base_validate_event_type(struct MPT3SAS_ADAPTER *ioc, u32 *event_type)
 }
 
 /**
- * _base_diag_reset - the "big hammer" start of day reset
+ * mpt3sas_base_unlock_and_get_host_diagnostic- enable Host Diagnostic Register writes
  * @ioc: per adapter object
+ * @host_diagnostic: host diagnostic register content
  *
  * Return: 0 for success, non-zero for failure.
  */
-static int
-_base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
+int
+mpt3sas_base_unlock_and_get_host_diagnostic(struct MPT3SAS_ADAPTER *ioc,
+	u32 *host_diagnostic)
 {
-	u32 host_diagnostic;
-	u32 ioc_state;
 	u32 count;
-	u32 hcb_size;
-
-	ioc_info(ioc, "sending diag reset !!\n");
-
-	pci_cfg_access_lock(ioc->pdev);
-
-	drsprintk(ioc, ioc_info(ioc, "clear interrupts\n"));
-
+	*host_diagnostic = 0;
 	count = 0;
+
 	do {
 		/* Write magic sequence to WriteSequence register
 		 * Loop until in diagnostic mode
@@ -7962,15 +7956,55 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 			ioc_info(ioc,
 			    "Stop writing magic sequence after 20 retries\n");
 			_base_dump_reg_set(ioc);
-			goto out;
+			return -EFAULT;
 		}
 
-		host_diagnostic = ioc->base_readl(&ioc->chip->HostDiagnostic);
+		*host_diagnostic = ioc->base_readl(&ioc->chip->HostDiagnostic);
 		drsprintk(ioc,
 			  ioc_info(ioc, "wrote magic sequence: count(%d), host_diagnostic(0x%08x)\n",
-				   count, host_diagnostic));
+				    count, *host_diagnostic));
 
-	} while ((host_diagnostic & MPI2_DIAG_DIAG_WRITE_ENABLE) == 0);
+		} while ((*host_diagnostic & MPI2_DIAG_DIAG_WRITE_ENABLE) == 0);
+		return 0;
+}
+
+/**
+ * mpt3sas_base_lock_host_diagnostic - Disable Host Diagnostic Register writes
+ * @ioc: per adapter object
+ *
+ */
+void
+mpt3sas_base_lock_host_diagnostic(struct MPT3SAS_ADAPTER *ioc)
+{
+	drsprintk(ioc, ioc_info(ioc, "disable writes to the diagnostic register\n"));
+	writel(MPI2_WRSEQ_FLUSH_KEY_VALUE, &ioc->chip->WriteSequence);
+}
+
+/**
+ * _base_diag_reset - the "big hammer" start of day reset
+ * @ioc: per adapter object
+ *
+ * Return: 0 for success, non-zero for failure.
+ */
+static int
+_base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
+{
+	u32 host_diagnostic;
+	u32 ioc_state;
+	u32 count;
+	u32 hcb_size;
+
+	ioc_info(ioc, "sending diag reset !!\n");
+
+	pci_cfg_access_lock(ioc->pdev);
+
+	drsprintk(ioc, ioc_info(ioc, "clear interrupts\n"));
+
+	mutex_lock(&ioc->hostdiag_unlock_mutex);
+	if (mpt3sas_base_unlock_and_get_host_diagnostic(ioc, &host_diagnostic)) {
+		mutex_unlock(&ioc->hostdiag_unlock_mutex);
+		goto out;
+	}
 
 	hcb_size = ioc->base_readl(&ioc->chip->HCBSize);
 
@@ -8015,10 +8049,8 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
 	drsprintk(ioc, ioc_info(ioc, "restart the adapter\n"));
 	writel(host_diagnostic & ~MPI2_DIAG_HOLD_IOC_RESET,
 	    &ioc->chip->HostDiagnostic);
-
-	drsprintk(ioc,
-		  ioc_info(ioc, "disable writes to the diagnostic register\n"));
-	writel(MPI2_WRSEQ_FLUSH_KEY_VALUE, &ioc->chip->WriteSequence);
+	mpt3sas_base_lock_host_diagnostic(ioc);
+	mutex_unlock(&ioc->hostdiag_unlock_mutex);
 
 	drsprintk(ioc, ioc_info(ioc, "Wait for FW to go to the READY state\n"));
 	ioc_state = _base_wait_on_iocstate(ioc, MPI2_IOC_STATE_READY, 20);
@@ -8036,6 +8068,7 @@ _base_diag_reset(struct MPT3SAS_ADAPTER *ioc)
  out:
 	pci_cfg_access_unlock(ioc->pdev);
 	ioc_err(ioc, "diag reset: FAILED\n");
+	mutex_unlock(&ioc->hostdiag_unlock_mutex);
 	return -EFAULT;
 }
 
