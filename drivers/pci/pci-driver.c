@@ -505,6 +505,9 @@ static void pci_device_shutdown(struct device *dev)
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct pci_driver *drv = pci_dev->driver;
 
+	if (pci_dev->no_shutdown)
+		return;
+
 	pm_runtime_resume(dev);
 
 	if (drv && drv->shutdown)
