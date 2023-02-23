@@ -640,6 +640,11 @@ int tb_drom_read(struct tb_switch *sw)
 		return 0;
 	}
 
+	/* We can use LC to get UUID later */
+	if (sw->cap_lc && !tb_switch_is_usb4(sw) &&
+	    tb_drom_copy_nvm(sw, &size) == 0)
+		goto parse;
+
 	res = tb_drom_read_n(sw, 14, (u8 *) &size, 2);
 	if (res)
 		return res;
