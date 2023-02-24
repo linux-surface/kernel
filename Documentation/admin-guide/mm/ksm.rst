@@ -157,6 +157,8 @@ stable_node_chains_prune_millisecs
 
 The effectiveness of KSM and MADV_MERGEABLE is shown in ``/sys/kernel/mm/ksm/``:
 
+general_profit
+        how effective is KSM. The calculation is explained below.
 pages_shared
         how many shared pages are being used
 pages_sharing
@@ -214,7 +216,8 @@ several times, which are unprofitable memory consumed.
 			  ksm_rmap_items * sizeof(rmap_item).
 
    where ksm_merging_pages is shown under the directory ``/proc/<pid>/``,
-   and ksm_rmap_items is shown in ``/proc/<pid>/ksm_stat``.
+   and ksm_rmap_items is shown in ``/proc/<pid>/ksm_stat``. The process profit
+   is also shown in ``/proc/<pid>/ksm_stat`` as ksm_process_profit.
 
 From the perspective of application, a high ratio of ``ksm_rmap_items`` to
 ``ksm_merging_pages`` means a bad madvise-applied policy, so developers or
@@ -224,6 +227,9 @@ separately 32B on 32-bit CPU architecture and 64B on 64-bit CPU architecture.
 so if the ``ksm_rmap_items/ksm_merging_pages`` ratio exceeds 64 on 64-bit CPU
 or exceeds 128 on 32-bit CPU, then the app's madvise policy should be dropped,
 because the ksm profit is approximately zero or negative.
+
+The ksm_merge_type in ``/proc/<pid>/ksm_stat`` shows the merge type of the
+process. Valid values are ``none``, ``madvise`` and ``process``.
 
 Monitoring KSM events
 =====================
