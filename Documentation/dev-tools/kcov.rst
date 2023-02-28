@@ -26,7 +26,7 @@ Prerequisites
 KCOV relies on compiler instrumentation and requires GCC 6.1.0 or later
 or any Clang version supported by the kernel.
 
-Collecting comparison operands is only supported with Clang.
+Collecting comparison operands is supported with GCC 8+ or with Clang.
 
 To enable KCOV, configure the kernel with::
 
