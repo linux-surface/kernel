@@ -229,7 +229,7 @@ Using KCOV to collect remote coverage requires:
 1. Modifying kernel code to annotate the code section from where coverage
    should be collected with ``kcov_remote_start`` and ``kcov_remote_stop``.
 
-2. Using `KCOV_REMOTE_ENABLE`` instead of ``KCOV_ENABLE`` in the userspace
+2. Using ``KCOV_REMOTE_ENABLE`` instead of ``KCOV_ENABLE`` in the userspace
    process that collects coverage.
 
 Both ``kcov_remote_start`` and ``kcov_remote_stop`` annotations and the
