@@ -7,6 +7,7 @@
  * Copyright (C) 2013, 2014 Linaro Ltd.
  */
 
+#include <linux/arm-smccc.h>
 #include <linux/efi.h>
 #include <linux/init.h>
 
@@ -184,6 +185,24 @@ bool efi_runtime_fixup_exception(struct pt_regs *regs, const char *msg)
 	return true;
 }
 
+static u32 efi_get_smccc_soc_version(void)
+{
+	struct arm_smccc_res res;
+
+	/* Consider SMCCCv1.2 compatible SMC conduits only */
+	if (arm_smccc_get_version() < ARM_SMCCC_VERSION_1_2 ||
+	    arm_smccc_1_1_get_conduit() != SMCCC_CONDUIT_SMC)
+		return U32_MAX;
+
+	arm_smccc_1_1_smc(ARM_SMCCC_ARCH_FEATURES_FUNC_ID,
+			  ARM_SMCCC_ARCH_SOC_ID, &res);
+	if ((int)res.a0 < 0)
+		return U32_MAX;
+
+	arm_smccc_1_1_smc(ARM_SMCCC_ARCH_SOC_ID, 0, &res);
+	return (u32)res.a0;
+}
+
 /* EFI requires 8 KiB of stack space for runtime services */
 static_assert(THREAD_SIZE >= SZ_8K);
 
@@ -203,6 +222,29 @@ l:	if (!p) {
 	}
 
 	efi_rt_stack_top = p + THREAD_SIZE;
+
+	/*
+	 * Some Ampere Altra machines get very cranky if SetVirtualAddressMap()
+	 * is not called before using EFI runtime services while running under
+	 * the OS. Fortunately, just installing the 1:1 mapping is a sufficient
+	 * workaround.
+	 *
+	 * We can identify machines that are potentially affected by matching
+	 * the Vendor ID [31:16] and Chip Family ID [3:0] in the ARM SMCCC
+	 * SOC_ID version field.
+	 */
+	switch (efi_get_smccc_soc_version() & 0xffff000f) {
+	default:
+		break;
+	case 0xa160001:	// Altra
+	case 0xa160002:	// Altra Max
+		efi_call_virt_pointer(efi.runtime, set_virtual_address_map,
+				      efi.memmap.desc_size * efi.memmap.nr_map,
+				      efi.memmap.desc_size,
+				      efi.memmap.desc_version,
+				      efi.memmap.map);
+	}
+
 	return 0;
 }
 core_initcall(arm64_efi_rt_init);
