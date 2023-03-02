@@ -98,6 +98,9 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
 {
 	const struct int3472_sensor_config *sensor_config;
 	char *path = agpio->resource_source.string_ptr;
+	const struct acpi_device_id ov7251_ids[] = {
+		{ "INT347E" },
+	};
 	struct gpiod_lookup *table_entry;
 	struct acpi_device *adev;
 	acpi_handle handle;
@@ -118,6 +121,17 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
 				break;
 			}
 		}
+	}
+
+	/*
+	 * In addition to the function remap table we need to bulk remap the
+	 * "reset" GPIO for the OmniVision 7251 sensor, as the driver for that
+	 * expects its only GPIO pin to be called "enable" (and to have the
+	 * opposite polarity).
+	 */
+	if (!strcmp(func, "reset") && !acpi_match_device_ids(int3472->sensor, ov7251_ids)) {
+		func = "enable";
+		polarity = GPIO_ACTIVE_HIGH;
 	}
 
 	/* Functions mapped to NULL should not be mapped to the sensor */
