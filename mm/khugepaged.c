@@ -1700,6 +1700,10 @@ static int retract_page_tables(struct address_space *mapping, pgoff_t pgoff,
 		result = SCAN_PTE_MAPPED_HUGEPAGE;
 		if ((cc->is_khugepaged || is_target) &&
 		    mmap_write_trylock(mm)) {
+			/* trylock for the same lock inversion as above */
+			if (!vma_try_start_write(vma))
+				goto unlock_next;
+
 			/*
 			 * Re-check whether we have an ->anon_vma, because
 			 * collapse_and_free_pmd() requires that either no
@@ -1728,7 +1732,6 @@ static int retract_page_tables(struct address_space *mapping, pgoff_t pgoff,
 				result = SCAN_PTE_UFFD_WP;
 				goto unlock_next;
 			}
-			vma_start_write(vma);
 			collapse_and_free_pmd(mm, vma, addr, pmd);
 			if (!cc->is_khugepaged && is_target)
 				result = set_huge_pmd(vma, addr, pmd, hpage);
