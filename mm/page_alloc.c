@@ -8539,9 +8539,6 @@ static int page_alloc_cpu_dead(unsigned int cpu)
 	/*
 	 * Zero the differential counters of the dead processor
 	 * so that the vm statistics are consistent.
-	 *
-	 * This is only okay since the processor is dead and cannot
-	 * race with what we are doing.
 	 */
 	cpu_vm_stats_fold(cpu);
 
