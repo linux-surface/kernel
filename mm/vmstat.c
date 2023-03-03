@@ -803,20 +803,16 @@ static int fold_diff(int *zone_diff, int *node_diff)
  *
  * The function returns the number of global counters updated.
  */
-static int refresh_cpu_vm_stats(bool do_pagesets)
+static int refresh_cpu_vm_stats(void)
 {
 	struct pglist_data *pgdat;
 	struct zone *zone;
 	int i;
 	int global_zone_diff[NR_VM_ZONE_STAT_ITEMS] = { 0, };
 	int global_node_diff[NR_VM_NODE_STAT_ITEMS] = { 0, };
-	int changes = 0;
 
 	for_each_populated_zone(zone) {
 		struct per_cpu_zonestat __percpu *pzstats = zone->per_cpu_zonestats;
-#ifdef CONFIG_NUMA
-		struct per_cpu_pages __percpu *pcp = zone->per_cpu_pageset;
-#endif
 
 		for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++) {
 			int v;
@@ -826,44 +822,8 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 
 				atomic_long_add(v, &zone->vm_stat[i]);
 				global_zone_diff[i] += v;
-#ifdef CONFIG_NUMA
-				/* 3 seconds idle till flush */
-				__this_cpu_write(pcp->expire, 3);
-#endif
 			}
 		}
-#ifdef CONFIG_NUMA
-
-		if (do_pagesets) {
-			cond_resched();
-			/*
-			 * Deal with draining the remote pageset of this
-			 * processor
-			 *
-			 * Check if there are pages remaining in this pageset
-			 * if not then there is nothing to expire.
-			 */
-			if (!__this_cpu_read(pcp->expire) ||
-			       !__this_cpu_read(pcp->count))
-				continue;
-
-			/*
-			 * We never drain zones local to this processor.
-			 */
-			if (zone_to_nid(zone) == numa_node_id()) {
-				__this_cpu_write(pcp->expire, 0);
-				continue;
-			}
-
-			if (__this_cpu_dec_return(pcp->expire))
-				continue;
-
-			if (__this_cpu_read(pcp->count)) {
-				drain_zone_pages(zone, this_cpu_ptr(pcp));
-				changes++;
-			}
-		}
-#endif
 	}
 
 	for_each_online_pgdat(pgdat) {
@@ -880,8 +840,7 @@ static int refresh_cpu_vm_stats(bool do_pagesets)
 		}
 	}
 
-	changes += fold_diff(global_zone_diff, global_node_diff);
-	return changes;
+	return fold_diff(global_zone_diff, global_node_diff);
 }
 
 /*
@@ -1873,7 +1832,7 @@ int sysctl_stat_interval __read_mostly = HZ;
 #ifdef CONFIG_PROC_FS
 static void refresh_vm_stats(struct work_struct *work)
 {
-	refresh_cpu_vm_stats(true);
+	refresh_cpu_vm_stats();
 }
 
 int vmstat_refresh(struct ctl_table *table, int write,
@@ -1882,6 +1841,8 @@ int vmstat_refresh(struct ctl_table *table, int write,
 	long val;
 	int err;
 	int i;
+
+	drain_all_pages(NULL);
 
 	/*
 	 * The regular update, every sysctl_stat_interval, may come later
@@ -1937,7 +1898,7 @@ int vmstat_refresh(struct ctl_table *table, int write,
 
 static void vmstat_update(struct work_struct *w)
 {
-	if (refresh_cpu_vm_stats(true)) {
+	if (refresh_cpu_vm_stats()) {
 		/*
 		 * Counters were updated so we expect more updates
 		 * to occur in the future. Keep on running the
@@ -2000,7 +1961,7 @@ void quiet_vmstat(void)
 	 * it would be too expensive from this path.
 	 * vmstat_shepherd will take care about that for us.
 	 */
-	refresh_cpu_vm_stats(false);
+	refresh_cpu_vm_stats();
 }
 
 /*
