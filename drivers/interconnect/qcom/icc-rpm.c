@@ -498,8 +498,7 @@ regmap_done:
 
 	if (desc->has_bus_pd) {
 		ret = dev_pm_domain_attach(dev, true);
-		if (ret)
-			return ret;
+		goto err_disable_clks;
 	}
 
 	provider = &qp->provider;
@@ -514,8 +513,7 @@ regmap_done:
 	ret = icc_provider_add(provider);
 	if (ret) {
 		dev_err(dev, "error adding interconnect provider: %d\n", ret);
-		clk_bulk_disable_unprepare(qp->num_clks, qp->bus_clks);
-		return ret;
+		goto err_disable_clks;
 	}
 
 	for (i = 0; i < num_nodes; i++) {
@@ -550,8 +548,9 @@ regmap_done:
 	return 0;
 err:
 	icc_nodes_remove(provider);
-	clk_bulk_disable_unprepare(qp->num_clks, qp->bus_clks);
 	icc_provider_del(provider);
+err_disable_clks:
+	clk_bulk_disable_unprepare(qp->num_clks, qp->bus_clks);
 
 	return ret;
 }
