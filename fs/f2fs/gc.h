@@ -58,7 +58,7 @@ struct gc_inode_list {
 struct victim_info {
 	unsigned long long mtime;	/* mtime of section */
 	unsigned int segno;		/* section No. */
-};
+} __packed;
 
 struct victim_entry {
 	struct rb_node rb_node;		/* rb node located in rb-tree */
@@ -68,7 +68,7 @@ struct victim_entry {
 			unsigned int segno;		/* segment No. */
 		};
 		struct victim_info vi;	/* victim info */
-	};
+	} __packed;
 	struct list_head list;
 };
 
