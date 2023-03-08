@@ -329,9 +329,13 @@ static void swap_inode_data(struct inode *inode1, struct inode *inode2)
 	ext4_es_remove_extent(inode1, 0, EXT_MAX_BLOCKS);
 	ext4_es_remove_extent(inode2, 0, EXT_MAX_BLOCKS);
 
-	isize = i_size_read(inode1);
-	i_size_write(inode1, i_size_read(inode2));
-	i_size_write(inode2, isize);
+	/*
+	 * Both inodes are locked, so we don't need to fool around
+	 * with i_size_read() and i_size_write().
+	 */
+	isize = inode1->i_size;
+	inode1->i_size = ei1->i_disksize = inode2->i_size;
+	inode2->i_size = ei2->i_disksize = isize;
 }
 
 void ext4_reset_inode_seed(struct inode *inode)
