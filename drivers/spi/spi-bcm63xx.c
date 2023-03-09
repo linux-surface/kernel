@@ -157,16 +157,6 @@ static inline u8 bcm_spi_readb(struct bcm63xx_spi *bs,
 	return readb(bs->regs + bs->reg_offsets[offset]);
 }
 
-static inline u16 bcm_spi_readw(struct bcm63xx_spi *bs,
-				unsigned int offset)
-{
-#ifdef CONFIG_CPU_BIG_ENDIAN
-	return ioread16be(bs->regs + bs->reg_offsets[offset]);
-#else
-	return readw(bs->regs + bs->reg_offsets[offset]);
-#endif
-}
-
 static inline void bcm_spi_writeb(struct bcm63xx_spi *bs,
 				  u8 value, unsigned int offset)
 {
@@ -615,7 +605,7 @@ out_err:
 	return ret;
 }
 
-static int bcm63xx_spi_remove(struct platform_device *pdev)
+static void bcm63xx_spi_remove(struct platform_device *pdev)
 {
 	struct spi_master *master = platform_get_drvdata(pdev);
 	struct bcm63xx_spi *bs = spi_master_get_devdata(master);
@@ -625,8 +615,6 @@ static int bcm63xx_spi_remove(struct platform_device *pdev)
 
 	/* HW shutdown */
 	clk_disable_unprepare(bs->clk);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -670,7 +658,7 @@ static struct platform_driver bcm63xx_spi_driver = {
 	},
 	.id_table	= bcm63xx_spi_dev_match,
 	.probe		= bcm63xx_spi_probe,
-	.remove		= bcm63xx_spi_remove,
+	.remove_new	= bcm63xx_spi_remove,
 };
 
 module_platform_driver(bcm63xx_spi_driver);

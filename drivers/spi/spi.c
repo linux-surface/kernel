@@ -117,24 +117,28 @@ static struct spi_statistics __percpu *spi_alloc_pcpu_stats(struct device *dev)
 	return pcpu_stats;
 }
 
-#define spi_pcpu_stats_totalize(ret, in, field)				\
-do {									\
-	int i;								\
-	ret = 0;							\
-	for_each_possible_cpu(i) {					\
-		const struct spi_statistics *pcpu_stats;		\
-		u64 inc;						\
-		unsigned int start;					\
-		pcpu_stats = per_cpu_ptr(in, i);			\
-		do {							\
-			start = u64_stats_fetch_begin(		\
-					&pcpu_stats->syncp);		\
-			inc = u64_stats_read(&pcpu_stats->field);	\
-		} while (u64_stats_fetch_retry(			\
-					&pcpu_stats->syncp, start));	\
-		ret += inc;						\
-	}								\
-} while (0)
+static ssize_t spi_emit_pcpu_stats(struct spi_statistics __percpu *stat,
+				   char *buf, size_t offset)
+{
+	u64 val = 0;
+	int i;
+
+	for_each_possible_cpu(i) {
+		const struct spi_statistics *pcpu_stats;
+		u64_stats_t *field;
+		unsigned int start;
+		u64 inc;
+
+		pcpu_stats = per_cpu_ptr(stat, i);
+		field = (void *)pcpu_stats + offset;
+		do {
+			start = u64_stats_fetch_begin(&pcpu_stats->syncp);
+			inc = u64_stats_read(field);
+		} while (u64_stats_fetch_retry(&pcpu_stats->syncp, start));
+		val += inc;
+	}
+	return sysfs_emit(buf, "%llu\n", val);
+}
 
 #define SPI_STATISTICS_ATTRS(field, file)				\
 static ssize_t spi_controller_##field##_show(struct device *dev,	\
@@ -165,11 +169,8 @@ static struct device_attribute dev_attr_spi_device_##field = {		\
 static ssize_t spi_statistics_##name##_show(struct spi_statistics __percpu *stat, \
 					    char *buf)			\
 {									\
-	ssize_t len;							\
-	u64 val;							\
-	spi_pcpu_stats_totalize(val, stat, field);			\
-	len = sysfs_emit(buf, "%llu\n", val);				\
-	return len;							\
+	return spi_emit_pcpu_stats(stat, buf,				\
+			offsetof(struct spi_statistics, field));	\
 }									\
 SPI_STATISTICS_ATTRS(name, file)
 
@@ -2367,8 +2368,8 @@ of_register_spi_device(struct spi_controller *ctlr, struct device_node *nc)
 
 	/* Store a pointer to the node in the device structure */
 	of_node_get(nc);
-	spi->dev.of_node = nc;
-	spi->dev.fwnode = of_fwnode_handle(nc);
+
+	device_set_node(&spi->dev, of_fwnode_handle(nc));
 
 	/* Register the new device */
 	rc = spi_add_device(spi);
@@ -3075,7 +3076,7 @@ static int spi_controller_check_ops(struct spi_controller *ctlr)
 	 * If ->mem_ops or ->mem_ops->exec_op is NULL, we request that at least
 	 * one of the ->transfer_xxx() method be implemented.
 	 */
-	if (!ctlr->mem_ops || (ctlr->mem_ops && !ctlr->mem_ops->exec_op)) {
+	if (!ctlr->mem_ops || !ctlr->mem_ops->exec_op) {
 		if (!ctlr->transfer && !ctlr->transfer_one &&
 		   !ctlr->transfer_one_message) {
 			return -EINVAL;
