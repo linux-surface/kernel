@@ -120,7 +120,7 @@ debian-orig: linux.tar.gz debian
 PHONY += deb-pkg
 deb-pkg: debian-orig
 	+dpkg-buildpackage -r$(KBUILD_PKG_ROOTCMD) -a$$(cat debian/arch) $(DPKG_FLAGS) \
-		--build=source,binary -nc -us -uc
+		-nc -us -uc
 
 PHONY += bindeb-pkg
 bindeb-pkg: debian
