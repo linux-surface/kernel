@@ -23,6 +23,7 @@
 #define DISP_REG_MUTEX(n)			(0x24 + 0x20 * (n))
 #define DISP_REG_MUTEX_RST(n)			(0x28 + 0x20 * (n))
 #define DISP_REG_MUTEX_MOD(mutex_mod_reg, n)	(mutex_mod_reg + 0x20 * (n))
+#define DISP_REG_MUTEX_MOD1(mutex_mod_reg, n)	((mutex_mod_reg) + 0x20 * (n) + 0x4)
 #define DISP_REG_MUTEX_SOF(mutex_sof_reg, n)	(mutex_sof_reg + 0x20 * (n))
 #define DISP_REG_MUTEX_MOD2(n)			(0x34 + 0x20 * (n))
 
@@ -162,6 +163,53 @@
 #define MT8195_MUTEX_MOD_DISP1_DPI0		25
 #define MT8195_MUTEX_MOD_DISP1_DPI1		26
 #define MT8195_MUTEX_MOD_DISP1_DP_INTF0		27
+
+/* VPPSYS0 */
+#define MT8195_MUTEX_MOD_MDP_RDMA0             0
+#define MT8195_MUTEX_MOD_MDP_FG0               1
+#define MT8195_MUTEX_MOD_MDP_STITCH0           2
+#define MT8195_MUTEX_MOD_MDP_HDR0              3
+#define MT8195_MUTEX_MOD_MDP_AAL0              4
+#define MT8195_MUTEX_MOD_MDP_RSZ0              5
+#define MT8195_MUTEX_MOD_MDP_TDSHP0            6
+#define MT8195_MUTEX_MOD_MDP_COLOR0            7
+#define MT8195_MUTEX_MOD_MDP_OVL0              8
+#define MT8195_MUTEX_MOD_MDP_PAD0              9
+#define MT8195_MUTEX_MOD_MDP_TCC0              10
+#define MT8195_MUTEX_MOD_MDP_WROT0             11
+
+/* VPPSYS1 */
+#define MT8195_MUTEX_MOD_MDP_TCC1              3
+#define MT8195_MUTEX_MOD_MDP_RDMA1             4
+#define MT8195_MUTEX_MOD_MDP_RDMA2             5
+#define MT8195_MUTEX_MOD_MDP_RDMA3             6
+#define MT8195_MUTEX_MOD_MDP_FG1               7
+#define MT8195_MUTEX_MOD_MDP_FG2               8
+#define MT8195_MUTEX_MOD_MDP_FG3               9
+#define MT8195_MUTEX_MOD_MDP_HDR1              10
+#define MT8195_MUTEX_MOD_MDP_HDR2              11
+#define MT8195_MUTEX_MOD_MDP_HDR3              12
+#define MT8195_MUTEX_MOD_MDP_AAL1              13
+#define MT8195_MUTEX_MOD_MDP_AAL2              14
+#define MT8195_MUTEX_MOD_MDP_AAL3              15
+#define MT8195_MUTEX_MOD_MDP_RSZ1              16
+#define MT8195_MUTEX_MOD_MDP_RSZ2              17
+#define MT8195_MUTEX_MOD_MDP_RSZ3              18
+#define MT8195_MUTEX_MOD_MDP_TDSHP1            19
+#define MT8195_MUTEX_MOD_MDP_TDSHP2            20
+#define MT8195_MUTEX_MOD_MDP_TDSHP3            21
+#define MT8195_MUTEX_MOD_MDP_MERGE2            22
+#define MT8195_MUTEX_MOD_MDP_MERGE3            23
+#define MT8195_MUTEX_MOD_MDP_COLOR1            24
+#define MT8195_MUTEX_MOD_MDP_COLOR2            25
+#define MT8195_MUTEX_MOD_MDP_COLOR3            26
+#define MT8195_MUTEX_MOD_MDP_OVL1              27
+#define MT8195_MUTEX_MOD_MDP_PAD1              28
+#define MT8195_MUTEX_MOD_MDP_PAD2              29
+#define MT8195_MUTEX_MOD_MDP_PAD3              30
+#define MT8195_MUTEX_MOD_MDP_WROT1             31
+#define MT8195_MUTEX_MOD_MDP_WROT2             32
+#define MT8195_MUTEX_MOD_MDP_WROT3             33
 
 #define MT8365_MUTEX_MOD_DISP_OVL0		7
 #define MT8365_MUTEX_MOD_DISP_OVL0_2L		8
@@ -443,6 +491,52 @@ static const unsigned int mt8195_mutex_mod[DDP_COMPONENT_ID_MAX] = {
 	[DDP_COMPONENT_DP_INTF1] = MT8195_MUTEX_MOD_DISP1_DP_INTF0,
 };
 
+static const unsigned int mt8195_mutex_table_mod[MUTEX_MOD_IDX_MAX] = {
+	[MUTEX_MOD_IDX_MDP_RDMA0] = MT8195_MUTEX_MOD_MDP_RDMA0,
+	[MUTEX_MOD_IDX_MDP_RDMA1] = MT8195_MUTEX_MOD_MDP_RDMA1,
+	[MUTEX_MOD_IDX_MDP_RDMA2] = MT8195_MUTEX_MOD_MDP_RDMA2,
+	[MUTEX_MOD_IDX_MDP_RDMA3] = MT8195_MUTEX_MOD_MDP_RDMA3,
+	[MUTEX_MOD_IDX_MDP_STITCH0] = MT8195_MUTEX_MOD_MDP_STITCH0,
+	[MUTEX_MOD_IDX_MDP_FG0] = MT8195_MUTEX_MOD_MDP_FG0,
+	[MUTEX_MOD_IDX_MDP_FG1] = MT8195_MUTEX_MOD_MDP_FG1,
+	[MUTEX_MOD_IDX_MDP_FG2] = MT8195_MUTEX_MOD_MDP_FG2,
+	[MUTEX_MOD_IDX_MDP_FG3] = MT8195_MUTEX_MOD_MDP_FG3,
+	[MUTEX_MOD_IDX_MDP_HDR0] = MT8195_MUTEX_MOD_MDP_HDR0,
+	[MUTEX_MOD_IDX_MDP_HDR1] = MT8195_MUTEX_MOD_MDP_HDR1,
+	[MUTEX_MOD_IDX_MDP_HDR2] = MT8195_MUTEX_MOD_MDP_HDR2,
+	[MUTEX_MOD_IDX_MDP_HDR3] = MT8195_MUTEX_MOD_MDP_HDR3,
+	[MUTEX_MOD_IDX_MDP_AAL0] = MT8195_MUTEX_MOD_MDP_AAL0,
+	[MUTEX_MOD_IDX_MDP_AAL1] = MT8195_MUTEX_MOD_MDP_AAL1,
+	[MUTEX_MOD_IDX_MDP_AAL2] = MT8195_MUTEX_MOD_MDP_AAL2,
+	[MUTEX_MOD_IDX_MDP_AAL3] = MT8195_MUTEX_MOD_MDP_AAL3,
+	[MUTEX_MOD_IDX_MDP_RSZ0] = MT8195_MUTEX_MOD_MDP_RSZ0,
+	[MUTEX_MOD_IDX_MDP_RSZ1] = MT8195_MUTEX_MOD_MDP_RSZ1,
+	[MUTEX_MOD_IDX_MDP_RSZ2] = MT8195_MUTEX_MOD_MDP_RSZ2,
+	[MUTEX_MOD_IDX_MDP_RSZ3] = MT8195_MUTEX_MOD_MDP_RSZ3,
+	[MUTEX_MOD_IDX_MDP_MERGE2] = MT8195_MUTEX_MOD_MDP_MERGE2,
+	[MUTEX_MOD_IDX_MDP_MERGE3] = MT8195_MUTEX_MOD_MDP_MERGE3,
+	[MUTEX_MOD_IDX_MDP_TDSHP0] = MT8195_MUTEX_MOD_MDP_TDSHP0,
+	[MUTEX_MOD_IDX_MDP_TDSHP1] = MT8195_MUTEX_MOD_MDP_TDSHP1,
+	[MUTEX_MOD_IDX_MDP_TDSHP2] = MT8195_MUTEX_MOD_MDP_TDSHP2,
+	[MUTEX_MOD_IDX_MDP_TDSHP3] = MT8195_MUTEX_MOD_MDP_TDSHP3,
+	[MUTEX_MOD_IDX_MDP_COLOR0] = MT8195_MUTEX_MOD_MDP_COLOR0,
+	[MUTEX_MOD_IDX_MDP_COLOR1] = MT8195_MUTEX_MOD_MDP_COLOR1,
+	[MUTEX_MOD_IDX_MDP_COLOR2] = MT8195_MUTEX_MOD_MDP_COLOR2,
+	[MUTEX_MOD_IDX_MDP_COLOR3] = MT8195_MUTEX_MOD_MDP_COLOR3,
+	[MUTEX_MOD_IDX_MDP_OVL0] = MT8195_MUTEX_MOD_MDP_OVL0,
+	[MUTEX_MOD_IDX_MDP_OVL1] = MT8195_MUTEX_MOD_MDP_OVL1,
+	[MUTEX_MOD_IDX_MDP_PAD0] = MT8195_MUTEX_MOD_MDP_PAD0,
+	[MUTEX_MOD_IDX_MDP_PAD1] = MT8195_MUTEX_MOD_MDP_PAD1,
+	[MUTEX_MOD_IDX_MDP_PAD2] = MT8195_MUTEX_MOD_MDP_PAD2,
+	[MUTEX_MOD_IDX_MDP_PAD3] = MT8195_MUTEX_MOD_MDP_PAD3,
+	[MUTEX_MOD_IDX_MDP_TCC0] = MT8195_MUTEX_MOD_MDP_TCC0,
+	[MUTEX_MOD_IDX_MDP_TCC1] = MT8195_MUTEX_MOD_MDP_TCC1,
+	[MUTEX_MOD_IDX_MDP_WROT0] = MT8195_MUTEX_MOD_MDP_WROT0,
+	[MUTEX_MOD_IDX_MDP_WROT1] = MT8195_MUTEX_MOD_MDP_WROT1,
+	[MUTEX_MOD_IDX_MDP_WROT2] = MT8195_MUTEX_MOD_MDP_WROT2,
+	[MUTEX_MOD_IDX_MDP_WROT3] = MT8195_MUTEX_MOD_MDP_WROT3,
+};
+
 static const unsigned int mt8365_mutex_mod[DDP_COMPONENT_ID_MAX] = {
 	[DDP_COMPONENT_AAL0] = MT8365_MUTEX_MOD_DISP_AAL,
 	[DDP_COMPONENT_CCORR] = MT8365_MUTEX_MOD_DISP_CCORR,
@@ -601,6 +695,13 @@ static const struct mtk_mutex_data mt8195_mutex_driver_data = {
 	.mutex_sof = mt8195_mutex_sof,
 	.mutex_mod_reg = MT8183_MUTEX0_MOD0,
 	.mutex_sof_reg = MT8183_MUTEX0_SOF0,
+};
+
+static const struct mtk_mutex_data mt8195_vpp_mutex_driver_data = {
+	.mutex_sof = mt8195_mutex_sof,
+	.mutex_mod_reg = MT8183_MUTEX0_MOD0,
+	.mutex_sof_reg = MT8183_MUTEX0_SOF0,
+	.mutex_table_mod = mt8195_mutex_table_mod,
 };
 
 static const struct mtk_mutex_data mt8365_mutex_driver_data = {
@@ -828,7 +929,7 @@ int mtk_mutex_write_mod(struct mtk_mutex *mutex,
 	struct mtk_mutex_ctx *mtx = container_of(mutex, struct mtk_mutex_ctx,
 						 mutex[mutex->id]);
 	unsigned int reg;
-	unsigned int offset;
+	u32 reg_offset, id_offset = 0;
 
 	WARN_ON(&mtx->mutex[mutex->id] != mutex);
 
@@ -838,16 +939,34 @@ int mtk_mutex_write_mod(struct mtk_mutex *mutex,
 		return -EINVAL;
 	}
 
-	offset = DISP_REG_MUTEX_MOD(mtx->data->mutex_mod_reg,
-				    mutex->id);
-	reg = readl_relaxed(mtx->regs + offset);
+	/*
+	 * Some SoCs may have multiple MUTEX_MOD registers as more than 32 mods
+	 * are present, hence requiring multiple 32-bits registers.
+	 *
+	 * The mutex_table_mod fully represents that by defining the number of
+	 * the mod sequentially, later used as a bit number, which can be more
+	 * than 0..31.
+	 *
+	 * In order to retain compatibility with older SoCs, we perform R/W on
+	 * the single 32 bits registers, but this requires us to translate the
+	 * mutex ID bit accordingly.
+	 */
+	if (mtx->data->mutex_table_mod[idx] < 32) {
+		reg_offset = DISP_REG_MUTEX_MOD(mtx->data->mutex_mod_reg,
+						mutex->id);
+	} else {
+		reg_offset = DISP_REG_MUTEX_MOD1(mtx->data->mutex_mod_reg,
+						 mutex->id);
+		id_offset = 32;
+	}
 
+	reg = readl_relaxed(mtx->regs + reg_offset);
 	if (clear)
-		reg &= ~BIT(mtx->data->mutex_table_mod[idx]);
+		reg &= ~BIT(mtx->data->mutex_table_mod[idx] - id_offset);
 	else
-		reg |= BIT(mtx->data->mutex_table_mod[idx]);
+		reg |= BIT(mtx->data->mutex_table_mod[idx] - id_offset);
 
-	writel_relaxed(reg, mtx->regs + offset);
+	writel_relaxed(reg, mtx->regs + reg_offset);
 
 	return 0;
 }
@@ -943,6 +1062,8 @@ static const struct of_device_id mutex_driver_dt_match[] = {
 	  .data = &mt8192_mutex_driver_data},
 	{ .compatible = "mediatek,mt8195-disp-mutex",
 	  .data = &mt8195_mutex_driver_data},
+	{ .compatible = "mediatek,mt8195-vpp-mutex",
+	  .data = &mt8195_vpp_mutex_driver_data},
 	{ .compatible = "mediatek,mt8365-disp-mutex",
 	  .data = &mt8365_mutex_driver_data},
 	{},
