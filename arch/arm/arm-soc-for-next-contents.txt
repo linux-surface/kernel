@@ -1,0 +1,68 @@
+arm/soc
+
+soc/dt
+
+soc/drivers
+	renesas/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v6.3-tag1
+	drivers/scmi
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-6.3
+	drivers/memory
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-6.3-2
+	riscv/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-soc-for-v6.3-mw0
+	renesas/drivers-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v6.3-tag2
+	sunxi/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-drivers-for-6.3-1
+	broadcom/drivers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.3/drivers
+	imx/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-drivers-6.3
+	amlogic/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-drivers-for-v6.3
+	patch
+		soc: sunxi: select CONFIG_PM
+		soc: nuvoton: Add SoC info driver for WPCM450
+	xilinx/soc
+		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc-for-v6.3
+	mediatek/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.2-next-soc
+	samsung/drivers-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-drivers-6.3-2
+		contains samsung/bindings
+	apple/rtkit-pmgr
+		https://github.com/AsahiLinux/linux tags/asahi-soc-rtkit-pmgr-6.3
+	patch
+		memory: renesas-rpc-if: Remove redundant division of dummy
+		soc: sunxi: SUN20I_PPU should depend on PM
+	qcom/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.3
+	qcom/drivers-3
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.3-2
+	patch
+		soc: apple: rtkit: Do not copy the reg state structure to the stack
+	qcom/drivers-4
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.3-3
+
+arm/defconfig
+
+arm/late
+
+arm/fixes
+	<no branch> (88941ddefc2a2b676135251682376b3163b4e672)
+		git://git.kernel.org/pub/scm/linux/kernel/git/brgl/linux tags/davinci-fixes-for-v6.2
+	patch
+		arm64: defconfig: Fix unintentional disablement of PCI on i.MX
+		arm64: defconfig: Add IOSCHED_BFQ to the default configs
+		ARM: dts: aspeed: p10bmc: Update battery node name
+		ARM: dts: spear320-hmi: correct STMPE GPIO compatible
+	<no branch> (a3583e92d188ec6c58c7f603ac5e72dd8a11c21a)
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-fixes-6.3
+
+arm/boardfile-remove
+
+arm/dt
+
+soc/defconfig
+
