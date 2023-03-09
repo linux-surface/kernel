@@ -126,8 +126,6 @@ static const struct resource_caps res_cap_dcn303 = {
 
 static const struct dc_plane_cap plane_cap = {
 		.type = DC_PLANE_TYPE_DCN_UNIVERSAL,
-		.blends_with_above = true,
-		.blends_with_below = true,
 		.per_pixel_alpha = true,
 		.pixel_format_support = {
 				.argb8888 = true,
@@ -1163,7 +1161,6 @@ static bool dcn303_resource_construct(
 	dc->caps.max_cursor_size = 256;
 	dc->caps.min_horizontal_blanking_period = 80;
 	dc->caps.dmdata_alloc_size = 2048;
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	dc->caps.mall_size_per_mem_channel = 4;
 	/* total size = mall per channel * num channels * 1024 * 1024 */
 	dc->caps.mall_size_total = dc->caps.mall_size_per_mem_channel *
@@ -1171,7 +1168,6 @@ static bool dcn303_resource_construct(
 				   1024 * 1024;
 	dc->caps.cursor_cache_size =
 		dc->caps.max_cursor_size * dc->caps.max_cursor_size * 8;
-#endif
 	dc->caps.max_slave_planes = 1;
 	dc->caps.post_blend_color_processing = true;
 	dc->caps.force_dp_tps4_for_cp2520 = true;

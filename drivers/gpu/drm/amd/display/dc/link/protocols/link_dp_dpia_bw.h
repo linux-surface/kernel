@@ -25,7 +25,7 @@
 
 #ifndef DC_INC_LINK_DP_DPIA_BW_H_
 #define DC_INC_LINK_DP_DPIA_BW_H_
-
+#include "link.h"
 /*
  * Host Router BW type
  */
@@ -42,6 +42,42 @@ enum bw_type {
  *
  * return: SUCCESS or FAILURE
  */
-bool set_dptx_usb4_bw_alloc_support(struct dc_link *link);
+bool link_dp_dpia_set_dptx_usb4_bw_alloc_support(struct dc_link *link);
+
+/*
+ * Allocates only what the stream needs for bw, so if:
+ * If (stream_req_bw < or > already_allocated_bw_at_HPD)
+ * => Deallocate Max Bw & then allocate only what the stream needs
+ *
+ * @link: pointer to the dc_link struct instance
+ * @req_bw: Bw requested by the stream
+ *
+ * return: allocated bw else return 0
+ */
+int link_dp_dpia_allocate_usb4_bandwidth_for_stream(struct dc_link *link, int req_bw);
+
+/*
+ * Handle the USB4 BW Allocation related functionality here:
+ * Plug => Try to allocate max bw from timing parameters supported by the sink
+ * Unplug => de-allocate bw
+ *
+ * @link: pointer to the dc_link struct instance
+ * @peak_bw: Peak bw used by the link/sink
+ *
+ * return: allocated bw else return 0
+ */
+int dpia_handle_usb4_bandwidth_allocation_for_link(struct dc_link *link, int peak_bw);
+
+/*
+ * Handle function for when the status of the Request above is complete.
+ * We will find out the result of allocating on CM and update structs.
+ *
+ * @link: pointer to the dc_link struct instance
+ * @bw: Allocated or Estimated BW depending on the result
+ * @result: Response type
+ *
+ * return: none
+ */
+void dpia_handle_bw_alloc_response(struct dc_link *link, uint8_t bw, uint8_t result);
 
 #endif /* DC_INC_LINK_DP_DPIA_BW_H_ */

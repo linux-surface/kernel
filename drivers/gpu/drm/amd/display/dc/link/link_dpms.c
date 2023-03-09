@@ -46,6 +46,7 @@
 #include "protocols/link_dp_capability.h"
 #include "protocols/link_dp_training.h"
 #include "protocols/link_edp_panel_control.h"
+#include "protocols/link_dp_dpia_bw.h"
 
 #include "dm_helpers.h"
 #include "link_enc_cfg.h"
@@ -136,7 +137,7 @@ void link_blank_dp_stream(struct dc_link *link, bool hw_init)
 		}
 
 		if ((!link->wa_flags.dp_keep_receiver_powered) || hw_init)
-			dc_link_dp_receiver_power_ctrl(link, false);
+			dpcd_write_rx_power_ctrl(link, false);
 	}
 }
 
@@ -646,7 +647,6 @@ static void write_i2c_redriver_setting(
 	if (!i2c_success)
 		DC_LOG_DEBUG("Set redriver failed");
 }
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 
 static void update_psp_stream_config(struct pipe_ctx *pipe_ctx, bool dpms_off)
 {
@@ -712,7 +712,6 @@ static void update_psp_stream_config(struct pipe_ctx *pipe_ctx, bool dpms_off)
 
 	cp_psp->funcs.update_stream_config(cp_psp->handle, &config);
 }
-#endif
 
 static void set_avmute(struct pipe_ctx *pipe_ctx, bool enable)
 {
@@ -1001,7 +1000,7 @@ static void enable_stream_features(struct pipe_ctx *pipe_ctx)
 	}
 }
 
-static void dc_log_vcp_x_y(const struct dc_link *link, struct fixed31_32 avg_time_slots_per_mtp)
+static void log_vcp_x_y(const struct dc_link *link, struct fixed31_32 avg_time_slots_per_mtp)
 {
 	const uint32_t VCP_Y_PRECISION = 1000;
 	uint64_t vcp_x, vcp_y;
@@ -1153,7 +1152,7 @@ static bool poll_for_allocation_change_trigger(struct dc_link *link)
 			break;
 		}
 
-		msleep(5);
+		fsleep(5000);
 	}
 
 	if (result == ACT_FAILED) {
@@ -1517,7 +1516,7 @@ static enum dc_status allocate_mst_payload(struct pipe_ctx *pipe_ctx)
 	pbn = get_pbn_from_timing(pipe_ctx);
 	avg_time_slots_per_mtp = dc_fixpt_div(pbn, pbn_per_slot);
 
-	dc_log_vcp_x_y(link, avg_time_slots_per_mtp);
+	log_vcp_x_y(link, avg_time_slots_per_mtp);
 
 	if (link_hwss->ext.set_throttled_vcp_size)
 		link_hwss->ext.set_throttled_vcp_size(pipe_ctx, avg_time_slots_per_mtp);
@@ -1640,7 +1639,7 @@ static bool write_128b_132b_sst_payload_allocation_table(
 			}
 		}
 		retries++;
-		msleep(5);
+		fsleep(5000);
 	}
 
 	if (!result && retries == max_retries) {
@@ -1670,7 +1669,7 @@ static enum dc_status update_sst_payload(struct pipe_ctx *pipe_ctx,
 	if (!allocate) {
 		avg_time_slots_per_mtp = dc_fixpt_from_int(0);
 
-		dc_log_vcp_x_y(link, avg_time_slots_per_mtp);
+		log_vcp_x_y(link, avg_time_slots_per_mtp);
 
 		if (link_hwss->ext.set_throttled_vcp_size)
 			link_hwss->ext.set_throttled_vcp_size(pipe_ctx,
@@ -1721,7 +1720,7 @@ static enum dc_status update_sst_payload(struct pipe_ctx *pipe_ctx,
 			DP_128b_132b_ENCODING) {
 		avg_time_slots_per_mtp = link_calculate_sst_avg_time_slots_per_mtp(stream, link);
 
-		dc_log_vcp_x_y(link, avg_time_slots_per_mtp);
+		log_vcp_x_y(link, avg_time_slots_per_mtp);
 
 		if (link_hwss->ext.set_throttled_vcp_size)
 			link_hwss->ext.set_throttled_vcp_size(pipe_ctx,
@@ -2044,11 +2043,17 @@ static enum dc_status enable_link_dp(struct dc_state *state,
 		}
 	}
 
-	/* Train with fallback when enabling DPIA link. Conventional links are
+	/*
+	 * If the link is DP-over-USB4 do the following:
+	 * - Train with fallback when enabling DPIA link. Conventional links are
 	 * trained with fallback during sink detection.
+	 * - Allocate only what the stream needs for bw in Gbps. Inform the CM
+	 * in case stream needs more or less bw from what has been allocated
+	 * earlier at plug time.
 	 */
-	if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA)
+	if (link->ep_type == DISPLAY_ENDPOINT_USB4_DPIA) {
 		do_fallback = true;
+	}
 
 	/*
 	 * Temporary w/a to get DP2.0 link rates to work with SST.
@@ -2262,9 +2267,7 @@ void link_set_dpms_off(struct pipe_ctx *pipe_ctx)
 
 	dc->hwss.disable_audio_stream(pipe_ctx);
 
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 	update_psp_stream_config(pipe_ctx, true);
-#endif
 	dc->hwss.blank_stream(pipe_ctx);
 
 	if (pipe_ctx->stream->signal == SIGNAL_TYPE_DISPLAY_PORT_MST)
@@ -2410,9 +2413,7 @@ void link_set_dpms_on(
 				dc->hwss.enable_audio_stream(pipe_ctx);
 			}
 
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 			update_psp_stream_config(pipe_ctx, false);
-#endif
 			return;
 		}
 
@@ -2422,9 +2423,7 @@ void link_set_dpms_on(
 					!pipe_ctx->stream->timing.flags.DSC &&
 					!pipe_ctx->next_odm_pipe) {
 			pipe_ctx->stream->dpms_off = false;
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 			update_psp_stream_config(pipe_ctx, false);
-#endif
 			return;
 		}
 
@@ -2508,9 +2507,7 @@ void link_set_dpms_on(
 
 		if (dc_is_dp_signal(pipe_ctx->stream->signal))
 			enable_stream_features(pipe_ctx);
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 		update_psp_stream_config(pipe_ctx, false);
-#endif
 
 		dc->hwss.enable_audio_stream(pipe_ctx);
 

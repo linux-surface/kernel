@@ -27,7 +27,17 @@
  * This file owns the creation/destruction of link structure.
  */
 #include "link_factory.h"
+#include "link_detection.h"
+#include "accessories/link_dp_cts.h"
+#include "accessories/link_dp_trace.h"
+#include "accessories/link_fpga.h"
 #include "protocols/link_ddc.h"
+#include "protocols/link_dp_capability.h"
+#include "protocols/link_dp_dpia_bw.h"
+#include "protocols/link_dp_dpia.h"
+#include "protocols/link_dp_irq_handler.h"
+#include "protocols/link_dp_phy.h"
+#include "protocols/link_dp_training.h"
 #include "protocols/link_edp_panel_control.h"
 #include "protocols/link_hpd.h"
 #include "gpio_service_interface.h"
@@ -38,6 +48,68 @@
 #define LINK_INFO(...) \
 	DC_LOG_HW_HOTPLUG(  \
 		__VA_ARGS__)
+
+static struct link_service link_srv = {
+	/* Detection */
+	.add_remote_sink = link_add_remote_sink,
+	.remove_remote_sink = link_remove_remote_sink,
+	.get_hpd_state = link_get_hpd_state,
+	.enable_hpd = link_enable_hpd,
+	.disable_hpd = link_disable_hpd,
+	.enable_hpd_filter = link_enable_hpd_filter,
+
+	/* DDC */
+	.aux_transfer_raw = link_aux_transfer_raw,
+
+	/* DP Capability */
+	.dp_is_sink_present = dp_is_sink_present,
+	.dp_is_fec_supported = dp_is_fec_supported,
+	.dp_get_max_link_enc_cap = dp_get_max_link_enc_cap,
+	.dp_get_verified_link_cap = dp_get_verified_link_cap,
+	.dp_should_enable_fec = dp_should_enable_fec,
+	.mst_decide_link_encoding_format = mst_decide_link_encoding_format,
+	.edp_decide_link_settings = edp_decide_link_settings,
+	.bw_kbps_from_raw_frl_link_rate_data = link_bw_kbps_from_raw_frl_link_rate_data,
+	.dp_overwrite_extended_receiver_cap = dp_overwrite_extended_receiver_cap,
+	.dp_decide_lttpr_mode = dp_decide_lttpr_mode,
+
+	/* DP DPIA/PHY */
+	.dpia_handle_usb4_bandwidth_allocation_for_link = dpia_handle_usb4_bandwidth_allocation_for_link,
+	.dpia_handle_bw_alloc_response = dpia_handle_bw_alloc_response,
+	/* DP IRQ Handler */
+	.dp_parse_link_loss_status = dp_parse_link_loss_status,
+	.dp_should_allow_hpd_rx_irq = dp_should_allow_hpd_rx_irq,
+	.dp_handle_link_loss = dp_handle_link_loss,
+	.dp_read_hpd_rx_irq_data = dp_read_hpd_rx_irq_data,
+	.dp_handle_hpd_rx_irq = dp_handle_hpd_rx_irq,
+	.dpcd_write_rx_power_ctrl = dpcd_write_rx_power_ctrl,
+
+	/* eDP Panel Control */
+	.edp_panel_backlight_power_on = edp_panel_backlight_power_on,
+	.edp_get_backlight_level = edp_get_backlight_level,
+	.edp_get_backlight_level_nits = edp_get_backlight_level_nits,
+	.edp_set_backlight_level = edp_set_backlight_level,
+	.edp_set_backlight_level_nits = edp_set_backlight_level_nits,
+	.edp_get_target_backlight_pwm = edp_get_target_backlight_pwm,
+	.edp_get_psr_state = edp_get_psr_state,
+	.edp_set_psr_allow_active = edp_set_psr_allow_active,
+	.edp_setup_psr = edp_setup_psr,
+	.edp_wait_for_t12 = edp_wait_for_t12,
+
+	/* DP CTS */
+	.dp_handle_automated_test = dp_handle_automated_test,
+	.dp_set_test_pattern = dp_set_test_pattern,
+	.dp_set_preferred_link_settings = dp_set_preferred_link_settings,
+	.dp_set_preferred_training_settings = dp_set_preferred_training_settings,
+
+	/* DP Trace */
+	.dp_trace_is_initialized = dp_trace_is_initialized,
+	.dp_trace_set_is_logged_flag = dp_trace_set_is_logged_flag,
+	.dp_trace_is_logged = dp_trace_is_logged,
+	.dp_trace_get_lt_end_timestamp = dp_trace_get_lt_end_timestamp,
+	.dp_trace_get_lt_counts = dp_trace_get_lt_counts,
+	.dp_trace_get_link_loss_count = dp_trace_get_link_loss_count,
+};
 
 static enum transmitter translate_encoder_to_transmitter(struct graphics_object_id encoder)
 {
@@ -181,7 +253,7 @@ static enum channel_id get_ddc_line(struct dc_link *link)
 	return channel;
 }
 
-static bool dc_link_construct_phy(struct dc_link *link,
+static bool construct_phy(struct dc_link *link,
 			      const struct link_init_data *init_params)
 {
 	uint8_t i;
@@ -473,7 +545,7 @@ create_fail:
 	return false;
 }
 
-static bool dc_link_construct_dpia(struct dc_link *link,
+static bool construct_dpia(struct dc_link *link,
 			      const struct link_init_data *init_params)
 {
 	struct ddc_service_init_data ddc_service_init_data = { 0 };
@@ -543,9 +615,9 @@ static bool link_construct(struct dc_link *link,
 {
 	/* Handle dpia case */
 	if (init_params->is_dpia_link == true)
-		return dc_link_construct_dpia(link, init_params);
+		return construct_dpia(link, init_params);
 	else
-		return dc_link_construct_phy(link, init_params);
+		return construct_phy(link, init_params);
 }
 
 struct dc_link *link_create(const struct link_init_data *init_params)
@@ -575,3 +647,7 @@ void link_destroy(struct dc_link **link)
 	*link = NULL;
 }
 
+const struct link_service *link_get_link_service(void)
+{
+	return &link_srv;
+}
