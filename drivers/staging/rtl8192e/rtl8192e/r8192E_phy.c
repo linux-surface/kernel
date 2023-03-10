@@ -12,7 +12,7 @@
 #include "r8192E_phy.h"
 #include "rtl_dm.h"
 
-#include "r8192E_hwimg.h"
+#include "table.h"
 
 static u32 RF_CHANNEL_TABLE_ZEBRA[] = {
 	0,
@@ -52,9 +52,7 @@ u8 rtl92e_is_legal_rf_path(struct net_device *dev, u32 eRFPath)
 	u8 ret = 1;
 	struct r8192_priv *priv = rtllib_priv(dev);
 
-	if (priv->rf_type == RF_2T4R)
-		ret = 0;
-	else if (priv->rf_type == RF_1T2R) {
+	if (priv->rf_type == RF_1T2R) {
 		if (eRFPath == RF90_PATH_A || eRFPath == RF90_PATH_B)
 			ret = 1;
 		else if (eRFPath == RF90_PATH_C || eRFPath == RF90_PATH_D)
@@ -334,10 +332,7 @@ static void _rtl92e_phy_config_bb(struct net_device *dev, u8 ConfigType)
 
 	AGCTAB_ArrayLen = AGCTAB_ArrayLength;
 	Rtl819XAGCTAB_Array_Table = Rtl819XAGCTAB_Array;
-	if (priv->rf_type == RF_2T4R) {
-		PHY_REGArrayLen = PHY_REGArrayLength;
-		Rtl819XPHY_REGArray_Table = Rtl819XPHY_REGArray;
-	} else if (priv->rf_type == RF_1T2R) {
+	if (priv->rf_type == RF_1T2R) {
 		PHY_REGArrayLen = PHY_REG_1T2RArrayLength;
 		Rtl819XPHY_REGArray_Table = Rtl819XPHY_REG_1T2RArray;
 	}
@@ -534,12 +529,7 @@ static bool _rtl92e_bb_config_para_file(struct net_device *dev)
 	_rtl92e_phy_config_bb(dev, BB_CONFIG_AGC_TAB);
 
 	if (priv->ic_cut  > VERSION_8190_BD) {
-		if (priv->rf_type == RF_2T4R)
-			dwRegValue = priv->antenna_tx_pwr_diff[2] << 8 |
-				      priv->antenna_tx_pwr_diff[1] << 4 |
-				      priv->antenna_tx_pwr_diff[0];
-		else
-			dwRegValue = 0x0;
+		dwRegValue = 0x0;
 		rtl92e_set_bb_reg(dev, rFPGA0_TxGainStage,
 				  (bXBTxAGC|bXCTxAGC|bXDTxAGC), dwRegValue);
 
@@ -590,16 +580,8 @@ void rtl92e_set_tx_power(struct net_device *dev, u8 channel)
 	if (priv->epromtype == EEPROM_93C46) {
 		powerlevel = priv->tx_pwr_level_cck[channel - 1];
 		powerlevelOFDM24G = priv->tx_pwr_level_ofdm_24g[channel - 1];
-	} else if (priv->epromtype == EEPROM_93C56) {
-		if (priv->rf_type == RF_2T4R) {
-			priv->antenna_tx_pwr_diff[2] = 0;
-			priv->antenna_tx_pwr_diff[1] = 0;
-			priv->antenna_tx_pwr_diff[0] = 0;
-
-			rtl92e_set_bb_reg(dev, rFPGA0_TxGainStage,
-					  (bXBTxAGC | bXCTxAGC | bXDTxAGC), 0);
-		}
 	}
+
 	switch (priv->rf_chip) {
 	case RF_8225:
 		break;
@@ -666,30 +648,6 @@ u8 rtl92e_config_rf_path(struct net_device *dev, enum rf90_radio_path eRFPath)
 			rtl92e_set_rf_reg(dev, eRFPath, Rtl819XRadioB_Array[i],
 					  bMask12Bits,
 					  Rtl819XRadioB_Array[i+1]);
-
-		}
-		break;
-	case RF90_PATH_C:
-		for (i = 0; i < RadioC_ArrayLength; i += 2) {
-			if (Rtl819XRadioC_Array[i] == 0xfe) {
-				msleep(100);
-				continue;
-			}
-			rtl92e_set_rf_reg(dev, eRFPath, Rtl819XRadioC_Array[i],
-					  bMask12Bits,
-					  Rtl819XRadioC_Array[i+1]);
-
-		}
-		break;
-	case RF90_PATH_D:
-		for (i = 0; i < RadioD_ArrayLength; i += 2) {
-			if (Rtl819XRadioD_Array[i] == 0xfe) {
-				msleep(100);
-				continue;
-			}
-			rtl92e_set_rf_reg(dev, eRFPath, Rtl819XRadioD_Array[i],
-					  bMask12Bits,
-					  Rtl819XRadioD_Array[i+1]);
 
 		}
 		break;

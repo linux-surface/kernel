@@ -1214,8 +1214,7 @@ static void rtllib_rx_check_leave_lps(struct rtllib_device *ieee, u8 unicast,
 			if (((ieee->link_detect_info.NumRxUnicastOkInPeriod +
 			    ieee->link_detect_info.NumTxOkInPeriod) > 8) ||
 			    (ieee->link_detect_info.NumRxUnicastOkInPeriod > 2)) {
-				if (ieee->LeisurePSLeave)
-					ieee->LeisurePSLeave(ieee->dev);
+				ieee->LeisurePSLeave(ieee->dev);
 			}
 		}
 	}
@@ -2689,9 +2688,7 @@ static inline void rtllib_process_probe_response(
 	    is_same_network(&ieee->current_network, network,
 	    (network->ssid_len ? 1 : 0)) &&
 	    (ieee->state == RTLLIB_LINKED)) {
-		if (ieee->handle_beacon != NULL)
-			ieee->handle_beacon(ieee->dev, beacon,
-					    &ieee->current_network);
+		ieee->handle_beacon(ieee->dev, beacon, &ieee->current_network);
 	}
 free_network:
 	kfree(network);

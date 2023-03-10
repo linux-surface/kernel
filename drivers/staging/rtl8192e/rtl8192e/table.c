@@ -4,9 +4,7 @@
  *
  * Contact Information: wlanfae <wlanfae@realtek.com>
  */
-#include "r8192E_hwimg.h"
-
-u32 Rtl8192PciEPHY_REGArray[PHY_REGArrayLengthPciE] = {0x0,};
+#include "table.h"
 
 u32 Rtl8192PciEPHY_REG_1T2RArray[PHY_REG_1T2RArrayLengthPciE] = {
 	0x800, 0x00000000,
@@ -326,12 +324,6 @@ u32 Rtl8192PciERadioB_Array[RadioB_ArrayLengthPciE] = {
 	0x004, 0x00000975,
 	0x007, 0x00000700,
 };
-
-u32 Rtl8192PciERadioC_Array[RadioC_ArrayLengthPciE] = {
-	0x0,  };
-
-u32 Rtl8192PciERadioD_Array[RadioD_ArrayLengthPciE] = {
-	0x0, };
 
 u32 Rtl8192PciEMACPHY_Array[] = {
 	0x03c, 0xffff0000, 0x00000f0f,

@@ -353,8 +353,7 @@ static void _rtl92e_read_eeprom_info(struct net_device *dev)
 
 			if (tempval&0x80)
 				priv->rf_type = RF_1T2R;
-			else
-				priv->rf_type = RF_2T4R;
+
 		} else {
 			priv->eeprom_legacy_ht_tx_pwr_diff = 0x04;
 		}
@@ -806,7 +805,7 @@ void rtl92e_link_change(struct net_device *dev)
 
 	if (ieee->state == RTLLIB_LINKED) {
 		_rtl92e_net_update(dev);
-		priv->ops->update_ratr_table(dev);
+		rtl92e_update_ratr_table(dev);
 		if ((ieee->pairwise_key_type == KEY_TYPE_WEP40) ||
 		    (ieee->pairwise_key_type == KEY_TYPE_WEP104))
 			rtl92e_enable_hw_security_config(dev);
