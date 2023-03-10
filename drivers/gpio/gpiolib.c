@@ -6,21 +6,24 @@
 #include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/file.h>
 #include <linux/fs.h>
-#include <linux/gpio.h>
-#include <linux/gpio/driver.h>
-#include <linux/gpio/machine.h>
 #include <linux/idr.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+
+#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
+#include <linux/gpio/machine.h>
 
 #include <uapi/linux/gpio.h>
 
@@ -58,7 +61,20 @@
 static DEFINE_IDA(gpio_ida);
 static dev_t gpio_devt;
 #define GPIO_DEV_MAX 256 /* 256 GPIO chip devices supported */
-static int gpio_bus_match(struct device *dev, struct device_driver *drv);
+
+static int gpio_bus_match(struct device *dev, struct device_driver *drv)
+{
+	struct fwnode_handle *fwnode = dev_fwnode(dev);
+
+	/*
+	 * Only match if the fwnode doesn't already have a proper struct device
+	 * created for it.
+	 */
+	if (fwnode && fwnode->dev != dev)
+		return 0;
+	return 1;
+}
+
 static struct bus_type gpio_bus_type = {
 	.name = "gpio",
 	.match = gpio_bus_match,
@@ -585,14 +601,15 @@ static void gpiodevice_release(struct device *dev)
 
 static int gpiochip_setup_dev(struct gpio_device *gdev)
 {
+	struct fwnode_handle *fwnode = dev_fwnode(&gdev->dev);
 	int ret;
 
 	/*
 	 * If fwnode doesn't belong to another device, it's safe to clear its
 	 * initialized flag.
 	 */
-	if (gdev->dev.fwnode && !gdev->dev.fwnode->dev)
-		fwnode_dev_initialized(gdev->dev.fwnode, false);
+	if (fwnode && !fwnode->dev)
+		fwnode_dev_initialized(fwnode, false);
 
 	ret = gcdev_register(gdev, gpio_devt);
 	if (ret)
@@ -4412,20 +4429,6 @@ void gpiod_put_array(struct gpio_descs *descs)
 	kfree(descs);
 }
 EXPORT_SYMBOL_GPL(gpiod_put_array);
-
-
-static int gpio_bus_match(struct device *dev, struct device_driver *drv)
-{
-	struct fwnode_handle *fwnode = dev_fwnode(dev);
-
-	/*
-	 * Only match if the fwnode doesn't already have a proper struct device
-	 * created for it.
-	 */
-	if (fwnode && fwnode->dev != dev)
-		return 0;
-	return 1;
-}
 
 static int gpio_stub_drv_probe(struct device *dev)
 {
