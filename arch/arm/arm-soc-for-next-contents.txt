@@ -1,0 +1,32 @@
+arm/soc
+
+soc/dt
+	patch
+		ARM: dts: ixp4xx: use "okay" for status
+		arm64: dts: sprd: Add support for Unisoc's UMS512
+
+soc/drivers
+
+arm/defconfig
+
+arm/late
+
+arm/fixes
+
+soc/arm
+	patch
+		ARM: Convert to platform remove callback returning void
+		ARM: mmp: remove obsolete config USB_EHCI_MV_U2O
+
+soc/defconfig
+	patch
+		arm64: virtconfig: Further shrink the config
+
+soc/fixes
+	<no branch> (f8502fba45bd30e1a6a354d9d898bc99d1a11e6d)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/amdtee-fix-for-v6.3
+	<no branch> (4bb54c2ce48ffb3a06133ac0fb4086f7b48d9109)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.3-arm64-dt-fixes
+	<no branch> (b3cdf730486b048ca0bf23bef050550d9fd40422)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-6.3
+
