@@ -112,17 +112,13 @@ skl_int3472_fill_clk_pdata(struct device *dev, struct tps68470_clk_platform_data
 {
 	struct acpi_device *adev = ACPI_COMPANION(dev);
 	struct acpi_device *consumer;
-	unsigned int n_consumers = 0;
+	unsigned int n_consumers = 1;
 	const char *sensor_name;
-	unsigned int i = 0;
+	const char *led_name;
+	unsigned int i = 1;
 
 	for_each_acpi_consumer_dev(adev, consumer)
 		n_consumers++;
-
-	if (!n_consumers) {
-		dev_err(dev, "INT3472 seems to have no dependents\n");
-		return -ENODEV;
-	}
 
 	*clk_pdata = devm_kzalloc(dev, struct_size(*clk_pdata, consumers, n_consumers),
 				  GFP_KERNEL);
@@ -130,7 +126,16 @@ skl_int3472_fill_clk_pdata(struct device *dev, struct tps68470_clk_platform_data
 		return -ENOMEM;
 
 	(*clk_pdata)->n_consumers = n_consumers;
-	i = 0;
+
+	/*
+	 * The TPS68470 includes an LED driver which requires the clock be active
+	 * to function. Add the led platform device as a consumer of the clock.
+	 */
+	led_name = devm_kstrdup(dev, "tps68470-led", GFP_KERNEL);
+	if (!led_name)
+		return -ENOMEM;
+
+	(*clk_pdata)->consumers[0].consumer_dev_name = led_name;
 
 	for_each_acpi_consumer_dev(adev, consumer) {
 		sensor_name = devm_kasprintf(dev, GFP_KERNEL, I2C_DEV_NAME_FORMAT,
