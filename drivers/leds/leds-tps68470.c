@@ -77,22 +77,23 @@ static enum led_brightness tps68470_brightness_get(struct led_classdev *led_cdev
 	int ret = 0;
 	int value = 0;
 
-	ret =  regmap_read(regmap, TPS68470_REG_ILEDCTL, &value);
-	if (ret)
-		return dev_err_probe(led_cdev->dev, -EINVAL, "failed on reading register\n");
-
 	switch (led->led_id) {
 	case TPS68470_ILED_A:
-		value = value & TPS68470_ILEDCTL_ENA;
-		break;
 	case TPS68470_ILED_B:
-		value = value & TPS68470_ILEDCTL_ENB;
+		ret =  regmap_read(regmap, TPS68470_REG_ILEDCTL, &value);
+		if (ret)
+			return dev_err_probe(led_cdev->dev, ret,
+					     "failed to read LED status\n");
+
+		value &= led->led_id == TPS68470_ILED_A ? TPS68470_ILEDCTL_ENA :
+					TPS68470_ILEDCTL_ENB;
 		break;
+	default:
+		return dev_err_probe(led_cdev->dev, -EINVAL, "invalid LED ID\n");
 	}
 
 	return value ? LED_ON : LED_OFF;
 }
-
 
 static int tps68470_ledb_current_init(struct platform_device *pdev,
 				      struct tps68470_device *tps68470)
