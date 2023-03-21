@@ -11,6 +11,7 @@
 #include <linux/leds.h>
 #include <linux/mfd/tps68470.h>
 #include <linux/module.h>
+#include <linux/platform_data/tps68470.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
@@ -113,6 +114,52 @@ static int tps68470_ledb_current_init(struct platform_device *pdev,
 	return ret;
 }
 
+static int tps68470_leds_init(struct tps68470_device *tps68470)
+{
+	struct tps68470_led_platform_data *pdata = tps68470->dev->platform_data;
+	int ret;
+
+	if (!pdata)
+		return 0;
+
+	ret = regmap_write(tps68470->regmap, TPS68470_REG_ILEDCTL, pdata->iledctl_ctrlb);
+	if (ret)
+		return dev_err_probe(tps68470->dev, ret, "failed to set ILED CTRLB\n");
+
+	ret = regmap_write(tps68470->regmap, TPS68470_REG_WLEDMAXF,
+			   pdata->wledmaxf & TPS68470_WLEDMAXF_MAX_CUR_MASK);
+	if (ret)
+		return dev_err_probe(tps68470->dev, ret, "failed to set WLEDMAXF\n");
+
+	ret = regmap_write(tps68470->regmap, TPS68470_REG_WLEDTO, pdata->wledto);
+	if (ret)
+		return dev_err_probe(tps68470->dev, ret, "failed to set WLEDTO\n");
+
+	ret = regmap_write(tps68470->regmap, TPS68470_REG_WLEDC1,
+			   pdata->wledc1 & TPS68470_WLEDC_ILED_MASK);
+	if (ret)
+		return dev_err_probe(tps68470->dev, ret, "failed to set WLEDC1\n");
+
+	ret = regmap_write(tps68470->regmap, TPS68470_REG_WLEDC2,
+			   pdata->wledc2 & TPS68470_WLEDC_ILED_MASK);
+	if (ret)
+		return dev_err_probe(tps68470->dev, ret, "failed to set WLEDC2\n");
+
+	ret = regmap_update_bits(tps68470->regmap, TPS68470_REG_WLEDCTL,
+				 TPS68470_WLED_DISLED1,
+				 pdata->wledctl_disled1 ? TPS68470_WLED_DISLED1 : 0);
+	if (ret)
+		return dev_err_probe(tps68470->dev, ret, "failed to set DISLED1\n");
+
+	ret = regmap_update_bits(tps68470->regmap, TPS68470_REG_WLEDCTL,
+				 TPS68470_WLED_DISLED2,
+				 pdata->wledctl_disled2 ? TPS68470_WLED_DISLED2 : 0);
+	if (ret)
+		dev_err_probe(tps68470->dev, ret, "failed to set DISLED2\n");
+
+	return 0;
+}
+
 static int tps68470_leds_probe(struct platform_device *pdev)
 {
 	int i = 0;
@@ -159,6 +206,10 @@ static int tps68470_leds_probe(struct platform_device *pdev)
 				goto err_exit;
 		}
 	}
+
+	ret = tps68470_leds_init(tps68470);
+	if (ret)
+		goto err_exit;
 
 err_exit:
 	if (ret) {
