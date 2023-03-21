@@ -213,6 +213,10 @@ static int skl_int3472_tps68470_probe(struct i2c_client *client)
 		for (i = 0; i < board_data->n_gpiod_lookups; i++)
 			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
 
+		if (board_data->led_lookups)
+			for (i = 0; i < board_data->led_lookups->n_lookups; i++)
+				led_add_lookup(&board_data->led_lookups->lookup_table[i]);
+
 		ret = devm_mfd_add_devices(&client->dev, PLATFORM_DEVID_NONE,
 					   cells, TPS68470_WIN_MFD_CELL_COUNT,
 					   NULL, 0, NULL);
@@ -221,6 +225,10 @@ static int skl_int3472_tps68470_probe(struct i2c_client *client)
 		if (ret) {
 			for (i = 0; i < board_data->n_gpiod_lookups; i++)
 				gpiod_remove_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
+
+			if (board_data->led_lookups)
+				for (i = 0; i < board_data->led_lookups->n_lookups; i++)
+					led_remove_lookup(&board_data->led_lookups->lookup_table[i]);
 		}
 
 		break;
