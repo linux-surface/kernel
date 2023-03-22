@@ -1260,10 +1260,6 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
 
 	v4l2_async_subdev_nf_init(notifier, sd);
 
-	ret = v4l2_subdev_get_privacy_led(sd);
-	if (ret < 0)
-		goto out_cleanup;
-
 	ret = v4l2_async_nf_parse_fwnode_sensor(sd->dev, notifier);
 	if (ret < 0)
 		goto out_cleanup;
