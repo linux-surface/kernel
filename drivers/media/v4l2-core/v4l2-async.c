@@ -796,6 +796,10 @@ int v4l2_async_register_subdev(struct v4l2_subdev *sd)
 
 	INIT_LIST_HEAD(&sd->asc_list);
 
+	ret = v4l2_subdev_get_privacy_led(sd);
+	if (ret < 0)
+		return ret;
+
 	/*
 	 * No reference taken. The reference is held by the device (struct
 	 * v4l2_subdev.dev), and async sub-device does not exist independently
