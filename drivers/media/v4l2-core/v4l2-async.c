@@ -760,6 +760,10 @@ int v4l2_async_register_subdev(struct v4l2_subdev *sd)
 	struct v4l2_async_notifier *notifier;
 	int ret;
 
+	ret = v4l2_subdev_get_privacy_led(sd);
+	if (ret < 0)
+		return ret;
+
 	/*
 	 * No reference taken. The reference is held by the device
 	 * (struct v4l2_subdev.dev), and async sub-device does not
