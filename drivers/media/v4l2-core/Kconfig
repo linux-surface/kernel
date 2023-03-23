@@ -68,11 +68,11 @@ config V4L2_FLASH_LED_CLASS
 	  When in doubt, say N.
 
 config V4L2_FWNODE
-	tristate
+	bool
 	select V4L2_ASYNC
 
 config V4L2_ASYNC
-	tristate
+	bool
 
 # Used by drivers that need Videobuf modules
 config VIDEOBUF_GEN

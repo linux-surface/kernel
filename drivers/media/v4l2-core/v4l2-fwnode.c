@@ -17,7 +17,6 @@
 #include <linux/acpi.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/property.h>
 #include <linux/slab.h>
@@ -27,6 +26,8 @@
 #include <media/v4l2-async.h>
 #include <media/v4l2-fwnode.h>
 #include <media/v4l2-subdev.h>
+
+#include "v4l2-subdev-priv.h"
 
 static const struct v4l2_fwnode_bus_conv {
 	enum v4l2_fwnode_bus_type fwnode_bus_type;
@@ -1322,14 +1323,10 @@ out_unregister:
 	v4l2_async_nf_unregister(notifier);
 
 out_cleanup:
+	v4l2_subdev_put_privacy_led(sd);
 	v4l2_async_nf_cleanup(notifier);
 	kfree(notifier);
 
 	return ret;
 }
 EXPORT_SYMBOL_GPL(v4l2_async_register_subdev_sensor);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Sakari Ailus <sakari.ailus@linux.intel.com>");
-MODULE_AUTHOR("Sylwester Nawrocki <s.nawrocki@samsung.com>");
-MODULE_AUTHOR("Guennadi Liakhovetski <g.liakhovetski@gmx.de>");
