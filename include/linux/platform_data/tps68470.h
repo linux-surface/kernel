@@ -37,15 +37,4 @@ struct tps68470_clk_platform_data {
 	struct tps68470_clk_consumer consumers[];
 };
 
-struct tps68470_led_platform_data {
-	u8 iledctl_ctrlb;
-	u8 wledmaxf;
-	u8 wledto;
-	u8 wledc1;
-	u8 wledc2;
-	u8 wledctl_mode;
-	bool wledctl_disled1;
-	bool wledctl_disled2;
-};
-
 #endif
