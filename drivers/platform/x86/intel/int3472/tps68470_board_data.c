@@ -146,21 +146,9 @@ static struct gpiod_lookup_table surface_go_int347e_gpios = {
 	}
 };
 
-static const struct tps68470_led_platform_data surface_go_tps68470_led_pdata = {
-	.iledctl_ctrlb = 0x30,
-	.wledmaxf = 0x1f,
-	.wledto = 0x07,
-	.wledc1 = 0x1f,
-	.wledc2 = 0x1f,
-	.wledctl_mode = 0x00,
-	.wledctl_disled1 = true,
-	.wledctl_disled2 = false,
-};
-
 static const struct int3472_tps68470_board_data surface_go_tps68470_board_data = {
 	.dev_name = "i2c-INT3472:05",
 	.tps68470_regulator_pdata = &surface_go_tps68470_pdata,
-	.tps68470_led_pdata = &surface_go_tps68470_led_pdata,
 	.n_gpiod_lookups = 2,
 	.tps68470_gpio_lookup_tables = {
 		&surface_go_int347a_gpios,
@@ -171,7 +159,6 @@ static const struct int3472_tps68470_board_data surface_go_tps68470_board_data =
 static const struct int3472_tps68470_board_data surface_go3_tps68470_board_data = {
 	.dev_name = "i2c-INT3472:01",
 	.tps68470_regulator_pdata = &surface_go_tps68470_pdata,
-	.tps68470_led_pdata = &surface_go_tps68470_led_pdata,
 	.n_gpiod_lookups = 2,
 	.tps68470_gpio_lookup_tables = {
 		&surface_go_int347a_gpios,
