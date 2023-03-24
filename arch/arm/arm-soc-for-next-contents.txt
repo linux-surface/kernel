@@ -4,23 +4,16 @@ soc/dt
 	patch
 		ARM: dts: ixp4xx: use "okay" for status
 		arm64: dts: sprd: Add support for Unisoc's UMS512
+	dt/cleanup-64
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt64-cleanup-6.4
+	dt/cleanup-32
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt-cleanup-6.4
 
 soc/drivers
 
 arm/defconfig
 
 arm/late
-
-arm/fixes
-
-soc/arm
-	patch
-		ARM: Convert to platform remove callback returning void
-		ARM: mmp: remove obsolete config USB_EHCI_MV_U2O
-
-soc/defconfig
-	patch
-		arm64: virtconfig: Further shrink the config
 
 soc/fixes
 	<no branch> (f8502fba45bd30e1a6a354d9d898bc99d1a11e6d)
@@ -29,4 +22,25 @@ soc/fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.3-arm64-dt-fixes
 	<no branch> (b3cdf730486b048ca0bf23bef050550d9fd40422)
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-6.3
+	<no branch> (d617808e3b8324eacebabefec49dc75536ee39cc)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-fixes-6.3
+	<no branch> (07b0883e1f09416d07d25a2158f8cd35b732b686)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-fixes-for-6.3
+	<no branch> (ecd240875e877d78fd03efbc62292f550872df3f)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-fixes-for-6.3
+	<no branch> (f3d0fbad6765da25de7ecf6481af9b6ddb0b3793)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-driver-fixes-for-6.3
+
+soc/arm
+	patch
+		ARM: Convert to platform remove callback returning void
+		ARM: mmp: remove obsolete config USB_EHCI_MV_U2O
+		ARM: spear: remove obsolete config MACH_SPEAR600
+		ARM: mstar: remove unused config MACH_MERCURY
+
+soc/defconfig
+	patch
+		arm64: virtconfig: Further shrink the config
+		arm64: defconfig: Enable CAN PHY transceiver driver
+		arm64: defconfig: Enable Virtio RNG driver as built in
 
