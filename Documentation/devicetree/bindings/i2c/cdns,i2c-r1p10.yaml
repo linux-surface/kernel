@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: "http://devicetree.org/schemas/i2c/cdns,i2c-r1p10.yaml#"
-$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+$id: http://devicetree.org/schemas/i2c/cdns,i2c-r1p10.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Cadence I2C controller
 
@@ -38,6 +38,13 @@ properties:
     description: |
       Input clock name.
 
+  fifo-depth:
+    description:
+      Size of the data FIFO in bytes.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    default: 16
+    enum: [2, 4, 8, 16, 32, 64, 128, 256]
+
 required:
   - compatible
   - reg
@@ -57,4 +64,5 @@ examples:
         clock-frequency = <400000>;
         #address-cells = <1>;
         #size-cells = <0>;
+        fifo-depth = <8>;
     };
