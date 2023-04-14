@@ -39,6 +39,30 @@ soc/drivers
 		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-drivers-for-v6.4
 	<no branch> (f3040daab8104ac68e2b241bc93288f63b88a3c7)
 		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-load-for-v6.4
+	apple/soc-drivers
+		https://github.com/AsahiLinux/linux tags/asahi-soc-rtkit-6.4
+	tegra/bus-drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm-core
+	tegra/soc-drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-soc
+	tegra/firmware-drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-firmware
+	riscv/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-soc-for-v6.4
+	imx/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-drivers-6.4
+	sunxi/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-drivers-for-6.4-1
+	renesas/drivers-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v6.4-tag2
+	k3/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-driver-soc-for-v6.4
+	qcom/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.4
+	broadcom/drivers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.4/drivers
+	qcom/drivers-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.4-2
 
 arm/defconfig
 
@@ -57,6 +81,12 @@ arm/fixes
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-6.3-2
 	<no branch> (8056dc043d7f74d7675d413cb3dc4fa290609922)
 		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-fixes-for-v6.3-final
+	patch
+		firmware/psci: demote suspend-mode warning to info level
+	<no branch> (60a655debd36e3278a46872accc1a51a54f94f02)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.3-rockchip-dtsfixes1
+	<no branch> (75eab749e7aec0b7b515d7c50ed429ef4e1c5f3f)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-fixes-for-6.3-2
 
 soc/arm
 	patch
@@ -66,10 +96,21 @@ soc/arm
 		ARM: mstar: remove unused config MACH_MERCURY
 	omap/cleanup
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/cleanup-signed
-	<no branch> (c29313d58c42f205cdecdd337f784f59bdf92dd7)
+	omap1/cleanup
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/omap1-signed
 	patch
 		ARM: oxnas: remove OXNAS support
+	samsung/soc
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-6.4
+	imx/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-soc-6.4
+	renesas/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-soc-for-v6.4-tag1
+	broadcom/soc
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.4/soc
+	patch
+		ARM: pxa: Use of_property_read_bool() for boolean properties
+		soc: fsl: Use of_property_present() for testing DT property presence
 
 soc/defconfig
 	patch
@@ -80,4 +121,14 @@ soc/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v6.4-tag1
 	patch
 		ARM: configs: remove oxnas_v6_defconfig
+		ARM: configs: Update U8500 defconfig
+		ARM: multi_v7_defconfig: Add OPTEE support
+	qcom/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-defconfig-for-6.4
+	k3/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-config-for-v6.4
+	imx/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-defconfig-6.4
+	tegra/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm64-defconfig
 
