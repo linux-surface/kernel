@@ -73,6 +73,10 @@ soc/dt
 		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-6.4-2
 	qcom/dt64-2
 		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-6.4-2
+	mediatek/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts32
+	mediatek/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts64
 
 soc/drivers
 	renesas/drivers
@@ -113,6 +117,8 @@ soc/drivers
 		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.4-2
 	patch
 		soc: ti: smartreflex: Simplify getting the opam_sr pointer
+	<no branch> (5ce5e0d08e340ab13169a5f33ed5f98000891a61)
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-soc
 
 arm/defconfig
 
