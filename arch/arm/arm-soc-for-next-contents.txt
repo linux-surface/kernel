@@ -77,6 +77,8 @@ soc/dt
 		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts32
 	mediatek/dt64
 		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts64
+	apple/dt-2
+		https://github.com/AsahiLinux/linux tags/asahi-soc-dt-6.4-v2
 
 soc/drivers
 	renesas/drivers
@@ -117,8 +119,14 @@ soc/drivers
 		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.4-2
 	patch
 		soc: ti: smartreflex: Simplify getting the opam_sr pointer
-	<no branch> (5ce5e0d08e340ab13169a5f33ed5f98000891a61)
+	mediatek/soc-drivers
 		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-soc
+	drivers/memory-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-6.4-2
+	vexpress/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/vexpress-update-6.4
+	scmi/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-6.4
 
 arm/defconfig
 
@@ -187,4 +195,10 @@ soc/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-defconfig-6.4
 	tegra/defconfig
 		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm64-defconfig
+	patch
+		arm64: defconfig: Enable crypto test module
+		arm64: defconfig: Enable security accelerator driver for TI K3 SoCs
+		arm64: defconfig: Enable TI TSCADC driver
+		arm64: defconfig: Enable TI ADC driver
+		arm64: defconfig: enable building the nvmem-reboot-mode module
 
