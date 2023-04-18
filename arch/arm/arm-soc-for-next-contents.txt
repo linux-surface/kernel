@@ -79,6 +79,12 @@ soc/dt
 		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts64
 	apple/dt-2
 		https://github.com/AsahiLinux/linux tags/asahi-soc-dt-6.4-v2
+	rockchips/dt64-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.4-rockchip-dts64-2
+	mvebu/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt-6.4-1
+	mvebu/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt64-6.4-1
 
 soc/drivers
 	renesas/drivers
@@ -175,6 +181,12 @@ soc/arm
 	patch
 		ARM: pxa: Use of_property_read_bool() for boolean properties
 		soc: fsl: Use of_property_present() for testing DT property presence
+		ARM: mv78xx0: adjust init logic for ts-wxl to reflect single core dev
+		ARM: mv78xx0: set the correct driver for the i2c RTC
+		ARM: mv78xx0: add code to enable XOR and CRYPTO engines on mv78xx0
+		ARM: mv78xx0: fix entries for gpios, buttons and usb ports
+	mvebu/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-arm64-6.4-1
 
 soc/defconfig
 	patch
@@ -201,4 +213,5 @@ soc/defconfig
 		arm64: defconfig: Enable TI TSCADC driver
 		arm64: defconfig: Enable TI ADC driver
 		arm64: defconfig: enable building the nvmem-reboot-mode module
+		ARM: config: Update Vexpress defconfig
 
