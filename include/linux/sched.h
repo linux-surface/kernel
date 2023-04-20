@@ -2440,6 +2440,4 @@ static inline void sched_core_fork(struct task_struct *p) { }
 
 extern void sched_set_stop_task(int cpu, struct task_struct *stop);
 
-extern bool sched_smt_siblings_idle(int cpu);
-
 #endif
