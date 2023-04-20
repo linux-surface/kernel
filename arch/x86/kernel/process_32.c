@@ -52,7 +52,6 @@
 #include <asm/switch_to.h>
 #include <asm/vm86.h>
 #include <asm/resctrl.h>
-#include <asm/hreset.h>
 #include <asm/proto.h>
 
 #include "process.h"
@@ -214,8 +213,6 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 
 	/* Load the Intel cache allocation PQR MSR. */
 	resctrl_sched_in();
-
-	reset_hardware_history();
 
 	return prev_p;
 }
