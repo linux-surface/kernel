@@ -491,7 +491,7 @@
 			reg = <0x00004090 0x4>;
 		};
 
-		serdes_mux: mux-controller {
+		serdes_mux: mux-controller@4080 {
 			compatible = "mmio-mux";
 			#mux-control-cells = <1>;
 			mux-reg-masks = <0x4080 0x3>, /* SERDES0 lane select */
