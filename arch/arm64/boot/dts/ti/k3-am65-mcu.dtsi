@@ -259,8 +259,9 @@
 		status = "disabled";
 	};
 
-	fss: fss@47000000 {
+	fss: bus@47000000 {
 		compatible = "simple-bus";
+		reg = <0x0 0x47000000 0x0 0x70000>;
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
