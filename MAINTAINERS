@@ -73,7 +73,7 @@ Tips for patch submitters
 	and ideally, should come with a patch proposal. Please do not send
 	automated reports to this list either. Such bugs will be handled
 	better and faster in the usual public places. See
-	Documentation/admin-guide/security-bugs.rst for details.
+	Documentation/process/security-bugs.rst for details.
 
 8.	Happy hacking.
 
@@ -224,13 +224,13 @@ S:	Orphan / Obsolete
 F:	drivers/net/ethernet/8390/
 
 9P FILE SYSTEM
-M:	Eric Van Hensbergen <ericvh@gmail.com>
+M:	Eric Van Hensbergen <ericvh@kernel.org>
 M:	Latchesar Ionkov <lucho@ionkov.net>
 M:	Dominique Martinet <asmadeus@codewreck.org>
 R:	Christian Schoenebeck <linux_oss@crudebyte.com>
-L:	v9fs-developer@lists.sourceforge.net
+L:	v9fs@lists.linux.dev
 S:	Maintained
-W:	http://swik.net/v9fs
+W:	http://github.com/v9fs
 Q:	http://patchwork.kernel.org/project/v9fs-devel/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/ericvh/v9fs.git
 T:	git git://github.com/martinetd/linux.git
@@ -1071,7 +1071,7 @@ M:	Naveen Krishna Chatradhi <naveenkrishna.chatradhi@amd.com>
 R:	Carlos Bilbao <carlos.bilbao@amd.com>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
-F:	Documentation/x86/amd_hsmp.rst
+F:	Documentation/arch/x86/amd_hsmp.rst
 F:	arch/x86/include/asm/amd_hsmp.h
 F:	arch/x86/include/uapi/asm/amd_hsmp.h
 F:	drivers/platform/x86/amd/hsmp.c
@@ -4461,14 +4461,14 @@ F:	Documentation/devicetree/bindings/net/ieee802154/ca8210.txt
 F:	drivers/net/ieee802154/ca8210.c
 
 CANAAN/KENDRYTE K210 SOC FPIOA DRIVER
-M:	Damien Le Moal <damien.lemoal@wdc.com>
+M:	Damien Le Moal <dlemoal@kernel.org>
 L:	linux-riscv@lists.infradead.org
 L:	linux-gpio@vger.kernel.org (pinctrl driver)
 F:	Documentation/devicetree/bindings/pinctrl/canaan,k210-fpioa.yaml
 F:	drivers/pinctrl/pinctrl-k210.c
 
 CANAAN/KENDRYTE K210 SOC RESET CONTROLLER DRIVER
-M:	Damien Le Moal <damien.lemoal@wdc.com>
+M:	Damien Le Moal <dlemoal@kernel.org>
 L:	linux-kernel@vger.kernel.org
 L:	linux-riscv@lists.infradead.org
 S:	Maintained
@@ -4476,7 +4476,7 @@ F:	Documentation/devicetree/bindings/reset/canaan,k210-rst.yaml
 F:	drivers/reset/reset-k210.c
 
 CANAAN/KENDRYTE K210 SOC SYSTEM CONTROLLER DRIVER
-M:	Damien Le Moal <damien.lemoal@wdc.com>
+M:	Damien Le Moal <dlemoal@kernel.org>
 L:	linux-riscv@lists.infradead.org
 S:	Maintained
 F:      Documentation/devicetree/bindings/mfd/canaan,k210-sysctl.yaml
@@ -5940,11 +5940,6 @@ F:	drivers/devfreq/event/
 F:	include/dt-bindings/pmu/exynos_ppmu.h
 F:	include/linux/devfreq-event.h
 
-DEVICE NUMBER REGISTRY
-M:	Torben Mathiasen <device@lanana.org>
-S:	Maintained
-W:	http://lanana.org/docs/device-list/index.html
-
 DEVICE RESOURCE MANAGEMENT HELPERS
 M:	Hans de Goede <hdegoede@redhat.com>
 R:	Matti Vaittinen <mazziesaccount@gmail.com>
@@ -5971,7 +5966,7 @@ F:	include/linux/dm-*.h
 F:	include/uapi/linux/dm-*.h
 
 DEVLINK
-M:	Jiri Pirko <jiri@nvidia.com>
+M:	Jiri Pirko <jiri@resnulli.us>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	Documentation/networking/devlink
@@ -6207,6 +6202,7 @@ DOCUMENTATION REPORTING ISSUES
 M:	Thorsten Leemhuis <linux@leemhuis.info>
 L:	linux-doc@vger.kernel.org
 S:	Maintained
+F:	Documentation/admin-guide/quickly-build-trimmed-linux.rst
 F:	Documentation/admin-guide/reporting-issues.rst
 
 DOCUMENTATION SCRIPTS
@@ -8216,6 +8212,7 @@ F:	drivers/net/ethernet/freescale/dpaa
 
 FREESCALE QORIQ DPAA FMAN DRIVER
 M:	Madalin Bucur <madalin.bucur@nxp.com>
+R:	Sean Anderson <sean.anderson@seco.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/net/fsl-fman.txt
@@ -9728,7 +9725,7 @@ F:	include/linux/i3c/
 IA64 (Itanium) PLATFORM
 L:	linux-ia64@vger.kernel.org
 S:	Orphan
-F:	Documentation/ia64/
+F:	Documentation/arch/ia64/
 F:	arch/ia64/
 
 IBM Operation Panel Input Driver
@@ -9871,10 +9868,10 @@ M:	Christian Brauner <brauner@kernel.org>
 M:	Seth Forshee <sforshee@kernel.org>
 L:	linux-fsdevel@vger.kernel.org
 S:	Maintained
-T:	git://git.kernel.org/pub/scm/linux/kernel/git/vfs/idmapping.git
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/vfs/idmapping.git
 F:	Documentation/filesystems/idmappings.rst
-F:	tools/testing/selftests/mount_setattr/
 F:	include/linux/mnt_idmapping.*
+F:	tools/testing/selftests/mount_setattr/
 
 IDT VersaClock 5 CLOCK DRIVER
 M:	Luca Ceresoli <luca@lucaceresoli.net>
@@ -10647,7 +10644,7 @@ L:	tboot-devel@lists.sourceforge.net
 S:	Supported
 W:	http://tboot.sourceforge.net
 T:	hg http://tboot.hg.sourceforge.net:8000/hgroot/tboot/tboot
-F:	Documentation/x86/intel_txt.rst
+F:	Documentation/arch/x86/intel_txt.rst
 F:	arch/x86/kernel/tboot.c
 F:	include/linux/tboot.h
 
@@ -10658,7 +10655,7 @@ L:	linux-sgx@vger.kernel.org
 S:	Supported
 Q:	https://patchwork.kernel.org/project/intel-sgx/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git x86/sgx
-F:	Documentation/x86/sgx.rst
+F:	Documentation/arch/x86/sgx.rst
 F:	arch/x86/entry/vdso/vsgx.S
 F:	arch/x86/include/asm/sgx.h
 F:	arch/x86/include/uapi/asm/sgx.h
@@ -11757,7 +11754,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/axboe/linux-block.git
 F:	drivers/ata/sata_promise.*
 
 LIBATA SUBSYSTEM (Serial and Parallel ATA drivers)
-M:	Damien Le Moal <damien.lemoal@opensource.wdc.com>
+M:	Damien Le Moal <dlemoal@kernel.org>
 L:	linux-ide@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/dlemoal/libata.git
@@ -14593,6 +14590,7 @@ F:	net/netlabel/
 
 NETWORKING [MPTCP]
 M:	Matthieu Baerts <matthieu.baerts@tessares.net>
+M:	Mat Martineau <martineau@kernel.org>
 L:	netdev@vger.kernel.org
 L:	mptcp@lists.linux.dev
 S:	Maintained
@@ -14656,10 +14654,8 @@ F:	net/ipv4/nexthop.c
 
 NFC SUBSYSTEM
 M:	Krzysztof Kozlowski <krzysztof.kozlowski@linaro.org>
-L:	linux-nfc@lists.01.org (subscribers-only)
 L:	netdev@vger.kernel.org
 S:	Maintained
-B:	mailto:linux-nfc@lists.01.org
 F:	Documentation/devicetree/bindings/net/nfc/
 F:	drivers/nfc/
 F:	include/linux/platform_data/nfcmrvl.h
@@ -14670,7 +14666,6 @@ F:	net/nfc/
 NFC VIRTUAL NCI DEVICE DRIVER
 M:	Bongsu Jeon <bongsu.jeon@samsung.com>
 L:	netdev@vger.kernel.org
-L:	linux-nfc@lists.01.org (subscribers-only)
 S:	Supported
 F:	drivers/nfc/virtual_ncidev.c
 F:	tools/testing/selftests/nci/
@@ -14872,12 +14867,12 @@ M:	Sagi Grimberg <sagi@grimberg.me>
 L:	linux-nvme@lists.infradead.org
 S:	Supported
 W:	http://git.infradead.org/nvme.git
-T:	git://git.infradead.org/nvme.git
+T:	git git://git.infradead.org/nvme.git
 F:	Documentation/nvme/
-F:	drivers/nvme/host/
 F:	drivers/nvme/common/
-F:	include/linux/nvme.h
+F:	drivers/nvme/host/
 F:	include/linux/nvme-*.h
+F:	include/linux/nvme.h
 F:	include/uapi/linux/nvme_ioctl.h
 
 NVM EXPRESS FABRICS AUTHENTICATION
@@ -14912,7 +14907,7 @@ M:	Chaitanya Kulkarni <kch@nvidia.com>
 L:	linux-nvme@lists.infradead.org
 S:	Supported
 W:	http://git.infradead.org/nvme.git
-T:	git://git.infradead.org/nvme.git
+T:	git git://git.infradead.org/nvme.git
 F:	drivers/nvme/target/
 
 NVMEM FRAMEWORK
@@ -15042,7 +15037,6 @@ F:	Documentation/devicetree/bindings/sound/nxp,tfa989x.yaml
 F:	sound/soc/codecs/tfa989x.c
 
 NXP-NCI NFC DRIVER
-L:	linux-nfc@lists.01.org (subscribers-only)
 S:	Orphan
 F:	Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
 F:	drivers/nfc/nxp-nci
@@ -15079,7 +15073,7 @@ F:	Documentation/hwmon/nzxt-smart2.rst
 F:	drivers/hwmon/nzxt-smart2.c
 
 OBJAGG
-M:	Jiri Pirko <jiri@nvidia.com>
+M:	Jiri Pirko <jiri@resnulli.us>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	include/linux/objagg.h
@@ -15642,7 +15636,7 @@ S:	Maintained
 W:	http://openrisc.io
 T:	git https://github.com/openrisc/linux.git
 F:	Documentation/devicetree/bindings/openrisc/
-F:	Documentation/openrisc/
+F:	Documentation/arch/openrisc/
 F:	arch/openrisc/
 F:	drivers/irqchip/irq-ompic.c
 F:	drivers/irqchip/irq-or1k-*
@@ -15838,7 +15832,7 @@ W:	https://parisc.wiki.kernel.org
 Q:	http://patchwork.kernel.org/project/linux-parisc/list/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jejb/parisc-2.6.git
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/deller/parisc-linux.git
-F:	Documentation/parisc/
+F:	Documentation/arch/parisc/
 F:	arch/parisc/
 F:	drivers/char/agp/parisc-agp.c
 F:	drivers/input/misc/hp_sdc_rtc.c
@@ -15853,7 +15847,7 @@ F:	drivers/video/logo/logo_parisc*
 F:	include/linux/hp_sdc.h
 
 PARMAN
-M:	Jiri Pirko <jiri@nvidia.com>
+M:	Jiri Pirko <jiri@resnulli.us>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	include/linux/parman.h
@@ -16391,6 +16385,7 @@ R:	Alexander Shishkin <alexander.shishkin@linux.intel.com>
 R:	Jiri Olsa <jolsa@kernel.org>
 R:	Namhyung Kim <namhyung@kernel.org>
 R:	Ian Rogers <irogers@google.com>
+R:	Adrian Hunter <adrian.hunter@intel.com>
 L:	linux-perf-users@vger.kernel.org
 L:	linux-kernel@vger.kernel.org
 S:	Supported
@@ -17168,6 +17163,12 @@ F:	fs/qnx4/
 F:	include/uapi/linux/qnx4_fs.h
 F:	include/uapi/linux/qnxtypes.h
 
+QNX6 FILESYSTEM
+S:	Orphan
+F:	Documentation/filesystems/qnx6.rst
+F:	fs/qnx6/
+F:	include/linux/qnx6_fs.h
+
 QORIQ DPAA2 FSL-MC BUS DRIVER
 M:	Stuart Yoder <stuyoder@gmail.com>
 M:	Laurentiu Tudor <laurentiu.tudor@nxp.com>
@@ -17628,7 +17629,7 @@ M:	Fenghua Yu <fenghua.yu@intel.com>
 M:	Reinette Chatre <reinette.chatre@intel.com>
 L:	linux-kernel@vger.kernel.org
 S:	Supported
-F:	Documentation/x86/resctrl*
+F:	Documentation/arch/x86/resctrl*
 F:	arch/x86/include/asm/resctrl.h
 F:	arch/x86/kernel/cpu/resctrl/
 F:	tools/testing/selftests/resctrl/
@@ -17637,11 +17638,13 @@ READ-COPY UPDATE (RCU)
 M:	"Paul E. McKenney" <paulmck@kernel.org>
 M:	Frederic Weisbecker <frederic@kernel.org> (kernel/rcu/tree_nocb.h)
 M:	Neeraj Upadhyay <quic_neeraju@quicinc.com> (kernel/rcu/tasks.h)
+M:	Joel Fernandes <joel@joelfernandes.org>
 M:	Josh Triplett <josh@joshtriplett.org>
+M:	Boqun Feng <boqun.feng@gmail.com>
 R:	Steven Rostedt <rostedt@goodmis.org>
 R:	Mathieu Desnoyers <mathieu.desnoyers@efficios.com>
 R:	Lai Jiangshan <jiangshanlai@gmail.com>
-R:	Joel Fernandes <joel@joelfernandes.org>
+R:	Zqiang <qiang1.zhang@intel.com>
 L:	rcu@vger.kernel.org
 S:	Supported
 W:	http://www.rdrop.com/users/paulmck/RCU/
@@ -17989,7 +17992,7 @@ F:	Documentation/devicetree/bindings/spi/microchip,mpfs-spi.yaml
 F:	Documentation/devicetree/bindings/usb/microchip,mpfs-musb.yaml
 F:	arch/riscv/boot/dts/microchip/
 F:	drivers/char/hw_random/mpfs-rng.c
-F:	drivers/clk/microchip/clk-mpfs.c
+F:	drivers/clk/microchip/clk-mpfs*.c
 F:	drivers/i2c/busses/i2c-microchip-corei2c.c
 F:	drivers/mailbox/mailbox-mpfs.c
 F:	drivers/pci/controller/pcie-microchip-host.c
@@ -18290,8 +18293,9 @@ F:	drivers/s390/block/dasd*
 F:	include/linux/dasd_mod.h
 
 S390 IOMMU (PCI)
+M:	Niklas Schnelle <schnelle@linux.ibm.com>
 M:	Matthew Rosato <mjrosato@linux.ibm.com>
-M:	Gerald Schaefer <gerald.schaefer@linux.ibm.com>
+R:	Gerald Schaefer <gerald.schaefer@linux.ibm.com>
 L:	linux-s390@vger.kernel.org
 S:	Supported
 F:	drivers/iommu/s390-iommu.c
@@ -18486,7 +18490,6 @@ F:	include/media/drv-intf/s3c_camif.h
 
 SAMSUNG S3FWRN5 NFC DRIVER
 M:	Krzysztof Kozlowski <krzysztof.kozlowski@linaro.org>
-L:	linux-nfc@lists.01.org (subscribers-only)
 S:	Maintained
 F:	Documentation/devicetree/bindings/net/nfc/samsung,s3fwrn5.yaml
 F:	drivers/nfc/s3fwrn5
@@ -18801,7 +18804,7 @@ F:	include/uapi/linux/sed*
 SECURITY CONTACT
 M:	Security Officers <security@kernel.org>
 S:	Supported
-F:	Documentation/admin-guide/security-bugs.rst
+F:	Documentation/process/security-bugs.rst
 
 SECURITY SUBSYSTEM
 M:	Paul Moore <paul@paul-moore.com>
@@ -18823,8 +18826,8 @@ S:	Supported
 W:	https://selinuxproject.org
 W:	https://github.com/SELinuxProject
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/pcmoore/selinux.git
-F:	Documentation/ABI/obsolete/sysfs-selinux-checkreqprot
-F:	Documentation/ABI/obsolete/sysfs-selinux-disable
+F:	Documentation/ABI/removed/sysfs-selinux-checkreqprot
+F:	Documentation/ABI/removed/sysfs-selinux-disable
 F:	Documentation/admin-guide/LSM/SELinux.rst
 F:	include/trace/events/avc.h
 F:	include/uapi/linux/selinux_netlink.h
@@ -19149,9 +19152,7 @@ W:	http://www.brownhat.org/sis900.html
 F:	drivers/net/ethernet/sis/sis900.*
 
 SIS FRAMEBUFFER DRIVER
-M:	Thomas Winischhofer <thomas@winischhofer.net>
-S:	Maintained
-W:	http://www.winischhofer.net/linuxsisvga.shtml
+S:	Orphan
 F:	Documentation/fb/sisfb.rst
 F:	drivers/video/fbdev/sis/
 F:	include/video/sisfb.h
@@ -19863,13 +19864,6 @@ S:	Maintained
 W:	http://wiki.laptop.org/go/DCON
 F:	drivers/staging/olpc_dcon/
 
-STAGING - REALTEK RTL8188EU DRIVERS
-M:	Larry Finger <Larry.Finger@lwfinger.net>
-M:	Phillip Potter <phil@philpotter.co.uk>
-R:	Pavel Skripkin <paskripkin@gmail.com>
-S:	Supported
-F:	drivers/staging/r8188eu/
-
 STAGING - REALTEK RTL8712U DRIVERS
 M:	Larry Finger <Larry.Finger@lwfinger.net>
 M:	Florian Schilhabel <florian.c.schilhabel@googlemail.com>.
@@ -20123,7 +20117,7 @@ M:	John Paul Adrian Glaubitz <glaubitz@physik.fu-berlin.de>
 L:	linux-sh@vger.kernel.org
 S:	Maintained
 Q:	http://patchwork.kernel.org/project/linux-sh/list/
-F:	Documentation/sh/
+F:	Documentation/arch/sh/
 F:	arch/sh/
 F:	drivers/sh/
 
@@ -20183,7 +20177,7 @@ M:	Vineet Gupta <vgupta@kernel.org>
 L:	linux-snps-arc@lists.infradead.org
 S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/vgupta/arc.git
-F:	Documentation/arc/
+F:	Documentation/arch/arc
 F:	Documentation/devicetree/bindings/arc/*
 F:	Documentation/devicetree/bindings/interrupt-controller/snps,arc*
 F:	arch/arc/
@@ -20653,7 +20647,6 @@ F:	sound/soc/codecs/tscs*.h
 TENSILICA XTENSA PORT (xtensa)
 M:	Chris Zankel <chris@zankel.net>
 M:	Max Filippov <jcmvbkbc@gmail.com>
-L:	linux-xtensa@linux-xtensa.org
 S:	Maintained
 T:	git https://github.com/jcmvbkbc/linux-xtensa.git
 F:	arch/xtensa/
@@ -20989,7 +20982,6 @@ F:	drivers/iio/magnetometer/tmag5273.c
 TI TRF7970A NFC DRIVER
 M:	Mark Greer <mgreer@animalcreek.com>
 L:	linux-wireless@vger.kernel.org
-L:	linux-nfc@lists.01.org (subscribers-only)
 S:	Supported
 F:	Documentation/devicetree/bindings/net/nfc/ti,trf7970a.yaml
 F:	drivers/nfc/trf7970a.c
@@ -21243,6 +21235,14 @@ L:	linux-trace-devel@vger.kernel.org
 S:	Maintained
 F:	Documentation/tools/rtla/
 F:	tools/tracing/rtla/
+
+TECHNICAL ADVISORY BOARD PROCESS DOCS
+M:	"Theodore Ts'o" <tytso@mit.edu>
+M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+L:	tech-board-discuss@lists.linux-foundation.org
+S:	Maintained
+F:	Documentation/process/researcher-guidelines.rst
+F:	Documentation/process/contribution-maturity-model.rst
 
 TRADITIONAL CHINESE DOCUMENTATION
 M:	Hu Haowen <src.res@email.cn>
@@ -21651,6 +21651,7 @@ USB OVER IP DRIVER
 M:	Valentina Manea <valentina.manea.m@gmail.com>
 M:	Shuah Khan <shuah@kernel.org>
 M:	Shuah Khan <skhan@linuxfoundation.org>
+R:	Hongren Zheng <i@zenithal.me>
 L:	linux-usb@vger.kernel.org
 S:	Maintained
 F:	Documentation/usb/usbip_protocol.rst
@@ -22176,7 +22177,9 @@ L:	virtualization@lists.linux-foundation.org
 L:	netdev@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost.git
+F:	kernel/vhost_task.c
 F:	drivers/vhost/
+F:	include/linux/sched/vhost_task.h
 F:	include/linux/vhost_iotlb.h
 F:	include/uapi/linux/vhost.h
 
@@ -22650,7 +22653,7 @@ L:	linux-kernel@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git x86/core
 F:	Documentation/devicetree/bindings/x86/
-F:	Documentation/x86/
+F:	Documentation/arch/x86/
 F:	arch/x86/
 
 X86 ENTRY CODE
@@ -22666,7 +22669,7 @@ M:	Borislav Petkov <bp@alien8.de>
 L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	Documentation/ABI/testing/sysfs-mce
-F:	Documentation/x86/x86_64/machinecheck.rst
+F:	Documentation/arch/x86/x86_64/machinecheck.rst
 F:	arch/x86/kernel/cpu/mce/*
 
 X86 MICROCODE UPDATE SUPPORT
@@ -23045,7 +23048,6 @@ F:	drivers/gpio/gpio-xra1403.c
 
 XTENSA XTFPGA PLATFORM SUPPORT
 M:	Max Filippov <jcmvbkbc@gmail.com>
-L:	linux-xtensa@linux-xtensa.org
 S:	Maintained
 F:	drivers/spi/spi-xtensa-xtfpga.c
 F:	sound/soc/xtensa/xtfpga-i2s.c
@@ -23128,7 +23130,7 @@ S:	Maintained
 F:	arch/x86/kernel/cpu/zhaoxin.c
 
 ZONEFS FILESYSTEM
-M:	Damien Le Moal <damien.lemoal@opensource.wdc.com>
+M:	Damien Le Moal <dlemoal@kernel.org>
 M:	Naohiro Aota <naohiro.aota@wdc.com>
 R:	Johannes Thumshirn <jth@kernel.org>
 L:	linux-fsdevel@vger.kernel.org

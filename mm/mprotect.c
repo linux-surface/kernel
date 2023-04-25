@@ -805,7 +805,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 
 		if (map_deny_write_exec(vma, newflags)) {
 			error = -EACCES;
-			goto out;
+			break;
 		}
 
 		/* Allow architectures to sanity-check the new flags */
@@ -838,7 +838,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 	}
 	tlb_finish_mmu(&tlb);
 
-	if (vma_iter_end(&vmi) < end)
+	if (!error && vma_iter_end(&vmi) < end)
 		error = -ENOMEM;
 
 out:

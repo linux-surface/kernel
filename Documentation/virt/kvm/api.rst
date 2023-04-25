@@ -7456,7 +7456,7 @@ system fingerprint.  To prevent userspace from circumventing such restrictions
 by running an enclave in a VM, KVM prevents access to privileged attributes by
 default.
 
-See Documentation/x86/sgx.rst for more details.
+See Documentation/arch/x86/sgx.rst for more details.
 
 7.26 KVM_CAP_PPC_RPT_INVALIDATE
 -------------------------------
@@ -8296,11 +8296,11 @@ ENOSYS for the others.
 8.35 KVM_CAP_PMU_CAPABILITY
 ---------------------------
 
-:Capability KVM_CAP_PMU_CAPABILITY
+:Capability: KVM_CAP_PMU_CAPABILITY
 :Architectures: x86
 :Type: vm
 :Parameters: arg[0] is bitmask of PMU virtualization capabilities.
-:Returns 0 on success, -EINVAL when arg[0] contains invalid bits
+:Returns: 0 on success, -EINVAL when arg[0] contains invalid bits
 
 This capability alters PMU virtualization in KVM.
 

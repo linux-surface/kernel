@@ -223,20 +223,17 @@ patch.
 Select the recipients for your patch
 ------------------------------------
 
-You should always copy the appropriate subsystem maintainer(s) on any patch
-to code that they maintain; look through the MAINTAINERS file and the
-source code revision history to see who those maintainers are.  The
-script scripts/get_maintainer.pl can be very useful at this step (pass paths to
-your patches as arguments to scripts/get_maintainer.pl).  If you cannot find a
+You should always copy the appropriate subsystem maintainer(s) and list(s) on
+any patch to code that they maintain; look through the MAINTAINERS file and the
+source code revision history to see who those maintainers are.  The script
+scripts/get_maintainer.pl can be very useful at this step (pass paths to your
+patches as arguments to scripts/get_maintainer.pl).  If you cannot find a
 maintainer for the subsystem you are working on, Andrew Morton
 (akpm@linux-foundation.org) serves as a maintainer of last resort.
 
-You should also normally choose at least one mailing list to receive a copy
-of your patch set.  linux-kernel@vger.kernel.org should be used by default
-for all patches, but the volume on that list has caused a number of
-developers to tune it out.  Look in the MAINTAINERS file for a
-subsystem-specific list; your patch will probably get more attention there.
-Please do not spam unrelated lists, though.
+linux-kernel@vger.kernel.org should be used by default for all patches, but the
+volume on that list has caused a number of developers to tune it out.  Please
+do not spam unrelated lists and unrelated people, though.
 
 Many kernel-related lists are hosted on vger.kernel.org; you can find a
 list of them at http://vger.kernel.org/vger-lists.html.  There are
@@ -254,7 +251,7 @@ If you have a patch that fixes an exploitable security bug, send that patch
 to security@kernel.org.  For severe bugs, a short embargo may be considered
 to allow distributors to get the patch out to users; in such cases,
 obviously, the patch should not be sent to any public lists. See also
-Documentation/admin-guide/security-bugs.rst.
+Documentation/process/security-bugs.rst.
 
 Patches that fix a severe bug in a released kernel should be directed
 toward the stable maintainers by putting a line like this::
@@ -320,7 +317,7 @@ for their time.  Code review is a tiring and time-consuming process, and
 reviewers sometimes get grumpy.  Even in that case, though, respond
 politely and address the problems they have pointed out.  When sending a next
 version, add a ``patch changelog`` to the cover letter or to individual patches
-explaining difference aganst previous submission (see
+explaining difference against previous submission (see
 :ref:`the_canonical_patch_format`).
 
 See Documentation/process/email-clients.rst for recommendations on email
