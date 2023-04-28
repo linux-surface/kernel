@@ -9,6 +9,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/types.h>
 
+#include "desc.h"
 #include "resources.h"
 #include "spec-device.h"
 
@@ -49,16 +50,22 @@ int ipts_resources_init(struct ipts_resources *res, struct device *dev, size_t d
 {
 	int ret = 0;
 
+	/*
+	 * Some compilers (AOSP clang) complain about a redefined
+	 * variable when this is declared inside of the for loop.
+	 */
+	int i = 0;
+
 	if (!res)
 		return -EFAULT;
 
-	for (int i = 0; i < IPTS_BUFFERS; i++) {
+	for (i = 0; i < IPTS_BUFFERS; i++) {
 		ret = ipts_resources_alloc_buffer(&res->data[i], dev, ds);
 		if (ret)
 			goto err;
 	}
 
-	for (int i = 0; i < IPTS_BUFFERS; i++) {
+	for (i = 0; i < IPTS_BUFFERS; i++) {
 		ret = ipts_resources_alloc_buffer(&res->feedback[i], dev, fs);
 		if (ret)
 			goto err;
@@ -80,6 +87,16 @@ int ipts_resources_init(struct ipts_resources *res, struct device *dev, size_t d
 	if (ret)
 		goto err;
 
+	if (!res->report.address) {
+		res->report.size = IPTS_HID_REPORT_DATA_SIZE;
+		res->report.address = kzalloc(res->report.size, GFP_KERNEL);
+
+		if (!res->report.address) {
+			ret = -ENOMEM;
+			goto err;
+		}
+	}
+
 	return 0;
 
 err:
@@ -90,19 +107,29 @@ err:
 
 int ipts_resources_free(struct ipts_resources *res)
 {
+	/*
+	 * Some compilers (AOSP clang) complain about a redefined
+	 * variable when this is declared inside of the for loop.
+	 */
+	int i = 0;
+
 	if (!res)
 		return -EFAULT;
 
-	for (int i = 0; i < IPTS_BUFFERS; i++)
+	for (i = 0; i < IPTS_BUFFERS; i++)
 		ipts_resources_free_buffer(&res->data[i]);
 
-	for (int i = 0; i < IPTS_BUFFERS; i++)
+	for (i = 0; i < IPTS_BUFFERS; i++)
 		ipts_resources_free_buffer(&res->feedback[i]);
 
 	ipts_resources_free_buffer(&res->doorbell);
 	ipts_resources_free_buffer(&res->workqueue);
 	ipts_resources_free_buffer(&res->hid2me);
 	ipts_resources_free_buffer(&res->descriptor);
+
+	kfree(res->report.address);
+	res->report.address = NULL;
+	res->report.size = 0;
 
 	return 0;
 }
