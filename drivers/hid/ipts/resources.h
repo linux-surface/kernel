@@ -31,6 +31,9 @@ struct ipts_resources {
 	struct ipts_buffer hid2me;
 
 	struct ipts_buffer descriptor;
+
+	// Buffer for synthesizing HID reports
+	struct ipts_buffer report;
 };
 
 int ipts_resources_init(struct ipts_resources *res, struct device *dev, size_t ds, size_t fs);
