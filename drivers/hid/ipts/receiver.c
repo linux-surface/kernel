@@ -42,7 +42,7 @@ static void ipts_receiver_backoff(time64_t last, u32 n)
 	 * n seconds, sleep longer to avoid wasting CPU cycles.
 	 */
 	if (last + n > ktime_get_seconds())
-		msleep(20);
+		usleep_range(1 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
 	else
 		msleep(200);
 }
