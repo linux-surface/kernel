@@ -1,3 +1,5 @@
+acqrel=full
+. ${ATOMICDIR}/acqrel.sh
 cat <<EOF
 static __always_inline ${ret}
 arch_${atomic}_${pfx}${name}${sfx}(${params})
