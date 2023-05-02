@@ -1,4 +1,11 @@
 cat <<EOF
+/**
+ * arch_${atomic}_read_acquire - Atomic load acquire
+ * @v: pointer of type ${atomic}_t
+ *
+ * Atomically load from *@v with acquire ordering, returning the value
+ * loaded.
+ */
 static __always_inline ${ret}
 arch_${atomic}_read_acquire(const ${atomic}_t *v)
 {
