@@ -24,6 +24,26 @@ gen_template_fallback()
 	local params="$(gen_params "${int}" "${atomic}" "$@")"
 	local args="$(gen_args "$@")"
 
+	local docbook_order=full
+	if test "${order}" = "_relaxed"
+	then
+		docbook_order=no
+	elif test -n "${order}"
+	then
+		docbook_order="`echo $order | sed -e 's/_//'`"
+	elif test "${ret}" = void
+	then
+		docbook_order=no
+	fi
+	local docbook_oldnew="new"
+	if test "${pfx}" = "fetch_"
+	then
+		docbook_oldnew="old"
+	elif test "${sfx}" != "_return"
+	then
+		docbook_oldnew="no"
+	fi
+
 	if [ ! -z "${template}" ]; then
 		printf "#ifndef ${atomicname}\n"
 		. ${template}
