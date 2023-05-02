@@ -1,4 +1,11 @@
 cat <<EOF
+/**
+ * arch_${atomic}_${pfx}inc${sfx}${order} - Atomic increment
+ * @v: pointer of type ${atomic}_t
+ *
+ * Atomically increment @v with ${docbook_order} ordering,
+ * returning ${docbook_oldnew} value.
+ */
 static __always_inline ${ret}
 arch_${atomic}_${pfx}inc${sfx}${order}(${atomic}_t *v)
 {
