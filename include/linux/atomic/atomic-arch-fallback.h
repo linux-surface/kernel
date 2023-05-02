@@ -444,7 +444,7 @@ arch_atomic_fetch_sub(int i, atomic_t *v)
  * arch_atomic_inc - Atomic increment
  * @v: pointer of type atomic_t
  *
- * Atomically increment @v with full ordering,
+ * Atomically increment @v with no ordering,
  * returning no value.
  */
 static __always_inline void
@@ -678,7 +678,7 @@ arch_atomic_fetch_inc(atomic_t *v)
  * arch_atomic_dec - Atomic decrement
  * @v: pointer of type atomic_t
  *
- * Atomically decrement @v with full ordering,
+ * Atomically decrement @v with no ordering,
  * returning no value.
  */
 static __always_inline void
@@ -950,6 +950,14 @@ arch_atomic_fetch_and(int i, atomic_t *v)
 #endif /* arch_atomic_fetch_and_relaxed */
 
 #ifndef arch_atomic_andnot
+/**
+ * arch_atomic_andnot - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic_t
+ *
+ * Atomically and-not @i with @v using no ordering,
+ * returning no value.
+ */
 static __always_inline void
 arch_atomic_andnot(int i, atomic_t *v)
 {
@@ -966,6 +974,14 @@ arch_atomic_andnot(int i, atomic_t *v)
 #endif /* arch_atomic_fetch_andnot */
 
 #ifndef arch_atomic_fetch_andnot
+/**
+ * arch_atomic_fetch_andnot - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic_t
+ *
+ * Atomically and-not @i with @v using full ordering,
+ * returning old value.
+ */
 static __always_inline int
 arch_atomic_fetch_andnot(int i, atomic_t *v)
 {
@@ -975,6 +991,14 @@ arch_atomic_fetch_andnot(int i, atomic_t *v)
 #endif
 
 #ifndef arch_atomic_fetch_andnot_acquire
+/**
+ * arch_atomic_fetch_andnot_acquire - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic_t
+ *
+ * Atomically and-not @i with @v using acquire ordering,
+ * returning old value.
+ */
 static __always_inline int
 arch_atomic_fetch_andnot_acquire(int i, atomic_t *v)
 {
@@ -984,6 +1008,14 @@ arch_atomic_fetch_andnot_acquire(int i, atomic_t *v)
 #endif
 
 #ifndef arch_atomic_fetch_andnot_release
+/**
+ * arch_atomic_fetch_andnot_release - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic_t
+ *
+ * Atomically and-not @i with @v using release ordering,
+ * returning old value.
+ */
 static __always_inline int
 arch_atomic_fetch_andnot_release(int i, atomic_t *v)
 {
@@ -993,6 +1025,14 @@ arch_atomic_fetch_andnot_release(int i, atomic_t *v)
 #endif
 
 #ifndef arch_atomic_fetch_andnot_relaxed
+/**
+ * arch_atomic_fetch_andnot_relaxed - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic_t
+ *
+ * Atomically and-not @i with @v using no ordering,
+ * returning old value.
+ */
 static __always_inline int
 arch_atomic_fetch_andnot_relaxed(int i, atomic_t *v)
 {
@@ -1786,7 +1826,7 @@ arch_atomic64_fetch_sub(s64 i, atomic64_t *v)
  * arch_atomic64_inc - Atomic increment
  * @v: pointer of type atomic64_t
  *
- * Atomically increment @v with full ordering,
+ * Atomically increment @v with no ordering,
  * returning no value.
  */
 static __always_inline void
@@ -2020,7 +2060,7 @@ arch_atomic64_fetch_inc(atomic64_t *v)
  * arch_atomic64_dec - Atomic decrement
  * @v: pointer of type atomic64_t
  *
- * Atomically decrement @v with full ordering,
+ * Atomically decrement @v with no ordering,
  * returning no value.
  */
 static __always_inline void
@@ -2292,6 +2332,14 @@ arch_atomic64_fetch_and(s64 i, atomic64_t *v)
 #endif /* arch_atomic64_fetch_and_relaxed */
 
 #ifndef arch_atomic64_andnot
+/**
+ * arch_atomic64_andnot - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically and-not @i with @v using no ordering,
+ * returning no value.
+ */
 static __always_inline void
 arch_atomic64_andnot(s64 i, atomic64_t *v)
 {
@@ -2308,6 +2356,14 @@ arch_atomic64_andnot(s64 i, atomic64_t *v)
 #endif /* arch_atomic64_fetch_andnot */
 
 #ifndef arch_atomic64_fetch_andnot
+/**
+ * arch_atomic64_fetch_andnot - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically and-not @i with @v using full ordering,
+ * returning old value.
+ */
 static __always_inline s64
 arch_atomic64_fetch_andnot(s64 i, atomic64_t *v)
 {
@@ -2317,6 +2373,14 @@ arch_atomic64_fetch_andnot(s64 i, atomic64_t *v)
 #endif
 
 #ifndef arch_atomic64_fetch_andnot_acquire
+/**
+ * arch_atomic64_fetch_andnot_acquire - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically and-not @i with @v using acquire ordering,
+ * returning old value.
+ */
 static __always_inline s64
 arch_atomic64_fetch_andnot_acquire(s64 i, atomic64_t *v)
 {
@@ -2326,6 +2390,14 @@ arch_atomic64_fetch_andnot_acquire(s64 i, atomic64_t *v)
 #endif
 
 #ifndef arch_atomic64_fetch_andnot_release
+/**
+ * arch_atomic64_fetch_andnot_release - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically and-not @i with @v using release ordering,
+ * returning old value.
+ */
 static __always_inline s64
 arch_atomic64_fetch_andnot_release(s64 i, atomic64_t *v)
 {
@@ -2335,6 +2407,14 @@ arch_atomic64_fetch_andnot_release(s64 i, atomic64_t *v)
 #endif
 
 #ifndef arch_atomic64_fetch_andnot_relaxed
+/**
+ * arch_atomic64_fetch_andnot_relaxed - Atomic and-not
+ * @i: the quantity to and-not with *@v
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically and-not @i with @v using no ordering,
+ * returning old value.
+ */
 static __always_inline s64
 arch_atomic64_fetch_andnot_relaxed(s64 i, atomic64_t *v)
 {
@@ -2920,4 +3000,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 1a1d30491494653253bfe3b5d2e2c6583cb57473
+// f72c80f4b464cb4884222cb92f401bd32a83ef2d
