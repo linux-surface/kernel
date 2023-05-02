@@ -258,6 +258,13 @@ arch_atomic_read_acquire(const atomic_t *v)
 #endif
 
 #ifndef arch_atomic_set_release
+/**
+ * arch_atomic_set_release - Atomic store release
+ * @v: pointer of type atomic_t
+ * @i: value to store
+ *
+ * Atomically store @i into *@v with release ordering.
+ */
 static __always_inline void
 arch_atomic_set_release(atomic_t *v, int i)
 {
@@ -1715,6 +1722,13 @@ arch_atomic64_read_acquire(const atomic64_t *v)
 #endif
 
 #ifndef arch_atomic64_set_release
+/**
+ * arch_atomic64_set_release - Atomic store release
+ * @v: pointer of type atomic64_t
+ * @i: value to store
+ *
+ * Atomically store @i into *@v with release ordering.
+ */
 static __always_inline void
 arch_atomic64_set_release(atomic64_t *v, s64 i)
 {
@@ -3150,4 +3164,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 44e53ec13c48a1ed4bf238fa4137da96e2ad3567
+// 87af39e54c32c712d6a97bdc84f2c9831baa1978

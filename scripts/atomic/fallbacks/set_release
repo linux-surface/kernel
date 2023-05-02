@@ -1,4 +1,11 @@
 cat <<EOF
+/**
+ * arch_${atomic}_set_release - Atomic store release
+ * @v: pointer of type ${atomic}_t
+ * @i: value to store
+ *
+ * Atomically store @i into *@v with release ordering.
+ */
 static __always_inline void
 arch_${atomic}_set_release(${atomic}_t *v, ${int} i)
 {
