@@ -4157,8 +4157,7 @@ static void filemap_cachestat(struct address_space *mapping,
 			int order = xa_get_order(xas.xa, xas.xa_index);
 
 			nr_pages = 1 << order;
-			/* rounds down to the nearest multiple of 2^order */
-			folio_first_index = xas.xa_index >> order << order;
+			folio_first_index = round_down(xas.xa_index, 1 << order);
 			folio_last_index = folio_first_index + nr_pages - 1;
 
 			/* Folios might straddle the range boundaries, only count covered pages */
