@@ -191,7 +191,7 @@ bool test_cachestat_shmem(void)
 	}
 
 	if (ftruncate(fd, filesize)) {
-		ksft_print_msg("Unable to trucate shmem file.\n");
+		ksft_print_msg("Unable to truncate shmem file.\n");
 		ret = false;
 		goto close_fd;
 	}
