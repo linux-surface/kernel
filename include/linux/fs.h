@@ -168,6 +168,9 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 
 #define	FMODE_NOREUSE		((__force fmode_t)0x800000)
 
+/* File supports non-exclusive O_DIRECT writes from multiple threads */
+#define FMODE_DIO_PARALLEL_WRITE	((__force fmode_t)0x1000000)
+
 /* File was opened by fanotify and shouldn't generate fanotify events */
 #define FMODE_NONOTIFY		((__force fmode_t)0x4000000)
 
@@ -339,6 +342,20 @@ enum rw_hint {
 #define IOCB_NOIO		(1 << 20)
 /* can use bio alloc cache */
 #define IOCB_ALLOC_CACHE	(1 << 21)
+
+/* for use in trace events */
+#define TRACE_IOCB_STRINGS \
+	{ IOCB_HIPRI,		"HIPRI" }, \
+	{ IOCB_DSYNC,		"DSYNC" }, \
+	{ IOCB_SYNC,		"SYNC" }, \
+	{ IOCB_NOWAIT,		"NOWAIT" }, \
+	{ IOCB_APPEND,		"APPEND" }, \
+	{ IOCB_EVENTFD,		"EVENTFD"}, \
+	{ IOCB_DIRECT,		"DIRECT" }, \
+	{ IOCB_WRITE,		"WRITE" }, \
+	{ IOCB_WAITQ,		"WAITQ" }, \
+	{ IOCB_NOIO,		"NOIO" }, \
+	{ IOCB_ALLOC_CACHE,	"ALLOC_CACHE" }
 
 struct kiocb {
 	struct file		*ki_filp;

@@ -196,11 +196,17 @@ void mark_buffer_write_io_error(struct buffer_head *bh);
 void touch_buffer(struct buffer_head *bh);
 void set_bh_page(struct buffer_head *bh,
 		struct page *page, unsigned long offset);
+void folio_set_bh(struct buffer_head *bh, struct folio *folio,
+		  unsigned long offset);
 bool try_to_free_buffers(struct folio *);
+struct buffer_head *folio_alloc_buffers(struct folio *folio, unsigned long size,
+					bool retry);
 struct buffer_head *alloc_page_buffers(struct page *page, unsigned long size,
 		bool retry);
 void create_empty_buffers(struct page *, unsigned long,
 			unsigned long b_state);
+void folio_create_empty_buffers(struct folio *folio, unsigned long blocksize,
+				unsigned long b_state);
 void end_buffer_read_sync(struct buffer_head *bh, int uptodate);
 void end_buffer_write_sync(struct buffer_head *bh, int uptodate);
 void end_buffer_async_write(struct buffer_head *bh, int uptodate);
@@ -211,6 +217,10 @@ int inode_has_buffers(struct inode *);
 void invalidate_inode_buffers(struct inode *);
 int remove_inode_buffers(struct inode *inode);
 int sync_mapping_buffers(struct address_space *mapping);
+int generic_buffers_fsync_noflush(struct file *file, loff_t start, loff_t end,
+				  bool datasync);
+int generic_buffers_fsync(struct file *file, loff_t start, loff_t end,
+			  bool datasync);
 void clean_bdev_aliases(struct block_device *bdev, sector_t block,
 			sector_t len);
 static inline void clean_bdev_bh_alias(struct buffer_head *bh)
