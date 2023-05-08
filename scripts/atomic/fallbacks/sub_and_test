@@ -5,7 +5,7 @@ cat <<EOF
  * @v: pointer of type ${atomic}_t
  *
  * Atomically subtracts @i from @v and returns
- * true if the result is zero, or false for all
+ * @true if the result is zero, or @false for all
  * other cases.
  */
 static __always_inline bool

@@ -4,7 +4,7 @@ cat <<EOF
  * @v: pointer of type ${atomic}_t
  *
  * Atomically increments @v by 1, if @v is non-zero.
- * Returns true if the increment was done.
+ * Returns @true if the increment was done.
  */
 static __always_inline bool
 arch_${atomic}_inc_not_zero(${atomic}_t *v)
