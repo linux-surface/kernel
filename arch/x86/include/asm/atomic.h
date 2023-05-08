@@ -18,7 +18,9 @@
  * arch_atomic_read - read atomic variable
  * @v: pointer of type atomic_t
  *
- * Atomically reads the value of @v.
+ * Atomically reads the value of @v with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline int arch_atomic_read(const atomic_t *v)
 {
@@ -34,7 +36,9 @@ static __always_inline int arch_atomic_read(const atomic_t *v)
  * @v: pointer of type atomic_t
  * @i: required value
  *
- * Atomically sets the value of @v to @i.
+ * Atomically sets the value of @v to @i with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline void arch_atomic_set(atomic_t *v, int i)
 {
@@ -46,7 +50,9 @@ static __always_inline void arch_atomic_set(atomic_t *v, int i)
  * @i: integer value to add
  * @v: pointer of type atomic_t
  *
- * Atomically adds @i to @v.
+ * Atomically adds @i to @v with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline void arch_atomic_add(int i, atomic_t *v)
 {
@@ -60,7 +66,9 @@ static __always_inline void arch_atomic_add(int i, atomic_t *v)
  * @i: integer value to subtract
  * @v: pointer of type atomic_t
  *
- * Atomically subtracts @i from @v.
+ * Atomically subtracts @i from @v with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline void arch_atomic_sub(int i, atomic_t *v)
 {
