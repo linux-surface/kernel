@@ -303,7 +303,7 @@ static void lru_gen_refault(struct folio *folio, void *shadow)
 		goto unlock;
 
 	if (pgdat != folio_pgdat(folio))
-		return;
+		goto unlock;
 
 	lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	lrugen = &lruvec->lrugen;
