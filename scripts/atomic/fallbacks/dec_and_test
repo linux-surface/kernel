@@ -1,3 +1,5 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_dec_and_test dec_and_test
+then
 cat <<EOF
 /**
  * arch_${atomic}_dec_and_test - decrement and test
@@ -7,6 +9,9 @@ cat <<EOF
  * returns @true if the result is 0, or @false for all other
  * cases.
  */
+EOF
+fi
+cat <<EOF
 static __always_inline bool
 arch_${atomic}_dec_and_test(${atomic}_t *v)
 {

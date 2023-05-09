@@ -1,3 +1,5 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_${pfx}andnot${sfx}${order} andnot
+then
 cat <<EOF
 /**
  * arch_${atomic}_${pfx}andnot${sfx}${order} - Atomic and-not
@@ -7,6 +9,9 @@ cat <<EOF
  * Atomically and-not @i with @v using ${docbook_order} ordering,
  * returning ${docbook_oldnew} value.
  */
+EOF
+fi
+cat <<EOF
 static __always_inline ${ret}
 arch_${atomic}_${pfx}andnot${sfx}${order}(${int} i, ${atomic}_t *v)
 {

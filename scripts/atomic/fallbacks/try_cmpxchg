@@ -1,3 +1,5 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_try_cmpxchg${order} try_cmpxchg
+then
 cat <<EOF
 /**
  * arch_${atomic}_try_cmpxchg${order} - Atomic cmpxchg with bool return value
@@ -11,6 +13,9 @@ cat <<EOF
  * On failure, stores the original value of *@v into *@old, which permits
  * a retry without a reload from *@v.
  */
+EOF
+fi
+cat <<EOF
 static __always_inline bool
 arch_${atomic}_try_cmpxchg${order}(${atomic}_t *v, ${int} *old, ${int} new)
 {
