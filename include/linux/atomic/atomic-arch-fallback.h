@@ -1856,7 +1856,7 @@ arch_atomic_fetch_add_unless(atomic_t *v, int a, int u)
  * @a: the amount to add to v...
  * @u: ...unless v is equal to u.
  *
- * Atomically adds @a to @v, if @v was not already @u.
+ * Atomically adds @a to @v with full ordering, but only if @v was not already @u.
  * Returns @true if the addition was done.
  */
 static __always_inline bool
@@ -3580,7 +3580,7 @@ arch_atomic64_fetch_add_unless(atomic64_t *v, s64 a, s64 u)
  * @a: the amount to add to v...
  * @u: ...unless v is equal to u.
  *
- * Atomically adds @a to @v, if @v was not already @u.
+ * Atomically adds @a to @v with full ordering, but only if @v was not already @u.
  * Returns @true if the addition was done.
  */
 static __always_inline bool
@@ -3684,4 +3684,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 6c86bc68a97e9c3ef1b51a5f27307eef324edc20
+// 6990bbf018be2f0ccdcb7798fa9d0b9919c4078d
