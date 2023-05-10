@@ -6,8 +6,9 @@ cat <<EOF
  * @i: integer value to add
  * @v: pointer of type ${atomic}_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with ${docbook_order} ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 EOF
 fi

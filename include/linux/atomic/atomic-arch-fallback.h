@@ -1717,8 +1717,9 @@ arch_atomic_inc_and_test(atomic_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with full ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic_add_negative(int i, atomic_t *v)
@@ -1734,8 +1735,9 @@ arch_atomic_add_negative(int i, atomic_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with acquire ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic_add_negative_acquire(int i, atomic_t *v)
@@ -1751,8 +1753,9 @@ arch_atomic_add_negative_acquire(int i, atomic_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with release ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic_add_negative_release(int i, atomic_t *v)
@@ -1768,8 +1771,9 @@ arch_atomic_add_negative_release(int i, atomic_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with no ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic_add_negative_relaxed(int i, atomic_t *v)
@@ -3437,8 +3441,9 @@ arch_atomic64_inc_and_test(atomic64_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic64_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with full ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic64_add_negative(s64 i, atomic64_t *v)
@@ -3454,8 +3459,9 @@ arch_atomic64_add_negative(s64 i, atomic64_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic64_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with acquire ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic64_add_negative_acquire(s64 i, atomic64_t *v)
@@ -3471,8 +3477,9 @@ arch_atomic64_add_negative_acquire(s64 i, atomic64_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic64_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with release ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic64_add_negative_release(s64 i, atomic64_t *v)
@@ -3488,8 +3495,9 @@ arch_atomic64_add_negative_release(s64 i, atomic64_t *v)
  * @i: integer value to add
  * @v: pointer of type atomic64_t
  *
- * Atomically adds @i to @v and returns @true if the result is negative,
- * or @false when the result is greater than or equal to zero.
+ * Atomically adds @i to @v with no ordering.
+ * Returns @true if the result is negative, or @false when the result
+ * is greater than or equal to zero.
  */
 static __always_inline bool
 arch_atomic64_add_negative_relaxed(s64 i, atomic64_t *v)
@@ -3676,4 +3684,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// cc705cf0e4d8f04f1a8490cfff0d96d482e1a9bf
+// 6c86bc68a97e9c3ef1b51a5f27307eef324edc20
