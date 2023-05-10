@@ -1658,8 +1658,8 @@ arch_atomic_try_cmpxchg(atomic_t *v, int *old, int new)
  * @i: integer value to subtract
  * @v: pointer of type atomic_t
  *
- * Atomically subtracts @i from @v and returns
- * @true if the result is zero, or @false for all
+ * Atomically subtracts @i from @v with full ordering.
+ * Returns @true if the result is zero, or @false for all
  * other cases.
  */
 static __always_inline bool
@@ -3378,8 +3378,8 @@ arch_atomic64_try_cmpxchg(atomic64_t *v, s64 *old, s64 new)
  * @i: integer value to subtract
  * @v: pointer of type atomic64_t
  *
- * Atomically subtracts @i from @v and returns
- * @true if the result is zero, or @false for all
+ * Atomically subtracts @i from @v with full ordering.
+ * Returns @true if the result is zero, or @false for all
  * other cases.
  */
 static __always_inline bool
@@ -3676,4 +3676,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 06cde291558bd5939ee347b521db6a7f1c8088b4
+// 48cf43d9678417cb3600326a8c32301e9d5955e4

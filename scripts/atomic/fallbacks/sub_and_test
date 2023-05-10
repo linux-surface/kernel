@@ -6,8 +6,8 @@ cat <<EOF
  * @i: integer value to subtract
  * @v: pointer of type ${atomic}_t
  *
- * Atomically subtracts @i from @v and returns
- * @true if the result is zero, or @false for all
+ * Atomically subtracts @i from @v with full ordering.
+ * Returns @true if the result is zero, or @false for all
  * other cases.
  */
 EOF
