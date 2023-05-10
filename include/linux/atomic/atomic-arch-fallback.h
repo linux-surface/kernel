@@ -1692,8 +1692,8 @@ arch_atomic_dec_and_test(atomic_t *v)
  * arch_atomic_inc_and_test - increment and test
  * @v: pointer of type atomic_t
  *
- * Atomically increments @v by 1
- * and returns @true if the result is zero, or @false for all
+ * Atomically increments @v by 1 with full ordering.
+ * Returns @true if the result is zero, or @false for all
  * other cases.
  */
 static __always_inline bool
@@ -3412,8 +3412,8 @@ arch_atomic64_dec_and_test(atomic64_t *v)
  * arch_atomic64_inc_and_test - increment and test
  * @v: pointer of type atomic64_t
  *
- * Atomically increments @v by 1
- * and returns @true if the result is zero, or @false for all
+ * Atomically increments @v by 1 with full ordering.
+ * Returns @true if the result is zero, or @false for all
  * other cases.
  */
 static __always_inline bool
@@ -3676,4 +3676,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 48cf43d9678417cb3600326a8c32301e9d5955e4
+// cc705cf0e4d8f04f1a8490cfff0d96d482e1a9bf
