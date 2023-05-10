@@ -5,7 +5,7 @@ cat <<EOF
  * arch_${atomic}_inc_not_zero - increment unless the number is zero
  * @v: pointer of type ${atomic}_t
  *
- * Atomically increments @v by 1, if @v is non-zero.
+ * Atomically increments @v by 1 with full ordering, but only if @v is non-zero.
  * Returns @true if the increment was done.
  */
 EOF

@@ -1872,7 +1872,7 @@ arch_atomic_add_unless(atomic_t *v, int a, int u)
  * arch_atomic_inc_not_zero - increment unless the number is zero
  * @v: pointer of type atomic_t
  *
- * Atomically increments @v by 1, if @v is non-zero.
+ * Atomically increments @v by 1 with full ordering, but only if @v is non-zero.
  * Returns @true if the increment was done.
  */
 static __always_inline bool
@@ -3596,7 +3596,7 @@ arch_atomic64_add_unless(atomic64_t *v, s64 a, s64 u)
  * arch_atomic64_inc_not_zero - increment unless the number is zero
  * @v: pointer of type atomic64_t
  *
- * Atomically increments @v by 1, if @v is non-zero.
+ * Atomically increments @v by 1 with full ordering, but only if @v is non-zero.
  * Returns @true if the increment was done.
  */
 static __always_inline bool
@@ -3684,4 +3684,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 6990bbf018be2f0ccdcb7798fa9d0b9919c4078d
+// 27816e1ed871911f768e2e6a6a241e1cd8268278
