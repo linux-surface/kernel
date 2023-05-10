@@ -62,7 +62,7 @@
 		pinctrl-single,function-mask = <0xffffffff>;
 	};
 
-	wkup_pmx1: pinctrl@0x4301c038 {
+	wkup_pmx1: pinctrl@4301c038 {
 		compatible = "pinctrl-single";
 		/* Proxy 0 addressing */
 		reg = <0x00 0x4301c038 0x00 0x8>;
@@ -71,7 +71,7 @@
 		pinctrl-single,function-mask = <0xffffffff>;
 	};
 
-	wkup_pmx2: pinctrl@0x4301c068 {
+	wkup_pmx2: pinctrl@4301c068 {
 		compatible = "pinctrl-single";
 		/* Proxy 0 addressing */
 		reg = <0x00 0x4301c068 0x00 0xec>;
@@ -80,7 +80,7 @@
 		pinctrl-single,function-mask = <0xffffffff>;
 	};
 
-	wkup_pmx3: pinctrl@0x4301c174 {
+	wkup_pmx3: pinctrl@4301c174 {
 		compatible = "pinctrl-single";
 		/* Proxy 0 addressing */
 		reg = <0x00 0x4301c174 0x00 0x20>;
