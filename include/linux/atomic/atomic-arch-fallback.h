@@ -1675,8 +1675,8 @@ arch_atomic_sub_and_test(int i, atomic_t *v)
  * arch_atomic_dec_and_test - decrement and test
  * @v: pointer of type atomic_t
  *
- * Atomically decrements @v by 1 and
- * returns @true if the result is 0, or @false for all other
+ * Atomically decrements @v by 1 with full ordering.
+ * Returns @true if the result is 0, or @false for all other
  * cases.
  */
 static __always_inline bool
@@ -3395,8 +3395,8 @@ arch_atomic64_sub_and_test(s64 i, atomic64_t *v)
  * arch_atomic64_dec_and_test - decrement and test
  * @v: pointer of type atomic64_t
  *
- * Atomically decrements @v by 1 and
- * returns @true if the result is 0, or @false for all other
+ * Atomically decrements @v by 1 with full ordering.
+ * Returns @true if the result is 0, or @false for all other
  * cases.
  */
 static __always_inline bool
@@ -3676,4 +3676,4 @@ arch_atomic64_dec_if_positive(atomic64_t *v)
 #endif
 
 #endif /* _LINUX_ATOMIC_FALLBACK_H */
-// 45a85017a9726a9c39508033e102a83b0dac90aa
+// 06cde291558bd5939ee347b521db6a7f1c8088b4
