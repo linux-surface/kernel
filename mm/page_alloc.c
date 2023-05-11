@@ -3052,7 +3052,8 @@ struct page *rmqueue(struct zone *preferred_zone,
 
 out:
 	/* Separate test+clear to avoid unnecessary atomics */
-	if (unlikely(test_bit(ZONE_BOOSTED_WATERMARK, &zone->flags))) {
+	if (unlikely(test_bit(ZONE_BOOSTED_WATERMARK, &zone->flags))
+	    && (alloc_flags & ALLOC_KSWAPD)) {
 		clear_bit(ZONE_BOOSTED_WATERMARK, &zone->flags);
 		wakeup_kswapd(zone, 0, 0, zone_idx(zone));
 	}
