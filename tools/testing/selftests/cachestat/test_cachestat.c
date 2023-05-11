@@ -31,48 +31,59 @@ void print_cachestat(struct cachestat *cs)
 
 bool write_exactly(int fd, size_t filesize)
 {
-	char data[filesize];
-	bool ret = true;
 	int random_fd = open("/dev/urandom", O_RDONLY);
+	char *cursor, *data;
+	int remained;
+	bool ret;
 
 	if (random_fd < 0) {
 		ksft_print_msg("Unable to access urandom.\n");
 		ret = false;
 		goto out;
-	} else {
-		int remained = filesize;
-		char *cursor = data;
-
-		while (remained) {
-			ssize_t read_len = read(random_fd, cursor, remained);
-
-			if (read_len <= 0) {
-				ksft_print_msg("Unable to read from urandom.\n");
-				ret = false;
-				goto close_random_fd;
-			}
-
-			remained -= read_len;
-			cursor += read_len;
-		}
-
-		/* write random data to fd */
-		remained = filesize;
-		cursor = data;
-		while (remained) {
-			ssize_t write_len = write(fd, cursor, remained);
-
-			if (write_len <= 0) {
-				ksft_print_msg("Unable write random data to file.\n");
-				ret = false;
-				goto close_random_fd;
-			}
-
-			remained -= write_len;
-			cursor += write_len;
-		}
 	}
 
+	data = malloc(filesize);
+	if (!data) {
+		ksft_print_msg("Unable to allocate data.\n");
+		ret = false;
+		goto close_random_fd;
+	}
+
+	remained = filesize;
+	cursor = data;
+
+	while (remained) {
+		ssize_t read_len = read(random_fd, cursor, remained);
+
+		if (read_len <= 0) {
+			ksft_print_msg("Unable to read from urandom.\n");
+			ret = false;
+			goto out_free_data;
+		}
+
+		remained -= read_len;
+		cursor += read_len;
+	}
+
+	/* write random data to fd */
+	remained = filesize;
+	cursor = data;
+	while (remained) {
+		ssize_t write_len = write(fd, cursor, remained);
+
+		if (write_len <= 0) {
+			ksft_print_msg("Unable write random data to file.\n");
+			ret = false;
+			goto out_free_data;
+		}
+
+		remained -= write_len;
+		cursor += write_len;
+	}
+
+	ret = true;
+out_free_data:
+	free(data);
 close_random_fd:
 	close(random_fd);
 out:
