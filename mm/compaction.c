@@ -765,6 +765,34 @@ static bool too_many_isolated(pg_data_t *pgdat)
 	return too_many;
 }
 
+/*
+ * Check if this base page should be skipped from isolation because
+ * it has extra refcounts that will prevent it from being migrated.
+ * This function is called for regular pages only, and not
+ * for THP or hugetlbfs pages. This code is inspired by similar code
+ * in migrate_vma_check_page(), can_split_folio() and
+ * folio_migrate_mapping()
+ */
+static inline bool page_has_extrarefs(struct page *page,
+					struct address_space *mapping)
+{
+	unsigned long extra_refs;
+
+	/* anonymous page can have extra ref from swap cache */
+	if (mapping)
+		extra_refs = 1 + PagePrivate(page);
+	else
+		extra_refs = PageSwapCache(page) ? 1 : 0;
+
+	/*
+	 * This is an admittedly racy check but good enough to determine
+	 * if a page is pinned and can not be migrated
+	 */
+	if ((page_ref_count(page) - extra_refs) > page_mapcount(page))
+		return true;
+	return false;
+}
+
 /**
  * isolate_migratepages_block() - isolate all migrate-able pages within
  *				  a single pageblock
@@ -1003,12 +1031,12 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			goto isolate_fail;
 
 		/*
-		 * Migration will fail if an anonymous page is pinned in memory,
-		 * so avoid taking lru_lock and isolating it unnecessarily in an
-		 * admittedly racy check.
+		 * Migration will fail if a page has extra refcounts
+		 * preventing it from migrating, so avoid taking
+		 * lru_lock and isolating it unnecessarily
 		 */
 		mapping = page_mapping(page);
-		if (!mapping && (page_count(page) - 1) > total_mapcount(page))
+		if (page_has_extrarefs(page, mapping))
 			goto isolate_fail_put;
 
 		/*
