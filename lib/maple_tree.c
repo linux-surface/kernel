@@ -6134,7 +6134,7 @@ void *mas_find(struct ma_state *mas, unsigned long max)
 	void *entry = NULL;
 
 	if (mas_find_setup(mas, max, &entry))
-	    return entry;
+		return entry;
 
 	/* Retries on dead nodes handled by mas_next_slot */
 	return mas_next_slot(mas, max, false);
