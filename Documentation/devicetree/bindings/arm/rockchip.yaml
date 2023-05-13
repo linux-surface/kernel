@@ -40,6 +40,11 @@ properties:
           - const: anbernic,rg353p
           - const: rockchip,rk3566
 
+      - description: Anbernic RG353PS
+        items:
+          - const: anbernic,rg353ps
+          - const: rockchip,rk3566
+
       - description: Anbernic RG353V
         items:
           - const: anbernic,rg353v
@@ -189,6 +194,7 @@ properties:
         items:
           - enum:
               - friendlyarm,nanopi-r2c
+              - friendlyarm,nanopi-r2c-plus
               - friendlyarm,nanopi-r2s
           - const: rockchip,rk3328
 
