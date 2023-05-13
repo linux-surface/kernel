@@ -1679,11 +1679,10 @@ splitmap:
  * This is a migrate-callback that "allocates" freepages by taking pages
  * from the isolated freelists in the block we are migrating to.
  */
-static struct page *compaction_alloc(struct page *migratepage,
-					unsigned long data)
+static struct folio *compaction_alloc(struct folio *src, unsigned long data)
 {
 	struct compact_control *cc = (struct compact_control *)data;
-	struct page *freepage;
+	struct folio *dst;
 
 	if (list_empty(&cc->freepages)) {
 		isolate_freepages(cc);
@@ -1692,11 +1691,11 @@ static struct page *compaction_alloc(struct page *migratepage,
 			return NULL;
 	}
 
-	freepage = list_entry(cc->freepages.next, struct page, lru);
-	list_del(&freepage->lru);
+	dst = list_entry(cc->freepages.next, struct folio, lru);
+	list_del(&dst->lru);
 	cc->nr_freepages--;
 
-	return freepage;
+	return dst;
 }
 
 /*
@@ -1704,11 +1703,11 @@ static struct page *compaction_alloc(struct page *migratepage,
  * freelist.  All pages on the freelist are from the same zone, so there is no
  * special handling needed for NUMA.
  */
-static void compaction_free(struct page *page, unsigned long data)
+static void compaction_free(struct folio *dst, unsigned long data)
 {
 	struct compact_control *cc = (struct compact_control *)data;
 
-	list_add(&page->lru, &cc->freepages);
+	list_add(&dst->lru, &cc->freepages);
 	cc->nr_freepages++;
 }
 
