@@ -254,7 +254,6 @@ static int memcg_charge_kernel_stack(struct vm_struct *vm)
 	int ret;
 	int nr_charged = 0;
 
-	BUILD_BUG_ON(PAGE_SIZE % 1024 != 0);
 	BUG_ON(vm->nr_pages != THREAD_SIZE / PAGE_SIZE);
 
 	for (i = 0; i < THREAD_SIZE / PAGE_SIZE; i++) {
