@@ -35,6 +35,17 @@
 
 #define DWC3_MSG_MAX	500
 
+/* Define XHCI Extcap register offsets for getting multiport info */
+#define XHCI_HCC_PARAMS_OFFSET	0x10
+#define DWC3_XHCI_HCSPARAMS1	0x04
+#define XHCI_EXT_CAPS_PROTOCOL	2
+#define XHCI_HCC_EXT_CAPS(x)    (((x) >> 16) & 0xffff)
+#define XHCI_EXT_CAPS_ID(x)     (((x) >> 0) & 0xff)
+#define XHCI_EXT_CAPS_NEXT(x)   (((x) >> 8) & 0xff)
+#define XHCI_EXT_PORT_MAJOR(x)  (((x) >> 24) & 0xff)
+#define XHCI_EXT_PORT_COUNT(x)  (((x) >> 8) & 0xff)
+#define HCS_MAX_PORTS(x)        (((x) >> 24) & 0x7f)
+
 /* Global constants */
 #define DWC3_PULL_UP_TIMEOUT	500	/* ms */
 #define DWC3_BOUNCE_SIZE	1024	/* size of a superspeed bulk */
@@ -1024,6 +1035,8 @@ struct dwc3_scratchpad_array {
  * @usb_psy: pointer to power supply interface.
  * @usb2_phy: pointer to USB2 PHY
  * @usb3_phy: pointer to USB3 PHY
+ * @num_usb2_ports: number of usb2 ports.
+ * @num_usb3_ports: number of usb3 ports.
  * @usb2_generic_phy: pointer to USB2 PHY
  * @usb3_generic_phy: pointer to USB3 PHY
  * @phys_ready: flag to indicate that PHYs are ready
@@ -1161,6 +1174,9 @@ struct dwc3 {
 
 	struct usb_phy		*usb2_phy;
 	struct usb_phy		*usb3_phy;
+
+	u8			num_usb2_ports;
+	u8			num_usb3_ports;
 
 	struct phy		*usb2_generic_phy;
 	struct phy		*usb3_generic_phy;
@@ -1650,5 +1666,4 @@ static inline int dwc3_ulpi_init(struct dwc3 *dwc)
 static inline void dwc3_ulpi_exit(struct dwc3 *dwc)
 { }
 #endif
-
 #endif /* __DRIVERS_USB_DWC3_CORE_H */
