@@ -35,6 +35,9 @@
 
 #define DWC3_MSG_MAX	500
 
+/* Number of ports supported by a multiport controller */
+#define MAX_PORTS_SUPPORTED	4
+
 /* Define XHCI Extcap register offsets for getting multiport info */
 #define XHCI_HCC_PARAMS_OFFSET	0x10
 #define DWC3_XHCI_HCSPARAMS1	0x04
@@ -1037,8 +1040,8 @@ struct dwc3_scratchpad_array {
  * @usb3_phy: pointer to USB3 PHY
  * @num_usb2_ports: number of usb2 ports.
  * @num_usb3_ports: number of usb3 ports.
- * @usb2_generic_phy: pointer to USB2 PHY
- * @usb3_generic_phy: pointer to USB3 PHY
+ * @usb2_generic_phy: pointer to array of USB2 PHY
+ * @usb3_generic_phy: pointer to array of USB3 PHY
  * @phys_ready: flag to indicate that PHYs are ready
  * @ulpi: pointer to ulpi interface
  * @ulpi_ready: flag to indicate that ULPI is initialized
@@ -1178,8 +1181,8 @@ struct dwc3 {
 	u8			num_usb2_ports;
 	u8			num_usb3_ports;
 
-	struct phy		*usb2_generic_phy;
-	struct phy		*usb3_generic_phy;
+	struct phy		*usb2_generic_phy[MAX_PORTS_SUPPORTED];
+	struct phy		*usb3_generic_phy[MAX_PORTS_SUPPORTED];
 
 	bool			phys_ready;
 
