@@ -1788,6 +1788,104 @@ static int dwc3_get_clocks(struct dwc3 *dwc)
 	return 0;
 }
 
+/**
+ * dwc3_xhci_find_next_ext_cap - Find the offset of the extended capabilities
+ *					with capability ID id.
+ *
+ * @base:	PCI MMIO registers base address.
+ * @start:	address at which to start looking, (0 or HCC_PARAMS to start at
+ *		beginning of list)
+ * @id:		Extended capability ID to search for, or 0 for the next
+ *		capability
+ *
+ * Returns the offset of the next matching extended capability structure.
+ * Some capabilities can occur several times, e.g., the XHCI_EXT_CAPS_PROTOCOL,
+ * and this provides a way to find them all.
+ */
+static int dwc3_xhci_find_next_ext_cap(void __iomem *base, u32 start, int id)
+{
+	u32 val;
+	u32 next;
+	u32 offset;
+
+	offset = start;
+	if (!start || start == XHCI_HCC_PARAMS_OFFSET) {
+		val = readl(base + XHCI_HCC_PARAMS_OFFSET);
+		if (val == ~0)
+			return 0;
+		offset = XHCI_HCC_EXT_CAPS(val) << 2;
+		if (!offset)
+			return 0;
+	}
+	do {
+		val = readl(base + offset);
+		if (val == ~0)
+			return 0;
+		if (offset != start && (id == 0 || XHCI_EXT_CAPS_ID(val) == id))
+			return offset;
+
+		next = XHCI_EXT_CAPS_NEXT(val);
+		offset += next << 2;
+	} while (next);
+
+	return 0;
+}
+
+static int dwc3_read_port_info(struct dwc3 *dwc)
+{
+	void __iomem		*regs;
+	u32			offset;
+	u32			temp;
+	u8			major_revision;
+	int			ret = 0;
+
+	/*
+	 * Remap xHCI address space to access XHCI ext cap regs,
+	 * since it is needed to get port info.
+	 */
+	regs = ioremap(dwc->xhci_resources[0].start,
+				resource_size(&dwc->xhci_resources[0]));
+	if (IS_ERR(regs))
+		return PTR_ERR(regs);
+
+	offset = dwc3_xhci_find_next_ext_cap(regs, 0,
+					XHCI_EXT_CAPS_PROTOCOL);
+	while (offset) {
+		temp = readl(regs + offset);
+		major_revision = XHCI_EXT_PORT_MAJOR(temp);
+
+		temp = readl(regs + offset + 0x08);
+		if (major_revision == 0x03) {
+			dwc->num_usb3_ports += XHCI_EXT_PORT_COUNT(temp);
+		} else if (major_revision <= 0x02) {
+			dwc->num_usb2_ports += XHCI_EXT_PORT_COUNT(temp);
+		} else {
+			dev_err(dwc->dev,
+				"Unrecognized port major revision %d\n", major_revision);
+			ret = -EINVAL;
+			goto unmap_reg;
+		}
+
+		offset = dwc3_xhci_find_next_ext_cap(regs, offset,
+						XHCI_EXT_CAPS_PROTOCOL);
+	}
+
+	temp = readl(regs + DWC3_XHCI_HCSPARAMS1);
+	if (HCS_MAX_PORTS(temp) != (dwc->num_usb3_ports + dwc->num_usb2_ports)) {
+		dev_err(dwc->dev,
+			"Mismatched reported MAXPORTS (%d)\n", HCS_MAX_PORTS(temp));
+		ret = -EINVAL;
+		goto unmap_reg;
+	}
+
+	dev_dbg(dwc->dev,
+		"hs-ports: %d ss-ports: %d\n", dwc->num_usb2_ports, dwc->num_usb3_ports);
+
+unmap_reg:
+	iounmap(regs);
+	return ret;
+}
+
 static int dwc3_probe(struct platform_device *pdev)
 {
 	struct device		*dev = &pdev->dev;
@@ -1795,6 +1893,7 @@ static int dwc3_probe(struct platform_device *pdev)
 	void __iomem		*regs;
 	struct dwc3		*dwc;
 	int			ret;
+	unsigned int		hw_mode;
 
 	dwc = devm_kzalloc(dev, sizeof(*dwc), GFP_KERNEL);
 	if (!dwc)
@@ -1873,6 +1972,20 @@ static int dwc3_probe(struct platform_device *pdev)
 		ret = dma_set_mask_and_coherent(dwc->sysdev, DMA_BIT_MASK(64));
 		if (ret)
 			goto err_disable_clks;
+	}
+
+	/*
+	 * Currently DWC3 controllers that are host-only capable
+	 * support Multiport
+	 */
+	hw_mode = DWC3_GHWPARAMS0_MODE(dwc->hwparams.hwparams0);
+	if (hw_mode == DWC3_GHWPARAMS0_MODE_HOST) {
+		ret = dwc3_read_port_info(dwc);
+		if (ret)
+			goto err_disable_clks;
+	} else {
+		dwc->num_usb2_ports = 1;
+		dwc->num_usb3_ports = 1;
 	}
 
 	spin_lock_init(&dwc->lock);
