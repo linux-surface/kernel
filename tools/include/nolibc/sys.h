@@ -12,15 +12,16 @@
 
 /* system includes */
 #include <asm/unistd.h>
-#include <asm/signal.h>  // for SIGCHLD
+#include <asm/signal.h>  /* for SIGCHLD */
 #include <asm/ioctls.h>
 #include <asm/mman.h>
 #include <linux/fs.h>
 #include <linux/loop.h>
 #include <linux/time.h>
 #include <linux/auxvec.h>
-#include <linux/fcntl.h> // for O_* and AT_*
-#include <linux/stat.h>  // for statx()
+#include <linux/fcntl.h> /* for O_* and AT_* */
+#include <linux/stat.h>  /* for statx() */
+#include <linux/reboot.h> /* for LINUX_REBOOT_* */
 
 #include "arch.h"
 #include "errno.h"
@@ -322,7 +323,7 @@ static __attribute__((noreturn,unused))
 void sys_exit(int status)
 {
 	my_syscall1(__NR_exit, status & 255);
-	while(1); // shut the "noreturn" warnings.
+	while(1); /* shut the "noreturn" warnings. */
 }
 
 static __attribute__((noreturn,unused))
@@ -336,6 +337,7 @@ void exit(int status)
  * pid_t fork(void);
  */
 
+#ifndef sys_fork
 static __attribute__((unused))
 pid_t sys_fork(void)
 {
@@ -351,6 +353,7 @@ pid_t sys_fork(void)
 #error Neither __NR_clone nor __NR_fork defined, cannot implement sys_fork()
 #endif
 }
+#endif
 
 static __attribute__((unused))
 pid_t fork(void)
@@ -1357,6 +1360,29 @@ static __attribute__((unused))
 ssize_t write(int fd, const void *buf, size_t count)
 {
 	ssize_t ret = sys_write(fd, buf, count);
+
+	if (ret < 0) {
+		SET_ERRNO(-ret);
+		ret = -1;
+	}
+	return ret;
+}
+
+
+/*
+ * int memfd_create(const char *name, unsigned int flags);
+ */
+
+static __attribute__((unused))
+int sys_memfd_create(const char *name, unsigned int flags)
+{
+	return my_syscall2(__NR_memfd_create, name, flags);
+}
+
+static __attribute__((unused))
+int memfd_create(const char *name, unsigned int flags)
+{
+	ssize_t ret = sys_memfd_create(name, flags);
 
 	if (ret < 0) {
 		SET_ERRNO(-ret);
