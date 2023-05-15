@@ -2485,7 +2485,8 @@ rescan:
 			}
 			/*
 			 * If an ASYNC or SYNC_LIGHT fails to migrate a page
-			 * within the current order-aligned block, scan the
+			 * within the current order-aligned block and
+			 * fast_find_migrateblock may be used then scan the
 			 * remainder of the pageblock. This will mark the
 			 * pageblock "skip" to avoid rescanning in the near
 			 * future. This will isolate more pages than necessary
@@ -2494,7 +2495,7 @@ rescan:
 			 * recently partially scanned.
 			 */
 			if (!pageblock_aligned(cc->migrate_pfn) &&
-			    cc->direct_compaction && !cc->finish_pageblock &&
+			    !cc->ignore_skip_hint && !cc->finish_pageblock &&
 			    (cc->mode < MIGRATE_SYNC)) {
 				cc->finish_pageblock = true;
 
