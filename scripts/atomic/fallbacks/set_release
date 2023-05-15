@@ -1,3 +1,15 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_set_release set_release
+then
+cat <<EOF
+/**
+ * arch_${atomic}_set_release - Atomic store release
+ * @v: pointer of type ${atomic}_t
+ * @i: value to store
+ *
+ * Atomically store @i into *@v with release ordering.
+ */
+EOF
+fi
 cat <<EOF
 static __always_inline void
 arch_${atomic}_set_release(${atomic}_t *v, ${int} i)

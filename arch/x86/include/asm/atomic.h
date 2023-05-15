@@ -18,7 +18,9 @@
  * arch_atomic_read - read atomic variable
  * @v: pointer of type atomic_t
  *
- * Atomically reads the value of @v.
+ * Atomically reads the value of @v with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline int arch_atomic_read(const atomic_t *v)
 {
@@ -34,7 +36,9 @@ static __always_inline int arch_atomic_read(const atomic_t *v)
  * @v: pointer of type atomic_t
  * @i: required value
  *
- * Atomically sets the value of @v to @i.
+ * Atomically sets the value of @v to @i with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline void arch_atomic_set(atomic_t *v, int i)
 {
@@ -46,7 +50,9 @@ static __always_inline void arch_atomic_set(atomic_t *v, int i)
  * @i: integer value to add
  * @v: pointer of type atomic_t
  *
- * Atomically adds @i to @v.
+ * Atomically adds @i to @v with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline void arch_atomic_add(int i, atomic_t *v)
 {
@@ -60,7 +66,9 @@ static __always_inline void arch_atomic_add(int i, atomic_t *v)
  * @i: integer value to subtract
  * @v: pointer of type atomic_t
  *
- * Atomically subtracts @i from @v.
+ * Atomically subtracts @i from @v with no ordering.
+ * The compiler cannot reorder this with respect to other atomic
+ * or volatile operations, but the CPU is free to do so.
  */
 static __always_inline void arch_atomic_sub(int i, atomic_t *v)
 {
@@ -69,27 +77,12 @@ static __always_inline void arch_atomic_sub(int i, atomic_t *v)
 		     : "ir" (i) : "memory");
 }
 
-/**
- * arch_atomic_sub_and_test - subtract value from variable and test result
- * @i: integer value to subtract
- * @v: pointer of type atomic_t
- *
- * Atomically subtracts @i from @v and returns
- * true if the result is zero, or false for all
- * other cases.
- */
 static __always_inline bool arch_atomic_sub_and_test(int i, atomic_t *v)
 {
 	return GEN_BINARY_RMWcc(LOCK_PREFIX "subl", v->counter, e, "er", i);
 }
 #define arch_atomic_sub_and_test arch_atomic_sub_and_test
 
-/**
- * arch_atomic_inc - increment atomic variable
- * @v: pointer of type atomic_t
- *
- * Atomically increments @v by 1.
- */
 static __always_inline void arch_atomic_inc(atomic_t *v)
 {
 	asm volatile(LOCK_PREFIX "incl %0"
@@ -97,12 +90,6 @@ static __always_inline void arch_atomic_inc(atomic_t *v)
 }
 #define arch_atomic_inc arch_atomic_inc
 
-/**
- * arch_atomic_dec - decrement atomic variable
- * @v: pointer of type atomic_t
- *
- * Atomically decrements @v by 1.
- */
 static __always_inline void arch_atomic_dec(atomic_t *v)
 {
 	asm volatile(LOCK_PREFIX "decl %0"
@@ -110,69 +97,30 @@ static __always_inline void arch_atomic_dec(atomic_t *v)
 }
 #define arch_atomic_dec arch_atomic_dec
 
-/**
- * arch_atomic_dec_and_test - decrement and test
- * @v: pointer of type atomic_t
- *
- * Atomically decrements @v by 1 and
- * returns true if the result is 0, or false for all other
- * cases.
- */
 static __always_inline bool arch_atomic_dec_and_test(atomic_t *v)
 {
 	return GEN_UNARY_RMWcc(LOCK_PREFIX "decl", v->counter, e);
 }
 #define arch_atomic_dec_and_test arch_atomic_dec_and_test
 
-/**
- * arch_atomic_inc_and_test - increment and test
- * @v: pointer of type atomic_t
- *
- * Atomically increments @v by 1
- * and returns true if the result is zero, or false for all
- * other cases.
- */
 static __always_inline bool arch_atomic_inc_and_test(atomic_t *v)
 {
 	return GEN_UNARY_RMWcc(LOCK_PREFIX "incl", v->counter, e);
 }
 #define arch_atomic_inc_and_test arch_atomic_inc_and_test
 
-/**
- * arch_atomic_add_negative - add and test if negative
- * @i: integer value to add
- * @v: pointer of type atomic_t
- *
- * Atomically adds @i to @v and returns true
- * if the result is negative, or false when
- * result is greater than or equal to zero.
- */
 static __always_inline bool arch_atomic_add_negative(int i, atomic_t *v)
 {
 	return GEN_BINARY_RMWcc(LOCK_PREFIX "addl", v->counter, s, "er", i);
 }
 #define arch_atomic_add_negative arch_atomic_add_negative
 
-/**
- * arch_atomic_add_return - add integer and return
- * @i: integer value to add
- * @v: pointer of type atomic_t
- *
- * Atomically adds @i to @v and returns @i + @v
- */
 static __always_inline int arch_atomic_add_return(int i, atomic_t *v)
 {
 	return i + xadd(&v->counter, i);
 }
 #define arch_atomic_add_return arch_atomic_add_return
 
-/**
- * arch_atomic_sub_return - subtract integer and return
- * @v: pointer of type atomic_t
- * @i: integer value to subtract
- *
- * Atomically subtracts @i from @v and returns @v - @i
- */
 static __always_inline int arch_atomic_sub_return(int i, atomic_t *v)
 {
 	return arch_atomic_add_return(-i, v);

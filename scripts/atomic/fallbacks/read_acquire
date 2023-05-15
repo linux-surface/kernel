@@ -1,3 +1,15 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_read_acquire read_acquire
+then
+cat <<EOF
+/**
+ * arch_${atomic}_read_acquire - Atomic load acquire
+ * @v: pointer of type ${atomic}_t
+ *
+ * Atomically load from *@v with acquire ordering, returning the value
+ * loaded.
+ */
+EOF
+fi
 cat <<EOF
 static __always_inline ${ret}
 arch_${atomic}_read_acquire(const ${atomic}_t *v)

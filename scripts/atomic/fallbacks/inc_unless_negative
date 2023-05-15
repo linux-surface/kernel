@@ -1,3 +1,16 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_inc_unless_negative inc_unless_negative
+then
+cat <<EOF
+/**
+ * arch_${atomic}_inc_unless_negative - Atomic increment if old value is non-negative
+ * @v: pointer of type ${atomic}_t
+ *
+ * Atomically increment @v with full ordering, but only if the original
+ * value is greater than or equal to zero.  Return @true if the increment
+ * happened and @false otherwise.
+ */
+EOF
+fi
 cat <<EOF
 static __always_inline bool
 arch_${atomic}_inc_unless_negative(${atomic}_t *v)

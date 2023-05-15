@@ -3,6 +3,10 @@
 #
 # Generate atomic headers
 
+T="`mktemp -d ${TMPDIR-/tmp}/gen-atomics.sh.XXXXXX`"
+trap 'rm -rf $T' 0
+export T
+
 ATOMICDIR=$(dirname $0)
 ATOMICTBL=${ATOMICDIR}/atomics.tbl
 LINUXDIR=${ATOMICDIR}/../..

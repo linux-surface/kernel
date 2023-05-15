@@ -1,11 +1,16 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_inc_not_zero inc_not_zero
+then
 cat <<EOF
 /**
  * arch_${atomic}_inc_not_zero - increment unless the number is zero
  * @v: pointer of type ${atomic}_t
  *
- * Atomically increments @v by 1, if @v is non-zero.
- * Returns true if the increment was done.
+ * Atomically increments @v by 1 with full ordering, but only if @v is non-zero.
+ * Returns @true if the increment was done.
  */
+EOF
+fi
+cat <<EOF
 static __always_inline bool
 arch_${atomic}_inc_not_zero(${atomic}_t *v)
 {
