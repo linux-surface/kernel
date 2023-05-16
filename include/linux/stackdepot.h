@@ -94,6 +94,8 @@ static inline int stack_depot_early_init(void)	{ return 0; }
 depot_stack_handle_t __stack_depot_save(unsigned long *entries,
 					unsigned int nr_entries,
 					gfp_t gfp_flags, bool can_alloc);
+void stack_depot_inc_count(depot_stack_handle_t handle);
+void stack_depot_dec_count(depot_stack_handle_t handle);
 
 /**
  * stack_depot_save - Save a stack trace to stack depot
