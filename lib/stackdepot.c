@@ -488,6 +488,9 @@ static struct stack_record *stack_depot_getstack(depot_stack_handle_t handle)
 }
 
 #ifdef CONFIG_PAGE_OWNER
+
+extern unsigned long page_owner_stack_threshold;
+
 void *stack_start(struct seq_file *m, loff_t *ppos)
 {
 	unsigned long *table = m->private;
@@ -542,7 +545,8 @@ int stack_print(struct seq_file *m, void *v)
 	struct stack_record *stack = v;
 
 	if (stack->size <= 0 || stack->size > PAGE_SIZE ||
-	    stack->handle.valid != 1 || refcount_read(&stack->count) < 1)
+	    stack->handle.valid != 1 ||
+	    refcount_read(&stack->count) < page_owner_stack_threshold)
 		return 0;
 
 	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
