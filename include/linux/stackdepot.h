@@ -112,6 +112,12 @@ void stack_depot_dec_count(depot_stack_handle_t handle);
 depot_stack_handle_t stack_depot_save(unsigned long *entries,
 				      unsigned int nr_entries, gfp_t gfp_flags);
 
+#ifdef CONFIG_PAGE_OWNER
+void *stack_start(struct seq_file *m, loff_t *ppos);
+void *stack_next(struct seq_file *m, void *v, loff_t *ppos);
+int stack_print(struct seq_file *m, void *v);
+#endif
+
 /**
  * stack_depot_fetch - Fetch a stack trace from stack depot
  *
