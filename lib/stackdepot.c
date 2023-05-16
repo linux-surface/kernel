@@ -60,6 +60,7 @@ struct stack_record {
 	u32 hash;			/* Hash in the hash table */
 	u32 size;			/* Number of stored frames */
 	union handle_parts handle;
+	refcount_t count;		/* Number of the same repeated stacks */
 	unsigned long entries[];	/* Variable-sized array of frames */
 };
 
@@ -305,6 +306,7 @@ depot_alloc_stack(unsigned long *entries, int size, u32 hash, void **prealloc)
 	stack->handle.offset = pool_offset >> DEPOT_STACK_ALIGN;
 	stack->handle.valid = 1;
 	stack->handle.extra = 0;
+	refcount_set(&stack->count, 1);
 	memcpy(stack->entries, entries, flex_array_size(stack, entries, size));
 	pool_offset += required_size;
 	/*
@@ -457,8 +459,7 @@ depot_stack_handle_t stack_depot_save(unsigned long *entries,
 }
 EXPORT_SYMBOL_GPL(stack_depot_save);
 
-unsigned int stack_depot_fetch(depot_stack_handle_t handle,
-			       unsigned long **entries)
+static struct stack_record *stack_depot_getstack(depot_stack_handle_t handle)
 {
 	union handle_parts parts = { .handle = handle };
 	/*
@@ -468,6 +469,26 @@ unsigned int stack_depot_fetch(depot_stack_handle_t handle,
 	int pool_index_cached = READ_ONCE(pool_index);
 	void *pool;
 	size_t offset = parts.offset << DEPOT_STACK_ALIGN;
+	struct stack_record *stack;
+
+	if (!handle)
+		return NULL;
+
+	if (parts.pool_index > pool_index_cached) {
+		WARN(1, "pool index %d out of bounds (%d) for stack id %08x\n",
+			parts.pool_index, pool_index_cached, handle);
+		return NULL;
+	}
+	pool = stack_pools[parts.pool_index];
+	if (!pool)
+		return NULL;
+	stack = pool + offset;
+	return stack;
+}
+
+unsigned int stack_depot_fetch(depot_stack_handle_t handle,
+			       unsigned long **entries)
+{
 	struct stack_record *stack;
 
 	*entries = NULL;
@@ -480,20 +501,32 @@ unsigned int stack_depot_fetch(depot_stack_handle_t handle,
 	if (!handle)
 		return 0;
 
-	if (parts.pool_index > pool_index_cached) {
-		WARN(1, "pool index %d out of bounds (%d) for stack id %08x\n",
-			parts.pool_index, pool_index_cached, handle);
+	stack = stack_depot_getstack(handle);
+	if (!stack)
 		return 0;
-	}
-	pool = stack_pools[parts.pool_index];
-	if (!pool)
-		return 0;
-	stack = pool + offset;
 
 	*entries = stack->entries;
 	return stack->size;
 }
 EXPORT_SYMBOL_GPL(stack_depot_fetch);
+
+void stack_depot_inc_count(depot_stack_handle_t handle)
+{
+	struct stack_record *stack = NULL;
+
+	stack = stack_depot_getstack(handle);
+	if (stack)
+		refcount_inc(&stack->count);
+}
+
+void stack_depot_dec_count(depot_stack_handle_t handle)
+{
+	struct stack_record *stack = NULL;
+
+	stack = stack_depot_getstack(handle);
+	if (stack)
+		refcount_dec(&stack->count);
+}
 
 void stack_depot_print(depot_stack_handle_t stack)
 {
