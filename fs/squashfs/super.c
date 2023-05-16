@@ -329,6 +329,16 @@ static int squashfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		goto failed_mount;
 	}
 
+	if (msblk->devblksize == PAGE_SIZE) {
+		msblk->cache_inode = new_inode(sb);
+		if (msblk->cache_inode == NULL)
+			goto failed_mount;
+
+		set_nlink(msblk->cache_inode, 1);
+		msblk->cache_inode->i_size = OFFSET_MAX;
+		mapping_set_gfp_mask(msblk->cache_inode->i_mapping, GFP_NOFS);
+	}
+
 	msblk->stream = squashfs_decompressor_setup(sb, flags);
 	if (IS_ERR(msblk->stream)) {
 		err = PTR_ERR(msblk->stream);
@@ -454,6 +464,7 @@ failed_mount:
 	squashfs_cache_delete(msblk->block_cache);
 	squashfs_cache_delete(msblk->fragment_cache);
 	squashfs_cache_delete(msblk->read_page);
+	iput(msblk->cache_inode);
 	msblk->thread_ops->destroy(msblk);
 	kfree(msblk->inode_lookup_table);
 	kfree(msblk->fragment_index);
@@ -572,6 +583,7 @@ static void squashfs_put_super(struct super_block *sb)
 		squashfs_cache_delete(sbi->block_cache);
 		squashfs_cache_delete(sbi->fragment_cache);
 		squashfs_cache_delete(sbi->read_page);
+		iput(sbi->cache_inode);
 		sbi->thread_ops->destroy(sbi);
 		kfree(sbi->id_table);
 		kfree(sbi->fragment_index);
