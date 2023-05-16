@@ -5605,11 +5605,11 @@ int __access_remote_vm(struct mm_struct *mm, unsigned long addr, void *buf,
 							     gup_flags, &vma);
 
 		if (IS_ERR_OR_NULL(page)) {
-			int ret = 0;
-
 #ifndef CONFIG_HAVE_IOREMAP_PROT
 			break;
 #else
+			int res = 0;
+
 			/*
 			 * Check if this is a VM_IO | VM_PFNMAP VMA, which
 			 * we can access using slightly different code.
@@ -5617,11 +5617,11 @@ int __access_remote_vm(struct mm_struct *mm, unsigned long addr, void *buf,
 			if (!vma)
 				break;
 			if (vma->vm_ops && vma->vm_ops->access)
-				ret = vma->vm_ops->access(vma, addr, buf,
+				res = vma->vm_ops->access(vma, addr, buf,
 							  len, write);
-			if (ret <= 0)
+			if (res <= 0)
 				break;
-			bytes = ret;
+			bytes = res;
 #endif
 		} else {
 			bytes = len;
