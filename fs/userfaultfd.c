@@ -1319,6 +1319,32 @@ static __always_inline int validate_range(struct mm_struct *mm,
 	return 0;
 }
 
+static int clamp_range(struct vma_iterator *vmi, struct vm_area_struct *vma,
+		       unsigned long start, unsigned long end, bool *can_merge)
+{
+	int ret;
+	bool merge = true;
+
+	/* The range must always be clamped to the start of a VMA. */
+	if (vma->vm_start < start) {
+		ret = split_vma(vmi, vma, start, 1);
+		if (ret)
+			return ret;
+
+		merge = false;
+	}
+
+	/* It must also be clamped to the end of a VMA. */
+	if (vma->vm_end > end) {
+		ret = split_vma(vmi, vma, end, 0);
+		if (ret)
+			return ret;
+	}
+
+	*can_merge = merge;
+	return 0;
+}
+
 static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 				unsigned long arg)
 {
@@ -1330,7 +1356,7 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 	unsigned long vm_flags, new_flags;
 	bool found;
 	bool basic_ioctls;
-	unsigned long start, end, vma_end;
+	unsigned long start, end;
 	struct vma_iterator vmi;
 
 	user_uffdio_register = (struct uffdio_register __user *) arg;
@@ -1462,6 +1488,8 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 
 	ret = 0;
 	for_each_vma_range(vmi, vma, end) {
+		bool can_merge;
+
 		cond_resched();
 
 		BUG_ON(!vma_can_userfault(vma, vm_flags));
@@ -1477,32 +1505,22 @@ static int userfaultfd_register(struct userfaultfd_ctx *ctx,
 		    (vma->vm_flags & vm_flags) == vm_flags)
 			goto skip;
 
-		if (vma->vm_start > start)
-			start = vma->vm_start;
-		vma_end = min(end, vma->vm_end);
+		ret = clamp_range(&vmi, vma, start, end, &can_merge);
+		if (ret)
+			break;
 
 		new_flags = (vma->vm_flags & ~__VM_UFFD_FLAGS) | vm_flags;
-		prev = vma_merge(&vmi, mm, prev, start, vma_end, new_flags,
-				 vma->anon_vma, vma->vm_file, vma->vm_pgoff,
-				 vma_policy(vma),
-				 ((struct vm_userfaultfd_ctx){ ctx }),
-				 anon_vma_name(vma));
-		if (prev) {
+		if (can_merge) {
+			prev = vma_merge(&vmi, mm, prev, vma->vm_start, vma->vm_end, new_flags,
+					 vma->anon_vma, vma->vm_file, vma->vm_pgoff,
+					 vma_policy(vma),
+					 ((struct vm_userfaultfd_ctx){ ctx }),
+					 anon_vma_name(vma));
+
 			/* vma_merge() invalidated the mas */
-			vma = prev;
-			goto next;
+			if (prev)
+				vma = prev;
 		}
-		if (vma->vm_start < start) {
-			ret = split_vma(&vmi, vma, start, 1);
-			if (ret)
-				break;
-		}
-		if (vma->vm_end > end) {
-			ret = split_vma(&vmi, vma, end, 0);
-			if (ret)
-				break;
-		}
-	next:
 		/*
 		 * In the vma_merge() successful mprotect-like case 8:
 		 * the next vma was merged into the current one and
@@ -1560,7 +1578,7 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 	struct uffdio_range uffdio_unregister;
 	unsigned long new_flags;
 	bool found;
-	unsigned long start, end, vma_end;
+	unsigned long start, end;
 	const void __user *buf = (void __user *)arg;
 	struct vma_iterator vmi;
 
@@ -1627,6 +1645,8 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 	prev = vma_prev(&vmi);
 	ret = 0;
 	for_each_vma_range(vmi, vma, end) {
+		bool can_merge;
+
 		cond_resched();
 
 		BUG_ON(!vma_can_userfault(vma, vma->vm_flags));
@@ -1640,9 +1660,9 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 
 		WARN_ON(!(vma->vm_flags & VM_MAYWRITE));
 
-		if (vma->vm_start > start)
-			start = vma->vm_start;
-		vma_end = min(end, vma->vm_end);
+		ret = clamp_range(&vmi, vma, start, end, &can_merge);
+		if (ret)
+			break;
 
 		if (userfaultfd_missing(vma)) {
 			/*
@@ -1652,35 +1672,27 @@ static int userfaultfd_unregister(struct userfaultfd_ctx *ctx,
 			 * UFFDIO_WAKE explicitly.
 			 */
 			struct userfaultfd_wake_range range;
-			range.start = start;
-			range.len = vma_end - start;
+			range.start = vma->vm_start;
+			range.len = vma->vm_end - vma->vm_start;
 			wake_userfault(vma->vm_userfaultfd_ctx.ctx, &range);
 		}
 
 		/* Reset ptes for the whole vma range if wr-protected */
 		if (userfaultfd_wp(vma))
-			uffd_wp_range(vma, start, vma_end - start, false);
+			uffd_wp_range(vma, vma->vm_start,
+				      vma->vm_end - vma->vm_start, false);
 
 		new_flags = vma->vm_flags & ~__VM_UFFD_FLAGS;
-		prev = vma_merge(&vmi, mm, prev, start, vma_end, new_flags,
-				 vma->anon_vma, vma->vm_file, vma->vm_pgoff,
-				 vma_policy(vma),
-				 NULL_VM_UFFD_CTX, anon_vma_name(vma));
-		if (prev) {
-			vma = prev;
-			goto next;
+		if (can_merge) {
+			prev = vma_merge(&vmi, mm, prev, vma->vm_start,
+					 vma->vm_end, new_flags, vma->anon_vma,
+					 vma->vm_file, vma->vm_pgoff,
+					 vma_policy(vma),
+					 NULL_VM_UFFD_CTX, anon_vma_name(vma));
+			/* vma_merge() invalidated the mas */
+			if (prev)
+				vma = prev;
 		}
-		if (vma->vm_start < start) {
-			ret = split_vma(&vmi, vma, start, 1);
-			if (ret)
-				break;
-		}
-		if (vma->vm_end > end) {
-			ret = split_vma(&vmi, vma, end, 0);
-			if (ret)
-				break;
-		}
-	next:
 		/*
 		 * In the vma_merge() successful mprotect-like case 8:
 		 * the next vma was merged into the current one and
