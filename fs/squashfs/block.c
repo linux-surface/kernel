@@ -17,6 +17,7 @@
 #include <linux/fs.h>
 #include <linux/vfs.h>
 #include <linux/slab.h>
+#include <linux/pagemap.h>
 #include <linux/string.h>
 #include <linux/bio.h>
 
