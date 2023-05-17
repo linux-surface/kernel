@@ -692,37 +692,32 @@ static bool buffer_migrate_lock_buffers(struct buffer_head *head,
 							enum migrate_mode mode)
 {
 	struct buffer_head *bh = head;
+	struct buffer_head *failed_bh;
 
-	/* Simple case, sync compaction */
-	if (mode != MIGRATE_ASYNC) {
-		do {
-			lock_buffer(bh);
-			bh = bh->b_this_page;
-
-		} while (bh != head);
-
-		return true;
-	}
-
-	/* async case, we cannot block on lock_buffer so use trylock_buffer */
 	do {
 		if (!trylock_buffer(bh)) {
-			/*
-			 * We failed to lock the buffer and cannot stall in
-			 * async migration. Release the taken locks
-			 */
-			struct buffer_head *failed_bh = bh;
-			bh = head;
-			while (bh != failed_bh) {
-				unlock_buffer(bh);
-				bh = bh->b_this_page;
-			}
-			return false;
+			if (mode == MIGRATE_ASYNC)
+				goto unlock;
+			if (mode == MIGRATE_SYNC_LIGHT && !buffer_uptodate(bh))
+				goto unlock;
+			lock_buffer(bh);
 		}
 
 		bh = bh->b_this_page;
 	} while (bh != head);
+
 	return true;
+
+unlock:
+	/* We failed to lock the buffer and cannot stall. */
+	failed_bh = bh;
+	bh = head;
+	while (bh != failed_bh) {
+		unlock_buffer(bh);
+		bh = bh->b_this_page;
+	}
+
+	return false;
 }
 
 static int __buffer_migrate_folio(struct address_space *mapping,
@@ -1154,6 +1149,14 @@ static int migrate_folio_unmap(new_page_t get_new_page, free_page_t put_new_page
 		 * altogether.
 		 */
 		if (current->flags & PF_MEMALLOC)
+			goto out;
+
+		/*
+		 * In "light" mode, we can wait for transient locks (eg
+		 * inserting a page into the page table), but it's not
+		 * worth waiting for I/O.
+		 */
+		if (mode == MIGRATE_SYNC_LIGHT && !folio_test_uptodate(src))
 			goto out;
 
 		folio_lock(src);
@@ -1614,13 +1617,10 @@ static int migrate_pages_batch(struct list_head *from, new_page_t get_new_page,
 		int nr_pass)
 {
 	int retry = 1;
-	int large_retry = 1;
 	int thp_retry = 1;
 	int nr_failed = 0;
 	int nr_retry_pages = 0;
-	int nr_large_failed = 0;
 	int pass = 0;
-	bool is_large = false;
 	bool is_thp = false;
 	struct folio *folio, *folio2, *dst = NULL, *dst2;
 	int rc, rc_saved = 0, nr_pages;
@@ -1631,20 +1631,13 @@ static int migrate_pages_batch(struct list_head *from, new_page_t get_new_page,
 	VM_WARN_ON_ONCE(mode != MIGRATE_ASYNC &&
 			!list_empty(from) && !list_is_singular(from));
 
-	for (pass = 0; pass < nr_pass && (retry || large_retry); pass++) {
+	for (pass = 0; pass < nr_pass && retry; pass++) {
 		retry = 0;
-		large_retry = 0;
 		thp_retry = 0;
 		nr_retry_pages = 0;
 
 		list_for_each_entry_safe(folio, folio2, from, lru) {
-			/*
-			 * Large folio statistics is based on the source large
-			 * folio. Capture required information that might get
-			 * lost during migration.
-			 */
-			is_large = folio_test_large(folio);
-			is_thp = is_large && folio_test_pmd_mappable(folio);
+			is_thp = folio_test_large(folio) && folio_test_pmd_mappable(folio);
 			nr_pages = folio_nr_pages(folio);
 
 			cond_resched();
@@ -1660,7 +1653,7 @@ static int migrate_pages_batch(struct list_head *from, new_page_t get_new_page,
 			 * list is processed.
 			 */
 			if (!thp_migration_supported() && is_thp) {
-				nr_large_failed++;
+				nr_failed++;
 				stats->nr_thp_failed++;
 				if (!try_split_folio(folio, split_folios)) {
 					stats->nr_thp_split++;
@@ -1688,38 +1681,33 @@ static int migrate_pages_batch(struct list_head *from, new_page_t get_new_page,
 				 * When memory is low, don't bother to try to migrate
 				 * other folios, move unmapped folios, then exit.
 				 */
-				if (is_large) {
-					nr_large_failed++;
-					stats->nr_thp_failed += is_thp;
-					/* Large folio NUMA faulting doesn't split to retry. */
-					if (!nosplit) {
-						int ret = try_split_folio(folio, split_folios);
+				nr_failed++;
+				stats->nr_thp_failed += is_thp;
+				/* Large folio NUMA faulting doesn't split to retry. */
+				if (folio_test_large(folio) && !nosplit) {
+					int ret = try_split_folio(folio, split_folios);
 
-						if (!ret) {
-							stats->nr_thp_split += is_thp;
-							break;
-						} else if (reason == MR_LONGTERM_PIN &&
-							   ret == -EAGAIN) {
-							/*
-							 * Try again to split large folio to
-							 * mitigate the failure of longterm pinning.
-							 */
-							large_retry++;
-							thp_retry += is_thp;
-							nr_retry_pages += nr_pages;
-							/* Undo duplicated failure counting. */
-							nr_large_failed--;
-							stats->nr_thp_failed -= is_thp;
-							break;
-						}
+					if (!ret) {
+						stats->nr_thp_split += is_thp;
+						break;
+					} else if (reason == MR_LONGTERM_PIN &&
+						   ret == -EAGAIN) {
+						/*
+						 * Try again to split large folio to
+						 * mitigate the failure of longterm pinning.
+						 */
+						retry++;
+						thp_retry += is_thp;
+						nr_retry_pages += nr_pages;
+						/* Undo duplicated failure counting. */
+						nr_failed--;
+						stats->nr_thp_failed -= is_thp;
+						break;
 					}
-				} else {
-					nr_failed++;
 				}
 
 				stats->nr_failed_pages += nr_pages + nr_retry_pages;
 				/* nr_failed isn't updated for not used */
-				nr_large_failed += large_retry;
 				stats->nr_thp_failed += thp_retry;
 				rc_saved = rc;
 				if (list_empty(&unmap_folios))
@@ -1727,12 +1715,8 @@ static int migrate_pages_batch(struct list_head *from, new_page_t get_new_page,
 				else
 					goto move;
 			case -EAGAIN:
-				if (is_large) {
-					large_retry++;
-					thp_retry += is_thp;
-				} else {
-					retry++;
-				}
+				retry++;
+				thp_retry += is_thp;
 				nr_retry_pages += nr_pages;
 				break;
 			case MIGRATEPAGE_SUCCESS:
@@ -1750,20 +1734,14 @@ static int migrate_pages_batch(struct list_head *from, new_page_t get_new_page,
 				 * removed from migration folio list and not
 				 * retried in the next outer loop.
 				 */
-				if (is_large) {
-					nr_large_failed++;
-					stats->nr_thp_failed += is_thp;
-				} else {
-					nr_failed++;
-				}
-
+				nr_failed++;
+				stats->nr_thp_failed += is_thp;
 				stats->nr_failed_pages += nr_pages;
 				break;
 			}
 		}
 	}
 	nr_failed += retry;
-	nr_large_failed += large_retry;
 	stats->nr_thp_failed += thp_retry;
 	stats->nr_failed_pages += nr_retry_pages;
 move:
@@ -1771,17 +1749,15 @@ move:
 	try_to_unmap_flush();
 
 	retry = 1;
-	for (pass = 0; pass < nr_pass && (retry || large_retry); pass++) {
+	for (pass = 0; pass < nr_pass && retry; pass++) {
 		retry = 0;
-		large_retry = 0;
 		thp_retry = 0;
 		nr_retry_pages = 0;
 
 		dst = list_first_entry(&dst_folios, struct folio, lru);
 		dst2 = list_next_entry(dst, lru);
 		list_for_each_entry_safe(folio, folio2, &unmap_folios, lru) {
-			is_large = folio_test_large(folio);
-			is_thp = is_large && folio_test_pmd_mappable(folio);
+			is_thp = folio_test_large(folio) && folio_test_pmd_mappable(folio);
 			nr_pages = folio_nr_pages(folio);
 
 			cond_resched();
@@ -1797,12 +1773,8 @@ move:
 			 */
 			switch(rc) {
 			case -EAGAIN:
-				if (is_large) {
-					large_retry++;
-					thp_retry += is_thp;
-				} else {
-					retry++;
-				}
+				retry++;
+				thp_retry += is_thp;
 				nr_retry_pages += nr_pages;
 				break;
 			case MIGRATEPAGE_SUCCESS:
@@ -1810,13 +1782,8 @@ move:
 				stats->nr_thp_succeeded += is_thp;
 				break;
 			default:
-				if (is_large) {
-					nr_large_failed++;
-					stats->nr_thp_failed += is_thp;
-				} else {
-					nr_failed++;
-				}
-
+				nr_failed++;
+				stats->nr_thp_failed += is_thp;
 				stats->nr_failed_pages += nr_pages;
 				break;
 			}
@@ -1825,14 +1792,10 @@ move:
 		}
 	}
 	nr_failed += retry;
-	nr_large_failed += large_retry;
 	stats->nr_thp_failed += thp_retry;
 	stats->nr_failed_pages += nr_retry_pages;
 
-	if (rc_saved)
-		rc = rc_saved;
-	else
-		rc = nr_failed + nr_large_failed;
+	rc = rc_saved ? : nr_failed;
 out:
 	/* Cleanup remaining folios */
 	dst = list_first_entry(&dst_folios, struct folio, lru);

@@ -94,6 +94,8 @@ static inline int stack_depot_early_init(void)	{ return 0; }
 depot_stack_handle_t __stack_depot_save(unsigned long *entries,
 					unsigned int nr_entries,
 					gfp_t gfp_flags, bool can_alloc);
+void stack_depot_inc_count(depot_stack_handle_t handle);
+void stack_depot_dec_count(depot_stack_handle_t handle);
 
 /**
  * stack_depot_save - Save a stack trace to stack depot
@@ -109,6 +111,13 @@ depot_stack_handle_t __stack_depot_save(unsigned long *entries,
  */
 depot_stack_handle_t stack_depot_save(unsigned long *entries,
 				      unsigned int nr_entries, gfp_t gfp_flags);
+
+#ifdef CONFIG_PAGE_OWNER
+struct seq_file;
+void *stack_start(struct seq_file *m, loff_t *ppos);
+void *stack_next(struct seq_file *m, void *v, loff_t *ppos);
+int stack_print(struct seq_file *m, void *v);
+#endif
 
 /**
  * stack_depot_fetch - Fetch a stack trace from stack depot

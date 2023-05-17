@@ -392,16 +392,12 @@ void reset_isolation_suitable(pg_data_t *pgdat)
  * Sets the pageblock skip bit if it was clear. Note that this is a hint as
  * locks are not required for read/writers. Returns true if it was already set.
  */
-static bool test_and_set_skip(struct compact_control *cc, struct page *page,
-							unsigned long pfn)
+static bool test_and_set_skip(struct compact_control *cc, struct page *page)
 {
 	bool skip;
 
-	/* Do no update if skip hint is being ignored */
+	/* Do not update if skip hint is being ignored */
 	if (cc->ignore_skip_hint)
-		return false;
-
-	if (!pageblock_aligned(pfn))
 		return false;
 
 	skip = get_pageblock_skip(page);
@@ -470,8 +466,7 @@ static void update_cached_migrate(struct compact_control *cc, unsigned long pfn)
 {
 }
 
-static bool test_and_set_skip(struct compact_control *cc, struct page *page,
-							unsigned long pfn)
+static bool test_and_set_skip(struct compact_control *cc, struct page *page)
 {
 	return false;
 }
@@ -765,6 +760,34 @@ static bool too_many_isolated(pg_data_t *pgdat)
 	return too_many;
 }
 
+/*
+ * Check if this base page should be skipped from isolation because
+ * it has extra refcounts that will prevent it from being migrated.
+ * This function is called for regular pages only, and not
+ * for THP or hugetlbfs pages. This code is inspired by similar code
+ * in migrate_vma_check_page(), can_split_folio() and
+ * folio_migrate_mapping()
+ */
+static inline bool page_has_extrarefs(struct page *page,
+					struct address_space *mapping)
+{
+	unsigned long extra_refs;
+
+	/* anonymous page can have extra ref from swap cache */
+	if (mapping)
+		extra_refs = 1 + PagePrivate(page);
+	else
+		extra_refs = PageSwapCache(page) ? 1 : 0;
+
+	/*
+	 * This is an admittedly racy check but good enough to determine
+	 * if a page is pinned and can not be migrated
+	 */
+	if ((page_ref_count(page) - extra_refs) > page_mapcount(page))
+		return true;
+	return false;
+}
+
 /**
  * isolate_migratepages_block() - isolate all migrate-able pages within
  *				  a single pageblock
@@ -1003,12 +1026,12 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			goto isolate_fail;
 
 		/*
-		 * Migration will fail if an anonymous page is pinned in memory,
-		 * so avoid taking lru_lock and isolating it unnecessarily in an
-		 * admittedly racy check.
+		 * Migration will fail if a page has extra refcounts
+		 * preventing it from migrating, so avoid taking
+		 * lru_lock and isolating it unnecessarily
 		 */
 		mapping = page_mapping(page);
-		if (!mapping && (page_count(page) - 1) > total_mapcount(page))
+		if (page_has_extrarefs(page, mapping))
 			goto isolate_fail_put;
 
 		/*
@@ -1075,9 +1098,9 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			lruvec_memcg_debug(lruvec, page_folio(page));
 
 			/* Try get exclusive access under lock */
-			if (!skip_updated) {
+			if (!skip_updated && valid_page) {
 				skip_updated = true;
-				if (test_and_set_skip(cc, page, low_pfn))
+				if (test_and_set_skip(cc, valid_page))
 					goto isolate_abort;
 			}
 
@@ -1736,6 +1759,7 @@ static int sysctl_compact_unevictable_allowed __read_mostly = CONFIG_COMPACT_UNE
  */
 static unsigned int __read_mostly sysctl_compaction_proactiveness = 20;
 static int sysctl_extfrag_threshold = 500;
+static int __read_mostly sysctl_compact_memory;
 
 static inline void
 update_fast_start_pfn(struct compact_control *cc, unsigned long pfn)
@@ -1864,7 +1888,6 @@ static unsigned long fast_find_migrateblock(struct compact_control *cc)
 					pfn = cc->zone->zone_start_pfn;
 				cc->fast_search_fail = 0;
 				found_block = true;
-				set_pageblock_skip(freepage);
 				break;
 			}
 		}
@@ -2456,7 +2479,8 @@ rescan:
 			}
 			/*
 			 * If an ASYNC or SYNC_LIGHT fails to migrate a page
-			 * within the current order-aligned block, scan the
+			 * within the current order-aligned block and
+			 * fast_find_migrateblock may be used then scan the
 			 * remainder of the pageblock. This will mark the
 			 * pageblock "skip" to avoid rescanning in the near
 			 * future. This will isolate more pages than necessary
@@ -2464,8 +2488,9 @@ rescan:
 			 * fast_find_migrateblock revisiting blocks that were
 			 * recently partially scanned.
 			 */
-			if (cc->direct_compaction && !cc->finish_pageblock &&
-						(cc->mode < MIGRATE_SYNC)) {
+			if (!pageblock_aligned(cc->migrate_pfn) &&
+			    !cc->ignore_skip_hint && !cc->finish_pageblock &&
+			    (cc->mode < MIGRATE_SYNC)) {
 				cc->finish_pageblock = true;
 
 				/*
@@ -2780,6 +2805,15 @@ static int compaction_proactiveness_sysctl_handler(struct ctl_table *table, int 
 static int sysctl_compaction_handler(struct ctl_table *table, int write,
 			void *buffer, size_t *length, loff_t *ppos)
 {
+	int ret;
+
+	ret = proc_dointvec(table, write, buffer, length, ppos);
+	if (ret)
+		return ret;
+
+	if (sysctl_compact_memory != 1)
+		return -EINVAL;
+
 	if (write)
 		compact_nodes();
 
@@ -3095,7 +3129,7 @@ static int proc_dointvec_minmax_warn_RT_change(struct ctl_table *table,
 static struct ctl_table vm_compaction[] = {
 	{
 		.procname	= "compact_memory",
-		.data		= NULL,
+		.data		= &sysctl_compact_memory,
 		.maxlen		= sizeof(int),
 		.mode		= 0200,
 		.proc_handler	= sysctl_compaction_handler,
