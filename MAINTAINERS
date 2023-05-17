@@ -9335,7 +9335,7 @@ F:	include/linux/hisi_acc_qm.h
 
 HISILICON ROCE DRIVER
 M:	Haoyue Xu <xuhaoyue1@hisilicon.com>
-M:	Wenpeng Liang <liangwenpeng@huawei.com>
+M:	Junxian Huang <huangjunxian6@hisilicon.com>
 L:	linux-rdma@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/infiniband/hisilicon-hns-roce.txt
