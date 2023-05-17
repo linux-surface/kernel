@@ -116,9 +116,6 @@ struct btrfs_inode {
 
 	unsigned long runtime_flags;
 
-	/* Keep track of who's O_SYNC/fsyncing currently */
-	atomic_t sync_writers;
-
 	/* full 64 bit generation number, struct vfs_inode doesn't have a big
 	 * enough field for this.
 	 */
@@ -405,22 +402,6 @@ static inline bool btrfs_inode_can_compress(const struct btrfs_inode *inode)
 	    inode->flags & BTRFS_INODE_NODATASUM)
 		return false;
 	return true;
-}
-
-/*
- * btrfs_inode_item stores flags in a u64, btrfs_inode stores them in two
- * separate u32s. These two functions convert between the two representations.
- */
-static inline u64 btrfs_inode_combine_flags(u32 flags, u32 ro_flags)
-{
-	return (flags | ((u64)ro_flags << 32));
-}
-
-static inline void btrfs_inode_split_flags(u64 inode_item_flags,
-					   u32 *flags, u32 *ro_flags)
-{
-	*flags = (u32)inode_item_flags;
-	*ro_flags = (u32)(inode_item_flags >> 32);
 }
 
 /* Array of bytes with variable length, hexadecimal format 0x1234 */

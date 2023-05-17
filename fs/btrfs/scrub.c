@@ -473,11 +473,8 @@ static void scrub_print_common_warning(const char *errstr, struct btrfs_device *
 	struct extent_buffer *eb;
 	struct btrfs_extent_item *ei;
 	struct scrub_warning swarn;
-	unsigned long ptr = 0;
 	u64 flags = 0;
-	u64 ref_root;
 	u32 item_size;
-	u8 ref_level = 0;
 	int ret;
 
 	/* Super block error, no need to search extent tree. */
@@ -507,19 +504,28 @@ static void scrub_print_common_warning(const char *errstr, struct btrfs_device *
 	item_size = btrfs_item_size(eb, path->slots[0]);
 
 	if (flags & BTRFS_EXTENT_FLAG_TREE_BLOCK) {
-		do {
+		unsigned long ptr = 0;
+		u8 ref_level;
+		u64 ref_root;
+
+		while (true) {
 			ret = tree_backref_for_extent(&ptr, eb, &found_key, ei,
 						      item_size, &ref_root,
 						      &ref_level);
+			if (ret < 0) {
+				btrfs_warn(fs_info,
+				"failed to resolve tree backref for logical %llu: %d",
+						  swarn.logical, ret);
+				break;
+			}
+			if (ret > 0)
+				break;
 			btrfs_warn_in_rcu(fs_info,
 "%s at logical %llu on dev %s, physical %llu: metadata %s (level %d) in tree %llu",
-				errstr, swarn.logical,
-				btrfs_dev_name(dev),
-				swarn.physical,
-				ref_level ? "node" : "leaf",
-				ret < 0 ? -1 : ref_level,
-				ret < 0 ? -1 : ref_root);
-		} while (ret != 1);
+				errstr, swarn.logical, btrfs_dev_name(dev),
+				swarn.physical, (ref_level ? "node" : "leaf"),
+				ref_level, ref_root);
+		}
 		btrfs_release_path(path);
 	} else {
 		struct btrfs_backref_walk_ctx ctx = { 0 };
@@ -538,48 +544,6 @@ static void scrub_print_common_warning(const char *errstr, struct btrfs_device *
 
 out:
 	btrfs_free_path(path);
-}
-
-static inline int scrub_nr_raid_mirrors(struct btrfs_io_context *bioc)
-{
-	if (bioc->map_type & BTRFS_BLOCK_GROUP_RAID5)
-		return 2;
-	else if (bioc->map_type & BTRFS_BLOCK_GROUP_RAID6)
-		return 3;
-	else
-		return (int)bioc->num_stripes;
-}
-
-static inline void scrub_stripe_index_and_offset(u64 logical, u64 map_type,
-						 u64 full_stripe_logical,
-						 int nstripes, int mirror,
-						 int *stripe_index,
-						 u64 *stripe_offset)
-{
-	int i;
-
-	if (map_type & BTRFS_BLOCK_GROUP_RAID56_MASK) {
-		const int nr_data_stripes = (map_type & BTRFS_BLOCK_GROUP_RAID5) ?
-					    nstripes - 1 : nstripes - 2;
-
-		/* RAID5/6 */
-		for (i = 0; i < nr_data_stripes; i++) {
-			const u64 data_stripe_start = full_stripe_logical +
-						(i * BTRFS_STRIPE_LEN);
-
-			if (logical >= data_stripe_start &&
-			    logical < data_stripe_start + BTRFS_STRIPE_LEN)
-				break;
-		}
-
-		*stripe_index = i;
-		*stripe_offset = (logical - full_stripe_logical) &
-				 BTRFS_STRIPE_LEN_MASK;
-	} else {
-		/* The other RAID type */
-		*stripe_index = mirror;
-		*stripe_offset = 0;
-	}
 }
 
 static int fill_writer_pointer_gap(struct scrub_ctx *sctx, u64 physical)
@@ -1944,6 +1908,13 @@ static int scrub_raid56_parity_stripe(struct scrub_ctx *sctx,
 		btrfs_bio_counter_dec(fs_info);
 		goto out;
 	}
+	/* Use the recovered stripes as cache to avoid read them from disk again. */
+	for (int i = 0; i < data_stripes; i++) {
+		stripe = &sctx->raid56_data_stripes[i];
+
+		raid56_parity_cache_data_pages(rbio, stripe->pages,
+				full_stripe_start + (i << BTRFS_STRIPE_LEN_SHIFT));
+	}
 	raid56_parity_submit_scrub_rbio(rbio);
 	wait_for_completion_io(&io_done);
 	ret = blk_status_to_errno(bio->bi_status);
@@ -2518,13 +2489,20 @@ int scrub_enumerate_chunks(struct scrub_ctx *sctx,
 
 		if (ret == 0) {
 			ro_set = 1;
-		} else if (ret == -ENOSPC && !sctx->is_dev_replace) {
+		} else if (ret == -ENOSPC && !sctx->is_dev_replace &&
+			   !(cache->flags & BTRFS_BLOCK_GROUP_RAID56_MASK)) {
 			/*
 			 * btrfs_inc_block_group_ro return -ENOSPC when it
 			 * failed in creating new chunk for metadata.
 			 * It is not a problem for scrub, because
 			 * metadata are always cowed, and our scrub paused
 			 * commit_transactions.
+			 *
+			 * For RAID56 chunks, we have to mark them read-only
+			 * for scrub, as later we would use our own cache
+			 * out of RAID56 realm.
+			 * Thus we want the RAID56 bg to be marked RO to
+			 * prevent RMW from screwing up out cache.
 			 */
 			ro_set = 0;
 		} else if (ret == -ETXTBSY) {
