@@ -1057,7 +1057,7 @@ u64 btrfs_find_allocatable_zones(struct btrfs_device *device, u64 hole_start,
 
 		/* Check if zones in the region are all empty */
 		if (btrfs_dev_is_sequential(device, pos) &&
-		    find_next_zero_bit(zinfo->empty_zones, end, begin) != end) {
+		    !bitmap_test_range_all_set(zinfo->empty_zones, begin, nzones)) {
 			pos += zinfo->zone_size;
 			continue;
 		}
@@ -1156,23 +1156,23 @@ int btrfs_ensure_empty_zones(struct btrfs_device *device, u64 start, u64 size)
 	struct btrfs_zoned_device_info *zinfo = device->zone_info;
 	const u8 shift = zinfo->zone_size_shift;
 	unsigned long begin = start >> shift;
-	unsigned long end = (start + size) >> shift;
+	unsigned long nbits = size >> shift;
 	u64 pos;
 	int ret;
 
 	ASSERT(IS_ALIGNED(start, zinfo->zone_size));
 	ASSERT(IS_ALIGNED(size, zinfo->zone_size));
 
-	if (end > zinfo->nr_zones)
+	if (begin + nbits > zinfo->nr_zones)
 		return -ERANGE;
 
 	/* All the zones are conventional */
-	if (find_next_bit(zinfo->seq_zones, end, begin) == end)
+	if (bitmap_test_range_all_zero(zinfo->seq_zones, begin, nbits))
 		return 0;
 
 	/* All the zones are sequential and empty */
-	if (find_next_zero_bit(zinfo->seq_zones, end, begin) == end &&
-	    find_next_zero_bit(zinfo->empty_zones, end, begin) == end)
+	if (bitmap_test_range_all_set(zinfo->seq_zones, begin, nbits) &&
+	    bitmap_test_range_all_set(zinfo->empty_zones, begin, nbits))
 		return 0;
 
 	for (pos = start; pos < start + size; pos += zinfo->zone_size) {
@@ -1602,37 +1602,17 @@ void btrfs_calc_zone_unusable(struct btrfs_block_group *cache)
 void btrfs_redirty_list_add(struct btrfs_transaction *trans,
 			    struct extent_buffer *eb)
 {
-	struct btrfs_fs_info *fs_info = eb->fs_info;
-
-	if (!btrfs_is_zoned(fs_info) ||
-	    btrfs_header_flag(eb, BTRFS_HEADER_FLAG_WRITTEN) ||
-	    !list_empty(&eb->release_list))
+	if (!btrfs_is_zoned(eb->fs_info) ||
+	    btrfs_header_flag(eb, BTRFS_HEADER_FLAG_WRITTEN))
 		return;
+
+	ASSERT(!test_bit(EXTENT_BUFFER_DIRTY, &eb->bflags));
 
 	memzero_extent_buffer(eb, 0, eb->len);
 	set_bit(EXTENT_BUFFER_NO_CHECK, &eb->bflags);
 	set_extent_buffer_dirty(eb);
 	set_extent_bits_nowait(&trans->dirty_pages, eb->start,
 			       eb->start + eb->len - 1, EXTENT_DIRTY);
-
-	spin_lock(&trans->releasing_ebs_lock);
-	list_add_tail(&eb->release_list, &trans->releasing_ebs);
-	spin_unlock(&trans->releasing_ebs_lock);
-	atomic_inc(&eb->refs);
-}
-
-void btrfs_free_redirty_list(struct btrfs_transaction *trans)
-{
-	spin_lock(&trans->releasing_ebs_lock);
-	while (!list_empty(&trans->releasing_ebs)) {
-		struct extent_buffer *eb;
-
-		eb = list_first_entry(&trans->releasing_ebs,
-				      struct extent_buffer, release_list);
-		list_del_init(&eb->release_list);
-		free_extent_buffer(eb);
-	}
-	spin_unlock(&trans->releasing_ebs_lock);
 }
 
 bool btrfs_use_zone_append(struct btrfs_bio *bbio)

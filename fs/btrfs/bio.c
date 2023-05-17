@@ -574,27 +574,20 @@ static void run_one_async_free(struct btrfs_work *work)
 
 static bool should_async_write(struct btrfs_bio *bbio)
 {
-	/*
-	 * If the I/O is not issued by fsync and friends, (->sync_writers != 0),
-	 * then try to defer the submission to a workqueue to parallelize the
-	 * checksum calculation.
-	 */
-	if (atomic_read(&bbio->inode->sync_writers))
+	/* Submit synchronously if the checksum implementation is fast. */
+	if (test_bit(BTRFS_FS_CSUM_IMPL_FAST, &bbio->fs_info->flags))
 		return false;
 
 	/*
-	 * Submit metadata writes synchronously if the checksum implementation
-	 * is fast, or we are on a zoned device that wants I/O to be submitted
-	 * in order.
+	 * Try to defer the submission to a workqueue to parallelize the
+	 * checksum calculation unless the I/O is issued synchronously.
 	 */
-	if (bbio->bio.bi_opf & REQ_META) {
-		struct btrfs_fs_info *fs_info = bbio->fs_info;
+	if (op_is_sync(bbio->bio.bi_opf))
+		return false;
 
-		if (btrfs_is_zoned(fs_info))
-			return false;
-		if (test_bit(BTRFS_FS_CSUM_IMPL_FAST, &fs_info->flags))
-			return false;
-	}
+	/* Zoned devices require I/O to be submitted in order. */
+	if ((bbio->bio.bi_opf & REQ_META) && btrfs_is_zoned(bbio->fs_info))
+		return false;
 
 	return true;
 }
@@ -622,10 +615,7 @@ static bool btrfs_wq_submit_bio(struct btrfs_bio *bbio,
 
 	btrfs_init_work(&async->work, run_one_async_start, run_one_async_done,
 			run_one_async_free);
-	if (op_is_sync(bbio->bio.bi_opf))
-		btrfs_queue_work(fs_info->hipri_workers, &async->work);
-	else
-		btrfs_queue_work(fs_info->workers, &async->work);
+	btrfs_queue_work(fs_info->workers, &async->work);
 	return true;
 }
 
@@ -635,7 +625,7 @@ static bool btrfs_submit_chunk(struct btrfs_bio *bbio, int mirror_num)
 	struct btrfs_fs_info *fs_info = bbio->fs_info;
 	struct btrfs_bio *orig_bbio = bbio;
 	struct bio *bio = &bbio->bio;
-	u64 logical = bio->bi_iter.bi_sector << 9;
+	u64 logical = bio->bi_iter.bi_sector << SECTOR_SHIFT;
 	u64 length = bio->bi_iter.bi_size;
 	u64 map_length = length;
 	bool use_append = btrfs_use_zone_append(bbio);
