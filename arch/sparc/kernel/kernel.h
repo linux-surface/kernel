@@ -62,9 +62,6 @@ asmlinkage void do_rt_sigreturn32(struct pt_regs *regs);
 void do_signal32(struct pt_regs * regs);
 asmlinkage int do_sys32_sigstack(u32 u_ssptr, u32 u_ossptr, unsigned long sp);
 
-/* time_64.c */
-void __init time_init_early(void);
-
 /* compat_audit.c */
 extern unsigned int sparc32_dir_class[];
 extern unsigned int sparc32_chattr_class[];
@@ -91,7 +88,6 @@ extern int static_irq_count;
 extern spinlock_t irq_action_lock;
 
 void unexpected_irq(int irq, void *dev_id, struct pt_regs * regs);
-void init_IRQ(void);
 
 /* sun4m_irq.c */
 void sun4m_init_IRQ(void);
