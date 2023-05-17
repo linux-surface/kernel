@@ -110,35 +110,28 @@ static void csum_tree_block(struct extent_buffer *buf, u8 *result)
  * detect blocks that either didn't get written at all or got written
  * in the wrong place.
  */
-static int verify_parent_transid(struct extent_io_tree *io_tree,
-				 struct extent_buffer *eb, u64 parent_transid,
-				 int atomic)
+int btrfs_buffer_uptodate(struct extent_buffer *eb, u64 parent_transid,
+			  int atomic)
 {
-	struct extent_state *cached_state = NULL;
-	int ret;
+	if (!extent_buffer_uptodate(eb))
+		return 0;
 
 	if (!parent_transid || btrfs_header_generation(eb) == parent_transid)
-		return 0;
+		return 1;
 
 	if (atomic)
 		return -EAGAIN;
 
-	lock_extent(io_tree, eb->start, eb->start + eb->len - 1, &cached_state);
-	if (extent_buffer_uptodate(eb) &&
-	    btrfs_header_generation(eb) == parent_transid) {
-		ret = 0;
-		goto out;
-	}
-	btrfs_err_rl(eb->fs_info,
+	if (!extent_buffer_uptodate(eb) ||
+	    btrfs_header_generation(eb) != parent_transid) {
+		btrfs_err_rl(eb->fs_info,
 "parent transid verify failed on logical %llu mirror %u wanted %llu found %llu",
 			eb->start, eb->read_mirror,
 			parent_transid, btrfs_header_generation(eb));
-	ret = 1;
-	clear_extent_buffer_uptodate(eb);
-out:
-	unlock_extent(io_tree, eb->start, eb->start + eb->len - 1,
-		      &cached_state);
-	return ret;
+		clear_extent_buffer_uptodate(eb);
+		return 0;
+	}
+	return 1;
 }
 
 static bool btrfs_supported_super_csum(u16 csum_type)
@@ -253,11 +246,34 @@ int btrfs_read_extent_buffer(struct extent_buffer *eb,
 	return ret;
 }
 
-static int csum_one_extent_buffer(struct extent_buffer *eb)
+/*
+ * Checksum a dirty tree block before IO.
+ */
+blk_status_t btree_csum_one_bio(struct btrfs_bio *bbio)
 {
+	struct extent_buffer *eb = bbio->private;
 	struct btrfs_fs_info *fs_info = eb->fs_info;
+	u64 found_start = btrfs_header_bytenr(eb);
 	u8 result[BTRFS_CSUM_SIZE];
 	int ret;
+
+	/*
+	 * Btree blocks are always contiguous on disk.
+	 */
+	if (WARN_ON_ONCE(bbio->file_offset != eb->start))
+		return BLK_STS_IOERR;
+	if (WARN_ON_ONCE(bbio->bio.bi_iter.bi_size != eb->len))
+		return BLK_STS_IOERR;
+
+	if (test_bit(EXTENT_BUFFER_NO_CHECK, &eb->bflags)) {
+		WARN_ON_ONCE(found_start != 0);
+		return BLK_STS_OK;
+	}
+
+	if (WARN_ON_ONCE(found_start != eb->start))
+		return BLK_STS_IOERR;
+	if (WARN_ON_ONCE(!PageUptodate(eb->pages[0])))
+		return BLK_STS_IOERR;
 
 	ASSERT(memcmp_extent_buffer(eb, fs_info->fs_devices->metadata_uuid,
 				    offsetof(struct btrfs_header, fsid),
@@ -285,8 +301,7 @@ static int csum_one_extent_buffer(struct extent_buffer *eb)
 		goto error;
 	}
 	write_extent_buffer(eb, result, 0, fs_info->csum_size);
-
-	return 0;
+	return BLK_STS_OK;
 
 error:
 	btrfs_print_tree(eb, 0);
@@ -300,99 +315,6 @@ error:
 	 */
 	WARN_ON(IS_ENABLED(CONFIG_BTRFS_DEBUG) ||
 		btrfs_header_owner(eb) == BTRFS_TREE_LOG_OBJECTID);
-	return ret;
-}
-
-/* Checksum all dirty extent buffers in one bio_vec */
-static int csum_dirty_subpage_buffers(struct btrfs_fs_info *fs_info,
-				      struct bio_vec *bvec)
-{
-	struct page *page = bvec->bv_page;
-	u64 bvec_start = page_offset(page) + bvec->bv_offset;
-	u64 cur;
-	int ret = 0;
-
-	for (cur = bvec_start; cur < bvec_start + bvec->bv_len;
-	     cur += fs_info->nodesize) {
-		struct extent_buffer *eb;
-		bool uptodate;
-
-		eb = find_extent_buffer(fs_info, cur);
-		uptodate = btrfs_subpage_test_uptodate(fs_info, page, cur,
-						       fs_info->nodesize);
-
-		/* A dirty eb shouldn't disappear from buffer_radix */
-		if (WARN_ON(!eb))
-			return -EUCLEAN;
-
-		if (WARN_ON(cur != btrfs_header_bytenr(eb))) {
-			free_extent_buffer(eb);
-			return -EUCLEAN;
-		}
-		if (WARN_ON(!uptodate)) {
-			free_extent_buffer(eb);
-			return -EUCLEAN;
-		}
-
-		ret = csum_one_extent_buffer(eb);
-		free_extent_buffer(eb);
-		if (ret < 0)
-			return ret;
-	}
-	return ret;
-}
-
-/*
- * Checksum a dirty tree block before IO.  This has extra checks to make sure
- * we only fill in the checksum field in the first page of a multi-page block.
- * For subpage extent buffers we need bvec to also read the offset in the page.
- */
-static int csum_dirty_buffer(struct btrfs_fs_info *fs_info, struct bio_vec *bvec)
-{
-	struct page *page = bvec->bv_page;
-	u64 start = page_offset(page);
-	u64 found_start;
-	struct extent_buffer *eb;
-
-	if (fs_info->nodesize < PAGE_SIZE)
-		return csum_dirty_subpage_buffers(fs_info, bvec);
-
-	eb = (struct extent_buffer *)page->private;
-	if (page != eb->pages[0])
-		return 0;
-
-	found_start = btrfs_header_bytenr(eb);
-
-	if (test_bit(EXTENT_BUFFER_NO_CHECK, &eb->bflags)) {
-		WARN_ON(found_start != 0);
-		return 0;
-	}
-
-	/*
-	 * Please do not consolidate these warnings into a single if.
-	 * It is useful to know what went wrong.
-	 */
-	if (WARN_ON(found_start != start))
-		return -EUCLEAN;
-	if (WARN_ON(!PageUptodate(page)))
-		return -EUCLEAN;
-
-	return csum_one_extent_buffer(eb);
-}
-
-blk_status_t btree_csum_one_bio(struct btrfs_bio *bbio)
-{
-	struct btrfs_fs_info *fs_info = bbio->inode->root->fs_info;
-	struct bvec_iter iter;
-	struct bio_vec bv;
-	int ret = 0;
-
-	bio_for_each_segment(bv, &bbio->bio, iter) {
-		ret = csum_dirty_buffer(fs_info, &bv);
-		if (ret)
-			break;
-	}
-
 	return errno_to_blk_status(ret);
 }
 
@@ -426,8 +348,8 @@ static int check_tree_block_fsid(struct extent_buffer *eb)
 }
 
 /* Do basic extent buffer checks at read time */
-static int validate_extent_buffer(struct extent_buffer *eb,
-				  struct btrfs_tree_parent_check *check)
+int btrfs_validate_extent_buffer(struct extent_buffer *eb,
+				 struct btrfs_tree_parent_check *check)
 {
 	struct btrfs_fs_info *fs_info = eb->fs_info;
 	u64 found_start;
@@ -532,112 +454,11 @@ static int validate_extent_buffer(struct extent_buffer *eb,
 	if (found_level > 0 && btrfs_check_node(eb))
 		ret = -EIO;
 
-	if (!ret)
-		set_extent_buffer_uptodate(eb);
-	else
+	if (ret)
 		btrfs_err(fs_info,
 		"read time tree block corruption detected on logical %llu mirror %u",
 			  eb->start, eb->read_mirror);
 out:
-	return ret;
-}
-
-static int validate_subpage_buffer(struct page *page, u64 start, u64 end,
-				   int mirror, struct btrfs_tree_parent_check *check)
-{
-	struct btrfs_fs_info *fs_info = btrfs_sb(page->mapping->host->i_sb);
-	struct extent_buffer *eb;
-	bool reads_done;
-	int ret = 0;
-
-	ASSERT(check);
-
-	/*
-	 * We don't allow bio merge for subpage metadata read, so we should
-	 * only get one eb for each endio hook.
-	 */
-	ASSERT(end == start + fs_info->nodesize - 1);
-	ASSERT(PagePrivate(page));
-
-	eb = find_extent_buffer(fs_info, start);
-	/*
-	 * When we are reading one tree block, eb must have been inserted into
-	 * the radix tree. If not, something is wrong.
-	 */
-	ASSERT(eb);
-
-	reads_done = atomic_dec_and_test(&eb->io_pages);
-	/* Subpage read must finish in page read */
-	ASSERT(reads_done);
-
-	eb->read_mirror = mirror;
-	if (test_bit(EXTENT_BUFFER_READ_ERR, &eb->bflags)) {
-		ret = -EIO;
-		goto err;
-	}
-	ret = validate_extent_buffer(eb, check);
-	if (ret < 0)
-		goto err;
-
-	set_extent_buffer_uptodate(eb);
-
-	free_extent_buffer(eb);
-	return ret;
-err:
-	/*
-	 * end_bio_extent_readpage decrements io_pages in case of error,
-	 * make sure it has something to decrement.
-	 */
-	atomic_inc(&eb->io_pages);
-	clear_extent_buffer_uptodate(eb);
-	free_extent_buffer(eb);
-	return ret;
-}
-
-int btrfs_validate_metadata_buffer(struct btrfs_bio *bbio,
-				   struct page *page, u64 start, u64 end,
-				   int mirror)
-{
-	struct extent_buffer *eb;
-	int ret = 0;
-	int reads_done;
-
-	ASSERT(page->private);
-
-	if (btrfs_sb(page->mapping->host->i_sb)->nodesize < PAGE_SIZE)
-		return validate_subpage_buffer(page, start, end, mirror,
-					       &bbio->parent_check);
-
-	eb = (struct extent_buffer *)page->private;
-
-	/*
-	 * The pending IO might have been the only thing that kept this buffer
-	 * in memory.  Make sure we have a ref for all this other checks
-	 */
-	atomic_inc(&eb->refs);
-
-	reads_done = atomic_dec_and_test(&eb->io_pages);
-	if (!reads_done)
-		goto err;
-
-	eb->read_mirror = mirror;
-	if (test_bit(EXTENT_BUFFER_READ_ERR, &eb->bflags)) {
-		ret = -EIO;
-		goto err;
-	}
-	ret = validate_extent_buffer(eb, &bbio->parent_check);
-err:
-	if (ret) {
-		/*
-		 * our io error hook is going to dec the io pages
-		 * again, we have to make sure it has something
-		 * to decrement
-		 */
-		atomic_inc(&eb->io_pages);
-		clear_extent_buffer_uptodate(eb);
-	}
-	free_extent_buffer(eb);
-
 	return ret;
 }
 
@@ -4591,23 +4412,6 @@ void __cold close_ctree(struct btrfs_fs_info *fs_info)
 
 	btrfs_mapping_tree_free(&fs_info->mapping_tree);
 	btrfs_close_devices(fs_info->fs_devices);
-}
-
-int btrfs_buffer_uptodate(struct extent_buffer *buf, u64 parent_transid,
-			  int atomic)
-{
-	int ret;
-	struct inode *btree_inode = buf->pages[0]->mapping->host;
-
-	ret = extent_buffer_uptodate(buf);
-	if (!ret)
-		return ret;
-
-	ret = verify_parent_transid(&BTRFS_I(btree_inode)->io_tree, buf,
-				    parent_transid, atomic);
-	if (ret == -EAGAIN)
-		return ret;
-	return !ret;
 }
 
 void btrfs_mark_buffer_dirty(struct extent_buffer *buf)
