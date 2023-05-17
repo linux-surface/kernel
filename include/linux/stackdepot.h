@@ -25,6 +25,7 @@
 #include <linux/gfp.h>
 
 typedef u32 depot_stack_handle_t;
+struct seq_file;
 
 /*
  * Number of bits in the handle that stack depot doesn't use. Users may store
