@@ -394,6 +394,40 @@
 	dr_mode = "host";
 };
 
+&usb_mp0_hsphy {
+	status = "okay";
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+	vdda18-supply = <&vreg_l12a_1p8>;
+	vdda33-supply = <&vreg_l16e_3p1>;
+};
+
+&usb_mp1_hsphy {
+	status = "okay";
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+	vdda18-supply = <&vreg_l12a_1p8>;
+	vdda33-supply = <&vreg_l16e_3p1>;
+};
+
+&usb_mp0_qmpphy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l3c_1p2>;
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+};
+
+&usb_mp1_qmpphy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l3c_1p2>;
+	vdda-pll-supply = <&vreg_l9e_0p88>;
+};
+
+&usb_mp {
+	status = "okay";
+};
+
+&usb_mp_dwc3 {
+	dr_mode = "host";
+};
+
 
 // TODO:
 // - PCIe has some sleep mode via a dedicated GPIO for all devices/ports
