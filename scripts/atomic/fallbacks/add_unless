@@ -1,3 +1,5 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_add_unless add_unless
+then
 cat << EOF
 /**
  * arch_${atomic}_add_unless - add unless the number is already a given value
@@ -5,9 +7,12 @@ cat << EOF
  * @a: the amount to add to v...
  * @u: ...unless v is equal to u.
  *
- * Atomically adds @a to @v, if @v was not already @u.
- * Returns true if the addition was done.
+ * Atomically adds @a to @v with full ordering, but only if @v was not already @u.
+ * Returns @true if the addition was done.
  */
+EOF
+fi
+cat << EOF
 static __always_inline bool
 arch_${atomic}_add_unless(${atomic}_t *v, ${int} a, ${int} u)
 {

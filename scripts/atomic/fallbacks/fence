@@ -1,3 +1,8 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_${pfx}${name}${sfx} fence
+then
+acqrel=full
+. ${ATOMICDIR}/acqrel.sh
+fi
 cat <<EOF
 static __always_inline ${ret}
 arch_${atomic}_${pfx}${name}${sfx}(${params})

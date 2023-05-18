@@ -1,3 +1,5 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_fetch_add_unless fetch_add_unless
+then
 cat << EOF
 /**
  * arch_${atomic}_fetch_add_unless - add unless the number is already a given value
@@ -6,8 +8,11 @@ cat << EOF
  * @u: ...unless v is equal to u.
  *
  * Atomically adds @a to @v, so long as @v was not already @u.
- * Returns original value of @v
+ * Returns original value of @v.
  */
+EOF
+fi
+cat << EOF
 static __always_inline ${int}
 arch_${atomic}_fetch_add_unless(${atomic}_t *v, ${int} a, ${int} u)
 {

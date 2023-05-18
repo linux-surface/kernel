@@ -1,3 +1,15 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_${pfx}inc${sfx}${order} inc
+then
+cat <<EOF
+/**
+ * arch_${atomic}_${pfx}inc${sfx}${order} - Atomic increment
+ * @v: pointer of type ${atomic}_t
+ *
+ * Atomically increment @v with ${docbook_order} ordering,
+ * returning ${docbook_oldnew} value.
+ */
+EOF
+fi
 cat <<EOF
 static __always_inline ${ret}
 arch_${atomic}_${pfx}inc${sfx}${order}(${atomic}_t *v)

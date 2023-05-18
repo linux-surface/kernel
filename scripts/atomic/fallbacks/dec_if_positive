@@ -1,3 +1,19 @@
+if /bin/sh ${ATOMICDIR}/chkdup.sh arch_${atomic}_dec_if_positive dec_if_positive
+then
+cat <<EOF
+/**
+ * arch_${atomic}_dec_if_positive - Atomic decrement if old value is positive
+ * @v: pointer of type ${atomic}_t
+ *
+ * Atomically decrement @v with full ordering, but only if the original
+ * value is greater than zero, returning new value.  Note that the desired
+ * new value will be returned even if the decrement did not occur, so that
+ * if the old value is -3, then there @v will not be decremented, but -4
+ * will be returned.  As a result, if the return value is non-negative,
+ * then the value was in fact decremented.
+ */
+EOF
+fi
 cat <<EOF
 static __always_inline ${ret}
 arch_${atomic}_dec_if_positive(${atomic}_t *v)
