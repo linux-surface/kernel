@@ -207,6 +207,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_RT712_SDCA_DMIC_SDW
 	imply SND_SOC_RT715_SDW
 	imply SND_SOC_RT715_SDCA_SDW
+	imply SND_SOC_RT722_SDCA_SDW
 	imply SND_SOC_RT1308_SDW
 	imply SND_SOC_RT1316_SDW
 	imply SND_SOC_RT1318_SDW
@@ -1539,6 +1540,12 @@ config SND_SOC_RT712_SDCA_DMIC_SDW
 	select REGMAP_SOUNDWIRE
 	select REGMAP_SOUNDWIRE_MBQ
 
+config SND_SOC_RT722_SDCA_SDW
+	tristate "Realtek RT722 SDCA Codec - SDW"
+	depends on SOUNDWIRE
+	select REGMAP_SOUNDWIRE
+	select REGMAP_SOUNDWIRE_MBQ
+
 config SND_SOC_RT715
 	tristate
 
@@ -1651,6 +1658,12 @@ config SND_SOC_SSM2602_I2C
 	depends on I2C
 	select SND_SOC_SSM2602
 	select REGMAP_I2C
+
+config SND_SOC_SSM3515
+	tristate "Analog Devices SSM3515 amplifier driver"
+	select REGMAP_I2C
+	depends on I2C
+	depends on OF
 
 config SND_SOC_SSM4567
 	tristate "Analog Devices ssm4567 amplifier driver support"
