@@ -18,14 +18,25 @@
 
 	chosen {
 		stdout-path = "serial2:115200n8";
-		bootargs = "console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000";
+	};
+
+	aliases {
+		serial0 = &mcu_uart0;
+		serial1 = &main_uart1;
+		serial2 = &main_uart0;
+		serial3 = &main_uart3;
+		i2c0 = &main_i2c0;
+		i2c1 = &main_i2c1;
+		mmc0 = &sdhci0;
+		mmc1 = &sdhci1;
+		ethernet0 = &cpsw_port1;
+		ethernet1 = &cpsw_port2;
 	};
 
 	memory@80000000 {
 		device_type = "memory";
 		/* 2G RAM */
 		reg = <0x00000000 0x80000000 0x00000000 0x80000000>;
-
 	};
 
 	reserved-memory {
@@ -94,7 +105,7 @@
 		};
 	};
 
-	evm_12v0: fixedregulator-evm12v0 {
+	evm_12v0: regulator-0 {
 		/* main DC jack */
 		compatible = "regulator-fixed";
 		regulator-name = "evm_12v0";
@@ -104,7 +115,7 @@
 		regulator-boot-on;
 	};
 
-	vsys_5v0: fixedregulator-vsys5v0 {
+	vsys_5v0: regulator-1 {
 		/* output of LM5140 */
 		compatible = "regulator-fixed";
 		regulator-name = "vsys_5v0";
@@ -115,7 +126,7 @@
 		regulator-boot-on;
 	};
 
-	vsys_3v3: fixedregulator-vsys3v3 {
+	vsys_3v3: regulator-2 {
 		/* output of LM5140 */
 		compatible = "regulator-fixed";
 		regulator-name = "vsys_3v3";
@@ -126,7 +137,7 @@
 		regulator-boot-on;
 	};
 
-	vdd_mmc1: fixed-regulator-sd {
+	vdd_mmc1: regulator-3 {
 		/* TPS2051BD */
 		compatible = "regulator-fixed";
 		regulator-name = "vdd_mmc1";
@@ -138,7 +149,7 @@
 		gpio = <&exp1 6 GPIO_ACTIVE_HIGH>;
 	};
 
-	vddb: fixedregulator-vddb {
+	vddb: regulator-4 {
 		compatible = "regulator-fixed";
 		regulator-name = "vddb_3v3_display";
 		regulator-min-microvolt = <3300000>;
@@ -215,6 +226,15 @@
 		>;
 	};
 
+	main_uart1_pins_default: main-uart1-pins-default {
+		pinctrl-single,pins = <
+			AM64X_IOPAD(0x0248, PIN_INPUT, 0)		/* (D16) UART1_CTSn */
+			AM64X_IOPAD(0x024c, PIN_OUTPUT, 0)		/* (E16) UART1_RTSn */
+			AM64X_IOPAD(0x0240, PIN_INPUT, 0)		/* (E15) UART1_RXD */
+			AM64X_IOPAD(0x0244, PIN_OUTPUT, 0)		/* (E14) UART1_TXD */
+		>;
+	};
+
 	main_uart0_pins_default: main-uart0-pins-default {
 		pinctrl-single,pins = <
 			AM64X_IOPAD(0x0238, PIN_INPUT, 0) /* (B16) UART0_CTSn */
@@ -230,6 +250,13 @@
 			AM64X_IOPAD(0x0208, PIN_OUTPUT, 0) /* (D12) SPI0_CS0 */
 			AM64X_IOPAD(0x0214, PIN_OUTPUT, 0) /* (A13) SPI0_D0 */
 			AM64X_IOPAD(0x0218, PIN_INPUT, 0) /* (A14) SPI0_D1 */
+		>;
+	};
+
+	main_i2c0_pins_default: main-i2c0-pins-default {
+		pinctrl-single,pins = <
+			AM64X_IOPAD(0x0260, PIN_INPUT_PULLUP, 0) /* (A18) I2C0_SCL */
+			AM64X_IOPAD(0x0264, PIN_INPUT_PULLUP, 0) /* (B18) I2C0_SDA */
 		>;
 	};
 
@@ -333,6 +360,21 @@
 /* main_uart1 is reserved for firmware usage */
 &main_uart1 {
 	status = "reserved";
+	pinctrl-names = "default";
+	pinctrl-0 = <&main_uart1_pins_default>;
+};
+
+&main_i2c0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&main_i2c0_pins_default>;
+	clock-frequency = <400000>;
+
+	eeprom@50 {
+		/* AT24CM01 */
+		compatible = "atmel,24c1024";
+		reg = <0x50>;
+	};
 };
 
 &main_i2c1 {
