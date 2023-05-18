@@ -44,6 +44,7 @@
 #include "util/cgroup.h"
 #include <subcmd/parse-options.h>
 #include "util/parse-events.h"
+#include "util/pmus.h"
 #include "util/pmu.h"
 #include "util/event.h"
 #include "util/evlist.h"
@@ -69,7 +70,6 @@
 #include "util/pfm.h"
 #include "util/bpf_counter.h"
 #include "util/iostat.h"
-#include "util/pmu-hybrid.h"
 #include "util/util.h"
 #include "asm/bug.h"
 
@@ -101,6 +101,10 @@
 static void print_counters(struct timespec *ts, int argc, const char **argv);
 
 static struct evlist	*evsel_list;
+static struct parse_events_option_args parse_events_option_args = {
+	.evlistp = &evsel_list,
+};
+
 static bool all_counters_use_bpf = true;
 
 static struct target target = {
@@ -1085,10 +1089,11 @@ static int parse_stat_cgroups(const struct option *opt,
 	return parse_cgroups(opt, str, unset);
 }
 
-static int parse_hybrid_type(const struct option *opt,
+static int parse_cputype(const struct option *opt,
 			     const char *str,
 			     int unset __maybe_unused)
 {
+	const struct perf_pmu *pmu;
 	struct evlist *evlist = *(struct evlist **)opt->value;
 
 	if (!list_empty(&evlist->core.entries)) {
@@ -1096,11 +1101,12 @@ static int parse_hybrid_type(const struct option *opt,
 		return -1;
 	}
 
-	evlist->hybrid_pmu_name = perf_pmu__hybrid_type_to_pmu(str);
-	if (!evlist->hybrid_pmu_name) {
+	pmu = perf_pmus__pmu_for_pmu_filter(str);
+	if (!pmu) {
 		fprintf(stderr, "--cputype %s is not supported!\n", str);
 		return -1;
 	}
+	parse_events_option_args.pmu_filter = pmu->name;
 
 	return 0;
 }
@@ -1108,7 +1114,7 @@ static int parse_hybrid_type(const struct option *opt,
 static struct option stat_options[] = {
 	OPT_BOOLEAN('T', "transaction", &transaction_run,
 		    "hardware transaction statistics"),
-	OPT_CALLBACK('e', "event", &evsel_list, "event",
+	OPT_CALLBACK('e', "event", &parse_events_option_args, "event",
 		     "event selector. use 'perf list' to list available events",
 		     parse_events_option),
 	OPT_CALLBACK(0, "filter", &evsel_list, "filter",
@@ -1226,7 +1232,7 @@ static struct option stat_options[] = {
 	OPT_CALLBACK(0, "cputype", &evsel_list, "hybrid cpu type",
 		     "Only enable events on applying cpu with this type "
 		     "for hybrid platform (e.g. core or atom)",
-		     parse_hybrid_type),
+		     parse_cputype),
 #ifdef HAVE_LIBPFM
 	OPT_CALLBACK(0, "pfm-events", &evsel_list, "event",
 		"libpfm4 event selector. use 'perf list' to list available events",
@@ -1777,6 +1783,7 @@ static int add_default_attributes(void)
 };
 
 	struct perf_event_attr default_null_attrs[] = {};
+	const char *pmu = parse_events_option_args.pmu_filter ?: "all";
 
 	/* Set attrs if no event is selected and !null_run: */
 	if (stat_config.null_run)
@@ -1788,11 +1795,11 @@ static int add_default_attributes(void)
 		 * will use this approach. To determine transaction support
 		 * on an architecture test for such a metric name.
 		 */
-		if (!metricgroup__has_metric("transaction")) {
+		if (!metricgroup__has_metric(pmu, "transaction")) {
 			pr_err("Missing transaction metrics");
 			return -1;
 		}
-		return metricgroup__parse_groups(evsel_list, "transaction",
+		return metricgroup__parse_groups(evsel_list, pmu, "transaction",
 						stat_config.metric_no_group,
 						stat_config.metric_no_merge,
 						stat_config.metric_no_threshold,
@@ -1817,7 +1824,7 @@ static int add_default_attributes(void)
 			smi_reset = true;
 		}
 
-		if (!metricgroup__has_metric("smi")) {
+		if (!metricgroup__has_metric(pmu, "smi")) {
 			pr_err("Missing smi metrics");
 			return -1;
 		}
@@ -1825,7 +1832,7 @@ static int add_default_attributes(void)
 		if (!force_metric_only)
 			stat_config.metric_only = true;
 
-		return metricgroup__parse_groups(evsel_list, "smi",
+		return metricgroup__parse_groups(evsel_list, pmu, "smi",
 						stat_config.metric_no_group,
 						stat_config.metric_no_merge,
 						stat_config.metric_no_threshold,
@@ -1858,7 +1865,8 @@ static int add_default_attributes(void)
 				"Please print the result regularly, e.g. -I1000\n");
 		}
 		str[8] = stat_config.topdown_level + '0';
-		if (metricgroup__parse_groups(evsel_list, str,
+		if (metricgroup__parse_groups(evsel_list,
+						pmu, str,
 						/*metric_no_group=*/false,
 						/*metric_no_merge=*/false,
 						/*metric_no_threshold=*/true,
@@ -1892,19 +1900,14 @@ static int add_default_attributes(void)
 		 * Add TopdownL1 metrics if they exist. To minimize
 		 * multiplexing, don't request threshold computation.
 		 */
-		/*
-		 * TODO: TopdownL1 is disabled on hybrid CPUs to avoid a crashes
-		 * caused by exposing latent bugs. This is fixed properly in:
-		 * https://lore.kernel.org/lkml/bff481ba-e60a-763f-0aa0-3ee53302c480@linux.intel.com/
-		 */
-		if (metricgroup__has_metric("TopdownL1") && !perf_pmu__has_hybrid()) {
+		if (metricgroup__has_metric(pmu, "TopdownL1")) {
 			struct evlist *metric_evlist = evlist__new();
 			struct evsel *metric_evsel;
 
 			if (!metric_evlist)
 				return -1;
 
-			if (metricgroup__parse_groups(metric_evlist, "TopdownL1",
+			if (metricgroup__parse_groups(metric_evlist, pmu, "TopdownL1",
 							/*metric_no_group=*/false,
 							/*metric_no_merge=*/false,
 							/*metric_no_threshold=*/true,
@@ -2428,7 +2431,9 @@ int cmd_stat(int argc, const char **argv)
 	 * knowing the target is system-wide.
 	 */
 	if (metrics) {
-		metricgroup__parse_groups(evsel_list, metrics,
+		const char *pmu = parse_events_option_args.pmu_filter ?: "all";
+
+		metricgroup__parse_groups(evsel_list, pmu, metrics,
 					stat_config.metric_no_group,
 					stat_config.metric_no_merge,
 					stat_config.metric_no_threshold,
