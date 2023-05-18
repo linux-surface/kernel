@@ -657,21 +657,21 @@ static void _rtl92e_dm_tx_power_tracking_cb_thermal(struct net_device *dev)
 {
 #define ThermalMeterVal	9
 	struct r8192_priv *priv = rtllib_priv(dev);
-	u32 tmpRegA, TempCCk;
-	u8 tmpOFDMindex, tmpCCKindex, tmpCCK20Mindex, tmpCCK40Mindex, tmpval;
+	u32 tmp_reg, tmp_cck;
+	u8 tmp_ofdm_index, tmp_cck_index, tmp_cck_20m_index, tmp_cck_40m_index, tmpval;
 	int i = 0, CCKSwingNeedUpdate = 0;
 
 	if (!priv->tx_pwr_tracking_init) {
-		tmpRegA = rtl92e_get_bb_reg(dev, rOFDM0_XATxIQImbalance,
+		tmp_reg = rtl92e_get_bb_reg(dev, rOFDM0_XATxIQImbalance,
 					    bMaskDWord);
 		for (i = 0; i < OFDM_TABLE_LEN; i++) {
-			if (tmpRegA == OFDMSwingTable[i])
+			if (tmp_reg == OFDMSwingTable[i])
 				priv->ofdm_index[0] = i;
 		}
 
-		TempCCk = rtl92e_get_bb_reg(dev, rCCK0_TxFilter1, bMaskByte2);
+		tmp_cck = rtl92e_get_bb_reg(dev, rCCK0_TxFilter1, bMaskByte2);
 		for (i = 0; i < CCK_TABLE_LEN; i++) {
-			if (TempCCk == (u32)CCKSwingTable_Ch1_Ch13[i][0]) {
+			if (tmp_cck == (u32)CCKSwingTable_Ch1_Ch13[i][0]) {
 				priv->cck_index = i;
 				break;
 			}
@@ -680,42 +680,42 @@ static void _rtl92e_dm_tx_power_tracking_cb_thermal(struct net_device *dev)
 		return;
 	}
 
-	tmpRegA = rtl92e_get_rf_reg(dev, RF90_PATH_A, 0x12, 0x078);
-	if (tmpRegA < 3 || tmpRegA > 13)
+	tmp_reg = rtl92e_get_rf_reg(dev, RF90_PATH_A, 0x12, 0x078);
+	if (tmp_reg < 3 || tmp_reg > 13)
 		return;
-	if (tmpRegA >= 12)
-		tmpRegA = 12;
+	if (tmp_reg >= 12)
+		tmp_reg = 12;
 	priv->thermal_meter[0] = ThermalMeterVal;
 	priv->thermal_meter[1] = ThermalMeterVal;
 
-	if (priv->thermal_meter[0] >= (u8)tmpRegA) {
-		tmpOFDMindex = tmpCCK20Mindex = 6+(priv->thermal_meter[0] -
-			      (u8)tmpRegA);
-		tmpCCK40Mindex = tmpCCK20Mindex - 6;
-		if (tmpOFDMindex >= OFDM_TABLE_LEN)
-			tmpOFDMindex = OFDM_TABLE_LEN - 1;
-		if (tmpCCK20Mindex >= CCK_TABLE_LEN)
-			tmpCCK20Mindex = CCK_TABLE_LEN - 1;
-		if (tmpCCK40Mindex >= CCK_TABLE_LEN)
-			tmpCCK40Mindex = CCK_TABLE_LEN - 1;
+	if (priv->thermal_meter[0] >= (u8)tmp_reg) {
+		tmp_ofdm_index = 6 + (priv->thermal_meter[0] - (u8)tmp_reg);
+		tmp_cck_20m_index = tmp_ofdm_index;
+		tmp_cck_40m_index = tmp_cck_20m_index - 6;
+		if (tmp_ofdm_index >= OFDM_TABLE_LEN)
+			tmp_ofdm_index = OFDM_TABLE_LEN - 1;
+		if (tmp_cck_20m_index >= CCK_TABLE_LEN)
+			tmp_cck_20m_index = CCK_TABLE_LEN - 1;
+		if (tmp_cck_40m_index >= CCK_TABLE_LEN)
+			tmp_cck_40m_index = CCK_TABLE_LEN - 1;
 	} else {
-		tmpval = (u8)tmpRegA - priv->thermal_meter[0];
+		tmpval = (u8)tmp_reg - priv->thermal_meter[0];
 		if (tmpval >= 6) {
-			tmpOFDMindex = 0;
-			tmpCCK20Mindex = 0;
+			tmp_ofdm_index = 0;
+			tmp_cck_20m_index = 0;
 		} else {
-			tmpOFDMindex = 6 - tmpval;
-			tmpCCK20Mindex = 6 - tmpval;
+			tmp_ofdm_index = 6 - tmpval;
+			tmp_cck_20m_index = 6 - tmpval;
 		}
-		tmpCCK40Mindex = 0;
+		tmp_cck_40m_index = 0;
 	}
 	if (priv->current_chnl_bw != HT_CHANNEL_WIDTH_20)
-		tmpCCKindex = tmpCCK40Mindex;
+		tmp_cck_index = tmp_cck_40m_index;
 	else
-		tmpCCKindex = tmpCCK20Mindex;
+		tmp_cck_index = tmp_cck_20m_index;
 
-	priv->rec_cck_20m_idx = tmpCCK20Mindex;
-	priv->rec_cck_40m_idx = tmpCCK40Mindex;
+	priv->rec_cck_20m_idx = tmp_cck_20m_index;
+	priv->rec_cck_40m_idx = tmp_cck_40m_index;
 
 	if (priv->rtllib->current_network.channel == 14 &&
 	    !priv->bcck_in_ch14) {
@@ -727,15 +727,15 @@ static void _rtl92e_dm_tx_power_tracking_cb_thermal(struct net_device *dev)
 		CCKSwingNeedUpdate = 1;
 	}
 
-	if (priv->cck_index != tmpCCKindex) {
-		priv->cck_index = tmpCCKindex;
+	if (priv->cck_index != tmp_cck_index) {
+		priv->cck_index = tmp_cck_index;
 		CCKSwingNeedUpdate = 1;
 	}
 
 	if (CCKSwingNeedUpdate)
 		rtl92e_dm_cck_txpower_adjust(dev, priv->bcck_in_ch14);
-	if (priv->ofdm_index[0] != tmpOFDMindex) {
-		priv->ofdm_index[0] = tmpOFDMindex;
+	if (priv->ofdm_index[0] != tmp_ofdm_index) {
+		priv->ofdm_index[0] = tmp_ofdm_index;
 		rtl92e_set_bb_reg(dev, rOFDM0_XATxIQImbalance, bMaskDWord,
 				  OFDMSwingTable[priv->ofdm_index[0]]);
 	}
