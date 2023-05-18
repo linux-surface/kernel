@@ -1282,7 +1282,7 @@ static const struct regmap_config vc7_regmap_config = {
 };
 
 static const struct i2c_device_id vc7_i2c_id[] = {
-	{ "rc21008a", VC7_RC21008A },
+	{ "rc21008a", .driver_data = (kernel_ulong_t)&vc7_rc21008a_info },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, vc7_i2c_id);
@@ -1298,7 +1298,7 @@ static struct i2c_driver vc7_i2c_driver = {
 		.name = "vc7",
 		.of_match_table = vc7_of_match,
 	},
-	.probe_new = vc7_probe,
+	.probe = vc7_probe,
 	.remove = vc7_remove,
 	.id_table = vc7_i2c_id,
 };
