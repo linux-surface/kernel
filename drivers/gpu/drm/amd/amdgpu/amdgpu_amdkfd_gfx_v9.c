@@ -50,12 +50,12 @@ static void lock_srbm(struct amdgpu_device *adev, uint32_t mec, uint32_t pipe,
 			uint32_t queue, uint32_t vmid)
 {
 	mutex_lock(&adev->srbm_mutex);
-	soc15_grbm_select(adev, mec, pipe, queue, vmid);
+	soc15_grbm_select(adev, mec, pipe, queue, vmid, 0);
 }
 
 static void unlock_srbm(struct amdgpu_device *adev)
 {
-	soc15_grbm_select(adev, 0, 0, 0, 0);
+	soc15_grbm_select(adev, 0, 0, 0, 0, 0);
 	mutex_unlock(&adev->srbm_mutex);
 }
 
@@ -300,7 +300,7 @@ int kgd_gfx_v9_hiq_mqd_load(struct amdgpu_device *adev, void *mqd,
 			    uint32_t pipe_id, uint32_t queue_id,
 			    uint32_t doorbell_off)
 {
-	struct amdgpu_ring *kiq_ring = &adev->gfx.kiq.ring;
+	struct amdgpu_ring *kiq_ring = &adev->gfx.kiq[0].ring;
 	struct v9_mqd *m;
 	uint32_t mec, pipe;
 	int r;
@@ -315,7 +315,7 @@ int kgd_gfx_v9_hiq_mqd_load(struct amdgpu_device *adev, void *mqd,
 	pr_debug("kfd: set HIQ, mec:%d, pipe:%d, queue:%d.\n",
 		 mec, pipe, queue_id);
 
-	spin_lock(&adev->gfx.kiq.ring_lock);
+	spin_lock(&adev->gfx.kiq[0].ring_lock);
 	r = amdgpu_ring_alloc(kiq_ring, 7);
 	if (r) {
 		pr_err("Failed to alloc KIQ (%d).\n", r);
@@ -342,7 +342,7 @@ int kgd_gfx_v9_hiq_mqd_load(struct amdgpu_device *adev, void *mqd,
 	amdgpu_ring_commit(kiq_ring);
 
 out_unlock:
-	spin_unlock(&adev->gfx.kiq.ring_lock);
+	spin_unlock(&adev->gfx.kiq[0].ring_lock);
 	release_queue(adev);
 
 	return r;
@@ -700,7 +700,7 @@ static void get_wave_count(struct amdgpu_device *adev, int queue_idx,
 	*wave_cnt = 0;
 	pipe_idx = queue_idx / adev->gfx.mec.num_queue_per_pipe;
 	queue_slot = queue_idx % adev->gfx.mec.num_queue_per_pipe;
-	soc15_grbm_select(adev, 1, pipe_idx, queue_slot, 0);
+	soc15_grbm_select(adev, 1, pipe_idx, queue_slot, 0, 0);
 	reg_val = RREG32_SOC15_IP(GC, SOC15_REG_OFFSET(GC, 0, mmSPI_CSQ_WF_ACTIVE_COUNT_0) +
 			 queue_slot);
 	*wave_cnt = reg_val & SPI_CSQ_WF_ACTIVE_COUNT_0__COUNT_MASK;
@@ -772,13 +772,13 @@ void kgd_gfx_v9_get_cu_occupancy(struct amdgpu_device *adev, int pasid,
 	DECLARE_BITMAP(cp_queue_bitmap, KGD_MAX_QUEUES);
 
 	lock_spi_csq_mutexes(adev);
-	soc15_grbm_select(adev, 1, 0, 0, 0);
+	soc15_grbm_select(adev, 1, 0, 0, 0, 0);
 
 	/*
 	 * Iterate through the shader engines and arrays of the device
 	 * to get number of waves in flight
 	 */
-	bitmap_complement(cp_queue_bitmap, adev->gfx.mec.queue_bitmap,
+	bitmap_complement(cp_queue_bitmap, adev->gfx.mec_bitmap[0].queue_bitmap,
 			  KGD_MAX_QUEUES);
 	max_queue_cnt = adev->gfx.mec.num_pipe_per_mec *
 			adev->gfx.mec.num_queue_per_pipe;
@@ -787,7 +787,7 @@ void kgd_gfx_v9_get_cu_occupancy(struct amdgpu_device *adev, int pasid,
 	for (se_idx = 0; se_idx < se_cnt; se_idx++) {
 		for (sh_idx = 0; sh_idx < sh_cnt; sh_idx++) {
 
-			amdgpu_gfx_select_se_sh(adev, se_idx, sh_idx, 0xffffffff);
+			amdgpu_gfx_select_se_sh(adev, se_idx, sh_idx, 0xffffffff, 0);
 			queue_map = RREG32_SOC15(GC, 0, mmSPI_CSQ_WF_ACTIVE_STATUS);
 
 			/*
@@ -820,8 +820,8 @@ void kgd_gfx_v9_get_cu_occupancy(struct amdgpu_device *adev, int pasid,
 		}
 	}
 
-	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
-	soc15_grbm_select(adev, 0, 0, 0, 0);
+	amdgpu_gfx_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
+	soc15_grbm_select(adev, 0, 0, 0, 0, 0);
 	unlock_spi_csq_mutexes(adev);
 
 	/* Update the output parameters and return */

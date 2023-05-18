@@ -23,34 +23,24 @@
  *
  */
 
-#include "../dmub_srv.h"
-#include "dmub_reg.h"
-#include "dmub_dcn21.h"
+#ifndef __DMUB_ABM_LCD_H__
+#define __DMUB_ABM_LCD_H__
 
-#include "dcn/dcn_2_1_0_offset.h"
-#include "dcn/dcn_2_1_0_sh_mask.h"
-#include "renoir_ip_offset.h"
+#include "abm.h"
 
-#define BASE_INNER(seg) DMU_BASE__INST0_SEG##seg
-#define CTX dmub
-#define REGS dmub->regs
+void dmub_abm_init(struct abm *abm, uint32_t backlight);
+bool dmub_abm_set_level(struct abm *abm, uint32_t level, uint8_t panel_mask);
+unsigned int dmub_abm_get_current_backlight(struct abm *abm);
+unsigned int dmub_abm_get_target_backlight(struct abm *abm);
+void dmub_abm_init_config(struct abm *abm,
+	const char *src,
+	unsigned int bytes,
+	unsigned int inst);
 
-/* Registers. */
-
-const struct dmub_srv_common_regs dmub_srv_dcn21_regs = {
-#define DMUB_SR(reg) REG_OFFSET(reg),
-	{
-		DMUB_COMMON_REGS()
-		DMCUB_INTERNAL_REGS()
-	},
-#undef DMUB_SR
-
-#define DMUB_SF(reg, field) FD_MASK(reg, field),
-	{ DMUB_COMMON_FIELDS() },
-#undef DMUB_SF
-
-#define DMUB_SF(reg, field) FD_SHIFT(reg, field),
-	{ DMUB_COMMON_FIELDS() },
-#undef DMUB_SF
-};
-
+bool dmub_abm_set_pause(struct abm *abm, bool pause, unsigned int panel_inst, unsigned int stream_inst);
+bool dmub_abm_set_pipe(struct abm *abm, uint32_t otg_inst, uint32_t option, uint32_t panel_inst);
+bool dmub_abm_set_backlight_level(struct abm *abm,
+		unsigned int backlight_pwm_u16_16,
+		unsigned int frame_ramp,
+		unsigned int panel_inst);
+#endif

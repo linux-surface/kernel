@@ -50,6 +50,26 @@
  */
 
 /**
+ * amdgpu_ring_max_ibs - Return max IBs that fit in a single submission.
+ *
+ * @type: ring type for which to return the limit.
+ */
+unsigned int amdgpu_ring_max_ibs(enum amdgpu_ring_type type)
+{
+	switch (type) {
+	case AMDGPU_RING_TYPE_GFX:
+		/* Need to keep at least 192 on GFX7+ for old radv. */
+		return 192;
+	case AMDGPU_RING_TYPE_COMPUTE:
+		return 125;
+	case AMDGPU_RING_TYPE_VCN_JPEG:
+		return 16;
+	default:
+		return 49;
+	}
+}
+
+/**
  * amdgpu_ring_alloc - allocate space on the ring buffer
  *
  * @ring: amdgpu_ring structure holding ring information
@@ -182,6 +202,7 @@ int amdgpu_ring_init(struct amdgpu_device *adev, struct amdgpu_ring *ring,
 	int sched_hw_submission = amdgpu_sched_hw_submission;
 	u32 *num_sched;
 	u32 hw_ip;
+	unsigned int max_ibs_dw;
 
 	/* Set the hw submission limit higher for KIQ because
 	 * it's used for a number of gfx/compute tasks by both
@@ -290,6 +311,14 @@ int amdgpu_ring_init(struct amdgpu_device *adev, struct amdgpu_ring *ring,
 		return r;
 	}
 
+	max_ibs_dw = ring->funcs->emit_frame_size +
+		     amdgpu_ring_max_ibs(ring->funcs->type) * ring->funcs->emit_ib_size;
+	max_ibs_dw = (max_ibs_dw + ring->funcs->align_mask) & ~ring->funcs->align_mask;
+
+	if (WARN_ON(max_ibs_dw > max_dw)) {
+		max_dw = max_ibs_dw;
+	}
+
 	ring->ring_size = roundup_pow_of_two(max_dw * 4 * sched_hw_submission);
 
 	ring->buf_mask = (ring->ring_size / 4) - 1;
@@ -361,6 +390,8 @@ void amdgpu_ring_fini(struct amdgpu_ring *ring)
 		amdgpu_bo_free_kernel(&ring->ring_obj,
 				      &ring->gpu_addr,
 				      (void **)&ring->ring);
+	} else {
+		kfree(ring->fence_drv.fences);
 	}
 
 	dma_fence_put(ring->vmid_wait);
@@ -478,6 +509,59 @@ static const struct file_operations amdgpu_debugfs_ring_fops = {
 	.llseek = default_llseek
 };
 
+static ssize_t amdgpu_debugfs_mqd_read(struct file *f, char __user *buf,
+				       size_t size, loff_t *pos)
+{
+	struct amdgpu_ring *ring = file_inode(f)->i_private;
+	volatile u32 *mqd;
+	int r;
+	uint32_t value, result;
+
+	if (*pos & 3 || size & 3)
+		return -EINVAL;
+
+	result = 0;
+
+	r = amdgpu_bo_reserve(ring->mqd_obj, false);
+	if (unlikely(r != 0))
+		return r;
+
+	r = amdgpu_bo_kmap(ring->mqd_obj, (void **)&mqd);
+	if (r) {
+		amdgpu_bo_unreserve(ring->mqd_obj);
+		return r;
+	}
+
+	while (size) {
+		if (*pos >= ring->mqd_size)
+			goto done;
+
+		value = mqd[*pos/4];
+		r = put_user(value, (uint32_t *)buf);
+		if (r)
+			goto done;
+		buf += 4;
+		result += 4;
+		size -= 4;
+		*pos += 4;
+	}
+
+done:
+	amdgpu_bo_kunmap(ring->mqd_obj);
+	mqd = NULL;
+	amdgpu_bo_unreserve(ring->mqd_obj);
+	if (r)
+		return r;
+
+	return result;
+}
+
+static const struct file_operations amdgpu_debugfs_mqd_fops = {
+	.owner = THIS_MODULE,
+	.read = amdgpu_debugfs_mqd_read,
+	.llseek = default_llseek
+};
+
 #endif
 
 void amdgpu_debugfs_ring_init(struct amdgpu_device *adev,
@@ -493,6 +577,12 @@ void amdgpu_debugfs_ring_init(struct amdgpu_device *adev,
 				 &amdgpu_debugfs_ring_fops,
 				 ring->ring_size + 12);
 
+	if (ring->mqd_obj) {
+		sprintf(name, "amdgpu_mqd_%s", ring->name);
+		debugfs_create_file_size(name, S_IFREG | S_IRUGO, root, ring,
+					 &amdgpu_debugfs_mqd_fops,
+					 ring->mqd_size);
+	}
 #endif
 }
 

@@ -726,8 +726,10 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.override_dispclk_programming = true,
 	.disable_fpo_optimizations = false,
 	.fpo_vactive_margin_us = 2000, // 2000us
-	.disable_fpo_vactive = true,
+	.disable_fpo_vactive = false,
 	.disable_boot_optimizations = false,
+	.disable_subvp_high_refresh = true,
+	.disable_dp_plus_plus_wa = true,
 };
 
 static const struct dc_debug_options debug_defaults_diags = {
@@ -1887,6 +1889,8 @@ bool dcn32_validate_bandwidth(struct dc *dc,
 	}
 
 	dc->res_pool->funcs->calculate_wm_and_dlg(dc, context, pipes, pipe_cnt, vlevel);
+
+	dcn32_override_min_req_memclk(dc, context);
 
 	BW_VAL_TRACE_END_WATERMARKS();
 

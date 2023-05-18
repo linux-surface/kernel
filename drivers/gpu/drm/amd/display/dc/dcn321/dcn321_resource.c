@@ -725,8 +725,9 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.override_dispclk_programming = true,
 	.disable_fpo_optimizations = false,
 	.fpo_vactive_margin_us = 2000, // 2000us
-	.disable_fpo_vactive = true,
+	.disable_fpo_vactive = false,
 	.disable_boot_optimizations = false,
+	.disable_subvp_high_refresh = true,
 };
 
 static const struct dc_debug_options debug_defaults_diags = {
@@ -1735,9 +1736,9 @@ static bool dcn321_resource_construct(
 	dc->caps.subvp_pstate_allow_width_us = 20;
 	dc->caps.subvp_vertical_int_margin_us = 30;
 	dc->caps.subvp_drr_vblank_start_margin_us = 100; // 100us margin
-	dc->caps.max_slave_planes = 1;
-	dc->caps.max_slave_yuv_planes = 1;
-	dc->caps.max_slave_rgb_planes = 1;
+	dc->caps.max_slave_planes = 2;
+	dc->caps.max_slave_yuv_planes = 2;
+	dc->caps.max_slave_rgb_planes = 2;
 	dc->caps.post_blend_color_processing = true;
 	dc->caps.force_dp_tps4_for_cp2520 = true;
 	dc->caps.dp_hpo = true;
