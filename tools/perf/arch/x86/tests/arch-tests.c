@@ -31,6 +31,7 @@ struct test_suite suite__hybrid = {
 	.desc = "x86 hybrid",
 	.test_cases = hybrid_tests,
 };
+DEFINE_SUITE("AMD IBS via core pmu", amd_ibs_via_core_pmu);
 
 struct test_suite *arch_tests[] = {
 #ifdef HAVE_DWARF_UNWIND_SUPPORT
@@ -45,5 +46,6 @@ struct test_suite *arch_tests[] = {
 #endif
 	&suite__x86_sample_parsing,
 	&suite__hybrid,
+	&suite__amd_ibs_via_core_pmu,
 	NULL,
 };
