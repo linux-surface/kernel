@@ -434,7 +434,7 @@ retry:
 		if (!num_fs)
 			pr_err("Can't find any bdev filesystem to be used for mount!\n");
 		else {
-			pr_err("List of all bdev filesystem:\n");
+			pr_err("List of all bdev filesystems:\n");
 			for (i = 0, p = fs_names; i < num_fs; i++, p += strlen(p)+1)
 				pr_err(" %s", p);
 			pr_err("\n");
