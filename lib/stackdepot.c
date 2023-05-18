@@ -541,9 +541,8 @@ int stack_print(struct seq_file *m, void *v)
 	int ret = 0;
 	struct stack_record *stack = v;
 
-	if (!stack->size || stack->size < 0 ||
-	    stack->size > PAGE_SIZE || stack->handle.valid != 1 ||
-	    refcount_read(&stack->count) < 1)
+	if (stack->size <= 0 || stack->size > PAGE_SIZE ||
+	    stack->handle.valid != 1 || refcount_read(&stack->count) < 1)
 		return 0;
 
 	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
