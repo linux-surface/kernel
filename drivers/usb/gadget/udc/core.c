@@ -1078,12 +1078,16 @@ EXPORT_SYMBOL_GPL(usb_gadget_set_state);
 
 /* ------------------------------------------------------------------------- */
 
-static void usb_udc_connect_control(struct usb_udc *udc)
+static int usb_udc_connect_control(struct usb_udc *udc)
 {
+	int ret;
+
 	if (udc->vbus)
-		usb_gadget_connect(udc->gadget);
+		ret = usb_gadget_connect(udc->gadget);
 	else
-		usb_gadget_disconnect(udc->gadget);
+		ret = usb_gadget_disconnect(udc->gadget);
+
+	return ret;
 }
 
 /**
@@ -1527,10 +1531,18 @@ static int gadget_bind_driver(struct device *dev)
 	if (ret)
 		goto err_start;
 	usb_gadget_enable_async_callbacks(udc);
-	usb_udc_connect_control(udc);
+	ret = usb_udc_connect_control(udc);
+	if (ret)
+		goto err_connect_control;
 
 	kobject_uevent(&udc->dev.kobj, KOBJ_CHANGE);
 	return 0;
+
+ err_connect_control:
+	usb_gadget_disable_async_callbacks(udc);
+	if (gadget->irq)
+		synchronize_irq(gadget->irq);
+	usb_gadget_udc_stop(udc);
 
  err_start:
 	driver->unbind(udc->gadget);
