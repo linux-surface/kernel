@@ -70,6 +70,11 @@ struct intel_color_funcs {
 			  const struct drm_property_blob *blob1,
 			  const struct drm_property_blob *blob2,
 			  bool is_pre_csc_lut);
+	/*
+	 * Read out the CSCs (if any) from the hardware into the
+	 * software state. Used by eg. the hardware state checker.
+	 */
+	void (*read_csc)(struct intel_crtc_state *crtc_state);
 };
 
 #define CTM_COEFF_SIGN	(1ULL << 63)
@@ -116,46 +121,52 @@ struct intel_color_funcs {
 #define ILK_CSC_COEFF_FP(coeff, fbits)	\
 	(clamp_val(((coeff) >> (32 - (fbits) - 3)) + 4, 0, 0xfff) & 0xff8)
 
-#define ILK_CSC_COEFF_LIMITED_RANGE 0x0dc0
 #define ILK_CSC_COEFF_1_0 0x7800
+#define ILK_CSC_COEFF_LIMITED_RANGE ((235 - 16) << (12 - 8)) /* exponent 0 */
+#define ILK_CSC_POSTOFF_LIMITED_RANGE (16 << (12 - 8))
 
-#define ILK_CSC_POSTOFF_LIMITED_RANGE (16 * (1 << 12) / 255)
-
-/* Nop pre/post offsets */
-static const u16 ilk_csc_off_zero[3] = {};
-
-/* Identity matrix */
-static const u16 ilk_csc_coeff_identity[9] = {
-	ILK_CSC_COEFF_1_0, 0, 0,
-	0, ILK_CSC_COEFF_1_0, 0,
-	0, 0, ILK_CSC_COEFF_1_0,
-};
-
-/* Limited range RGB post offsets */
-static const u16 ilk_csc_postoff_limited_range[3] = {
-	ILK_CSC_POSTOFF_LIMITED_RANGE,
-	ILK_CSC_POSTOFF_LIMITED_RANGE,
-	ILK_CSC_POSTOFF_LIMITED_RANGE,
+static const struct intel_csc_matrix ilk_csc_matrix_identity = {
+	.preoff = {},
+	.coeff = {
+		ILK_CSC_COEFF_1_0, 0, 0,
+		0, ILK_CSC_COEFF_1_0, 0,
+		0, 0, ILK_CSC_COEFF_1_0,
+	},
+	.postoff = {},
 };
 
 /* Full range RGB -> limited range RGB matrix */
-static const u16 ilk_csc_coeff_limited_range[9] = {
-	ILK_CSC_COEFF_LIMITED_RANGE, 0, 0,
-	0, ILK_CSC_COEFF_LIMITED_RANGE, 0,
-	0, 0, ILK_CSC_COEFF_LIMITED_RANGE,
+static const struct intel_csc_matrix ilk_csc_matrix_limited_range = {
+	.preoff = {},
+	.coeff = {
+		ILK_CSC_COEFF_LIMITED_RANGE, 0, 0,
+		0, ILK_CSC_COEFF_LIMITED_RANGE, 0,
+		0, 0, ILK_CSC_COEFF_LIMITED_RANGE,
+	},
+	.postoff = {
+		ILK_CSC_POSTOFF_LIMITED_RANGE,
+		ILK_CSC_POSTOFF_LIMITED_RANGE,
+		ILK_CSC_POSTOFF_LIMITED_RANGE,
+	},
 };
 
 /* BT.709 full range RGB -> limited range YCbCr matrix */
-static const u16 ilk_csc_coeff_rgb_to_ycbcr[9] = {
-	0x1e08, 0x9cc0, 0xb528,
-	0x2ba8, 0x09d8, 0x37e8,
-	0xbce8, 0x9ad8, 0x1e08,
+static const struct intel_csc_matrix ilk_csc_matrix_rgb_to_ycbcr = {
+	.preoff = {},
+	.coeff = {
+		0x1e08, 0x9cc0, 0xb528,
+		0x2ba8, 0x09d8, 0x37e8,
+		0xbce8, 0x9ad8, 0x1e08,
+	},
+	.postoff = {
+		0x0800, 0x0100, 0x0800,
+	},
 };
 
-/* Limited range YCbCr post offsets */
-static const u16 ilk_csc_postoff_rgb_to_ycbcr[3] = {
-	0x0800, 0x0100, 0x0800,
-};
+static void intel_csc_clear(struct intel_csc_matrix *csc)
+{
+	memset(csc, 0, sizeof(*csc));
+}
 
 static bool lut_is_legacy(const struct drm_property_blob *lut)
 {
@@ -189,69 +200,182 @@ static u64 *ctm_mult_by_limited(u64 *result, const u64 *input)
 }
 
 static void ilk_update_pipe_csc(struct intel_crtc *crtc,
-				const u16 preoff[3],
-				const u16 coeff[9],
-				const u16 postoff[3])
+				const struct intel_csc_matrix *csc)
 {
 	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
 	enum pipe pipe = crtc->pipe;
 
-	intel_de_write_fw(i915, PIPE_CSC_PREOFF_HI(pipe), preoff[0]);
-	intel_de_write_fw(i915, PIPE_CSC_PREOFF_ME(pipe), preoff[1]);
-	intel_de_write_fw(i915, PIPE_CSC_PREOFF_LO(pipe), preoff[2]);
+	intel_de_write_fw(i915, PIPE_CSC_PREOFF_HI(pipe), csc->preoff[0]);
+	intel_de_write_fw(i915, PIPE_CSC_PREOFF_ME(pipe), csc->preoff[1]);
+	intel_de_write_fw(i915, PIPE_CSC_PREOFF_LO(pipe), csc->preoff[2]);
 
 	intel_de_write_fw(i915, PIPE_CSC_COEFF_RY_GY(pipe),
-			  coeff[0] << 16 | coeff[1]);
-	intel_de_write_fw(i915, PIPE_CSC_COEFF_BY(pipe), coeff[2] << 16);
+			  csc->coeff[0] << 16 | csc->coeff[1]);
+	intel_de_write_fw(i915, PIPE_CSC_COEFF_BY(pipe),
+			  csc->coeff[2] << 16);
 
 	intel_de_write_fw(i915, PIPE_CSC_COEFF_RU_GU(pipe),
-			  coeff[3] << 16 | coeff[4]);
-	intel_de_write_fw(i915, PIPE_CSC_COEFF_BU(pipe), coeff[5] << 16);
+			  csc->coeff[3] << 16 | csc->coeff[4]);
+	intel_de_write_fw(i915, PIPE_CSC_COEFF_BU(pipe),
+			  csc->coeff[5] << 16);
 
 	intel_de_write_fw(i915, PIPE_CSC_COEFF_RV_GV(pipe),
-			  coeff[6] << 16 | coeff[7]);
-	intel_de_write_fw(i915, PIPE_CSC_COEFF_BV(pipe), coeff[8] << 16);
+			  csc->coeff[6] << 16 | csc->coeff[7]);
+	intel_de_write_fw(i915, PIPE_CSC_COEFF_BV(pipe),
+			  csc->coeff[8] << 16);
 
-	if (DISPLAY_VER(i915) >= 7) {
-		intel_de_write_fw(i915, PIPE_CSC_POSTOFF_HI(pipe),
-				  postoff[0]);
-		intel_de_write_fw(i915, PIPE_CSC_POSTOFF_ME(pipe),
-				  postoff[1]);
-		intel_de_write_fw(i915, PIPE_CSC_POSTOFF_LO(pipe),
-				  postoff[2]);
-	}
+	if (DISPLAY_VER(i915) < 7)
+		return;
+
+	intel_de_write_fw(i915, PIPE_CSC_POSTOFF_HI(pipe), csc->postoff[0]);
+	intel_de_write_fw(i915, PIPE_CSC_POSTOFF_ME(pipe), csc->postoff[1]);
+	intel_de_write_fw(i915, PIPE_CSC_POSTOFF_LO(pipe), csc->postoff[2]);
+}
+
+static void ilk_read_pipe_csc(struct intel_crtc *crtc,
+			      struct intel_csc_matrix *csc)
+{
+	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
+	u32 tmp;
+
+	csc->preoff[0] = intel_de_read_fw(i915, PIPE_CSC_PREOFF_HI(pipe));
+	csc->preoff[1] = intel_de_read_fw(i915, PIPE_CSC_PREOFF_ME(pipe));
+	csc->preoff[2] = intel_de_read_fw(i915, PIPE_CSC_PREOFF_LO(pipe));
+
+	tmp = intel_de_read_fw(i915, PIPE_CSC_COEFF_RY_GY(pipe));
+	csc->coeff[0] = tmp >> 16;
+	csc->coeff[1] = tmp & 0xffff;
+	tmp = intel_de_read_fw(i915, PIPE_CSC_COEFF_BY(pipe));
+	csc->coeff[2] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, PIPE_CSC_COEFF_RU_GU(pipe));
+	csc->coeff[3] = tmp >> 16;
+	csc->coeff[4] = tmp & 0xffff;
+	tmp = intel_de_read_fw(i915, PIPE_CSC_COEFF_BU(pipe));
+	csc->coeff[5] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, PIPE_CSC_COEFF_RV_GV(pipe));
+	csc->coeff[6] = tmp >> 16;
+	csc->coeff[7] = tmp & 0xffff;
+	tmp = intel_de_read_fw(i915, PIPE_CSC_COEFF_BV(pipe));
+	csc->coeff[8] = tmp >> 16;
+
+	if (DISPLAY_VER(i915) < 7)
+		return;
+
+	csc->postoff[0] = intel_de_read_fw(i915, PIPE_CSC_POSTOFF_HI(pipe));
+	csc->postoff[1] = intel_de_read_fw(i915, PIPE_CSC_POSTOFF_ME(pipe));
+	csc->postoff[2] = intel_de_read_fw(i915, PIPE_CSC_POSTOFF_LO(pipe));
+}
+
+static void ilk_read_csc(struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc_state->csc_enable)
+		ilk_read_pipe_csc(crtc, &crtc_state->csc);
+}
+
+static void skl_read_csc(struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	/*
+	 * Display WA #1184: skl,glk
+	 * Wa_1406463849: icl
+	 *
+	 * Danger! On SKL-ICL *reads* from the CSC coeff/offset registers
+	 * will disarm an already armed CSC double buffer update.
+	 * So this must not be called while armed. Fortunately the state checker
+	 * readout happens only after the update has been already been latched.
+	 *
+	 * On earlier and later platforms only writes to said registers will
+	 * disarm the update. This is considered normal behavior and also
+	 * happens with various other hardware units.
+	 */
+	if (crtc_state->csc_enable)
+		ilk_read_pipe_csc(crtc, &crtc_state->csc);
 }
 
 static void icl_update_output_csc(struct intel_crtc *crtc,
-				  const u16 preoff[3],
-				  const u16 coeff[9],
-				  const u16 postoff[3])
+				  const struct intel_csc_matrix *csc)
 {
 	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
 	enum pipe pipe = crtc->pipe;
 
-	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_PREOFF_HI(pipe), preoff[0]);
-	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_PREOFF_ME(pipe), preoff[1]);
-	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_PREOFF_LO(pipe), preoff[2]);
+	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_PREOFF_HI(pipe), csc->preoff[0]);
+	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_PREOFF_ME(pipe), csc->preoff[1]);
+	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_PREOFF_LO(pipe), csc->preoff[2]);
 
 	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_COEFF_RY_GY(pipe),
-			  coeff[0] << 16 | coeff[1]);
+			  csc->coeff[0] << 16 | csc->coeff[1]);
 	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_COEFF_BY(pipe),
-			  coeff[2] << 16);
+			  csc->coeff[2] << 16);
 
 	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_COEFF_RU_GU(pipe),
-			  coeff[3] << 16 | coeff[4]);
+			  csc->coeff[3] << 16 | csc->coeff[4]);
 	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_COEFF_BU(pipe),
-			  coeff[5] << 16);
+			  csc->coeff[5] << 16);
 
 	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_COEFF_RV_GV(pipe),
-			  coeff[6] << 16 | coeff[7]);
+			  csc->coeff[6] << 16 | csc->coeff[7]);
 	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_COEFF_BV(pipe),
-			  coeff[8] << 16);
+			  csc->coeff[8] << 16);
 
-	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_HI(pipe), postoff[0]);
-	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_ME(pipe), postoff[1]);
-	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_LO(pipe), postoff[2]);
+	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_HI(pipe), csc->postoff[0]);
+	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_ME(pipe), csc->postoff[1]);
+	intel_de_write_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_LO(pipe), csc->postoff[2]);
+}
+
+static void icl_read_output_csc(struct intel_crtc *crtc,
+				struct intel_csc_matrix *csc)
+{
+	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
+	u32 tmp;
+
+	csc->preoff[0] = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_PREOFF_HI(pipe));
+	csc->preoff[1] = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_PREOFF_ME(pipe));
+	csc->preoff[2] = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_PREOFF_LO(pipe));
+
+	tmp = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_COEFF_RY_GY(pipe));
+	csc->coeff[0] = tmp >> 16;
+	csc->coeff[1] = tmp & 0xffff;
+	tmp = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_COEFF_BY(pipe));
+	csc->coeff[2] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_COEFF_RU_GU(pipe));
+	csc->coeff[3] = tmp >> 16;
+	csc->coeff[4] = tmp & 0xffff;
+	tmp = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_COEFF_BU(pipe));
+	csc->coeff[5] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_COEFF_RV_GV(pipe));
+	csc->coeff[6] = tmp >> 16;
+	csc->coeff[7] = tmp & 0xffff;
+	tmp = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_COEFF_BV(pipe));
+	csc->coeff[8] = tmp >> 16;
+
+	csc->postoff[0] = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_HI(pipe));
+	csc->postoff[1] = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_ME(pipe));
+	csc->postoff[2] = intel_de_read_fw(i915, PIPE_CSC_OUTPUT_POSTOFF_LO(pipe));
+}
+
+static void icl_read_csc(struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	/*
+	 * Wa_1406463849: icl
+	 *
+	 * See skl_read_csc()
+	 */
+	if (crtc_state->csc_mode & ICL_CSC_ENABLE)
+		ilk_read_pipe_csc(crtc, &crtc_state->csc);
+
+	if (crtc_state->csc_mode & ICL_OUTPUT_CSC_ENABLE)
+		icl_read_output_csc(crtc, &crtc_state->output_csc);
 }
 
 static bool ilk_limited_range(const struct intel_crtc_state *crtc_state)
@@ -294,13 +418,31 @@ static bool ilk_csc_limited_range(const struct intel_crtc_state *crtc_state)
 	return !ilk_lut_limited_range(crtc_state);
 }
 
-static void ilk_csc_convert_ctm(const struct intel_crtc_state *crtc_state,
-				u16 coeffs[9], bool limited_color_range)
+static void ilk_csc_copy(struct drm_i915_private *i915,
+			 struct intel_csc_matrix *dst,
+			 const struct intel_csc_matrix *src)
 {
+	*dst = *src;
+
+	if (DISPLAY_VER(i915) < 7)
+		memset(dst->postoff, 0, sizeof(dst->postoff));
+}
+
+static void ilk_csc_convert_ctm(const struct intel_crtc_state *crtc_state,
+				struct intel_csc_matrix *csc,
+				bool limited_color_range)
+{
+	struct drm_i915_private *i915 = to_i915(crtc_state->uapi.crtc->dev);
 	const struct drm_color_ctm *ctm = crtc_state->hw.ctm->data;
 	const u64 *input;
 	u64 temp[9];
 	int i;
+
+	/* for preoff/postoff */
+	if (limited_color_range)
+		ilk_csc_copy(i915, csc, &ilk_csc_matrix_limited_range);
+	else
+		ilk_csc_copy(i915, csc, &ilk_csc_matrix_identity);
 
 	if (limited_color_range)
 		input = ctm_mult_by_limited(temp, ctm->matrix);
@@ -320,54 +462,49 @@ static void ilk_csc_convert_ctm(const struct intel_crtc_state *crtc_state,
 		 */
 		abs_coeff = clamp_val(abs_coeff, 0, CTM_COEFF_4_0 - 1);
 
-		coeffs[i] = 0;
+		csc->coeff[i] = 0;
 
 		/* sign bit */
 		if (CTM_COEFF_NEGATIVE(input[i]))
-			coeffs[i] |= 1 << 15;
+			csc->coeff[i] |= 1 << 15;
 
 		if (abs_coeff < CTM_COEFF_0_125)
-			coeffs[i] |= (3 << 12) |
+			csc->coeff[i] |= (3 << 12) |
 				ILK_CSC_COEFF_FP(abs_coeff, 12);
 		else if (abs_coeff < CTM_COEFF_0_25)
-			coeffs[i] |= (2 << 12) |
+			csc->coeff[i] |= (2 << 12) |
 				ILK_CSC_COEFF_FP(abs_coeff, 11);
 		else if (abs_coeff < CTM_COEFF_0_5)
-			coeffs[i] |= (1 << 12) |
+			csc->coeff[i] |= (1 << 12) |
 				ILK_CSC_COEFF_FP(abs_coeff, 10);
 		else if (abs_coeff < CTM_COEFF_1_0)
-			coeffs[i] |= ILK_CSC_COEFF_FP(abs_coeff, 9);
+			csc->coeff[i] |= ILK_CSC_COEFF_FP(abs_coeff, 9);
 		else if (abs_coeff < CTM_COEFF_2_0)
-			coeffs[i] |= (7 << 12) |
+			csc->coeff[i] |= (7 << 12) |
 				ILK_CSC_COEFF_FP(abs_coeff, 8);
 		else
-			coeffs[i] |= (6 << 12) |
+			csc->coeff[i] |= (6 << 12) |
 				ILK_CSC_COEFF_FP(abs_coeff, 7);
 	}
 }
 
-static void ilk_load_csc_matrix(const struct intel_crtc_state *crtc_state)
+static void ilk_assign_csc(struct intel_crtc_state *crtc_state)
 {
-	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
+	struct drm_i915_private *i915 = to_i915(crtc_state->uapi.crtc->dev);
 	bool limited_color_range = ilk_csc_limited_range(crtc_state);
 
 	if (crtc_state->hw.ctm) {
-		u16 coeff[9];
+		drm_WARN_ON(&i915->drm, !crtc_state->csc_enable);
 
-		ilk_csc_convert_ctm(crtc_state, coeff, limited_color_range);
-		ilk_update_pipe_csc(crtc, ilk_csc_off_zero, coeff,
-				    limited_color_range ?
-				    ilk_csc_postoff_limited_range :
-				    ilk_csc_off_zero);
+		ilk_csc_convert_ctm(crtc_state, &crtc_state->csc, limited_color_range);
 	} else if (crtc_state->output_format != INTEL_OUTPUT_FORMAT_RGB) {
-		ilk_update_pipe_csc(crtc, ilk_csc_off_zero,
-				    ilk_csc_coeff_rgb_to_ycbcr,
-				    ilk_csc_postoff_rgb_to_ycbcr);
+		drm_WARN_ON(&i915->drm, !crtc_state->csc_enable);
+
+		ilk_csc_copy(i915, &crtc_state->csc, &ilk_csc_matrix_rgb_to_ycbcr);
 	} else if (limited_color_range) {
-		ilk_update_pipe_csc(crtc, ilk_csc_off_zero,
-				    ilk_csc_coeff_limited_range,
-				    ilk_csc_postoff_limited_range);
+		drm_WARN_ON(&i915->drm, !crtc_state->csc_enable);
+
+		ilk_csc_copy(i915, &crtc_state->csc, &ilk_csc_matrix_limited_range);
 	} else if (crtc_state->csc_enable) {
 		/*
 		 * On GLK both pipe CSC and degamma LUT are controlled
@@ -377,9 +514,46 @@ static void ilk_load_csc_matrix(const struct intel_crtc_state *crtc_state)
 		 */
 		drm_WARN_ON(&i915->drm, !IS_GEMINILAKE(i915));
 
-		ilk_update_pipe_csc(crtc, ilk_csc_off_zero,
-				    ilk_csc_coeff_identity,
-				    ilk_csc_off_zero);
+		ilk_csc_copy(i915, &crtc_state->csc, &ilk_csc_matrix_identity);
+	} else {
+		intel_csc_clear(&crtc_state->csc);
+	}
+}
+
+static void ilk_load_csc_matrix(const struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc_state->csc_enable)
+		ilk_update_pipe_csc(crtc, &crtc_state->csc);
+}
+
+static void icl_assign_csc(struct intel_crtc_state *crtc_state)
+{
+	struct drm_i915_private *i915 = to_i915(crtc_state->uapi.crtc->dev);
+
+	if (crtc_state->hw.ctm) {
+		drm_WARN_ON(&i915->drm, (crtc_state->csc_mode & ICL_CSC_ENABLE) == 0);
+
+		ilk_csc_convert_ctm(crtc_state, &crtc_state->csc, false);
+	} else {
+		drm_WARN_ON(&i915->drm, (crtc_state->csc_mode & ICL_CSC_ENABLE) != 0);
+
+		intel_csc_clear(&crtc_state->csc);
+	}
+
+	if (crtc_state->output_format != INTEL_OUTPUT_FORMAT_RGB) {
+		drm_WARN_ON(&i915->drm, (crtc_state->csc_mode & ICL_OUTPUT_CSC_ENABLE) == 0);
+
+		ilk_csc_copy(i915, &crtc_state->output_csc, &ilk_csc_matrix_rgb_to_ycbcr);
+	} else if (crtc_state->limited_color_range) {
+		drm_WARN_ON(&i915->drm, (crtc_state->csc_mode & ICL_OUTPUT_CSC_ENABLE) == 0);
+
+		ilk_csc_copy(i915, &crtc_state->output_csc, &ilk_csc_matrix_limited_range);
+	} else {
+		drm_WARN_ON(&i915->drm, (crtc_state->csc_mode & ICL_OUTPUT_CSC_ENABLE) != 0);
+
+		intel_csc_clear(&crtc_state->output_csc);
 	}
 }
 
@@ -387,35 +561,20 @@ static void icl_load_csc_matrix(const struct intel_crtc_state *crtc_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 
-	if (crtc_state->hw.ctm) {
-		u16 coeff[9];
+	if (crtc_state->csc_mode & ICL_CSC_ENABLE)
+		ilk_update_pipe_csc(crtc, &crtc_state->csc);
 
-		ilk_csc_convert_ctm(crtc_state, coeff, false);
-		ilk_update_pipe_csc(crtc, ilk_csc_off_zero,
-				    coeff, ilk_csc_off_zero);
-	}
-
-	if (crtc_state->output_format != INTEL_OUTPUT_FORMAT_RGB) {
-		icl_update_output_csc(crtc, ilk_csc_off_zero,
-				      ilk_csc_coeff_rgb_to_ycbcr,
-				      ilk_csc_postoff_rgb_to_ycbcr);
-	} else if (crtc_state->limited_color_range) {
-		icl_update_output_csc(crtc, ilk_csc_off_zero,
-				      ilk_csc_coeff_limited_range,
-				      ilk_csc_postoff_limited_range);
-	}
+	if (crtc_state->csc_mode & ICL_OUTPUT_CSC_ENABLE)
+		icl_update_output_csc(crtc, &crtc_state->output_csc);
 }
 
-static void chv_load_cgm_csc(struct intel_crtc *crtc,
-			     const struct drm_property_blob *blob)
+static void chv_cgm_csc_convert_ctm(const struct intel_crtc_state *crtc_state,
+				    struct intel_csc_matrix *csc)
 {
-	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
-	const struct drm_color_ctm *ctm = blob->data;
-	enum pipe pipe = crtc->pipe;
-	u16 coeffs[9];
+	const struct drm_color_ctm *ctm = crtc_state->hw.ctm->data;
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(coeffs); i++) {
+	for (i = 0; i < 9; i++) {
 		u64 abs_coeff = ((1ULL << 63) - 1) & ctm->matrix[i];
 
 		/* Round coefficient. */
@@ -423,26 +582,83 @@ static void chv_load_cgm_csc(struct intel_crtc *crtc,
 		/* Clamp to hardware limits. */
 		abs_coeff = clamp_val(abs_coeff, 0, CTM_COEFF_8_0 - 1);
 
-		coeffs[i] = 0;
+		csc->coeff[i] = 0;
 
 		/* Write coefficients in S3.12 format. */
 		if (ctm->matrix[i] & (1ULL << 63))
-			coeffs[i] |= 1 << 15;
+			csc->coeff[i] |= 1 << 15;
 
-		coeffs[i] |= ((abs_coeff >> 32) & 7) << 12;
-		coeffs[i] |= (abs_coeff >> 20) & 0xfff;
+		csc->coeff[i] |= ((abs_coeff >> 32) & 7) << 12;
+		csc->coeff[i] |= (abs_coeff >> 20) & 0xfff;
 	}
+}
+
+static void chv_load_cgm_csc(struct intel_crtc *crtc,
+			     const struct intel_csc_matrix *csc)
+{
+	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
 
 	intel_de_write_fw(i915, CGM_PIPE_CSC_COEFF01(pipe),
-			  coeffs[1] << 16 | coeffs[0]);
+			  csc->coeff[1] << 16 | csc->coeff[0]);
 	intel_de_write_fw(i915, CGM_PIPE_CSC_COEFF23(pipe),
-			  coeffs[3] << 16 | coeffs[2]);
+			  csc->coeff[3] << 16 | csc->coeff[2]);
 	intel_de_write_fw(i915, CGM_PIPE_CSC_COEFF45(pipe),
-			  coeffs[5] << 16 | coeffs[4]);
+			  csc->coeff[5] << 16 | csc->coeff[4]);
 	intel_de_write_fw(i915, CGM_PIPE_CSC_COEFF67(pipe),
-			  coeffs[7] << 16 | coeffs[6]);
+			  csc->coeff[7] << 16 | csc->coeff[6]);
 	intel_de_write_fw(i915, CGM_PIPE_CSC_COEFF8(pipe),
-			  coeffs[8]);
+			  csc->coeff[8]);
+}
+
+static void chv_read_cgm_csc(struct intel_crtc *crtc,
+			     struct intel_csc_matrix *csc)
+{
+	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
+	u32 tmp;
+
+	tmp = intel_de_read_fw(i915, CGM_PIPE_CSC_COEFF01(pipe));
+	csc->coeff[0] = tmp & 0xffff;
+	csc->coeff[1] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, CGM_PIPE_CSC_COEFF23(pipe));
+	csc->coeff[2] = tmp & 0xffff;
+	csc->coeff[3] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, CGM_PIPE_CSC_COEFF45(pipe));
+	csc->coeff[4] = tmp & 0xffff;
+	csc->coeff[5] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, CGM_PIPE_CSC_COEFF67(pipe));
+	csc->coeff[6] = tmp & 0xffff;
+	csc->coeff[7] = tmp >> 16;
+
+	tmp = intel_de_read_fw(i915, CGM_PIPE_CSC_COEFF8(pipe));
+	csc->coeff[8] = tmp & 0xffff;
+}
+
+static void chv_read_csc(struct intel_crtc_state *crtc_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+
+	if (crtc_state->cgm_mode & CGM_PIPE_MODE_CSC)
+		chv_read_cgm_csc(crtc, &crtc_state->csc);
+}
+
+static void chv_assign_csc(struct intel_crtc_state *crtc_state)
+{
+	struct drm_i915_private *i915 = to_i915(crtc_state->uapi.crtc->dev);
+
+	if (crtc_state->hw.ctm) {
+		drm_WARN_ON(&i915->drm, (crtc_state->cgm_mode & CGM_PIPE_MODE_CSC) == 0);
+
+		chv_cgm_csc_convert_ctm(crtc_state, &crtc_state->csc);
+	} else {
+		drm_WARN_ON(&i915->drm, (crtc_state->cgm_mode & CGM_PIPE_MODE_CSC) != 0);
+
+		intel_csc_clear(&crtc_state->csc);
+	}
 }
 
 /* convert hw value with given bit_precision to lut property val */
@@ -1410,10 +1626,9 @@ static void chv_load_luts(const struct intel_crtc_state *crtc_state)
 	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
 	const struct drm_property_blob *pre_csc_lut = crtc_state->pre_csc_lut;
 	const struct drm_property_blob *post_csc_lut = crtc_state->post_csc_lut;
-	const struct drm_property_blob *ctm = crtc_state->hw.ctm;
 
 	if (crtc_state->cgm_mode & CGM_PIPE_MODE_CSC)
-		chv_load_cgm_csc(crtc, ctm);
+		chv_load_cgm_csc(crtc, &crtc_state->csc);
 
 	if (crtc_state->cgm_mode & CGM_PIPE_MODE_DEGAMMA)
 		chv_load_cgm_degamma(crtc, pre_csc_lut);
@@ -1522,6 +1737,9 @@ void intel_color_get_config(struct intel_crtc_state *crtc_state)
 	struct drm_i915_private *i915 = to_i915(crtc_state->uapi.crtc->dev);
 
 	i915->display.funcs.color->read_luts(crtc_state);
+
+	if (i915->display.funcs.color->read_csc)
+		i915->display.funcs.color->read_csc(crtc_state);
 }
 
 bool intel_color_lut_equal(const struct intel_crtc_state *crtc_state,
@@ -1840,6 +2058,8 @@ static int chv_color_check(struct intel_crtc_state *crtc_state)
 
 	intel_assign_luts(crtc_state);
 
+	chv_assign_csc(crtc_state);
+
 	crtc_state->preload_luts = chv_can_preload_luts(crtc_state);
 
 	return 0;
@@ -1962,6 +2182,8 @@ static int ilk_color_check(struct intel_crtc_state *crtc_state)
 	if (ret)
 		return ret;
 
+	ilk_assign_csc(crtc_state);
+
 	crtc_state->preload_luts = intel_can_preload_luts(crtc_state);
 
 	return 0;
@@ -2067,6 +2289,8 @@ static int ivb_color_check(struct intel_crtc_state *crtc_state)
 	ret = ivb_assign_luts(crtc_state);
 	if (ret)
 		return ret;
+
+	ilk_assign_csc(crtc_state);
 
 	crtc_state->preload_luts = intel_can_preload_luts(crtc_state);
 
@@ -2199,6 +2423,8 @@ static int glk_color_check(struct intel_crtc_state *crtc_state)
 	if (ret)
 		return ret;
 
+	ilk_assign_csc(crtc_state);
+
 	crtc_state->preload_luts = intel_can_preload_luts(crtc_state);
 
 	return 0;
@@ -2260,6 +2486,8 @@ static int icl_color_check(struct intel_crtc_state *crtc_state)
 	crtc_state->csc_mode = icl_csc_mode(crtc_state);
 
 	intel_assign_luts(crtc_state);
+
+	icl_assign_csc(crtc_state);
 
 	crtc_state->preload_luts = intel_can_preload_luts(crtc_state);
 
@@ -3135,6 +3363,7 @@ static const struct intel_color_funcs chv_color_funcs = {
 	.load_luts = chv_load_luts,
 	.read_luts = chv_read_luts,
 	.lut_equal = chv_lut_equal,
+	.read_csc = chv_read_csc,
 };
 
 static const struct intel_color_funcs i965_color_funcs = {
@@ -3160,6 +3389,7 @@ static const struct intel_color_funcs tgl_color_funcs = {
 	.load_luts = icl_load_luts,
 	.read_luts = icl_read_luts,
 	.lut_equal = icl_lut_equal,
+	.read_csc = icl_read_csc,
 };
 
 static const struct intel_color_funcs icl_color_funcs = {
@@ -3170,6 +3400,7 @@ static const struct intel_color_funcs icl_color_funcs = {
 	.load_luts = icl_load_luts,
 	.read_luts = icl_read_luts,
 	.lut_equal = icl_lut_equal,
+	.read_csc = icl_read_csc,
 };
 
 static const struct intel_color_funcs glk_color_funcs = {
@@ -3179,6 +3410,7 @@ static const struct intel_color_funcs glk_color_funcs = {
 	.load_luts = glk_load_luts,
 	.read_luts = glk_read_luts,
 	.lut_equal = glk_lut_equal,
+	.read_csc = skl_read_csc,
 };
 
 static const struct intel_color_funcs skl_color_funcs = {
@@ -3188,6 +3420,7 @@ static const struct intel_color_funcs skl_color_funcs = {
 	.load_luts = bdw_load_luts,
 	.read_luts = bdw_read_luts,
 	.lut_equal = ivb_lut_equal,
+	.read_csc = skl_read_csc,
 };
 
 static const struct intel_color_funcs bdw_color_funcs = {
@@ -3197,6 +3430,7 @@ static const struct intel_color_funcs bdw_color_funcs = {
 	.load_luts = bdw_load_luts,
 	.read_luts = bdw_read_luts,
 	.lut_equal = ivb_lut_equal,
+	.read_csc = ilk_read_csc,
 };
 
 static const struct intel_color_funcs hsw_color_funcs = {
@@ -3206,6 +3440,7 @@ static const struct intel_color_funcs hsw_color_funcs = {
 	.load_luts = ivb_load_luts,
 	.read_luts = ivb_read_luts,
 	.lut_equal = ivb_lut_equal,
+	.read_csc = ilk_read_csc,
 };
 
 static const struct intel_color_funcs ivb_color_funcs = {
@@ -3215,6 +3450,7 @@ static const struct intel_color_funcs ivb_color_funcs = {
 	.load_luts = ivb_load_luts,
 	.read_luts = ivb_read_luts,
 	.lut_equal = ivb_lut_equal,
+	.read_csc = ilk_read_csc,
 };
 
 static const struct intel_color_funcs ilk_color_funcs = {
@@ -3224,6 +3460,7 @@ static const struct intel_color_funcs ilk_color_funcs = {
 	.load_luts = ilk_load_luts,
 	.read_luts = ilk_read_luts,
 	.lut_equal = ilk_lut_equal,
+	.read_csc = ilk_read_csc,
 };
 
 void intel_color_crtc_init(struct intel_crtc *crtc)
