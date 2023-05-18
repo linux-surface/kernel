@@ -1,0 +1,217 @@
+arm/soc
+
+soc/dt
+	patch
+		ARM: dts: ixp4xx: use "okay" for status
+		arm64: dts: sprd: Add support for Unisoc's UMS512
+	dt/cleanup-64
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt64-cleanup-6.4
+	dt/cleanup-32
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt-cleanup-6.4
+	renesas/dt-bindinds
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v6.4-tag1
+	renesas/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dts-for-v6.4-tag1
+	omap/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/dt-signed
+	omap/dt-overlays
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/dt-overlays-signed
+	at91/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-dt-6.4
+	patch
+		ARM: dts: oxnas: remove obsolete device tree files
+		dt-bindings: arm: oxnas: remove obsolete bindings
+	amlogic/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm-dt-for-v6.4
+	amlogic/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm64-dt-for-v6.4
+	samsung/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-6.4
+	samsung/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt-6.4
+	apple/dt
+		https://github.com/AsahiLinux/linux tags/asahi-soc-dt-6.4
+	tegra/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-dt-bindings
+	tegra/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm-dt
+	tegra/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm64-dt
+	riscv/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-for-v6.4
+	stm32/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32 tags/stm32-dt-for-v6.4-1
+	imx/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-bindings-6.4
+	imx/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt-6.4
+	imx/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt64-6.4
+	sunxi/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-6.4-1
+	rockchip/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.4-rockchip-dts64-1
+	rockchip/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.4-rockchip-dts32-1
+	renesas/dt-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dts-for-v6.4-tag2
+	k3/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-dt-for-v6.4
+	qcom/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-6.4
+	qcom/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-6.4
+	patch
+		ARM: dts: nomadik: Replace deprecated spi-gpio properties
+	broadcom/dt
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.4/devicetree
+	broadcom/dt64
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.4/devicetree-arm64
+	aspeed/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc tags/aspeed-6.4-devicetree
+	qcom/dt-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-6.4-2
+	qcom/dt64-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-6.4-2
+	mediatek/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts32
+	mediatek/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-dts64
+	apple/dt-2
+		https://github.com/AsahiLinux/linux tags/asahi-soc-dt-6.4-v2
+	rockchips/dt64-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.4-rockchip-dts64-2
+	mvebu/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt-6.4-1
+	mvebu/dt64
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt64-6.4-1
+
+soc/drivers
+	renesas/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v6.4-tag1
+	omap/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/ti-sysc-signed
+	drivers/memory
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-6.4
+	drivers/optee
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-per-cpu-irq-for-v6.4
+	amlogic/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-drivers-for-v6.4
+	drivers/optee-load
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-load-for-v6.4
+	apple/soc-drivers
+		https://github.com/AsahiLinux/linux tags/asahi-soc-rtkit-6.4
+	tegra/bus-drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm-core
+	tegra/soc-drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-soc
+	tegra/firmware-drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-firmware
+	riscv/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-soc-for-v6.4
+	imx/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-drivers-6.4
+	sunxi/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-drivers-for-6.4-1
+	renesas/drivers-2
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-drivers-for-v6.4-tag2
+	k3/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-driver-soc-for-v6.4
+	qcom/drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.4
+	broadcom/drivers
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.4/drivers
+	qcom/drivers-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.4-2
+	patch
+		soc: ti: smartreflex: Simplify getting the opam_sr pointer
+	mediatek/soc-drivers
+		https://git.kernel.org/pub/scm/linux/kernel/git/matthias.bgg/linux tags/v6.3-next-soc
+	drivers/memory-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-6.4-2
+	vexpress/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/vexpress-update-6.4
+	scmi/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-6.4
+
+arm/defconfig
+
+arm/late
+
+soc/fixes
+
+arm/fixes
+	<no branch> (172fa6366c0c84eda31f1bc34e6c3e4698786215)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-fix-for-v6.3
+	<no branch> (f9d323e7c1724270d747657051099826744e91e7)
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-fixes-v6.3-rc
+	<no branch> (8671133082176d1388e20ac33d61cf7e3b05adf5)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-fix-for-v6.3
+	<no branch> (86d5b27b379256cd5d48974b4cd7ad03091eea6b)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-6.3-2
+	<no branch> (8056dc043d7f74d7675d413cb3dc4fa290609922)
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-fixes-for-v6.3-final
+	patch
+		firmware/psci: demote suspend-mode warning to info level
+	<no branch> (60a655debd36e3278a46872accc1a51a54f94f02)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.3-rockchip-dtsfixes1
+	<no branch> (75eab749e7aec0b7b515d7c50ed429ef4e1c5f3f)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-fixes-for-6.3-2
+
+soc/arm
+	patch
+		ARM: Convert to platform remove callback returning void
+		ARM: mmp: remove obsolete config USB_EHCI_MV_U2O
+		ARM: spear: remove obsolete config MACH_SPEAR600
+		ARM: mstar: remove unused config MACH_MERCURY
+	omap/cleanup
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/cleanup-signed
+	omap1/cleanup
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.4/omap1-signed
+	patch
+		ARM: oxnas: remove OXNAS support
+	samsung/soc
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-soc-6.4
+	imx/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-soc-6.4
+	renesas/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-soc-for-v6.4-tag1
+	broadcom/soc
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-6.4/soc
+	patch
+		ARM: pxa: Use of_property_read_bool() for boolean properties
+		soc: fsl: Use of_property_present() for testing DT property presence
+		ARM: mv78xx0: adjust init logic for ts-wxl to reflect single core dev
+		ARM: mv78xx0: set the correct driver for the i2c RTC
+		ARM: mv78xx0: add code to enable XOR and CRYPTO engines on mv78xx0
+		ARM: mv78xx0: fix entries for gpios, buttons and usb ports
+	mvebu/drivers
+		git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-arm64-6.4-1
+
+soc/defconfig
+	patch
+		arm64: virtconfig: Further shrink the config
+		arm64: defconfig: Enable CAN PHY transceiver driver
+		arm64: defconfig: Enable Virtio RNG driver as built in
+	renesas/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v6.4-tag1
+	patch
+		ARM: configs: remove oxnas_v6_defconfig
+		ARM: configs: Update U8500 defconfig
+		ARM: multi_v7_defconfig: Add OPTEE support
+	qcom/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-defconfig-for-6.4
+	k3/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-config-for-v6.4
+	imx/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-defconfig-6.4
+	tegra/defconfig
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.4-arm64-defconfig
+	patch
+		arm64: defconfig: Enable crypto test module
+		arm64: defconfig: Enable security accelerator driver for TI K3 SoCs
+		arm64: defconfig: Enable TI TSCADC driver
+		arm64: defconfig: Enable TI ADC driver
+		arm64: defconfig: enable building the nvmem-reboot-mode module
+		ARM: config: Update Vexpress defconfig
+
