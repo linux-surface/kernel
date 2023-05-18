@@ -229,14 +229,16 @@ static void snd_emu10k1_proc_spdif_read(struct snd_info_entry *entry,
 	u32 rate;
 
 	if (emu->card_capabilities->emu_model) {
-		snd_emu1010_fpga_read(emu, 0x38, &value);
-		if ((value & 0x1) == 0) {
-			snd_emu1010_fpga_read(emu, 0x2a, &value);
-			snd_emu1010_fpga_read(emu, 0x2b, &value2);
-			rate = 0x1770000 / (((value << 5) | value2)+1);	
-			snd_iprintf(buffer, "ADAT Locked : %u\n", rate);
-		} else {
-			snd_iprintf(buffer, "ADAT Unlocked\n");
+		if (!emu->card_capabilities->no_adat) {
+			snd_emu1010_fpga_read(emu, 0x38, &value);
+			if ((value & 0x1) == 0) {
+				snd_emu1010_fpga_read(emu, 0x2a, &value);
+				snd_emu1010_fpga_read(emu, 0x2b, &value2);
+				rate = 0x1770000 / (((value << 5) | value2)+1);
+				snd_iprintf(buffer, "ADAT Locked : %u\n", rate);
+			} else {
+				snd_iprintf(buffer, "ADAT Unlocked\n");
+			}
 		}
 		snd_emu1010_fpga_read(emu, 0x20, &value);
 		if ((value & 0x4) == 0) {
@@ -399,13 +401,10 @@ static void snd_emu_proc_io_reg_read(struct snd_info_entry *entry,
 {
 	struct snd_emu10k1 *emu = entry->private_data;
 	unsigned long value;
-	unsigned long flags;
 	int i;
 	snd_iprintf(buffer, "IO Registers:\n\n");
 	for(i = 0; i < 0x40; i+=4) {
-		spin_lock_irqsave(&emu->emu_lock, flags);
 		value = inl(emu->port + i);
-		spin_unlock_irqrestore(&emu->emu_lock, flags);
 		snd_iprintf(buffer, "%02X: %08lX\n", i, value);
 	}
 }
@@ -414,16 +413,13 @@ static void snd_emu_proc_io_reg_write(struct snd_info_entry *entry,
                                       struct snd_info_buffer *buffer)
 {
 	struct snd_emu10k1 *emu = entry->private_data;
-	unsigned long flags;
 	char line[64];
 	u32 reg, val;
 	while (!snd_info_get_line(buffer, line, sizeof(line))) {
 		if (sscanf(line, "%x %x", &reg, &val) != 2)
 			continue;
 		if (reg < 0x40 && val <= 0xffffffff) {
-			spin_lock_irqsave(&emu->emu_lock, flags);
 			outl(val, emu->port + (reg & 0xfffffffc));
-			spin_unlock_irqrestore(&emu->emu_lock, flags);
 		}
 	}
 }
