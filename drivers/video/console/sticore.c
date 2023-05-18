@@ -1143,7 +1143,7 @@ int sti_call(const struct sti_struct *sti, unsigned long func,
 		return -1;
 #endif
 
-	ret = pdc_sti_call(func, _flags, _inptr, _outptr, _glob_cfg);
+	ret = pdc_sti_call(func, _flags, _inptr, _outptr, _glob_cfg, 0);
 
 	return ret;
 }
