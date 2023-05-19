@@ -128,7 +128,8 @@ static void init_PMU_ISA31(void)
 
 static void init_DEXCR(void)
 {
-	mtspr(SPRN_DEXCR, 0);
+	// By default enable hashst/hashchk in problem state.
+	mtspr(SPRN_DEXCR, PPC_DEXCR_DEFAULT);
 	mtspr(SPRN_HASHKEYR, 0);
 }
 
