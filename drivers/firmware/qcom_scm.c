@@ -1488,8 +1488,10 @@ static int qcom_scm_probe(struct platform_device *pdev)
 	} else {
 		ret = devm_request_threaded_irq(__scm->dev, irq, NULL, qcom_scm_irq_handler,
 						IRQF_ONESHOT, "qcom-scm", __scm);
-		if (ret < 0)
+		if (ret < 0) {
+			__scm = NULL;
 			return dev_err_probe(scm->dev, ret, "Failed to request qcom-scm irq\n");
+		}
 	}
 
 	__get_convention();
