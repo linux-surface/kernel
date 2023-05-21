@@ -32,6 +32,41 @@ ucs2_strsize(const ucs2_char_t *data, unsigned long maxlength)
 }
 EXPORT_SYMBOL(ucs2_strsize);
 
+ssize_t ucs2_strscpy(ucs2_char_t *dst, const ucs2_char_t *src, size_t count)
+{
+	long res;
+
+	/*
+	 * Ensure that we have a valid amount of space. We need to store at
+	 * least one NUL-character.
+	 */
+	if (count == 0 || WARN_ON_ONCE(count > INT_MAX))
+		return -E2BIG;
+
+	/*
+	 * Copy at most 'count' bytes, return early if we find a
+	 * NUL-terminator.
+	 */
+	for (res = 0; res < count; res++) {
+		ucs2_char_t c;
+
+		c = src[res];
+		dst[res] = c;
+
+		if (!c)
+			return res;
+	}
+
+	/*
+	 * The loop above terminated without finding a NUL-terminator,
+	 * exceeding the 'count': Enforce proper NUL-termination and return
+	 * error.
+	 */
+	dst[count - 1] = 0;
+	return -E2BIG;
+}
+EXPORT_SYMBOL(ucs2_strscpy);
+
 int
 ucs2_strncmp(const ucs2_char_t *a, const ucs2_char_t *b, size_t len)
 {
