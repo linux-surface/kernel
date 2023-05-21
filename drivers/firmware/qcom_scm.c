@@ -1693,7 +1693,9 @@ static bool qcom_scm_qseecom_device_allowed(void)
 	return match;
 }
 
-static const struct qseecom_app_desc qcom_scm_qseecom_apps[] = {};
+static const struct qseecom_app_desc qcom_scm_qseecom_apps[] = {
+	{ "qcom.tz.uefisecapp", "uefisecapp" },
+};
 
 static int qcom_scm_qseecom_init(void)
 {
