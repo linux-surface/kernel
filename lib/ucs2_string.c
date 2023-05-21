@@ -32,6 +32,22 @@ ucs2_strsize(const ucs2_char_t *data, unsigned long maxlength)
 }
 EXPORT_SYMBOL(ucs2_strsize);
 
+unsigned long
+ucs2_strlcpy(ucs2_char_t *dst, const ucs2_char_t *src, unsigned long size)
+{
+	unsigned long ret = ucs2_strlen(src);
+	unsigned long len;
+
+	if (size) {
+		len = (ret >= size) ? size - 1 : ret;
+		memcpy(dst, src, len * sizeof(*src));
+		dst[len] = 0;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(ucs2_strlcpy);
+
 int
 ucs2_strncmp(const ucs2_char_t *a, const ucs2_char_t *b, size_t len)
 {
