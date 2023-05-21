@@ -5,6 +5,7 @@
 #ifndef __QCOM_SCM_H
 #define __QCOM_SCM_H
 
+#include <linux/auxiliary_bus.h>
 #include <linux/err.h>
 #include <linux/types.h>
 #include <linux/cpumask.h>
@@ -121,5 +122,31 @@ extern int qcom_scm_lmh_dcvsh(u32 payload_fn, u32 payload_reg, u32 payload_val,
 			      u64 limit_node, u32 node_id, u64 version);
 extern int qcom_scm_lmh_profile_change(u32 profile_id);
 extern bool qcom_scm_lmh_dcvsh_available(void);
+
+/**
+ * struct qseecom_client - QSEECOM client device.
+ * @aux_dev: Underlying auxiliary device.
+ * @app_id: ID of the loaded application.
+ */
+struct qseecom_client {
+	struct auxiliary_device aux_dev;
+	u32 app_id;
+};
+
+#ifdef CONFIG_QCOM_SCM_QSEECOM
+
+int qcom_scm_qseecom_app_send(struct qseecom_client *client, void *req,
+			      size_t req_size, void *rsp, size_t rsp_size);
+
+#else /* CONFIG_QCOM_SCM_QSEECOM */
+
+static inline int qcom_scm_qseecom_app_send(struct qseecom_client *client,
+					    void *req, size_t req_size,
+					    void *rsp, size_t rsp_size)
+{
+	return 0;
+}
+
+#endif /* CONFIG_QCOM_SCM_QSEECOM */
 
 #endif
