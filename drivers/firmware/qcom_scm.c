@@ -1676,6 +1676,7 @@ static int qseecom_client_register(const struct qseecom_app_desc *desc)
  */
 static const struct of_device_id qcom_scm_qseecom_allowlist[] = {
 	{ .compatible = "lenovo,thinkpad-x13s", },
+	{ .compatible = "microsoft,surface-pro-x", },
 	{ }
 };
 
