@@ -1624,6 +1624,7 @@ EXPORT_SYMBOL_GPL(qcom_scm_qseecom_app_send);
  */
 static const struct of_device_id qcom_scm_qseecom_allowlist[] = {
 	{ .compatible = "lenovo,thinkpad-x13s", },
+	{ .compatible = "microsoft,surface-pro-x", },
 	{ }
 };
 
