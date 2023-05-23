@@ -2210,8 +2210,8 @@ retry:
  * already been ran (aka, ordered extent inserted) and all pages are still
  * locked.
  */
-int extent_write_locked_range(struct inode *inode, u64 start, u64 end,
-			      struct writeback_control *wbc)
+int extent_write_locked_range(struct inode *inode, struct page *locked_page,
+			      u64 start, u64 end, struct writeback_control *wbc)
 {
 	bool found_error = false;
 	int first_error = 0;
@@ -2237,14 +2237,17 @@ int extent_write_locked_range(struct inode *inode, u64 start, u64 end,
 		int nr = 0;
 
 		page = find_get_page(mapping, cur >> PAGE_SHIFT);
+
 		/*
-		 * All pages in the range are locked since
-		 * btrfs_run_delalloc_range(), thus there is no way to clear
-		 * the page dirty flag.
+		 * All pages have been locked by btrfs_run_delalloc_range(),
+		 * thus the dirty bit can't have been cleared.
 		 */
 		ASSERT(PageLocked(page));
-		ASSERT(PageDirty(page));
-		clear_page_dirty_for_io(page);
+		if (page != locked_page) {
+			/* already cleared by extent_write_cache_pages */
+			ASSERT(PageDirty(page));
+			clear_page_dirty_for_io(page);
+		}
 
 		ret = __extent_writepage_io(BTRFS_I(inode), page, &bio_ctrl,
 					    i_size, &nr);

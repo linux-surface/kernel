@@ -1088,17 +1088,9 @@ cont:
 cleanup_and_bail_uncompressed:
 	/*
 	 * No compression, but we still need to write the pages in the file
-	 * we've been given so far.  redirty the locked page if it corresponds
-	 * to our extent and set things up for the async work queue to run
-	 * cow_file_range to do the normal delalloc dance.
+	 * we've been given so far.  Set things up for the async work queue to
+	 * run cow_file_range to do the normal delalloc dance.
 	 */
-	if (async_chunk->locked_page &&
-	    (page_offset(async_chunk->locked_page) >= start &&
-	     page_offset(async_chunk->locked_page)) <= end) {
-		__set_page_dirty_nobuffers(async_chunk->locked_page);
-		/* unlocked later on in the async handlers */
-	}
-
 	if (redirty)
 		extent_range_redirty_for_io(&inode->vfs_inode, start, end);
 	add_async_extent(async_chunk, start, end - start + 1, 0, NULL, 0,
@@ -1169,7 +1161,8 @@ static int submit_uncompressed_range(struct btrfs_inode *inode,
 
 	/* All pages will be unlocked, including @locked_page */
 	wbc_attach_fdatawrite_inode(&wbc, &inode->vfs_inode);
-	ret = extent_write_locked_range(&inode->vfs_inode, start, end, &wbc);
+	ret = extent_write_locked_range(&inode->vfs_inode, locked_page, start,
+					end, &wbc);
 	wbc_detach_inode(&wbc);
 	return ret;
 }
@@ -1829,7 +1822,6 @@ static noinline int run_delalloc_zoned(struct btrfs_inode *inode,
 {
 	u64 done_offset = end;
 	int ret;
-	bool locked_page_done = false;
 
 	while (start <= end) {
 		ret = cow_file_range(inode, locked_page, start, end, page_started,
@@ -1852,13 +1844,8 @@ static noinline int run_delalloc_zoned(struct btrfs_inode *inode,
 			continue;
 		}
 
-		if (!locked_page_done) {
-			__set_page_dirty_nobuffers(locked_page);
-			account_page_redirty(locked_page);
-		}
-		locked_page_done = true;
-		extent_write_locked_range(&inode->vfs_inode, start, done_offset,
-					  wbc);
+		extent_write_locked_range(&inode->vfs_inode, locked_page, start,
+					  done_offset, wbc);
 		start = done_offset + 1;
 	}
 
