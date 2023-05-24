@@ -5347,6 +5347,29 @@ context_switch(struct rq *rq, struct task_struct *prev,
 }
 
 /*
+ * If this kthread has a user process's mm for its active_mm (aka lazy tlb mm)
+ * then switch away from it, to init_mm. Must not be called while using an
+ * mm with kthread_use_mm().
+ */
+void kthread_end_lazy_tlb_mm(void)
+{
+	struct mm_struct *mm = current->active_mm;
+
+	WARN_ON_ONCE(!irqs_disabled());
+
+	if (WARN_ON_ONCE(current->mm))
+		return; /* Not a kthread or doing kthread_use_mm */
+
+	if (mm != &init_mm) {
+		mmgrab_lazy_tlb(&init_mm);
+		current->active_mm = &init_mm;
+		switch_mm_irqs_off(mm, &init_mm, current);
+		finish_arch_post_lock_switch();
+		mmdrop_lazy_tlb(mm);
+	}
+}
+
+/*
  * nr_running and nr_context_switches:
  *
  * externally visible scheduler statistics: current number of runnable
@@ -9375,17 +9398,8 @@ void sched_setnuma(struct task_struct *p, int nid)
  */
 void idle_task_prepare_exit(void)
 {
-	struct mm_struct *mm = current->active_mm;
-
 	WARN_ON(!irqs_disabled());
-
-	if (mm != &init_mm) {
-		mmgrab_lazy_tlb(&init_mm);
-		current->active_mm = &init_mm;
-		switch_mm_irqs_off(mm, &init_mm, current);
-		finish_arch_post_lock_switch();
-		mmdrop_lazy_tlb(mm);
-	}
+	kthread_end_lazy_tlb_mm();
 	/* finish_cpu() will mmdrop the init_mm ref after this CPU stops */
 }
 
