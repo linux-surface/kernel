@@ -818,6 +818,13 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 
 	}
 	this_sum_bytes = 0;
+
+	/*
+	 * The ->sums assignment is for zoned writes, where a bio never spans
+	 * ordered extents and is only done unconditionally because that's cheaper
+	 * than a branch.
+	 */
+	bbio->sums = sums;
 	btrfs_add_ordered_sum(ordered, sums);
 	btrfs_put_ordered_extent(ordered);
 	return 0;
