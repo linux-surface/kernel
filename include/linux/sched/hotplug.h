@@ -19,8 +19,10 @@ extern int sched_cpu_dying(unsigned int cpu);
 #endif
 
 #ifdef CONFIG_HOTPLUG_CPU
+extern void idle_task_prepare_exit(void);
 extern void idle_task_exit(void);
 #else
+static inline void idle_task_prepare_exit(void) {}
 static inline void idle_task_exit(void) {}
 #endif
 
