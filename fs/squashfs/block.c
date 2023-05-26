@@ -92,7 +92,7 @@ static int squashfs_bio_read_cached(struct bio *fullbio,
 	bio_for_each_segment_all(bv, fullbio, iter_all) {
 		struct page *page = bv->bv_page;
 
-		if (page->mapping == cache_mapping && PageUptodate(page)) {
+		if (page->mapping == cache_mapping) {
 			idx++;
 			continue;
 		}
