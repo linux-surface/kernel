@@ -142,7 +142,8 @@ static int squashfs_bio_read_cached(struct bio *fullbio,
 
 	if (head_to_cache) {
 		int ret = add_to_page_cache_lru(head_to_cache, cache_mapping,
-						read_start >> PAGE_SHIFT, GFP_NOIO);
+						read_start >> PAGE_SHIFT,
+						GFP_NOIO);
 
 		if (!ret) {
 			SetPageUptodate(head_to_cache);
@@ -153,7 +154,8 @@ static int squashfs_bio_read_cached(struct bio *fullbio,
 
 	if (tail_to_cache) {
 		int ret = add_to_page_cache_lru(tail_to_cache, cache_mapping,
-						(read_end >> PAGE_SHIFT) - 1, GFP_NOIO);
+						(read_end >> PAGE_SHIFT) - 1,
+						GFP_NOIO);
 
 		if (!ret) {
 			SetPageUptodate(tail_to_cache);
