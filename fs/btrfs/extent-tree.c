@@ -1497,7 +1497,7 @@ out:
 static int run_delayed_data_ref(struct btrfs_trans_handle *trans,
 				struct btrfs_delayed_ref_node *node,
 				struct btrfs_delayed_extent_op *extent_op,
-				int insert_reserved)
+				bool insert_reserved)
 {
 	int ret = 0;
 	struct btrfs_delayed_data_ref *ref;
@@ -1647,7 +1647,7 @@ out:
 static int run_delayed_tree_ref(struct btrfs_trans_handle *trans,
 				struct btrfs_delayed_ref_node *node,
 				struct btrfs_delayed_extent_op *extent_op,
-				int insert_reserved)
+				bool insert_reserved)
 {
 	int ret = 0;
 	struct btrfs_delayed_tree_ref *ref;
@@ -1687,7 +1687,7 @@ static int run_delayed_tree_ref(struct btrfs_trans_handle *trans,
 static int run_one_delayed_ref(struct btrfs_trans_handle *trans,
 			       struct btrfs_delayed_ref_node *node,
 			       struct btrfs_delayed_extent_op *extent_op,
-			       int insert_reserved)
+			       bool insert_reserved)
 {
 	int ret = 0;
 
@@ -1897,7 +1897,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 	struct btrfs_delayed_ref_root *delayed_refs;
 	struct btrfs_delayed_extent_op *extent_op;
 	struct btrfs_delayed_ref_node *ref;
-	int must_insert_reserved = 0;
+	bool must_insert_reserved;
 	int ret;
 
 	delayed_refs = &trans->transaction->delayed_refs;
@@ -1939,7 +1939,7 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		 * spin lock.
 		 */
 		must_insert_reserved = locked_ref->must_insert_reserved;
-		locked_ref->must_insert_reserved = 0;
+		locked_ref->must_insert_reserved = false;
 
 		extent_op = locked_ref->extent_op;
 		locked_ref->extent_op = NULL;
