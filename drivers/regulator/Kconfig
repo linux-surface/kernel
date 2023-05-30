@@ -1056,7 +1056,7 @@ config REGULATOR_RC5T583
 
 config REGULATOR_RK808
 	tristate "Rockchip RK805/RK808/RK809/RK817/RK818 Power regulators"
-	depends on MFD_RK808
+	depends on MFD_RK8XX
 	help
 	  Select this option to enable the power regulator of ROCKCHIP
 	  PMIC RK805,RK809&RK817,RK808 and RK818.
@@ -1396,6 +1396,17 @@ config REGULATOR_TPS6286X
 	  This driver supports TPS6236x voltage regulator chips. These are
 	  high-frequency synchronous step-down converters with an I2C
 	  interface.
+
+config REGULATOR_TPS6287X
+	tristate "TI TPS6287x Power Regulator"
+	depends on I2C && OF
+	select REGMAP_I2C
+	help
+	  This driver supports TPS6287x voltage regulator chips. These are
+	  pin-to-pin high-frequency synchronous step-down dc-dc converters
+	  with an I2C interface.
+
+	  If built as a module it will be called tps6287x-regulator.
 
 config REGULATOR_TPS65023
 	tristate "TI TPS65023 Power regulators"
