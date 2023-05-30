@@ -216,8 +216,13 @@ int __frontswap_load(struct page *page)
 
 	/* Try loading from each implementation, until one succeeds. */
 	ret = frontswap_ops->load(type, offset, page);
-	if (ret == 0)
+	if (ret == 0) {
 		inc_frontswap_loads();
+		if (frontswap_ops->exclusive_loads) {
+			SetPageDirty(page);
+			__frontswap_clear(sis, offset);
+		}
+	}
 	return ret;
 }
 
