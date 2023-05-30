@@ -28,6 +28,7 @@ properties:
           - qcom,sa8775p-dwc3
           - qcom,sc7180-dwc3
           - qcom,sc7280-dwc3
+          - qcom,sc8180x-dwc3
           - qcom,sc8280xp-dwc3
           - qcom,sdm660-dwc3
           - qcom,sdm670-dwc3
@@ -331,6 +332,7 @@ allOf:
         compatible:
           contains:
             enum:
+              - qcom,sc8180x-dwc3
               - qcom,sm8350-dwc3
     then:
       properties:
@@ -359,6 +361,7 @@ allOf:
               - qcom,msm8994-dwc3
               - qcom,qcs404-dwc3
               - qcom,sc7180-dwc3
+              - qcom,sc8180x-dwc3
               - qcom,sdm670-dwc3
               - qcom,sdm845-dwc3
               - qcom,sdx55-dwc3
