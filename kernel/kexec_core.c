@@ -1105,7 +1105,8 @@ ssize_t crash_get_memory_size(void)
 	return size;
 }
 
-int __crash_shrink_memory(struct resource *old_res, unsigned long new_size)
+static int __crash_shrink_memory(struct resource *old_res,
+				 unsigned long new_size)
 {
 	struct resource *ram_res;
 
