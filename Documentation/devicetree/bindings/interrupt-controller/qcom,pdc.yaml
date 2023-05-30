@@ -28,6 +28,7 @@ properties:
       - enum:
           - qcom,sc7180-pdc
           - qcom,sc7280-pdc
+          - qcom,sc8180x-pdc
           - qcom,sc8280xp-pdc
           - qcom,sdm845-pdc
           - qcom,sdx55-pdc
