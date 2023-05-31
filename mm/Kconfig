@@ -59,6 +59,18 @@ config ZSWAP_EXCLUSIVE_LOADS
 	  The cost is that if the page was never dirtied and needs to be
 	  swapped out again, it will be re-compressed.
 
+config ZSWAP_NR_ZPOOLS_ORDER
+	int "Number of zpools in zswap, as power of 2"
+	default 0
+	depends on ZSWAP
+	help
+	  This options determines the number of zpools to use for zswap, it
+	  will be 1 << CONFIG_ZSWAP_NR_ZPOOLS_ORDER.
+
+	  Having multiple zpools helps with concurrency and lock contention
+	  on the swap in and swap out paths, but uses a little bit of extra
+	  space.
+
 choice
 	prompt "Default compressor"
 	depends on ZSWAP
