@@ -70,6 +70,7 @@
 #include "verity.h"
 #include "super.h"
 #include "orphan.h"
+#include "backref.h"
 
 struct btrfs_iget_args {
 	u64 ino;
@@ -100,6 +101,18 @@ struct btrfs_rename_ctx {
 	u64 index;
 };
 
+/*
+ * Used by data_reloc_print_warning_inode() to pass needed info for filename
+ * resolution and output of error message.
+ */
+struct data_reloc_warn {
+	struct btrfs_path path;
+	struct btrfs_fs_info *fs_info;
+	u64 extent_item_size;
+	u64 logical;
+	int mirror_num;
+};
+
 static const struct inode_operations btrfs_dir_inode_operations;
 static const struct inode_operations btrfs_symlink_inode_operations;
 static const struct inode_operations btrfs_special_inode_operations;
@@ -122,11 +135,197 @@ static struct extent_map *create_io_em(struct btrfs_inode *inode, u64 start,
 				       u64 ram_bytes, int compress_type,
 				       int type);
 
+static int data_reloc_print_warning_inode(u64 inum, u64 offset, u64 num_bytes,
+					  u64 root, void *warn_ctx)
+{
+	struct data_reloc_warn *warn = warn_ctx;
+	struct btrfs_fs_info *fs_info = warn->fs_info;
+	struct extent_buffer *eb;
+	struct btrfs_inode_item *inode_item;
+	struct inode_fs_paths *ipath = NULL;
+	struct btrfs_root *local_root;
+	struct btrfs_key key;
+	unsigned int nofs_flag;
+	u32 nlink;
+	int ret;
+
+	local_root = btrfs_get_fs_root(fs_info, root, true);
+	if (IS_ERR(local_root)) {
+		ret = PTR_ERR(local_root);
+		goto err;
+	}
+
+	/* This makes the path point to (inum INODE_ITEM ioff). */
+	key.objectid = inum;
+	key.type = BTRFS_INODE_ITEM_KEY;
+	key.offset = 0;
+
+	ret = btrfs_search_slot(NULL, local_root, &key, &warn->path, 0, 0);
+	if (ret) {
+		btrfs_put_root(local_root);
+		btrfs_release_path(&warn->path);
+		goto err;
+	}
+
+	eb = warn->path.nodes[0];
+	inode_item = btrfs_item_ptr(eb, warn->path.slots[0], struct btrfs_inode_item);
+	nlink = btrfs_inode_nlink(eb, inode_item);
+	btrfs_release_path(&warn->path);
+
+	nofs_flag = memalloc_nofs_save();
+	ipath = init_ipath(4096, local_root, &warn->path);
+	memalloc_nofs_restore(nofs_flag);
+	if (IS_ERR(ipath)) {
+		btrfs_put_root(local_root);
+		ret = PTR_ERR(ipath);
+		ipath = NULL;
+		/*
+		 * -ENOMEM, not a critical error, just output an generic error
+		 * without filename.
+		 */
+		btrfs_warn(fs_info,
+"checksum error at logical %llu mirror %u root %llu, inode %llu offset %llu",
+			   warn->logical, warn->mirror_num, root, inum, offset);
+		return ret;
+	}
+	ret = paths_from_inode(inum, ipath);
+	if (ret < 0)
+		goto err;
+
+	/*
+	 * We deliberately ignore the bit ipath might have been too small to
+	 * hold all of the paths here
+	 */
+	for (int i = 0; i < ipath->fspath->elem_cnt; i++) {
+		btrfs_warn(fs_info,
+"checksum error at logical %llu mirror %u root %llu inode %llu offset %llu length %u links %u (path: %s)",
+			   warn->logical, warn->mirror_num, root, inum, offset,
+			   fs_info->sectorsize, nlink,
+			   (char *)(unsigned long)ipath->fspath->val[i]);
+	}
+
+	btrfs_put_root(local_root);
+	free_ipath(ipath);
+	return 0;
+
+err:
+	btrfs_warn(fs_info,
+"checksum error at logical %llu mirror %u root %llu inode %llu offset %llu, path resolving failed with ret=%d",
+		   warn->logical, warn->mirror_num, root, inum, offset, ret);
+
+	free_ipath(ipath);
+	return ret;
+}
+
+/*
+ * Do extra user-friendly error output (e.g. lookup all the affected files).
+ *
+ * Return true if we succeeded doing the backref lookup.
+ * Return false if such lookup failed, and has to fallback to the old error message.
+ */
+static void print_data_reloc_error(const struct btrfs_inode *inode, u64 file_off,
+				   const u8 *csum, const u8 *csum_expected,
+				   int mirror_num)
+{
+	struct btrfs_fs_info *fs_info = inode->root->fs_info;
+	struct btrfs_path path = { 0 };
+	struct btrfs_key found_key = { 0 };
+	struct extent_buffer *eb;
+	struct btrfs_extent_item *ei;
+	const u32 csum_size = fs_info->csum_size;
+	u64 logical;
+	u64 flags;
+	u32 item_size;
+	int ret;
+
+	mutex_lock(&fs_info->reloc_mutex);
+	logical = btrfs_get_reloc_bg_bytenr(fs_info);
+	mutex_unlock(&fs_info->reloc_mutex);
+
+	if (logical == U64_MAX) {
+		btrfs_warn_rl(fs_info, "has data reloc tree but no running relocation");
+		btrfs_warn_rl(fs_info,
+"csum failed root %lld ino %llu off %llu csum " CSUM_FMT " expected csum " CSUM_FMT " mirror %d",
+			inode->root->root_key.objectid, btrfs_ino(inode), file_off,
+			CSUM_FMT_VALUE(csum_size, csum),
+			CSUM_FMT_VALUE(csum_size, csum_expected),
+			mirror_num);
+		return;
+	}
+
+	logical += file_off;
+	btrfs_warn_rl(fs_info,
+"csum failed root %lld ino %llu off %llu logical %llu csum " CSUM_FMT " expected csum " CSUM_FMT " mirror %d",
+			inode->root->root_key.objectid,
+			btrfs_ino(inode), file_off, logical,
+			CSUM_FMT_VALUE(csum_size, csum),
+			CSUM_FMT_VALUE(csum_size, csum_expected),
+			mirror_num);
+
+	ret = extent_from_logical(fs_info, logical, &path, &found_key, &flags);
+	if (ret < 0) {
+		btrfs_err_rl(fs_info, "failed to lookup extent item for logical %llu: %d",
+			     logical, ret);
+		return;
+	}
+	eb = path.nodes[0];
+	ei = btrfs_item_ptr(eb, path.slots[0], struct btrfs_extent_item);
+	item_size = btrfs_item_size(eb, path.slots[0]);
+	if (flags & BTRFS_EXTENT_FLAG_TREE_BLOCK) {
+		unsigned long ptr = 0;
+		u64 ref_root;
+		u8 ref_level;
+
+		while (true) {
+			ret = tree_backref_for_extent(&ptr, eb, &found_key, ei,
+						      item_size, &ref_root,
+						      &ref_level);
+			if (ret < 0) {
+				btrfs_warn_rl(fs_info,
+				"failed to resolve tree backref for logical %llu: %d",
+					      logical, ret);
+				break;
+			}
+			if (ret > 0)
+				break;
+
+			btrfs_warn_rl(fs_info,
+"csum error at logical %llu mirror %u: metadata %s (level %d) in tree %llu",
+				logical, mirror_num,
+				(ref_level ? "node" : "leaf"),
+				ref_level, ref_root);
+		}
+		btrfs_release_path(&path);
+	} else {
+		struct btrfs_backref_walk_ctx ctx = { 0 };
+		struct data_reloc_warn reloc_warn = { 0 };
+
+		btrfs_release_path(&path);
+
+		ctx.bytenr = found_key.objectid;
+		ctx.extent_item_pos = logical - found_key.objectid;
+		ctx.fs_info = fs_info;
+
+		reloc_warn.logical = logical;
+		reloc_warn.extent_item_size = found_key.offset;
+		reloc_warn.mirror_num = mirror_num;
+		reloc_warn.fs_info = fs_info;
+
+		iterate_extent_inodes(&ctx, true,
+				      data_reloc_print_warning_inode, &reloc_warn);
+	}
+}
+
 static void __cold btrfs_print_data_csum_error(struct btrfs_inode *inode,
 		u64 logical_start, u8 *csum, u8 *csum_expected, int mirror_num)
 {
 	struct btrfs_root *root = inode->root;
 	const u32 csum_size = root->fs_info->csum_size;
+
+	/* For data reloc tree, it's better to do a backref lookup instead. */
+	if (root->root_key.objectid == BTRFS_DATA_RELOC_TREE_OBJECTID)
+		return print_data_reloc_error(inode, logical_start, csum,
+					      csum_expected, mirror_num);
 
 	/* Output without objectid, which is more meaningful */
 	if (root->root_key.objectid >= BTRFS_LAST_FREE_OBJECTID) {
@@ -2515,104 +2714,13 @@ void btrfs_clear_delalloc_extent(struct btrfs_inode *inode,
 	}
 }
 
-/*
- * Split off the first pre bytes from the extent_map at [start, start + len]
- *
- * This function is intended to be used only for extract_ordered_extent().
- */
-static int split_extent_map(struct btrfs_inode *inode, u64 start, u64 len, u64 pre)
-{
-	struct extent_map_tree *em_tree = &inode->extent_tree;
-	struct extent_map *em;
-	struct extent_map *split_pre = NULL;
-	struct extent_map *split_mid = NULL;
-	int ret = 0;
-	unsigned long flags;
-
-	ASSERT(pre != 0);
-	ASSERT(pre < len);
-
-	split_pre = alloc_extent_map();
-	if (!split_pre)
-		return -ENOMEM;
-	split_mid = alloc_extent_map();
-	if (!split_mid) {
-		ret = -ENOMEM;
-		goto out_free_pre;
-	}
-
-	lock_extent(&inode->io_tree, start, start + len - 1, NULL);
-	write_lock(&em_tree->lock);
-	em = lookup_extent_mapping(em_tree, start, len);
-	if (!em) {
-		ret = -EIO;
-		goto out_unlock;
-	}
-
-	ASSERT(em->len == len);
-	ASSERT(!test_bit(EXTENT_FLAG_COMPRESSED, &em->flags));
-	ASSERT(em->block_start < EXTENT_MAP_LAST_BYTE);
-	ASSERT(test_bit(EXTENT_FLAG_PINNED, &em->flags));
-	ASSERT(!test_bit(EXTENT_FLAG_LOGGING, &em->flags));
-	ASSERT(!list_empty(&em->list));
-
-	flags = em->flags;
-	clear_bit(EXTENT_FLAG_PINNED, &em->flags);
-
-	/* First, replace the em with a new extent_map starting from * em->start */
-	split_pre->start = em->start;
-	split_pre->len = pre;
-	split_pre->orig_start = split_pre->start;
-	split_pre->block_start = em->block_start;
-	split_pre->block_len = split_pre->len;
-	split_pre->orig_block_len = split_pre->block_len;
-	split_pre->ram_bytes = split_pre->len;
-	split_pre->flags = flags;
-	split_pre->compress_type = em->compress_type;
-	split_pre->generation = em->generation;
-
-	replace_extent_mapping(em_tree, em, split_pre, 1);
-
-	/*
-	 * Now we only have an extent_map at:
-	 *     [em->start, em->start + pre]
-	 */
-
-	/* Insert the middle extent_map. */
-	split_mid->start = em->start + pre;
-	split_mid->len = em->len - pre;
-	split_mid->orig_start = split_mid->start;
-	split_mid->block_start = em->block_start + pre;
-	split_mid->block_len = split_mid->len;
-	split_mid->orig_block_len = split_mid->block_len;
-	split_mid->ram_bytes = split_mid->len;
-	split_mid->flags = flags;
-	split_mid->compress_type = em->compress_type;
-	split_mid->generation = em->generation;
-	add_extent_mapping(em_tree, split_mid, 1);
-
-	/* Once for us */
-	free_extent_map(em);
-	/* Once for the tree */
-	free_extent_map(em);
-
-out_unlock:
-	write_unlock(&em_tree->lock);
-	unlock_extent(&inode->io_tree, start, start + len - 1, NULL);
-	free_extent_map(split_mid);
-out_free_pre:
-	free_extent_map(split_pre);
-	return ret;
-}
-
-int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
-				 struct btrfs_ordered_extent *ordered)
+static int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
+					struct btrfs_ordered_extent *ordered)
 {
 	u64 start = (u64)bbio->bio.bi_iter.bi_sector << SECTOR_SHIFT;
 	u64 len = bbio->bio.bi_iter.bi_size;
-	struct btrfs_inode *inode = bbio->inode;
-	u64 ordered_len = ordered->num_bytes;
-	int ret = 0;
+	struct btrfs_ordered_extent *new;
+	int ret;
 
 	/* Must always be called for the beginning of an ordered extent. */
 	if (WARN_ON_ONCE(start != ordered->disk_bytenr))
@@ -2622,18 +2730,24 @@ int btrfs_extract_ordered_extent(struct btrfs_bio *bbio,
 	if (ordered->disk_num_bytes == len)
 		return 0;
 
-	ret = btrfs_split_ordered_extent(ordered, len);
-	if (ret)
-		return ret;
-
 	/*
 	 * Don't split the extent_map for NOCOW extents, as we're writing into
 	 * a pre-existing one.
 	 */
-	if (test_bit(BTRFS_ORDERED_NOCOW, &ordered->flags))
-		return 0;
+	if (!test_bit(BTRFS_ORDERED_NOCOW, &ordered->flags)) {
+		ret = split_extent_map(bbio->inode, bbio->file_offset,
+				       ordered->num_bytes, len,
+				       ordered->disk_bytenr);
+		if (ret)
+			return ret;
+	}
 
-	return split_extent_map(inode, bbio->file_offset, ordered_len, len);
+	new = btrfs_split_ordered_extent(ordered, len);
+	if (IS_ERR(new))
+		return PTR_ERR(new);
+	btrfs_put_ordered_extent(new);
+
+	return 0;
 }
 
 /*
@@ -2651,7 +2765,7 @@ static int add_pending_csums(struct btrfs_trans_handle *trans,
 		trans->adding_csums = true;
 		if (!csum_root)
 			csum_root = btrfs_csum_root(trans->fs_info,
-						    sum->bytenr);
+						    sum->logical);
 		ret = btrfs_csum_file_blocks(trans, csum_root, sum);
 		trans->adding_csums = false;
 		if (ret)
@@ -2689,8 +2803,7 @@ static int btrfs_find_new_delalloc_bytes(struct btrfs_inode *inode,
 
 		ret = set_extent_bit(&inode->io_tree, search_start,
 				     search_start + em_len - 1,
-				     EXTENT_DELALLOC_NEW, cached_state,
-				     GFP_NOFS);
+				     EXTENT_DELALLOC_NEW, cached_state);
 next:
 		search_start = extent_map_end(em);
 		free_extent_map(em);
@@ -2723,8 +2836,8 @@ int btrfs_set_extent_delalloc(struct btrfs_inode *inode, u64 start, u64 end,
 			return ret;
 	}
 
-	return set_extent_delalloc(&inode->io_tree, start, end, extra_bits,
-				   cached_state);
+	return set_extent_bit(&inode->io_tree, start, end,
+			      EXTENT_DELALLOC | extra_bits, cached_state);
 }
 
 /* see btrfs_writepage_start_hook for details on why this is required */
@@ -3068,7 +3181,7 @@ static int insert_ordered_extent_file_extent(struct btrfs_trans_handle *trans,
  * an ordered extent if the range of bytes in the file it covers are
  * fully written.
  */
-int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered_extent)
+int btrfs_finish_one_ordered(struct btrfs_ordered_extent *ordered_extent)
 {
 	struct btrfs_inode *inode = BTRFS_I(ordered_extent->inode);
 	struct btrfs_root *root = inode->root;
@@ -3103,15 +3216,9 @@ int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered_extent)
 		goto out;
 	}
 
-	/* A valid ->physical implies a write on a sequential zone. */
-	if (ordered_extent->physical != (u64)-1) {
-		btrfs_rewrite_logical_zoned(ordered_extent);
+	if (btrfs_is_zoned(fs_info))
 		btrfs_zone_finish_endio(fs_info, ordered_extent->disk_bytenr,
 					ordered_extent->disk_num_bytes);
-	} else if (btrfs_is_data_reloc_root(inode->root)) {
-		btrfs_zone_finish_endio(fs_info, ordered_extent->disk_bytenr,
-					ordered_extent->disk_num_bytes);
-	}
 
 	if (test_bit(BTRFS_ORDERED_TRUNCATED, &ordered_extent->flags)) {
 		truncated = true;
@@ -3277,6 +3384,14 @@ out:
 	btrfs_put_ordered_extent(ordered_extent);
 
 	return ret;
+}
+
+int btrfs_finish_ordered_io(struct btrfs_ordered_extent *ordered)
+{
+	if (btrfs_is_zoned(btrfs_sb(ordered->inode->i_sb)) &&
+	    !test_bit(BTRFS_ORDERED_IOERR, &ordered->flags))
+		btrfs_finish_ordered_zoned(ordered);
+	return btrfs_finish_one_ordered(ordered);
 }
 
 void btrfs_writepage_endio_finish_ordered(struct btrfs_inode *inode,
@@ -4226,7 +4341,7 @@ static int btrfs_unlink(struct inode *dir, struct dentry *dentry)
 	}
 
 	btrfs_record_unlink_dir(trans, BTRFS_I(dir), BTRFS_I(d_inode(dentry)),
-			0);
+				false);
 
 	ret = btrfs_unlink_inode(trans, BTRFS_I(dir), BTRFS_I(d_inode(dentry)),
 				 &fname.disk_name);
@@ -4801,7 +4916,7 @@ again:
 
 	if (only_release_metadata)
 		set_extent_bit(&inode->io_tree, block_start, block_end,
-			       EXTENT_NORESERVE, NULL, GFP_NOFS);
+			       EXTENT_NORESERVE, NULL);
 
 out_unlock:
 	if (ret) {
@@ -8462,7 +8577,6 @@ struct inode *btrfs_alloc_inode(struct super_block *sb)
 	ei->io_tree.inode = ei;
 	extent_io_tree_init(fs_info, &ei->file_extent_tree,
 			    IO_TREE_INODE_FILE_EXTENT);
-	atomic_set(&ei->sync_writers, 0);
 	mutex_init(&ei->log_mutex);
 	btrfs_ordered_inode_tree_init(&ei->ordered_tree);
 	INIT_LIST_HEAD(&ei->delalloc_inodes);
@@ -8633,7 +8747,7 @@ static int btrfs_getattr(struct mnt_idmap *idmap,
 	inode_bytes = inode_get_bytes(inode);
 	spin_unlock(&BTRFS_I(inode)->lock);
 	stat->blocks = (ALIGN(inode_bytes, blocksize) +
-			ALIGN(delalloc_bytes, blocksize)) >> 9;
+			ALIGN(delalloc_bytes, blocksize)) >> SECTOR_SHIFT;
 	return 0;
 }
 
@@ -8789,9 +8903,9 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 
 	if (old_dentry->d_parent != new_dentry->d_parent) {
 		btrfs_record_unlink_dir(trans, BTRFS_I(old_dir),
-				BTRFS_I(old_inode), 1);
+					BTRFS_I(old_inode), true);
 		btrfs_record_unlink_dir(trans, BTRFS_I(new_dir),
-				BTRFS_I(new_inode), 1);
+					BTRFS_I(new_inode), true);
 	}
 
 	/* src is a subvolume */
@@ -9057,7 +9171,7 @@ static int btrfs_rename(struct mnt_idmap *idmap,
 
 	if (old_dentry->d_parent != new_dentry->d_parent)
 		btrfs_record_unlink_dir(trans, BTRFS_I(old_dir),
-				BTRFS_I(old_inode), 1);
+					BTRFS_I(old_inode), true);
 
 	if (unlikely(old_ino == BTRFS_FIRST_FREE_OBJECTID)) {
 		ret = btrfs_unlink_subvol(trans, BTRFS_I(old_dir), old_dentry);
