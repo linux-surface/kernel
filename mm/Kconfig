@@ -64,7 +64,7 @@ config ZSWAP_NR_ZPOOLS_ORDER
 	default 0
 	depends on ZSWAP
 	help
-	  This options determines the number of zpools to use for zswap, it
+	  This option determines the number of zpools to use for zswap, it
 	  will be 1 << CONFIG_ZSWAP_NR_ZPOOLS_ORDER.
 
 	  Having multiple zpools helps with concurrency and lock contention
