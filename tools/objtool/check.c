@@ -192,51 +192,11 @@ static bool __dead_end_function(struct objtool_file *file, struct symbol *func,
 	struct instruction *insn;
 	bool empty = true;
 
-	/*
-	 * Unfortunately these have to be hard coded because the noreturn
-	 * attribute isn't provided in ELF data. Keep 'em sorted.
-	 */
+#define NORETURN(func) __stringify(func),
 	static const char * const global_noreturns[] = {
-		"__invalid_creds",
-		"__module_put_and_kthread_exit",
-		"__reiserfs_panic",
-		"__stack_chk_fail",
-		"__ubsan_handle_builtin_unreachable",
-		"arch_call_rest_init",
-		"arch_cpu_idle_dead",
-		"btrfs_assertfail",
-		"cpu_bringup_and_idle",
-		"cpu_startup_entry",
-		"do_exit",
-		"do_group_exit",
-		"do_task_dead",
-		"ex_handler_msr_mce",
-		"fortify_panic",
-		"hlt_play_dead",
-		"hv_ghcb_terminate",
-		"kthread_complete_and_exit",
-		"kthread_exit",
-		"kunit_try_catch_throw",
-		"lbug_with_loc",
-		"machine_real_restart",
-		"make_task_dead",
-		"mpt_halt_firmware",
-		"nmi_panic_self_stop",
-		"panic",
-		"panic_smp_self_stop",
-		"rest_init",
-		"resume_play_dead",
-		"rewind_stack_and_make_dead",
-		"sev_es_terminate",
-		"snp_abort",
-		"start_kernel",
-		"stop_this_cpu",
-		"usercopy_abort",
-		"x86_64_start_kernel",
-		"x86_64_start_reservations",
-		"xen_cpu_bringup_again",
-		"xen_start_kernel",
+#include "noreturns.h"
 	};
+#undef NORETURN
 
 	if (!func)
 		return false;
@@ -3657,8 +3617,7 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 
 				ret = validate_branch(file, func, alt->insn, state);
 				if (ret) {
-					if (opts.backtrace)
-						BT_FUNC("(alt)", insn);
+					BT_INSN(insn, "(alt)");
 					return ret;
 				}
 			}
@@ -3703,8 +3662,7 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 				ret = validate_branch(file, func,
 						      insn->jump_dest, state);
 				if (ret) {
-					if (opts.backtrace)
-						BT_FUNC("(branch)", insn);
+					BT_INSN(insn, "(branch)");
 					return ret;
 				}
 			}
@@ -3802,8 +3760,8 @@ static int validate_unwind_hint(struct objtool_file *file,
 {
 	if (insn->hint && !insn->visited && !insn->ignore) {
 		int ret = validate_branch(file, insn_func(insn), insn, *state);
-		if (ret && opts.backtrace)
-			BT_FUNC("<=== (hint)", insn);
+		if (ret)
+			BT_INSN(insn, "<=== (hint)");
 		return ret;
 	}
 
@@ -3861,8 +3819,7 @@ static int validate_unret(struct objtool_file *file, struct instruction *insn)
 
 				ret = validate_unret(file, alt->insn);
 				if (ret) {
-				        if (opts.backtrace)
-						BT_FUNC("(alt)", insn);
+					BT_INSN(insn, "(alt)");
 					return ret;
 				}
 			}
@@ -3888,10 +3845,8 @@ static int validate_unret(struct objtool_file *file, struct instruction *insn)
 				}
 				ret = validate_unret(file, insn->jump_dest);
 				if (ret) {
-					if (opts.backtrace) {
-						BT_FUNC("(branch%s)", insn,
-							insn->type == INSN_JUMP_CONDITIONAL ? "-cond" : "");
-					}
+					BT_INSN(insn, "(branch%s)",
+						insn->type == INSN_JUMP_CONDITIONAL ? "-cond" : "");
 					return ret;
 				}
 
@@ -3913,8 +3868,7 @@ static int validate_unret(struct objtool_file *file, struct instruction *insn)
 
 			ret = validate_unret(file, dest);
 			if (ret) {
-				if (opts.backtrace)
-					BT_FUNC("(call)", insn);
+				BT_INSN(insn, "(call)");
 				return ret;
 			}
 			/*
@@ -4216,8 +4170,8 @@ static int validate_symbol(struct objtool_file *file, struct section *sec,
 	state->uaccess = sym->uaccess_safe;
 
 	ret = validate_branch(file, insn_func(insn), insn, *state);
-	if (ret && opts.backtrace)
-		BT_FUNC("<=== (sym)", insn);
+	if (ret)
+		BT_INSN(insn, "<=== (sym)");
 	return ret;
 }
 
@@ -4511,9 +4465,40 @@ static int validate_sls(struct objtool_file *file)
 	return warnings;
 }
 
+static bool ignore_noreturn_call(struct instruction *insn)
+{
+	struct symbol *call_dest = insn_call_dest(insn);
+
+	/*
+	 * FIXME: hack, we need a real noreturn solution
+	 *
+	 * Problem is, exc_double_fault() may or may not return, depending on
+	 * whether CONFIG_X86_ESPFIX64 is set.  But objtool has no visibility
+	 * to the kernel config.
+	 *
+	 * Other potential ways to fix it:
+	 *
+	 *   - have compiler communicate __noreturn functions somehow
+	 *   - remove CONFIG_X86_ESPFIX64
+	 *   - read the .config file
+	 *   - add a cmdline option
+	 *   - create a generic objtool annotation format (vs a bunch of custom
+	 *     formats) and annotate it
+	 */
+	if (!strcmp(call_dest->name, "exc_double_fault")) {
+		/* prevent further unreachable warnings for the caller */
+		insn->sym->warned = 1;
+		return true;
+	}
+
+	return false;
+}
+
 static int validate_reachable_instructions(struct objtool_file *file)
 {
-	struct instruction *insn;
+	struct instruction *insn, *prev_insn;
+	struct symbol *call_dest;
+	int warnings = 0;
 
 	if (file->ignore_unreachables)
 		return 0;
@@ -4522,9 +4507,95 @@ static int validate_reachable_instructions(struct objtool_file *file)
 		if (insn->visited || ignore_unreachable_insn(file, insn))
 			continue;
 
+		prev_insn = prev_insn_same_sec(file, insn);
+		if (prev_insn && prev_insn->dead_end) {
+			call_dest = insn_call_dest(prev_insn);
+			if (call_dest && !ignore_noreturn_call(prev_insn)) {
+				WARN_INSN(insn, "%s() is missing a __noreturn annotation",
+					  call_dest->name);
+				warnings++;
+				continue;
+			}
+		}
+
 		WARN_INSN(insn, "unreachable instruction");
-		return 1;
+		warnings++;
 	}
+
+	return warnings;
+}
+
+/* 'funcs' is a space-separated list of function names */
+static int disas_funcs(const char *funcs)
+{
+	const char *objdump_str, *cross_compile;
+	int size, ret;
+	char *cmd;
+
+	cross_compile = getenv("CROSS_COMPILE");
+
+	objdump_str = "%sobjdump -wdr %s | gawk -M -v _funcs='%s' '"
+			"BEGIN { split(_funcs, funcs); }"
+			"/^$/ { func_match = 0; }"
+			"/<.*>:/ { "
+				"f = gensub(/.*<(.*)>:/, \"\\\\1\", 1);"
+				"for (i in funcs) {"
+					"if (funcs[i] == f) {"
+						"func_match = 1;"
+						"base = strtonum(\"0x\" $1);"
+						"break;"
+					"}"
+				"}"
+			"}"
+			"{"
+				"if (func_match) {"
+					"addr = strtonum(\"0x\" $1);"
+					"printf(\"%%04x \", addr - base);"
+					"print;"
+				"}"
+			"}' 1>&2";
+
+	/* fake snprintf() to calculate the size */
+	size = snprintf(NULL, 0, objdump_str, cross_compile, objname, funcs) + 1;
+	if (size <= 0) {
+		WARN("objdump string size calculation failed");
+		return -1;
+	}
+
+	cmd = malloc(size);
+
+	/* real snprintf() */
+	snprintf(cmd, size, objdump_str, cross_compile, objname, funcs);
+	ret = system(cmd);
+	if (ret) {
+		WARN("disassembly failed: %d", ret);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int disas_warned_funcs(struct objtool_file *file)
+{
+	struct symbol *sym;
+	char *funcs = NULL, *tmp;
+
+	for_each_sym(file, sym) {
+		if (sym->warned) {
+			if (!funcs) {
+				funcs = malloc(strlen(sym->name) + 1);
+				strcpy(funcs, sym->name);
+			} else {
+				tmp = malloc(strlen(funcs) + strlen(sym->name) + 2);
+				sprintf(tmp, "%s %s", funcs, sym->name);
+				free(funcs);
+				funcs = tmp;
+			}
+		}
+	}
+
+	if (funcs)
+		disas_funcs(funcs);
 
 	return 0;
 }
@@ -4673,6 +4744,8 @@ int check(struct objtool_file *file)
 		warnings += ret;
 	}
 
+	if (opts.verbose)
+		disas_warned_funcs(file);
 
 	if (opts.stats) {
 		printf("nr_insns_visited: %ld\n", nr_insns_visited);
