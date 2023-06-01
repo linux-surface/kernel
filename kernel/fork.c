@@ -854,11 +854,8 @@ static void do_shoot_lazy_tlb(void *arg)
 {
 	struct mm_struct *mm = arg;
 
-	if (current->active_mm == mm) {
-		WARN_ON_ONCE(current->mm);
-		current->active_mm = &init_mm;
-		switch_mm(mm, &init_mm, current);
-	}
+	if (current->active_mm == mm)
+		kthread_end_lazy_tlb_mm();
 }
 
 static void cleanup_lazy_tlbs(struct mm_struct *mm)

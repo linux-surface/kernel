@@ -795,12 +795,8 @@ void exit_lazy_flush_tlb(struct mm_struct *mm, bool always_flush)
 		goto out;
 
 	if (current->active_mm == mm) {
-		WARN_ON_ONCE(current->mm != NULL);
 		/* Is a kernel thread and is using mm as the lazy tlb */
-		mmgrab_lazy_tlb(&init_mm);
-		current->active_mm = &init_mm;
-		switch_mm_irqs_off(mm, &init_mm, current);
-		mmdrop_lazy_tlb(mm);
+		kthread_end_lazy_tlb_mm();
 	}
 
 	/*
