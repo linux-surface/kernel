@@ -13,6 +13,7 @@ struct frontswap_ops {
 	int (*load)(unsigned, pgoff_t, struct page *); /* load a page */
 	void (*invalidate_page)(unsigned, pgoff_t); /* page no longer needed */
 	void (*invalidate_area)(unsigned); /* swap type just swapoff'ed */
+	bool exclusive_loads; /* pages are invalidated after being loaded */
 };
 
 int frontswap_register_ops(const struct frontswap_ops *ops);
