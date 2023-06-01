@@ -2008,6 +2008,7 @@ static bool arm_smmu_capable(struct device *dev, enum iommu_cap cap)
 		/* Assume that a coherent TCU implies coherent TBUs */
 		return master->smmu->features & ARM_SMMU_FEAT_COHERENCY;
 	case IOMMU_CAP_NOEXEC:
+	case IOMMU_CAP_DEFERRED_FLUSH:
 		return true;
 	default:
 		return false;
@@ -2023,7 +2024,6 @@ static struct iommu_domain *arm_smmu_domain_alloc(unsigned type)
 
 	if (type != IOMMU_DOMAIN_UNMANAGED &&
 	    type != IOMMU_DOMAIN_DMA &&
-	    type != IOMMU_DOMAIN_DMA_FQ &&
 	    type != IOMMU_DOMAIN_IDENTITY)
 		return NULL;
 
