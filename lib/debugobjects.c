@@ -466,6 +466,7 @@ static void debug_objects_oom(void)
 	unsigned long flags;
 	int i;
 
+	debug_objects_enabled = 0;
 	pr_warn("Out of memory. ODEBUG disabled\n");
 
 	for (i = 0; i < ODEBUG_HASH_SIZE; i++, db++) {
@@ -502,10 +503,10 @@ static void debug_print_object(struct debug_obj *obj, char *msg)
 		void *hint = descr->debug_hint ?
 			descr->debug_hint(obj->object) : NULL;
 		limit++;
-		WARN(1, KERN_ERR "ODEBUG: %s %s (active state %u) "
-				 "object: %p object type: %s hint: %pS\n",
-			msg, obj_states[obj->state], obj->astate,
-			obj->object, descr->name, hint);
+		WARN(debug_objects_enabled, KERN_ERR
+		     "ODEBUG: %s %s (active state %u) object: %p object type: %s hint: %pS\n",
+		     msg, obj_states[obj->state], obj->astate,
+		     obj->object, descr->name, hint);
 	}
 	debug_objects_warnings++;
 }
