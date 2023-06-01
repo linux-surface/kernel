@@ -911,6 +911,32 @@ static bool nau8825_volatile_reg(struct device *dev, unsigned int reg)
 	}
 }
 
+static int nau8825_fepga_event(struct snd_soc_dapm_widget *w,
+			       struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+	struct nau8825 *nau8825 = snd_soc_component_get_drvdata(component);
+
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		regmap_update_bits(nau8825->regmap, NAU8825_REG_FEPGA,
+				   NAU8825_ACDC_CTRL_MASK,
+				   NAU8825_ACDC_VREF_MICP | NAU8825_ACDC_VREF_MICN);
+		regmap_update_bits(nau8825->regmap, NAU8825_REG_BOOST,
+				   NAU8825_DISCHRG_EN, NAU8825_DISCHRG_EN);
+		msleep(40);
+		regmap_update_bits(nau8825->regmap, NAU8825_REG_BOOST,
+				   NAU8825_DISCHRG_EN, 0);
+		regmap_update_bits(nau8825->regmap, NAU8825_REG_FEPGA,
+				   NAU8825_ACDC_CTRL_MASK, 0);
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static int nau8825_adc_event(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
 {
@@ -1127,8 +1153,8 @@ static const struct snd_soc_dapm_widget nau8825_dapm_widgets[] = {
 	SND_SOC_DAPM_INPUT("MIC"),
 	SND_SOC_DAPM_MICBIAS("MICBIAS", NAU8825_REG_MIC_BIAS, 8, 0),
 
-	SND_SOC_DAPM_PGA("Frontend PGA", NAU8825_REG_POWER_UP_CONTROL, 14, 0,
-		NULL, 0),
+	SND_SOC_DAPM_PGA_E("Frontend PGA", NAU8825_REG_POWER_UP_CONTROL, 14, 0,
+			   NULL, 0, nau8825_fepga_event, SND_SOC_DAPM_POST_PMU),
 
 	SND_SOC_DAPM_ADC_E("ADC", NULL, SND_SOC_NOPM, 0, 0,
 		nau8825_adc_event, SND_SOC_DAPM_POST_PMU |
@@ -1678,6 +1704,10 @@ static void nau8825_setup_auto_irq(struct nau8825 *nau8825)
 {
 	struct regmap *regmap = nau8825->regmap;
 
+	/* Enable HSD function */
+	regmap_update_bits(regmap, NAU8825_REG_HSD_CTRL,
+			   NAU8825_HSD_AUTO_MODE, NAU8825_HSD_AUTO_MODE);
+
 	/* Enable headset jack type detection complete interruption and
 	 * jack ejection interruption.
 	 */
@@ -1928,6 +1958,9 @@ static int nau8825_jack_insert(struct nau8825 *nau8825)
 	/* Update to the default divider of internal clock for power saving */
 	regmap_update_bits(regmap, NAU8825_REG_CLK_DIVIDER,
 			   NAU8825_CLK_MCLK_SRC_MASK, 0xf);
+
+	/* Disable HSD function */
+	regmap_update_bits(regmap, NAU8825_REG_HSD_CTRL, NAU8825_HSD_AUTO_MODE, 0);
 
 	/* Leaving HPOL/R grounded after jack insert by default. They will be
 	 * ungrounded as part of the widget power up sequence at the beginning
@@ -2944,7 +2977,7 @@ static struct i2c_driver nau8825_driver = {
 		.of_match_table = of_match_ptr(nau8825_of_ids),
 		.acpi_match_table = ACPI_PTR(nau8825_acpi_match),
 	},
-	.probe_new = nau8825_i2c_probe,
+	.probe = nau8825_i2c_probe,
 	.remove = nau8825_i2c_remove,
 	.id_table = nau8825_i2c_ids,
 };
