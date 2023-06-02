@@ -1091,7 +1091,7 @@ static int _set_opp(struct device *dev, struct opp_table *opp_table,
 
 	/* Return early if nothing to do */
 	if (!forced && old_opp == opp && opp_table->enabled) {
-		dev_dbg(dev, "%s: OPPs are same, nothing to do\n", __func__);
+		dev_dbg_ratelimited(dev, "%s: OPPs are same, nothing to do\n", __func__);
 		return 0;
 	}
 
@@ -1358,7 +1358,10 @@ static struct opp_table *_allocate_opp_table(struct device *dev, int index)
 	return opp_table;
 
 remove_opp_dev:
+	_of_clear_opp_table(opp_table);
 	_remove_opp_dev(opp_dev, opp_table);
+	mutex_destroy(&opp_table->genpd_virt_dev_lock);
+	mutex_destroy(&opp_table->lock);
 err:
 	kfree(opp_table);
 	return ERR_PTR(ret);
