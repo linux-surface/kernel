@@ -146,13 +146,6 @@ static int kfd_open(struct inode *inode, struct file *filep)
 	if (IS_ERR(process))
 		return PTR_ERR(process);
 
-	if (kfd_is_locked()) {
-		dev_dbg(kfd_device, "kfd is locked!\n"
-				"process %d unreferenced", process->pasid);
-		kfd_unref_process(process);
-		return -EAGAIN;
-	}
-
 	/* filep now owns the reference returned by kfd_create_process */
 	filep->private_data = process;
 
@@ -186,7 +179,12 @@ static int kfd_ioctl_get_version(struct file *filep, struct kfd_process *p,
 static int set_queue_properties_from_user(struct queue_properties *q_properties,
 				struct kfd_ioctl_create_queue_args *args)
 {
-	if (args->queue_percentage > KFD_MAX_QUEUE_PERCENTAGE) {
+	/*
+	 * Repurpose queue percentage to accommodate new features:
+	 * bit 0-7: queue percentage
+	 * bit 8-15: pm4_target_xcc
+	 */
+	if ((args->queue_percentage & 0xFF) > KFD_MAX_QUEUE_PERCENTAGE) {
 		pr_err("Queue percentage must be between 0 to KFD_MAX_QUEUE_PERCENTAGE\n");
 		return -EINVAL;
 	}
@@ -236,7 +234,9 @@ static int set_queue_properties_from_user(struct queue_properties *q_properties,
 
 	q_properties->is_interop = false;
 	q_properties->is_gws = false;
-	q_properties->queue_percent = args->queue_percentage;
+	q_properties->queue_percent = args->queue_percentage & 0xFF;
+	/* bit 8-15 are repurposed to be PM4 target XCC */
+	q_properties->pm4_target_xcc = (args->queue_percentage >> 8) & 0xFF;
 	q_properties->priority = args->queue_priority;
 	q_properties->queue_address = args->ring_base_address;
 	q_properties->queue_size = args->ring_size;
@@ -293,7 +293,7 @@ static int kfd_ioctl_create_queue(struct file *filep, struct kfd_process *p,
 					void *data)
 {
 	struct kfd_ioctl_create_queue_args *args = data;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 	int err = 0;
 	unsigned int queue_id;
 	struct kfd_process_device *pdd;
@@ -328,7 +328,7 @@ static int kfd_ioctl_create_queue(struct file *filep, struct kfd_process *p,
 	}
 
 	if (!pdd->doorbell_index &&
-	    kfd_alloc_process_doorbells(dev, &pdd->doorbell_index) < 0) {
+	    kfd_alloc_process_doorbells(dev->kfd, &pdd->doorbell_index) < 0) {
 		err = -ENOMEM;
 		goto err_alloc_doorbells;
 	}
@@ -336,7 +336,7 @@ static int kfd_ioctl_create_queue(struct file *filep, struct kfd_process *p,
 	/* Starting with GFX11, wptr BOs must be mapped to GART for MES to determine work
 	 * on unmapped queues for usermode queue oversubscription (no aggregated doorbell)
 	 */
-	if (dev->shared_resources.enable_mes &&
+	if (dev->kfd->shared_resources.enable_mes &&
 			((dev->adev->mes.sched_version & AMDGPU_MES_API_VERSION_MASK)
 			>> AMDGPU_MES_API_VERSION_SHIFT) >= 2) {
 		struct amdgpu_bo_va_mapping *wptr_mapping;
@@ -442,7 +442,12 @@ static int kfd_ioctl_update_queue(struct file *filp, struct kfd_process *p,
 	struct kfd_ioctl_update_queue_args *args = data;
 	struct queue_properties properties;
 
-	if (args->queue_percentage > KFD_MAX_QUEUE_PERCENTAGE) {
+	/*
+	 * Repurpose queue percentage to accommodate new features:
+	 * bit 0-7: queue percentage
+	 * bit 8-15: pm4_target_xcc
+	 */
+	if ((args->queue_percentage & 0xFF) > KFD_MAX_QUEUE_PERCENTAGE) {
 		pr_err("Queue percentage must be between 0 to KFD_MAX_QUEUE_PERCENTAGE\n");
 		return -EINVAL;
 	}
@@ -466,7 +471,9 @@ static int kfd_ioctl_update_queue(struct file *filp, struct kfd_process *p,
 
 	properties.queue_address = args->ring_base_address;
 	properties.queue_size = args->ring_size;
-	properties.queue_percent = args->queue_percentage;
+	properties.queue_percent = args->queue_percentage & 0xFF;
+	/* bit 8-15 are repurposed to be PM4 target XCC */
+	properties.pm4_target_xcc = (args->queue_percentage >> 8) & 0xFF;
 	properties.priority = args->queue_priority;
 
 	pr_debug("Updating queue id %d for pasid 0x%x\n",
@@ -887,7 +894,7 @@ static int kfd_ioctl_set_scratch_backing_va(struct file *filep,
 {
 	struct kfd_ioctl_set_scratch_backing_va_args *args = data;
 	struct kfd_process_device *pdd;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 	long err;
 
 	mutex_lock(&p->mutex);
@@ -1006,19 +1013,26 @@ err_drm_file:
 	return ret;
 }
 
-bool kfd_dev_is_large_bar(struct kfd_dev *dev)
+bool kfd_dev_is_large_bar(struct kfd_node *dev)
 {
 	if (debug_largebar) {
 		pr_debug("Simulate large-bar allocation on non large-bar machine\n");
 		return true;
 	}
 
-	if (dev->use_iommu_v2)
+	if (dev->kfd->use_iommu_v2)
 		return false;
 
 	if (dev->local_mem_info.local_mem_size_private == 0 &&
-			dev->local_mem_info.local_mem_size_public > 0)
+	    dev->local_mem_info.local_mem_size_public > 0)
 		return true;
+
+	if (dev->local_mem_info.local_mem_size_public == 0 &&
+	    dev->kfd->adev->gmc.is_app_apu) {
+		pr_debug("APP APU, Consider like a large bar system\n");
+		return true;
+	}
+
 	return false;
 }
 
@@ -1030,7 +1044,8 @@ static int kfd_ioctl_get_available_memory(struct file *filep,
 
 	if (!pdd)
 		return -EINVAL;
-	args->available = amdgpu_amdkfd_get_available_memory(pdd->dev->adev);
+	args->available = amdgpu_amdkfd_get_available_memory(pdd->dev->adev,
+							pdd->dev->node_id);
 	kfd_unlock_pdd(pdd);
 	return 0;
 }
@@ -1041,7 +1056,7 @@ static int kfd_ioctl_alloc_memory_of_gpu(struct file *filep,
 	struct kfd_ioctl_alloc_memory_of_gpu_args *args = data;
 	struct kfd_process_device *pdd;
 	void *mem;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 	int idr_handle;
 	long err;
 	uint64_t offset = args->mmap_offset;
@@ -1105,7 +1120,7 @@ static int kfd_ioctl_alloc_memory_of_gpu(struct file *filep,
 	}
 
 	if (flags & KFD_IOC_ALLOC_MEM_FLAGS_DOORBELL) {
-		if (args->size != kfd_doorbell_process_slice(dev)) {
+		if (args->size != kfd_doorbell_process_slice(dev->kfd)) {
 			err = -EINVAL;
 			goto err_unlock;
 		}
@@ -1231,7 +1246,7 @@ static int kfd_ioctl_map_memory_to_gpu(struct file *filep,
 	struct kfd_ioctl_map_memory_to_gpu_args *args = data;
 	struct kfd_process_device *pdd, *peer_pdd;
 	void *mem;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 	long err = 0;
 	int i;
 	uint32_t *devices_arr = NULL;
@@ -1405,7 +1420,7 @@ static int kfd_ioctl_unmap_memory_from_gpu(struct file *filep,
 		args->n_success = i+1;
 	}
 
-	flush_tlb = kfd_flush_tlb_after_unmap(pdd->dev);
+	flush_tlb = kfd_flush_tlb_after_unmap(pdd->dev->kfd);
 	if (flush_tlb) {
 		err = amdgpu_amdkfd_gpuvm_sync_memory(pdd->dev->adev,
 				(struct kgd_mem *) mem, true);
@@ -1445,7 +1460,7 @@ static int kfd_ioctl_alloc_queue_gws(struct file *filep,
 	int retval;
 	struct kfd_ioctl_alloc_queue_gws_args *args = data;
 	struct queue *q;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 
 	mutex_lock(&p->mutex);
 	q = pqm_get_user_queue(&p->pqm, args->queue_id);
@@ -1482,10 +1497,11 @@ static int kfd_ioctl_get_dmabuf_info(struct file *filep,
 		struct kfd_process *p, void *data)
 {
 	struct kfd_ioctl_get_dmabuf_info_args *args = data;
-	struct kfd_dev *dev = NULL;
+	struct kfd_node *dev = NULL;
 	struct amdgpu_device *dmabuf_adev;
 	void *metadata_buffer = NULL;
 	uint32_t flags;
+	int8_t xcp_id;
 	unsigned int i;
 	int r;
 
@@ -1506,17 +1522,14 @@ static int kfd_ioctl_get_dmabuf_info(struct file *filep,
 	r = amdgpu_amdkfd_get_dmabuf_info(dev->adev, args->dmabuf_fd,
 					  &dmabuf_adev, &args->size,
 					  metadata_buffer, args->metadata_size,
-					  &args->metadata_size, &flags);
+					  &args->metadata_size, &flags, &xcp_id);
 	if (r)
 		goto exit;
 
-	/* Reverse-lookup gpu_id from kgd pointer */
-	dev = kfd_device_by_adev(dmabuf_adev);
-	if (!dev) {
-		r = -EINVAL;
-		goto exit;
-	}
-	args->gpu_id = dev->id;
+	if (xcp_id >= 0)
+		args->gpu_id = dmabuf_adev->kfd.dev->nodes[xcp_id]->id;
+	else
+		args->gpu_id = dmabuf_adev->kfd.dev->nodes[0]->id;
 	args->flags = flags;
 
 	/* Copy metadata buffer to user mode */
@@ -1596,7 +1609,7 @@ static int kfd_ioctl_export_dmabuf(struct file *filep,
 	struct kfd_ioctl_export_dmabuf_args *args = data;
 	struct kfd_process_device *pdd;
 	struct dma_buf *dmabuf;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 	void *mem;
 	int ret = 0;
 
@@ -2178,7 +2191,7 @@ static int criu_restore_devices(struct kfd_process *p,
 	}
 
 	for (i = 0; i < args->num_devices; i++) {
-		struct kfd_dev *dev;
+		struct kfd_node *dev;
 		struct kfd_process_device *pdd;
 		struct file *drm_file;
 
@@ -2240,7 +2253,7 @@ static int criu_restore_devices(struct kfd_process *p,
 		}
 
 		if (!pdd->doorbell_index &&
-		    kfd_alloc_process_doorbells(pdd->dev, &pdd->doorbell_index) < 0) {
+		    kfd_alloc_process_doorbells(pdd->dev->kfd, &pdd->doorbell_index) < 0) {
 			ret = -ENOMEM;
 			goto exit;
 		}
@@ -2268,7 +2281,8 @@ static int criu_restore_memory_of_gpu(struct kfd_process_device *pdd,
 	u64 offset;
 
 	if (bo_bucket->alloc_flags & KFD_IOC_ALLOC_MEM_FLAGS_DOORBELL) {
-		if (bo_bucket->size != kfd_doorbell_process_slice(pdd->dev))
+		if (bo_bucket->size !=
+				kfd_doorbell_process_slice(pdd->dev->kfd))
 			return -EINVAL;
 
 		offset = kfd_get_process_doorbells(pdd);
@@ -2350,7 +2364,7 @@ static int criu_restore_bo(struct kfd_process *p,
 
 	/* now map these BOs to GPU/s */
 	for (j = 0; j < p->n_pdds; j++) {
-		struct kfd_dev *peer;
+		struct kfd_node *peer;
 		struct kfd_process_device *peer_pdd;
 
 		if (!bo_priv->mapped_gpuids[j])
@@ -2947,7 +2961,7 @@ err_i1:
 	return retcode;
 }
 
-static int kfd_mmio_mmap(struct kfd_dev *dev, struct kfd_process *process,
+static int kfd_mmio_mmap(struct kfd_node *dev, struct kfd_process *process,
 		      struct vm_area_struct *vma)
 {
 	phys_addr_t address;
@@ -2981,7 +2995,7 @@ static int kfd_mmio_mmap(struct kfd_dev *dev, struct kfd_process *process,
 static int kfd_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	struct kfd_process *process;
-	struct kfd_dev *dev = NULL;
+	struct kfd_node *dev = NULL;
 	unsigned long mmap_offset;
 	unsigned int gpu_id;
 

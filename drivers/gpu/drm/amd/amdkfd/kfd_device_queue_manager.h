@@ -207,7 +207,7 @@ struct device_queue_manager_asic_ops {
 				struct queue *q,
 				struct qcm_process_device *qpd);
 	struct mqd_manager *	(*mqd_manager_init)(enum KFD_MQD_TYPE type,
-				 struct kfd_dev *dev);
+				 struct kfd_node *dev);
 };
 
 /**
@@ -228,7 +228,7 @@ struct device_queue_manager {
 
 	struct mqd_manager	*mqd_mgrs[KFD_MQD_TYPE_MAX];
 	struct packet_manager	packet_mgr;
-	struct kfd_dev		*dev;
+	struct kfd_node		*dev;
 	struct mutex		lock_hidden; /* use dqm_lock/unlock(dqm) */
 	struct list_head	queues;
 	unsigned int		saved_flags;
@@ -239,8 +239,8 @@ struct device_queue_manager {
 	unsigned int		total_queue_count;
 	unsigned int		next_pipe_to_allocate;
 	unsigned int		*allocated_queues;
-	uint64_t		sdma_bitmap;
-	uint64_t		xgmi_sdma_bitmap;
+	DECLARE_BITMAP(sdma_bitmap, KFD_MAX_SDMA_QUEUES);
+	DECLARE_BITMAP(xgmi_sdma_bitmap, KFD_MAX_SDMA_QUEUES);
 	/* the pasid mapping for each kfd vmid */
 	uint16_t		vmid_pasid[VMID_NUM];
 	uint64_t		pipelines_addr;
@@ -256,6 +256,9 @@ struct device_queue_manager {
 	struct work_struct	hw_exception_work;
 	struct kfd_mem_obj	hiq_sdma_mqd;
 	bool			sched_running;
+
+	/* used for GFX 9.4.3 only */
+	uint32_t		current_logical_xcc_start;
 };
 
 void device_queue_manager_init_cik(

@@ -374,6 +374,7 @@ union pipe_update_flags {
 		uint32_t viewport : 1;
 		uint32_t plane_changed : 1;
 		uint32_t det_size : 1;
+		uint32_t unbounded_req : 1;
 	} bits;
 	uint32_t raw;
 };
@@ -426,6 +427,8 @@ struct pipe_ctx {
 	struct dwbc *dwbc;
 	struct mcif_wb *mcif_wb;
 	union pipe_update_flags update_flags;
+	struct tg_color visual_confirm_color;
+	bool has_vactive_margin;
 };
 
 /* Data used for dynamic link encoder assignment.

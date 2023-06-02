@@ -81,7 +81,7 @@ static int find_available_queue_slot(struct process_queue_manager *pqm,
 
 void kfd_process_dequeue_from_device(struct kfd_process_device *pdd)
 {
-	struct kfd_dev *dev = pdd->dev;
+	struct kfd_node *dev = pdd->dev;
 
 	if (pdd->already_dequeued)
 		return;
@@ -93,7 +93,7 @@ void kfd_process_dequeue_from_device(struct kfd_process_device *pdd)
 int pqm_set_gws(struct process_queue_manager *pqm, unsigned int qid,
 			void *gws)
 {
-	struct kfd_dev *dev = NULL;
+	struct kfd_node *dev = NULL;
 	struct process_queue_node *pqn;
 	struct kfd_process_device *pdd;
 	struct kgd_mem *mem = NULL;
@@ -178,7 +178,7 @@ void pqm_uninit(struct process_queue_manager *pqm)
 }
 
 static int init_user_queue(struct process_queue_manager *pqm,
-				struct kfd_dev *dev, struct queue **q,
+				struct kfd_node *dev, struct queue **q,
 				struct queue_properties *q_properties,
 				struct file *f, struct amdgpu_bo *wptr_bo,
 				unsigned int qid)
@@ -199,7 +199,7 @@ static int init_user_queue(struct process_queue_manager *pqm,
 	(*q)->device = dev;
 	(*q)->process = pqm->process;
 
-	if (dev->shared_resources.enable_mes) {
+	if (dev->kfd->shared_resources.enable_mes) {
 		retval = amdgpu_amdkfd_alloc_gtt_mem(dev->adev,
 						AMDGPU_MES_GANG_CTX_SIZE,
 						&(*q)->gang_ctx_bo,
@@ -224,7 +224,7 @@ cleanup:
 }
 
 int pqm_create_queue(struct process_queue_manager *pqm,
-			    struct kfd_dev *dev,
+			    struct kfd_node *dev,
 			    struct file *f,
 			    struct queue_properties *properties,
 			    unsigned int *qid,
@@ -242,6 +242,13 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 	enum kfd_queue_type type = properties->type;
 	unsigned int max_queues = 127; /* HWS limit */
 
+	/*
+	 * On GFX 9.4.3, increase the number of queues that
+	 * can be created to 255. No HWS limit on GFX 9.4.3.
+	 */
+	if (KFD_GC_VERSION(dev) == IP_VERSION(9, 4, 3))
+		max_queues = 255;
+
 	q = NULL;
 	kq = NULL;
 
@@ -258,7 +265,7 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 	 * Hence we also check the type as well
 	 */
 	if ((pdd->qpd.is_debug) || (type == KFD_QUEUE_TYPE_DIQ))
-		max_queues = dev->device_info.max_no_of_hqd/2;
+		max_queues = dev->kfd->device_info.max_no_of_hqd/2;
 
 	if (pdd->qpd.queue_count >= max_queues)
 		return -ENOSPC;
@@ -354,7 +361,7 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 		 */
 		*p_doorbell_offset_in_process =
 			(q->properties.doorbell_off * sizeof(uint32_t)) &
-			(kfd_doorbell_process_slice(dev) - 1);
+			(kfd_doorbell_process_slice(dev->kfd) - 1);
 
 	pr_debug("PQM After DQM create queue\n");
 
@@ -387,7 +394,7 @@ int pqm_destroy_queue(struct process_queue_manager *pqm, unsigned int qid)
 	struct process_queue_node *pqn;
 	struct kfd_process_device *pdd;
 	struct device_queue_manager *dqm;
-	struct kfd_dev *dev;
+	struct kfd_node *dev;
 	int retval;
 
 	dqm = NULL;
@@ -439,7 +446,7 @@ int pqm_destroy_queue(struct process_queue_manager *pqm, unsigned int qid)
 			pdd->qpd.num_gws = 0;
 		}
 
-		if (dev->shared_resources.enable_mes) {
+		if (dev->kfd->shared_resources.enable_mes) {
 			amdgpu_amdkfd_free_gtt_mem(dev->adev,
 						   pqn->q->gang_ctx_bo);
 			if (pqn->q->wptr_bo)
@@ -477,6 +484,7 @@ int pqm_update_queue_properties(struct process_queue_manager *pqm,
 	pqn->q->properties.queue_size = p->queue_size;
 	pqn->q->properties.queue_percent = p->queue_percent;
 	pqn->q->properties.priority = p->priority;
+	pqn->q->properties.pm4_target_xcc = p->pm4_target_xcc;
 
 	retval = pqn->q->device->dqm->ops.update_queue(pqn->q->device->dqm,
 							pqn->q, NULL);
@@ -859,7 +867,7 @@ int kfd_criu_restore_queue(struct kfd_process *p,
 	}
 
 	if (!pdd->doorbell_index &&
-	    kfd_alloc_process_doorbells(pdd->dev, &pdd->doorbell_index) < 0) {
+	    kfd_alloc_process_doorbells(pdd->dev->kfd, &pdd->doorbell_index) < 0) {
 		ret = -ENOMEM;
 		goto exit;
 	}
@@ -927,7 +935,9 @@ int pqm_debugfs_mqds(struct seq_file *m, void *data)
 	struct queue *q;
 	enum KFD_MQD_TYPE mqd_type;
 	struct mqd_manager *mqd_mgr;
-	int r = 0;
+	int r = 0, xcc, num_xccs = 1;
+	void *mqd;
+	uint64_t size = 0;
 
 	list_for_each_entry(pqn, &pqm->queues, process_queue_list) {
 		if (pqn->q) {
@@ -943,6 +953,7 @@ int pqm_debugfs_mqds(struct seq_file *m, void *data)
 				seq_printf(m, "  Compute queue on device %x\n",
 					   q->device->id);
 				mqd_type = KFD_MQD_TYPE_CP;
+				num_xccs = NUM_XCC(q->device->xcc_mask);
 				break;
 			default:
 				seq_printf(m,
@@ -951,6 +962,8 @@ int pqm_debugfs_mqds(struct seq_file *m, void *data)
 				continue;
 			}
 			mqd_mgr = q->device->dqm->mqd_mgrs[mqd_type];
+			size = mqd_mgr->mqd_stride(mqd_mgr,
+							&q->properties);
 		} else if (pqn->kq) {
 			q = pqn->kq->queue;
 			mqd_mgr = pqn->kq->mqd_mgr;
@@ -972,9 +985,12 @@ int pqm_debugfs_mqds(struct seq_file *m, void *data)
 			continue;
 		}
 
-		r = mqd_mgr->debugfs_show_mqd(m, q->mqd);
-		if (r != 0)
-			break;
+		for (xcc = 0; xcc < num_xccs; xcc++) {
+			mqd = q->mqd + size * xcc;
+			r = mqd_mgr->debugfs_show_mqd(m, mqd);
+			if (r != 0)
+				break;
+		}
 	}
 
 	return r;

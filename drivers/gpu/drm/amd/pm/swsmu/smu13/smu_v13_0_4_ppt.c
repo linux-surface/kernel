@@ -478,7 +478,7 @@ static int smu_v13_0_4_get_dpm_level_count(struct smu_context *smu,
 static int smu_v13_0_4_print_clk_levels(struct smu_context *smu,
 					enum smu_clk_type clk_type, char *buf)
 {
-	int i, size = 0, ret = 0;
+	int i, idx, size = 0, ret = 0;
 	uint32_t cur_value = 0, value = 0, count = 0;
 	uint32_t min, max;
 
@@ -512,7 +512,8 @@ static int smu_v13_0_4_print_clk_levels(struct smu_context *smu,
 			break;
 
 		for (i = 0; i < count; i++) {
-			ret = smu_v13_0_4_get_dpm_freq_by_index(smu, clk_type, i, &value);
+			idx = (clk_type == SMU_FCLK || clk_type == SMU_MCLK) ? (count - i - 1) : i;
+			ret = smu_v13_0_4_get_dpm_freq_by_index(smu, clk_type, idx, &value);
 			if (ret)
 				break;
 
@@ -1043,6 +1044,7 @@ void smu_v13_0_4_set_ppt_funcs(struct smu_context *smu)
 	smu->message_map = smu_v13_0_4_message_map;
 	smu->feature_map = smu_v13_0_4_feature_mask_map;
 	smu->table_map = smu_v13_0_4_table_map;
+	smu->smc_driver_if_version = SMU13_0_4_DRIVER_IF_VERSION;
 	smu->is_apu = true;
 
 	if (adev->ip_versions[MP1_HWIP][0] == IP_VERSION(13, 0, 4))

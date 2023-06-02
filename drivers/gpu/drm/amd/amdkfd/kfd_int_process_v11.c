@@ -187,7 +187,7 @@ static void print_sq_intr_info_error(uint32_t context_id0, uint32_t context_id1)
 		REG_GET_FIELD(context_id0, SQ_INTERRUPT_WORD_ERROR_CTXID1, WGP_ID));
 }
 
-static void event_interrupt_poison_consumption_v11(struct kfd_dev *dev,
+static void event_interrupt_poison_consumption_v11(struct kfd_node *dev,
 				uint16_t pasid, uint16_t source_id)
 {
 	int ret = -EINVAL;
@@ -225,7 +225,7 @@ static void event_interrupt_poison_consumption_v11(struct kfd_dev *dev,
 		amdgpu_amdkfd_ras_poison_consumption_handler(dev->adev, true);
 }
 
-static bool event_interrupt_isr_v11(struct kfd_dev *dev,
+static bool event_interrupt_isr_v11(struct kfd_node *dev,
 					const uint32_t *ih_ring_entry,
 					uint32_t *patched_ihre,
 					bool *patched_flag)
@@ -274,12 +274,12 @@ static bool event_interrupt_isr_v11(struct kfd_dev *dev,
 		  !amdgpu_no_queue_eviction_on_vm_fault);
 }
 
-static void event_interrupt_wq_v11(struct kfd_dev *dev,
+static void event_interrupt_wq_v11(struct kfd_node *dev,
 					const uint32_t *ih_ring_entry)
 {
 	uint16_t source_id, client_id, ring_id, pasid, vmid;
 	uint32_t context_id0, context_id1;
-	uint8_t sq_int_enc, sq_int_errtype, sq_int_priv;
+	uint8_t sq_int_enc, sq_int_errtype;
 	struct kfd_vm_fault_info info = {0};
 	struct kfd_hsa_memory_exception_data exception_data;
 
@@ -348,13 +348,6 @@ static void event_interrupt_wq_v11(struct kfd_dev *dev,
 				break;
 			case SQ_INTERRUPT_WORD_ENCODING_INST:
 				print_sq_intr_info_inst(context_id0, context_id1);
-				sq_int_priv = REG_GET_FIELD(context_id0,
-						SQ_INTERRUPT_WORD_WAVE_CTXID0, PRIV);
-				/*if (sq_int_priv && (kfd_set_dbg_ev_from_interrupt(dev, pasid,
-						KFD_CTXID0_DOORBELL_ID(context_id0),
-						KFD_CTXID0_TRAP_CODE(context_id0),
-						NULL, 0)))
-					return;*/
 				break;
 			case SQ_INTERRUPT_WORD_ENCODING_ERROR:
 				print_sq_intr_info_error(context_id0, context_id1);

@@ -81,7 +81,7 @@ static void set_priority(struct v11_compute_mqd *m, struct queue_properties *q)
 	m->cp_hqd_queue_priority = q->priority;
 }
 
-static struct kfd_mem_obj *allocate_mqd(struct kfd_dev *kfd,
+static struct kfd_mem_obj *allocate_mqd(struct kfd_node *node,
 		struct queue_properties *q)
 {
 	struct kfd_mem_obj *mqd_mem_obj;
@@ -91,12 +91,12 @@ static struct kfd_mem_obj *allocate_mqd(struct kfd_dev *kfd,
 	 * MES write to areas beyond MQD size. So allocate
 	 * 1 PAGE_SIZE memory for MQD is MES is enabled.
 	 */
-	if (kfd->shared_resources.enable_mes)
+	if (node->kfd->shared_resources.enable_mes)
 		size = PAGE_SIZE;
 	else
 		size = sizeof(struct v11_compute_mqd);
 
-	if (kfd_gtt_sa_allocate(kfd, size, &mqd_mem_obj))
+	if (kfd_gtt_sa_allocate(node, size, &mqd_mem_obj))
 		return NULL;
 
 	return mqd_mem_obj;
@@ -113,7 +113,7 @@ static void init_mqd(struct mqd_manager *mm, void **mqd,
 	m = (struct v11_compute_mqd *) mqd_mem_obj->cpu_ptr;
 	addr = mqd_mem_obj->gpu_addr;
 
-	if (mm->dev->shared_resources.enable_mes)
+	if (mm->dev->kfd->shared_resources.enable_mes)
 		size = PAGE_SIZE;
 	else
 		size = sizeof(struct v11_compute_mqd);
@@ -155,7 +155,7 @@ static void init_mqd(struct mqd_manager *mm, void **mqd,
 			1 << CP_HQD_AQL_CONTROL__CONTROL0__SHIFT;
 	}
 
-	if (mm->dev->cwsr_enabled) {
+	if (mm->dev->kfd->cwsr_enabled) {
 		m->cp_hqd_persistent_state |=
 			(1 << CP_HQD_PERSISTENT_STATE__QSWITCH_MODE__SHIFT);
 		m->cp_hqd_ctx_save_base_addr_lo =
@@ -184,7 +184,7 @@ static int load_mqd(struct mqd_manager *mm, void *mqd,
 
 	r = mm->dev->kfd2kgd->hqd_load(mm->dev->adev, mqd, pipe_id, queue_id,
 					  (uint32_t __user *)p->write_ptr,
-					  wptr_shift, 0, mms);
+					  wptr_shift, 0, mms, 0);
 	return r;
 }
 
@@ -243,7 +243,7 @@ static void update_mqd(struct mqd_manager *mm, void *mqd,
 		m->cp_hqd_pq_doorbell_control |=
 			1 << CP_HQD_PQ_DOORBELL_CONTROL__DOORBELL_BIF_DROP__SHIFT;
 	}
-	if (mm->dev->cwsr_enabled)
+	if (mm->dev->kfd->cwsr_enabled)
 		m->cp_hqd_ctx_save_control = 0;
 
 	update_cu_mask(mm, mqd, minfo);
@@ -260,6 +260,7 @@ static uint32_t read_doorbell_id(void *mqd)
 }
 
 static int get_wave_state(struct mqd_manager *mm, void *mqd,
+			  struct queue_properties *q,
 			  void __user *ctl_stack,
 			  u32 *ctl_stack_used_size,
 			  u32 *save_area_used_size)
@@ -319,7 +320,7 @@ static void init_mqd_sdma(struct mqd_manager *mm, void **mqd,
 
 	m = (struct v11_sdma_mqd *) mqd_mem_obj->cpu_ptr;
 
-	if (mm->dev->shared_resources.enable_mes)
+	if (mm->dev->kfd->shared_resources.enable_mes)
 		size = PAGE_SIZE;
 	else
 		size = sizeof(struct v11_sdma_mqd);
@@ -387,7 +388,7 @@ static int debugfs_show_mqd_sdma(struct seq_file *m, void *data)
 #endif
 
 struct mqd_manager *mqd_manager_init_v11(enum KFD_MQD_TYPE type,
-		struct kfd_dev *dev)
+		struct kfd_node *dev)
 {
 	struct mqd_manager *mqd;
 
@@ -463,7 +464,7 @@ struct mqd_manager *mqd_manager_init_v11(enum KFD_MQD_TYPE type,
 		 * To allocate SDMA MQDs by generic functions
 		 * when MES is enabled.
 		 */
-		if (dev->shared_resources.enable_mes) {
+		if (dev->kfd->shared_resources.enable_mes) {
 			mqd->allocate_mqd = allocate_mqd;
 			mqd->free_mqd = kfd_free_mqd_cp;
 		}
