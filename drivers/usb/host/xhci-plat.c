@@ -294,10 +294,6 @@ int xhci_plat_probe(struct platform_device *pdev, struct device *sysdev, const s
 		xhci->shared_hcd->usb_phy = devm_usb_get_phy_by_phandle(sysdev,
 			    "usb-phy", 1);
 		if (IS_ERR(xhci->shared_hcd->usb_phy)) {
-			if (PTR_ERR(xhci->shared_hcd->usb_phy) != -ENODEV)
-				dev_err(sysdev, "%s get usb3phy fail (ret=%d)\n",
-					     __func__,
-					    (int)PTR_ERR(xhci->shared_hcd->usb_phy));
 			xhci->shared_hcd->usb_phy = NULL;
 		} else {
 			ret = usb_phy_init(xhci->shared_hcd->usb_phy);
@@ -399,7 +395,7 @@ static int xhci_generic_plat_probe(struct platform_device *pdev)
 	return xhci_plat_probe(pdev, sysdev, priv_match);
 }
 
-int xhci_plat_remove(struct platform_device *dev)
+void xhci_plat_remove(struct platform_device *dev)
 {
 	struct usb_hcd	*hcd = platform_get_drvdata(dev);
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
@@ -430,8 +426,6 @@ int xhci_plat_remove(struct platform_device *dev)
 	pm_runtime_disable(&dev->dev);
 	pm_runtime_put_noidle(&dev->dev);
 	pm_runtime_set_suspended(&dev->dev);
-
-	return 0;
 }
 EXPORT_SYMBOL_GPL(xhci_plat_remove);
 
@@ -478,7 +472,7 @@ static int __maybe_unused xhci_plat_resume(struct device *dev)
 	if (ret)
 		return ret;
 
-	ret = xhci_resume(xhci, 0);
+	ret = xhci_resume(xhci, PMSG_RESUME);
 	if (ret)
 		return ret;
 
@@ -507,7 +501,7 @@ static int __maybe_unused xhci_plat_runtime_resume(struct device *dev)
 	struct usb_hcd  *hcd = dev_get_drvdata(dev);
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 
-	return xhci_resume(xhci, 0);
+	return xhci_resume(xhci, PMSG_AUTO_RESUME);
 }
 
 const struct dev_pm_ops xhci_plat_pm_ops = {
@@ -530,7 +524,7 @@ MODULE_DEVICE_TABLE(acpi, usb_xhci_acpi_match);
 
 static struct platform_driver usb_generic_xhci_driver = {
 	.probe	= xhci_generic_plat_probe,
-	.remove	= xhci_plat_remove,
+	.remove_new = xhci_plat_remove,
 	.shutdown = usb_hcd_platform_shutdown,
 	.driver	= {
 		.name = "xhci-hcd",
