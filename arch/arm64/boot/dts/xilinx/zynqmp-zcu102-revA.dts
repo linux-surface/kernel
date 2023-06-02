@@ -216,6 +216,10 @@
 	pinctrl-0 = <&pinctrl_gpio_default>;
 };
 
+&gpu {
+	status = "okay";
+};
+
 &i2c0 {
 	status = "okay";
 	clock-frequency = <400000>;
@@ -1010,6 +1014,18 @@
 };
 
 &watchdog0 {
+	status = "okay";
+};
+
+&xilinx_ams {
+	status = "okay";
+};
+
+&ams_ps {
+	status = "okay";
+};
+
+&ams_pl {
 	status = "okay";
 };
 
