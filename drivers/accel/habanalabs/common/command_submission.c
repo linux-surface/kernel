@@ -280,14 +280,8 @@ bool cs_needs_timeout(struct hl_cs *cs)
 
 static bool is_cb_patched(struct hl_device *hdev, struct hl_cs_job *job)
 {
-	/*
-	 * Patched CB is created for external queues jobs, and for H/W queues
-	 * jobs if the user CB was allocated by driver and MMU is disabled.
-	 */
-	return (job->queue_type == QUEUE_TYPE_EXT ||
-			(job->queue_type == QUEUE_TYPE_HW &&
-					job->is_kernel_allocated_cb &&
-					!hdev->mmu_enable));
+	/* Patched CB is created for external queues jobs */
+	return (job->queue_type == QUEUE_TYPE_EXT);
 }
 
 /*
@@ -363,14 +357,13 @@ static void hl_complete_job(struct hl_device *hdev, struct hl_cs_job *job)
 		}
 	}
 
-	/* For H/W queue jobs, if a user CB was allocated by driver and MMU is
-	 * enabled, the user CB isn't released in cs_parser() and thus should be
+	/* For H/W queue jobs, if a user CB was allocated by driver,
+	 * the user CB isn't released in cs_parser() and thus should be
 	 * released here. This is also true for INT queues jobs which were
 	 * allocated by driver.
 	 */
-	if ((job->is_kernel_allocated_cb &&
-		((job->queue_type == QUEUE_TYPE_HW && hdev->mmu_enable) ||
-				job->queue_type == QUEUE_TYPE_INT))) {
+	if (job->is_kernel_allocated_cb &&
+			(job->queue_type == QUEUE_TYPE_HW || job->queue_type == QUEUE_TYPE_INT)) {
 		atomic_dec(&job->user_cb->cs_cnt);
 		hl_cb_put(job->user_cb);
 	}
@@ -804,12 +797,14 @@ out:
 
 static void cs_timedout(struct work_struct *work)
 {
+	struct hl_cs *cs = container_of(work, struct hl_cs, work_tdr.work);
+	bool skip_reset_on_timeout, device_reset = false;
 	struct hl_device *hdev;
 	u64 event_mask = 0x0;
+	uint timeout_sec;
 	int rc;
-	struct hl_cs *cs = container_of(work, struct hl_cs,
-						 work_tdr.work);
-	bool skip_reset_on_timeout = cs->skip_reset_on_timeout, device_reset = false;
+
+	skip_reset_on_timeout = cs->skip_reset_on_timeout;
 
 	rc = cs_get_unless_zero(cs);
 	if (!rc)
@@ -840,29 +835,31 @@ static void cs_timedout(struct work_struct *work)
 		event_mask |= HL_NOTIFIER_EVENT_CS_TIMEOUT;
 	}
 
+	timeout_sec = jiffies_to_msecs(hdev->timeout_jiffies) / 1000;
+
 	switch (cs->type) {
 	case CS_TYPE_SIGNAL:
 		dev_err(hdev->dev,
-			"Signal command submission %llu has not finished in time!\n",
-			cs->sequence);
+			"Signal command submission %llu has not finished in %u seconds!\n",
+			cs->sequence, timeout_sec);
 		break;
 
 	case CS_TYPE_WAIT:
 		dev_err(hdev->dev,
-			"Wait command submission %llu has not finished in time!\n",
-			cs->sequence);
+			"Wait command submission %llu has not finished in %u seconds!\n",
+			cs->sequence, timeout_sec);
 		break;
 
 	case CS_TYPE_COLLECTIVE_WAIT:
 		dev_err(hdev->dev,
-			"Collective Wait command submission %llu has not finished in time!\n",
-			cs->sequence);
+			"Collective Wait command submission %llu has not finished in %u seconds!\n",
+			cs->sequence, timeout_sec);
 		break;
 
 	default:
 		dev_err(hdev->dev,
-			"Command submission %llu has not finished in time!\n",
-			cs->sequence);
+			"Command submission %llu has not finished in %u seconds!\n",
+			cs->sequence, timeout_sec);
 		break;
 	}
 
@@ -1139,11 +1136,10 @@ static void force_complete_cs(struct hl_device *hdev)
 	spin_unlock(&hdev->cs_mirror_lock);
 }
 
-void hl_abort_waitings_for_completion(struct hl_device *hdev)
+void hl_abort_waiting_for_cs_completions(struct hl_device *hdev)
 {
 	force_complete_cs(hdev);
 	force_complete_multi_cs(hdev);
-	hl_release_pending_user_interrupts(hdev);
 }
 
 static void job_wq_completion(struct work_struct *work)
@@ -1948,8 +1944,7 @@ static int cs_ioctl_signal_wait_create_jobs(struct hl_device *hdev,
 	else
 		cb_size = hdev->asic_funcs->get_signal_cb_size(hdev);
 
-	cb = hl_cb_kernel_create(hdev, cb_size,
-				q_type == QUEUE_TYPE_HW && hdev->mmu_enable);
+	cb = hl_cb_kernel_create(hdev, cb_size, q_type == QUEUE_TYPE_HW);
 	if (!cb) {
 		atomic64_inc(&ctx->cs_counters.out_of_mem_drop_cnt);
 		atomic64_inc(&cntr->out_of_mem_drop_cnt);
@@ -2152,7 +2147,7 @@ static int cs_ioctl_unreserve_signals(struct hl_fpriv *hpriv, u32 handle_id)
 
 			hdev->asic_funcs->hw_queues_unlock(hdev);
 			rc = -EINVAL;
-			goto out;
+			goto out_unlock;
 		}
 
 		/*
@@ -2167,15 +2162,21 @@ static int cs_ioctl_unreserve_signals(struct hl_fpriv *hpriv, u32 handle_id)
 
 		/* Release the id and free allocated memory of the handle */
 		idr_remove(&mgr->handles, handle_id);
+
+		/* unlock before calling ctx_put, where we might sleep */
+		spin_unlock(&mgr->lock);
 		hl_ctx_put(encaps_sig_hdl->ctx);
 		kfree(encaps_sig_hdl);
+		goto out;
 	} else {
 		rc = -EINVAL;
 		dev_err(hdev->dev, "failed to unreserve signals, cannot find handler\n");
 	}
-out:
+
+out_unlock:
 	spin_unlock(&mgr->lock);
 
+out:
 	return rc;
 }
 
@@ -3196,34 +3197,57 @@ static int hl_cs_wait_ioctl(struct hl_fpriv *hpriv, void *data)
 	return 0;
 }
 
+static inline void set_record_cq_info(struct hl_user_pending_interrupt *record,
+					struct hl_cb *cq_cb, u32 cq_offset, u32 target_value)
+{
+	record->ts_reg_info.cq_cb = cq_cb;
+	record->cq_kernel_addr = (u64 *) cq_cb->kernel_address + cq_offset;
+	record->cq_target_value = target_value;
+}
+
+static int validate_and_get_ts_record(struct device *dev,
+					struct hl_ts_buff *ts_buff, u64 ts_offset,
+					struct hl_user_pending_interrupt **req_event_record)
+{
+	struct hl_user_pending_interrupt *ts_cb_last;
+
+	*req_event_record = (struct hl_user_pending_interrupt *)ts_buff->kernel_buff_address +
+						ts_offset;
+	ts_cb_last = (struct hl_user_pending_interrupt *)ts_buff->kernel_buff_address +
+			(ts_buff->kernel_buff_size / sizeof(struct hl_user_pending_interrupt));
+
+	/* Validate ts_offset not exceeding last max */
+	if (*req_event_record >= ts_cb_last) {
+		dev_err(dev, "Ts offset(%llx) exceeds max CB offset(0x%llx)\n",
+				ts_offset, (u64)(uintptr_t)ts_cb_last);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int ts_buff_get_kernel_ts_record(struct hl_mmap_mem_buf *buf,
 					struct hl_cb *cq_cb,
 					u64 ts_offset, u64 cq_offset, u64 target_value,
 					spinlock_t *wait_list_lock,
 					struct hl_user_pending_interrupt **pend)
 {
+	struct hl_user_pending_interrupt *requested_offset_record;
 	struct hl_ts_buff *ts_buff = buf->private;
-	struct hl_user_pending_interrupt *requested_offset_record =
-				(struct hl_user_pending_interrupt *)ts_buff->kernel_buff_address +
-				ts_offset;
-	struct hl_user_pending_interrupt *cb_last =
-			(struct hl_user_pending_interrupt *)ts_buff->kernel_buff_address +
-			(ts_buff->kernel_buff_size / sizeof(struct hl_user_pending_interrupt));
-	unsigned long iter_counter = 0;
+	unsigned long iter_counter = 0, flags;
 	u64 current_cq_counter;
 	ktime_t timestamp;
+	int rc;
 
-	/* Validate ts_offset not exceeding last max */
-	if (requested_offset_record >= cb_last) {
-		dev_err(buf->mmg->dev, "Ts offset exceeds max CB offset(0x%llx)\n",
-								(u64)(uintptr_t)cb_last);
-		return -EINVAL;
-	}
+	rc = validate_and_get_ts_record(buf->mmg->dev, ts_buff, ts_offset,
+							&requested_offset_record);
+	if (rc)
+		return rc;
 
 	timestamp = ktime_get();
 
 start_over:
-	spin_lock(wait_list_lock);
+	spin_lock_irqsave(wait_list_lock, flags);
 
 	/* Unregister only if we didn't reach the target value
 	 * since in this case there will be no handling in irq context
@@ -3234,7 +3258,9 @@ start_over:
 		current_cq_counter = *requested_offset_record->cq_kernel_addr;
 		if (current_cq_counter < requested_offset_record->cq_target_value) {
 			list_del(&requested_offset_record->wait_list_node);
-			spin_unlock(wait_list_lock);
+			spin_unlock_irqrestore(wait_list_lock, flags);
+
+			set_record_cq_info(requested_offset_record, cq_cb, cq_offset, target_value);
 
 			hl_mmap_mem_buf_put(requested_offset_record->ts_reg_info.buf);
 			hl_cb_put(requested_offset_record->ts_reg_info.cq_cb);
@@ -3245,8 +3271,8 @@ start_over:
 			dev_dbg(buf->mmg->dev,
 				"ts node in middle of irq handling\n");
 
-			/* irq thread handling in the middle give it time to finish */
-			spin_unlock(wait_list_lock);
+			/* irq handling in the middle give it time to finish */
+			spin_unlock_irqrestore(wait_list_lock, flags);
 			usleep_range(100, 1000);
 			if (++iter_counter == MAX_TS_ITER_NUM) {
 				dev_err(buf->mmg->dev,
@@ -3260,14 +3286,11 @@ start_over:
 	} else {
 		/* Fill up the new registration node info */
 		requested_offset_record->ts_reg_info.buf = buf;
-		requested_offset_record->ts_reg_info.cq_cb = cq_cb;
 		requested_offset_record->ts_reg_info.timestamp_kernel_addr =
 				(u64 *) ts_buff->user_buff_address + ts_offset;
-		requested_offset_record->cq_kernel_addr =
-				(u64 *) cq_cb->kernel_address + cq_offset;
-		requested_offset_record->cq_target_value = target_value;
+		set_record_cq_info(requested_offset_record, cq_cb, cq_offset, target_value);
 
-		spin_unlock(wait_list_lock);
+		spin_unlock_irqrestore(wait_list_lock, flags);
 	}
 
 	*pend = requested_offset_record;
@@ -3275,6 +3298,58 @@ start_over:
 	dev_dbg(buf->mmg->dev, "Found available node in TS kernel CB %p\n",
 		requested_offset_record);
 	return 0;
+}
+
+static int unregister_timestamp_node_ioctl(struct hl_device *hdev, struct hl_mem_mgr *mmg,
+		u64 ts_handle, u64 ts_offset, struct hl_user_interrupt *interrupt)
+{
+	struct hl_user_pending_interrupt *req_event_record, *pend, *temp_pend;
+	struct hl_mmap_mem_buf *buff;
+	struct hl_ts_buff *ts_buff;
+	bool ts_rec_found = false;
+	int rc;
+
+	buff = hl_mmap_mem_buf_get(mmg, ts_handle);
+	if (!buff) {
+		dev_err(hdev->dev, "invalid TS buff handle!\n");
+		return -EINVAL;
+	}
+
+	ts_buff = buff->private;
+
+	rc = validate_and_get_ts_record(hdev->dev, ts_buff, ts_offset, &req_event_record);
+	if (rc)
+		goto out;
+
+	/*
+	 * Note: we don't use the ts in_use field here, but we rather scan the list
+	 * because we cannot rely on the user to keep the order of register/unregister calls
+	 * and since we might have races here all the time between the irq and register/unregister
+	 * calls so it safer to lock the list and scan it to find the node.
+	 * If the node found on the list we mark it as not in use and delete it from the list,
+	 * if it's not here then the node was handled already in the irq before we get into
+	 * this ioctl.
+	 */
+	spin_lock(&interrupt->wait_list_lock);
+	list_for_each_entry_safe(pend, temp_pend, &interrupt->wait_list_head, wait_list_node) {
+		if (pend == req_event_record) {
+			pend->ts_reg_info.in_use = 0;
+			list_del(&pend->wait_list_node);
+			ts_rec_found = true;
+			break;
+		}
+	}
+	spin_unlock(&interrupt->wait_list_lock);
+
+	/* Put refcounts that were taken when we registered the event */
+	if (ts_rec_found) {
+		hl_mmap_mem_buf_put(pend->ts_reg_info.buf);
+		hl_cb_put(pend->ts_reg_info.cq_cb);
+	}
+out:
+	hl_mmap_mem_buf_put(buff);
+
+	return rc;
 }
 
 static int _hl_interrupt_wait_ioctl(struct hl_device *hdev, struct hl_ctx *ctx,
@@ -3610,7 +3685,10 @@ static int hl_interrupt_wait_ioctl(struct hl_fpriv *hpriv, void *data)
 		return -EINVAL;
 	}
 
-	if (args->in.flags & HL_WAIT_CS_FLAGS_INTERRUPT_KERNEL_CQ)
+	if (args->in.flags & HL_WAIT_CS_FLAGS_UNREGISTER_INTERRUPT)
+		rc = unregister_timestamp_node_ioctl(hdev, &hpriv->mem_mgr,
+				args->in.timestamp_handle, args->in.timestamp_offset, interrupt);
+	else if (args->in.flags & HL_WAIT_CS_FLAGS_INTERRUPT_KERNEL_CQ)
 		rc = _hl_interrupt_wait_ioctl(hdev, hpriv->ctx, &hpriv->mem_mgr, &hpriv->mem_mgr,
 				args->in.interrupt_timeout_us, args->in.cq_counters_handle,
 				args->in.cq_counters_offset,
