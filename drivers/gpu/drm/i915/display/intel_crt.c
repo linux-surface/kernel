@@ -48,6 +48,8 @@
 #include "intel_fifo_underrun.h"
 #include "intel_gmbus.h"
 #include "intel_hotplug.h"
+#include "intel_hotplug_irq.h"
+#include "intel_load_detect.h"
 #include "intel_pch_display.h"
 #include "intel_pch_refclk.h"
 
@@ -394,6 +396,7 @@ static int intel_crt_compute_config(struct intel_encoder *encoder,
 	if (adjusted_mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		return -EINVAL;
 
+	pipe_config->sink_format = INTEL_OUTPUT_FORMAT_RGB;
 	pipe_config->output_format = INTEL_OUTPUT_FORMAT_RGB;
 
 	return 0;
@@ -821,9 +824,9 @@ intel_crt_detect(struct drm_connector *connector,
 	struct drm_i915_private *dev_priv = to_i915(connector->dev);
 	struct intel_crt *crt = intel_attached_crt(to_intel_connector(connector));
 	struct intel_encoder *intel_encoder = &crt->base;
+	struct drm_atomic_state *state;
 	intel_wakeref_t wakeref;
-	int status, ret;
-	struct intel_load_detect_pipe tmp;
+	int status;
 
 	drm_dbg_kms(&dev_priv->drm, "[CONNECTOR:%d:%s] force=%d\n",
 		    connector->base.id, connector->name,
@@ -881,8 +884,12 @@ load_detect:
 	}
 
 	/* for pre-945g platforms use load detect */
-	ret = intel_get_load_detect_pipe(connector, &tmp, ctx);
-	if (ret > 0) {
+	state = intel_load_detect_get_pipe(connector, ctx);
+	if (IS_ERR(state)) {
+		status = PTR_ERR(state);
+	} else if (!state) {
+		status = connector_status_unknown;
+	} else {
 		if (intel_crt_detect_ddc(connector))
 			status = connector_status_connected;
 		else if (DISPLAY_VER(dev_priv) < 4)
@@ -892,11 +899,7 @@ load_detect:
 			status = connector_status_disconnected;
 		else
 			status = connector_status_unknown;
-		intel_release_load_detect_pipe(connector, &tmp, ctx);
-	} else if (ret == 0) {
-		status = connector_status_unknown;
-	} else {
-		status = ret;
+		intel_load_detect_release_pipe(connector, state, ctx);
 	}
 
 out:
