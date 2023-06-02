@@ -137,7 +137,7 @@ struct ctl_table {
 	void *data;
 	int maxlen;
 	umode_t mode;
-	struct ctl_table *child;	/* Deprecated */
+	u8 flags;
 	proc_handler *proc_handler;	/* Callback for text formatting */
 	struct ctl_table_poll *poll;
 	void *extra1;
@@ -229,7 +229,7 @@ extern int unaligned_enabled;
 extern int unaligned_dump_stack;
 extern int no_unaligned_warning;
 
-extern struct ctl_table sysctl_mount_point[];
+#define SYSCTL_PERM_EMPTY_DIR	(1 << 0)
 
 #else /* CONFIG_SYSCTL */
 
