@@ -71,7 +71,7 @@ struct dpu_kms {
 	const struct dpu_mdss_cfg *catalog;
 
 	/* io/register spaces: */
-	void __iomem *mmio, *vbif[VBIF_MAX], *reg_dma;
+	void __iomem *mmio, *vbif[VBIF_MAX];
 
 	struct regulator *vdd;
 	struct regulator *mmagic;
@@ -117,6 +117,10 @@ struct vsync_info {
 	u32 frame_count;
 	u32 line_count;
 };
+
+#define DPU_ENC_WR_PTR_START_TIMEOUT_US 20000
+
+#define DPU_ENC_MAX_POLL_TIMEOUT_US	2000
 
 #define to_dpu_kms(x) container_of(x, struct dpu_kms, base)
 

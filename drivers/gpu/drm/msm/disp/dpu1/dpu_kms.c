@@ -542,7 +542,7 @@ static int _dpu_kms_initialize_dsi(struct drm_device *dev,
 		}
 
 		memset(&info, 0, sizeof(info));
-		info.intf_type = encoder->encoder_type;
+		info.intf_type = INTF_DSI;
 
 		rc = msm_dsi_modeset_init(priv->dsi[i], dev, encoder);
 		if (rc) {
@@ -605,13 +605,51 @@ static int _dpu_kms_initialize_displayport(struct drm_device *dev,
 
 		info.num_of_h_tiles = 1;
 		info.h_tile_instance[0] = i;
-		info.intf_type = encoder->encoder_type;
+		info.intf_type = INTF_DP;
 		rc = dpu_encoder_setup(dev, encoder, &info);
 		if (rc) {
 			DPU_ERROR("failed to setup DPU encoder %d: rc:%d\n",
 				  encoder->base.id, rc);
 			return rc;
 		}
+	}
+
+	return 0;
+}
+
+static int _dpu_kms_initialize_hdmi(struct drm_device *dev,
+				    struct msm_drm_private *priv,
+				    struct dpu_kms *dpu_kms)
+{
+	struct drm_encoder *encoder = NULL;
+	struct msm_display_info info;
+	int rc;
+
+	if (!priv->hdmi)
+		return 0;
+
+	encoder = dpu_encoder_init(dev, DRM_MODE_ENCODER_TMDS);
+	if (IS_ERR(encoder)) {
+		DPU_ERROR("encoder init failed for HDMI display\n");
+		return PTR_ERR(encoder);
+	}
+
+	memset(&info, 0, sizeof(info));
+	rc = msm_hdmi_modeset_init(priv->hdmi, dev, encoder);
+	if (rc) {
+		DPU_ERROR("modeset_init failed for DP, rc = %d\n", rc);
+		drm_encoder_cleanup(encoder);
+		return rc;
+	}
+
+	info.num_of_h_tiles = 1;
+	info.h_tile_instance[0] = 0;
+	info.intf_type = INTF_HDMI;
+	rc = dpu_encoder_setup(dev, encoder, &info);
+	if (rc) {
+		DPU_ERROR("failed to setup DPU encoder %d: rc:%d\n",
+			  encoder->base.id, rc);
+		return rc;
 	}
 
 	return 0;
@@ -644,7 +682,7 @@ static int _dpu_kms_initialize_writeback(struct drm_device *dev,
 	info.num_of_h_tiles = 1;
 	/* use only WB idx 2 instance for DPU */
 	info.h_tile_instance[0] = WB_2;
-	info.intf_type = encoder->encoder_type;
+	info.intf_type = INTF_WB;
 
 	rc = dpu_encoder_setup(dev, encoder, &info);
 	if (rc) {
@@ -680,6 +718,12 @@ static int _dpu_kms_setup_displays(struct drm_device *dev,
 	rc = _dpu_kms_initialize_displayport(dev, priv, dpu_kms);
 	if (rc) {
 		DPU_ERROR("initialize_DP failed, rc = %d\n", rc);
+		return rc;
+	}
+
+	rc = _dpu_kms_initialize_hdmi(dev, priv, dpu_kms);
+	if (rc) {
+		DPU_ERROR("initialize HDMI failed, rc = %d\n", rc);
 		return rc;
 	}
 
@@ -1005,6 +1049,9 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 	dpu_kms = to_dpu_kms(kms);
 	dev = dpu_kms->dev;
 
+	dev->mode_config.cursor_width = 512;
+	dev->mode_config.cursor_height = 512;
+
 	rc = dpu_kms_global_obj_init(dpu_kms);
 	if (rc)
 		return rc;
@@ -1031,12 +1078,6 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 	if (IS_ERR(dpu_kms->vbif[VBIF_NRT])) {
 		dpu_kms->vbif[VBIF_NRT] = NULL;
 		DPU_DEBUG("VBIF NRT is not defined");
-	}
-
-	dpu_kms->reg_dma = msm_ioremap_quiet(dpu_kms->pdev, "regdma");
-	if (IS_ERR(dpu_kms->reg_dma)) {
-		dpu_kms->reg_dma = NULL;
-		DPU_DEBUG("REG_DMA is not defined");
 	}
 
 	dpu_kms_parse_data_bus_icc_path(dpu_kms);
@@ -1084,16 +1125,17 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 	}
 
 	for (i = 0; i < dpu_kms->catalog->vbif_count; i++) {
-		u32 vbif_idx = dpu_kms->catalog->vbif[i].id;
+		struct dpu_hw_vbif *hw;
+		const struct dpu_vbif_cfg *vbif = &dpu_kms->catalog->vbif[i];
 
-		dpu_kms->hw_vbif[vbif_idx] = dpu_hw_vbif_init(vbif_idx,
-				dpu_kms->vbif[vbif_idx], dpu_kms->catalog);
-		if (IS_ERR(dpu_kms->hw_vbif[vbif_idx])) {
-			rc = PTR_ERR(dpu_kms->hw_vbif[vbif_idx]);
-			DPU_ERROR("failed to init vbif %d: %d\n", vbif_idx, rc);
-			dpu_kms->hw_vbif[vbif_idx] = NULL;
+		hw = dpu_hw_vbif_init(vbif, dpu_kms->vbif[vbif->id]);
+		if (IS_ERR(hw)) {
+			rc = PTR_ERR(hw);
+			DPU_ERROR("failed to init vbif %d: %d\n", vbif->id, rc);
 			goto power_error;
 		}
+
+		dpu_kms->hw_vbif[vbif->id] = hw;
 	}
 
 	rc = dpu_core_perf_init(&dpu_kms->perf, dev, dpu_kms->catalog,
