@@ -42,8 +42,10 @@ static bool unlock_global_acpi_lock(void)
 
 enum oxp_board {
 	aok_zoe_a1 = 1,
+	aya_neo_2,
 	aya_neo_air,
 	aya_neo_air_pro,
+	aya_neo_geek,
 	oxp_mini_amd,
 	oxp_mini_amd_pro,
 };
@@ -60,35 +62,56 @@ static const struct dmi_system_id dmi_table[] = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "AOKZOE"),
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "AOKZOE A1 AR07"),
 		},
-		.driver_data = (void *) &(enum oxp_board) {aok_zoe_a1},
+		.driver_data = (void *)aok_zoe_a1,
+	},
+	{
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "AYANEO"),
+			DMI_EXACT_MATCH(DMI_BOARD_NAME, "AYANEO 2"),
+		},
+		.driver_data = (void *)aya_neo_2,
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "AYANEO"),
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "AIR"),
 		},
-		.driver_data = (void *) &(enum oxp_board) {aya_neo_air},
+		.driver_data = (void *)aya_neo_air,
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "AYANEO"),
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "AIR Pro"),
 		},
-		.driver_data = (void *) &(enum oxp_board) {aya_neo_air_pro},
+		.driver_data = (void *)aya_neo_air_pro,
+	},
+	{
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "AYANEO"),
+			DMI_EXACT_MATCH(DMI_BOARD_NAME, "GEEK"),
+		},
+		.driver_data = (void *)aya_neo_geek,
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "ONE-NETBOOK"),
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "ONE XPLAYER"),
 		},
-		.driver_data = (void *) &(enum oxp_board) {oxp_mini_amd},
+		.driver_data = (void *)oxp_mini_amd,
+	},
+	{
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "ONE-NETBOOK"),
+			DMI_EXACT_MATCH(DMI_BOARD_NAME, "ONEXPLAYER mini A07"),
+		},
+		.driver_data = (void *)oxp_mini_amd,
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "ONE-NETBOOK"),
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "ONEXPLAYER Mini Pro"),
 		},
-		.driver_data = (void *) &(enum oxp_board) {oxp_mini_amd_pro},
+		.driver_data = (void *)oxp_mini_amd_pro,
 	},
 	{},
 };
@@ -118,7 +141,7 @@ static int read_from_ec(u8 reg, int size, long *val)
 	return 0;
 }
 
-static int write_to_ec(const struct device *dev, u8 reg, u8 value)
+static int write_to_ec(u8 reg, u8 value)
 {
 	int ret;
 
@@ -133,14 +156,14 @@ static int write_to_ec(const struct device *dev, u8 reg, u8 value)
 	return ret;
 }
 
-static int oxp_pwm_enable(const struct device *dev)
+static int oxp_pwm_enable(void)
 {
-	return write_to_ec(dev, OXP_SENSOR_PWM_ENABLE_REG, 0x01);
+	return write_to_ec(OXP_SENSOR_PWM_ENABLE_REG, 0x01);
 }
 
-static int oxp_pwm_disable(const struct device *dev)
+static int oxp_pwm_disable(void)
 {
-	return write_to_ec(dev, OXP_SENSOR_PWM_ENABLE_REG, 0x00);
+	return write_to_ec(OXP_SENSOR_PWM_ENABLE_REG, 0x00);
 }
 
 /* Callbacks for hwmon interface */
@@ -178,8 +201,10 @@ static int oxp_platform_read(struct device *dev, enum hwmon_sensor_types type,
 			if (ret)
 				return ret;
 			switch (board) {
+			case aya_neo_2:
 			case aya_neo_air:
 			case aya_neo_air_pro:
+			case aya_neo_geek:
 			case oxp_mini_amd:
 				*val = (*val * 255) / 100;
 				break;
@@ -209,16 +234,18 @@ static int oxp_platform_write(struct device *dev, enum hwmon_sensor_types type,
 		switch (attr) {
 		case hwmon_pwm_enable:
 			if (val == 1)
-				return oxp_pwm_enable(dev);
+				return oxp_pwm_enable();
 			else if (val == 0)
-				return oxp_pwm_disable(dev);
+				return oxp_pwm_disable();
 			return -EINVAL;
 		case hwmon_pwm_input:
 			if (val < 0 || val > 255)
 				return -EINVAL;
 			switch (board) {
+			case aya_neo_2:
 			case aya_neo_air:
 			case aya_neo_air_pro:
+			case aya_neo_geek:
 			case oxp_mini_amd:
 				val = (val * 100) / 255;
 				break;
@@ -227,7 +254,7 @@ static int oxp_platform_write(struct device *dev, enum hwmon_sensor_types type,
 			default:
 				break;
 			}
-			return write_to_ec(dev, OXP_SENSOR_PWM_REG, val);
+			return write_to_ec(OXP_SENSOR_PWM_REG, val);
 		default:
 			break;
 		}
@@ -276,7 +303,7 @@ static int oxp_platform_probe(struct platform_device *pdev)
 	if (!dmi_entry || boot_cpu_data.x86_vendor != X86_VENDOR_AMD)
 		return -ENODEV;
 
-	board = *((enum oxp_board *) dmi_entry->driver_data);
+	board = (enum oxp_board)(unsigned long)dmi_entry->driver_data;
 
 	hwdev = devm_hwmon_device_register_with_info(dev, "oxpec", NULL,
 						     &oxp_ec_chip_info, NULL);
