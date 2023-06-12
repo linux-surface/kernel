@@ -804,6 +804,12 @@ int svc_rdma_recvfrom(struct svc_rqst *rqstp)
 		clear_bit(XPT_DATA, &xprt->xpt_flags);
 	spin_unlock(&rdma_xprt->sc_rq_dto_lock);
 
+	/* Prevent svc_xprt_release() from releasing pages in rq_pages
+	 * when returning 0 or an error.
+	 */
+	rqstp->rq_respages = rqstp->rq_pages;
+	rqstp->rq_next_page = rqstp->rq_respages;
+
 	/* Unblock the transport for the next receive */
 	svc_xprt_received(xprt);
 	if (!ctxt)
@@ -814,12 +820,6 @@ int svc_rdma_recvfrom(struct svc_rqst *rqstp)
 				   ctxt->rc_recv_sge.addr, ctxt->rc_byte_len,
 				   DMA_FROM_DEVICE);
 	svc_rdma_build_arg_xdr(rqstp, ctxt);
-
-	/* Prevent svc_xprt_release from releasing pages in rq_pages
-	 * if we return 0 or an error.
-	 */
-	rqstp->rq_respages = rqstp->rq_pages;
-	rqstp->rq_next_page = rqstp->rq_respages;
 
 	ret = svc_rdma_xdr_decode_req(&rqstp->rq_arg, ctxt);
 	if (ret < 0)
