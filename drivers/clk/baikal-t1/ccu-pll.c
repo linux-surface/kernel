@@ -66,7 +66,7 @@ static inline unsigned long ccu_pll_lock_delay_us(unsigned long ref_clk,
 {
 	u64 us = 500ULL * nr * USEC_PER_SEC;
 
-	do_div(us, ref_clk);
+	div64_ul(us, ref_clk);
 
 	return us;
 }
@@ -78,9 +78,9 @@ static inline unsigned long ccu_pll_calc_freq(unsigned long ref_clk,
 {
 	u64 tmp = ref_clk;
 
-	do_div(tmp, nr);
+	div64_ul(tmp, nr);
 	tmp *= nf;
-	do_div(tmp, od);
+	div64_ul(tmp, od);
 
 	return tmp;
 }
