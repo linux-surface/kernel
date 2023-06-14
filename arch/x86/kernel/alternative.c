@@ -169,9 +169,12 @@ void text_poke_early(void *addr, const void *opcode, size_t len);
  */
 static bool insn_is_nop(struct insn *insn)
 {
-	if (insn->opcode.bytes[0] == 0x90)
+	/* Anything NOP, but no REP NOP */
+	if (insn->opcode.bytes[0] == 0x90 &&
+	    (!insn->prefixes.nbytes || insn->prefixes.bytes[0] != 0xF3))
 		return true;
 
+	/* NOPL */
 	if (insn->opcode.bytes[0] == 0x0F && insn->opcode.bytes[1] == 0x1F)
 		return true;
 
@@ -2117,6 +2120,16 @@ static void text_poke_bp_batch(struct text_poke_loc *tp, unsigned int nr_entries
 	 * ensure reading a non-zero refcount provides up to date bp_desc data.
 	 */
 	atomic_set_release(&bp_desc.refs, 1);
+
+	/*
+	 * Function tracing can enable thousands of places that need to be
+	 * updated. This can take quite some time, and with full kernel debugging
+	 * enabled, this could cause the softlockup watchdog to trigger.
+	 * This function gets called every 256 entries added to be patched.
+	 * Call cond_resched() here to make sure that other tasks can get scheduled
+	 * while processing all the functions being patched.
+	 */
+	cond_resched();
 
 	/*
 	 * Corresponding read barrier in int3 notifier for making sure the
