@@ -126,6 +126,13 @@ static void init_PMU_ISA31(void)
 	mtspr(SPRN_MMCR0, MMCR0_FC | MMCR0_PMCCEXT);
 }
 
+static void init_DEXCR(void)
+{
+	// By default enable hashst/hashchk in problem state.
+	mtspr(SPRN_DEXCR, PPC_DEXCR_DEFAULT);
+	mtspr(SPRN_HASHKEYR, 0);
+}
+
 /*
  * Note that we can be called twice of pseudo-PVRs.
  * The parameter offset is not used.
@@ -241,6 +248,7 @@ void __setup_cpu_power10(unsigned long offset, struct cpu_spec *t)
 	init_FSCR_power10();
 	init_PMU();
 	init_PMU_ISA31();
+	init_DEXCR();
 
 	if (!init_hvmode_206(t))
 		return;
@@ -263,6 +271,7 @@ void __restore_cpu_power10(void)
 	init_FSCR_power10();
 	init_PMU();
 	init_PMU_ISA31();
+	init_DEXCR();
 
 	msr = mfmsr();
 	if (!(msr & MSR_HV))
