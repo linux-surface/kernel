@@ -91,7 +91,8 @@ static inline void fsnotify_dentry(struct dentry *dentry, __u32 mask)
 
 static inline int fsnotify_file(struct file *file, __u32 mask)
 {
-	const struct path *path = &file->f_path;
+	/* Overlayfs internal files have fake f_path */
+	const struct path *path = f_real_path(file);
 
 	if (file->f_mode & FMODE_NONOTIFY)
 		return 0;
