@@ -35,11 +35,12 @@ function commachecker()
 	;; "--interval")	exp=7
 	;; "--per-thread")	exp=7
 	;; "--system-wide-no-aggr")	exp=7
-				[ $(uname -m) = "s390x" ] && exp='^[6-7]$'
+				[ "$(uname -m)" = "s390x" ] && exp='^[6-7]$'
 	;; "--per-core")	exp=8
 	;; "--per-socket")	exp=8
 	;; "--per-node")	exp=8
 	;; "--per-die")		exp=8
+	;; "--per-cache")	exp=8
 	esac
 
 	while read line
@@ -65,7 +66,7 @@ function commachecker()
 # Return true if perf_event_paranoid is > $1 and not running as root.
 function ParanoidAndNotRoot()
 {
-	 [ $(id -u) != 0 ] && [ $(cat /proc/sys/kernel/perf_event_paranoid) -gt $1 ]
+	 [ "$(id -u)" != 0 ] && [ "$(cat /proc/sys/kernel/perf_event_paranoid)" -gt $1 ]
 }
 
 check_no_args()
@@ -142,6 +143,18 @@ check_per_thread()
 	fi
 	perf stat -x$csv_sep --per-thread -a -o "${stat_output}" true
         commachecker --per-thread
+	echo "[Success]"
+}
+
+check_per_cache_instance()
+{
+	echo -n "Checking CSV output: per cache instance "
+	if ParanoidAndNotRoot 0
+	then
+		echo "[Skip] paranoid and not root"
+		return
+	fi
+	perf stat -x$csv_sep --per-cache -a true 2>&1 | commachecker --per-cache
 	echo "[Success]"
 }
 
@@ -222,6 +235,7 @@ if [ $skip_test -ne 1 ]
 then
 	check_system_wide_no_aggr
 	check_per_core
+	check_per_cache_instance
 	check_per_die
 	check_per_socket
 else
