@@ -1116,6 +1116,37 @@ struct file *dentry_create(const struct path *path, int flags, umode_t mode,
 }
 EXPORT_SYMBOL(dentry_create);
 
+/**
+ * kernel_file_open - open a file for kernel internal use
+ * @path:	path of the file to open
+ * @flags:	open flags
+ * @inode:	the inode
+ * @cred:	credentials for open
+ *
+ * Open a file that is not accounted in nr_files.
+ * This is only for kernel internal use, and must not be installed into
+ * file tables or such.
+ */
+struct file *kernel_file_open(const struct path *path, int flags,
+				struct inode *inode, const struct cred *cred)
+{
+	struct file *f;
+	int error;
+
+	f = alloc_empty_file_noaccount(flags, cred);
+	if (IS_ERR(f))
+		return f;
+
+	f->f_path = *path;
+	error = do_dentry_open(f, inode, NULL);
+	if (error) {
+		fput(f);
+		f = ERR_PTR(error);
+	}
+	return f;
+}
+EXPORT_SYMBOL_GPL(kernel_file_open);
+
 struct file *open_with_fake_path(const struct path *path, int flags,
 				struct inode *inode, const struct cred *cred)
 {
