@@ -19,6 +19,7 @@
 #include <linux/pagemap.h>
 #include <linux/sched.h>
 #include <linux/sched/mm.h>
+#include <linux/syscalls.h>
 #include <asm/pdc.h>
 #include <asm/cache.h>
 #include <asm/cacheflush.h>
@@ -28,6 +29,7 @@
 #include <asm/sections.h>
 #include <asm/shmparam.h>
 #include <asm/mmu_context.h>
+#include <asm/cachectl.h>
 
 int split_tlb __ro_after_init;
 int dcache_stride __ro_after_init;
@@ -790,3 +792,47 @@ void invalidate_kernel_vmap_range(void *vaddr, int size)
 	flush_tlb_kernel_range(start, end);
 }
 EXPORT_SYMBOL(invalidate_kernel_vmap_range);
+
+SYSCALL_DEFINE3(cacheflush, unsigned long, addr, unsigned long, bytes,
+	unsigned int, cache)
+{
+	unsigned long start, end;
+	ASM_EXCEPTIONTABLE_VAR(error);
+
+	if (bytes == 0)
+		return 0;
+	if (cache & ~BCACHE)
+		return -EINVAL;
+	if (!access_ok((void __user *) addr, bytes))
+		return -EFAULT;
+	if ((cache_info.dc_size == 0) && (cache_info.ic_size == 0))
+		return 0;
+
+	end = addr + bytes;
+	if (end < addr)
+		return -EINVAL;	/* wrap-around */
+
+	if (cache & ICACHE) {
+		start = addr;
+		__asm__ __volatile__ (
+			"1: cmpb," COND(<<) ",n	%0,%2,1b\n"
+			"   fic,m	%3(%4,%0)\n"
+			"2:\n"
+			ASM_EXCEPTIONTABLE_ENTRY_EFAULT(1b, 2b)
+			: "+r" (start), "+r" (error)
+			: "r" (end), "r" (icache_stride), "i" (SR_USER));
+	}
+
+	if (cache & DCACHE && error == 0) {
+		start = addr;
+		__asm__ __volatile__ (
+			"1: cmpb," COND(<<) ",n	%0,%2,1b\n"
+			"   fdc,m	%3(%4,%0)\n"
+			"2:\n"
+			ASM_EXCEPTIONTABLE_ENTRY_EFAULT(1b, 2b)
+			: "+r" (start), "+r" (error)
+			: "r" (end), "r" (dcache_stride), "i" (SR_USER));
+	}
+
+	return error;
+}

@@ -319,6 +319,12 @@ static void handle_break(struct pt_regs *regs)
 	}
 #endif
 
+#ifdef CONFIG_LIGHTWEIGHT_IRQ_CHECK
+	if ((iir == IRQ_BREAK_INSN) && !user_mode(regs)) {
+		die_if_kernel("IRQs are enabled, but should be off.", regs, 1);
+	}
+#endif
+
 	if (unlikely(iir != GDB_BREAK_INSN))
 		parisc_printk_ratelimited(0, regs,
 			KERN_DEBUG "break %d,%d: pid=%d command='%s'\n",

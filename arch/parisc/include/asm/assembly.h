@@ -581,6 +581,13 @@
 	.word (fault_addr - .), (except_addr - .)	!	\
 	.previous
 
+#else /* __ASSEMBLY__ */
+
+#ifdef CONFIG_64BIT
+# define COND(x)	"*" __stringify(x)
+#else
+# define COND(x)	__stringify(x)
+#endif
 
 #endif /* __ASSEMBLY__ */
 #endif
