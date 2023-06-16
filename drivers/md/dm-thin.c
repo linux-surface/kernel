@@ -401,8 +401,7 @@ static int issue_discard(struct discard_op *op, dm_block_t data_b, dm_block_t da
 	sector_t s = block_to_sectors(tc->pool, data_b);
 	sector_t len = block_to_sectors(tc->pool, data_e - data_b);
 
-	return __blkdev_issue_discard(tc->pool_dev->bdev, s, len, GFP_NOWAIT,
-				      &op->bio);
+	return __blkdev_issue_discard(tc->pool_dev->bdev, s, len, GFP_NOIO, &op->bio);
 }
 
 static void end_discard(struct discard_op *op, int r)
@@ -3447,7 +3446,6 @@ out_unlock:
 
 static int pool_map(struct dm_target *ti, struct bio *bio)
 {
-	int r;
 	struct pool_c *pt = ti->private;
 	struct pool *pool = pt->pool;
 
@@ -3456,10 +3454,9 @@ static int pool_map(struct dm_target *ti, struct bio *bio)
 	 */
 	spin_lock_irq(&pool->lock);
 	bio_set_dev(bio, pt->data_dev->bdev);
-	r = DM_MAPIO_REMAPPED;
 	spin_unlock_irq(&pool->lock);
 
-	return r;
+	return DM_MAPIO_REMAPPED;
 }
 
 static int maybe_resize_data_dev(struct dm_target *ti, bool *need_commit)
@@ -4100,21 +4097,20 @@ static void pool_io_hints(struct dm_target *ti, struct queue_limits *limits)
 	 * They get transferred to the live pool in bind_control_target()
 	 * called from pool_preresume().
 	 */
-	if (!pt->adjusted_pf.discard_enabled) {
+
+	if (pt->adjusted_pf.discard_enabled) {
+		disable_passdown_if_not_supported(pt);
+		/*
+		 * The pool uses the same discard limits as the underlying data
+		 * device.  DM core has already set this up.
+		 */
+	} else {
 		/*
 		 * Must explicitly disallow stacking discard limits otherwise the
 		 * block layer will stack them if pool's data device has support.
 		 */
 		limits->discard_granularity = 0;
-		return;
 	}
-
-	disable_passdown_if_not_supported(pt);
-
-	/*
-	 * The pool uses the same discard limits as the underlying data
-	 * device.  DM core has already set this up.
-	 */
 }
 
 static struct target_type pool_target = {
@@ -4498,11 +4494,10 @@ static void thin_io_hints(struct dm_target *ti, struct queue_limits *limits)
 	struct thin_c *tc = ti->private;
 	struct pool *pool = tc->pool;
 
-	if (!pool->pf.discard_enabled)
-		return;
-
-	limits->discard_granularity = pool->sectors_per_block << SECTOR_SHIFT;
-	limits->max_discard_sectors = pool->sectors_per_block * BIO_PRISON_MAX_RANGE;
+	if (pool->pf.discard_enabled) {
+		limits->discard_granularity = pool->sectors_per_block << SECTOR_SHIFT;
+		limits->max_discard_sectors = pool->sectors_per_block * BIO_PRISON_MAX_RANGE;
+	}
 }
 
 static struct target_type thin_target = {

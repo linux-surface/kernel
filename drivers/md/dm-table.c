@@ -1931,6 +1931,7 @@ int dm_table_set_restrictions(struct dm_table *t, struct request_queue *q,
 	 */
 	q->limits = *limits;
 
+	blk_queue_flag_set(QUEUE_FLAG_IO_STAT, q);
 	if (dm_table_supports_nowait(t))
 		blk_queue_flag_set(QUEUE_FLAG_NOWAIT, q);
 	else
