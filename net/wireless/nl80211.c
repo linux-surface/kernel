@@ -5,7 +5,7 @@
  * Copyright 2006-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright 2015-2017	Intel Deutschland GmbH
- * Copyright (C) 2018-2022 Intel Corporation
+ * Copyright (C) 2018-2023 Intel Corporation
  */
 
 #include <linux/if.h>
@@ -816,6 +816,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_MAX_HW_TIMESTAMP_PEERS] = { .type = NLA_U16 },
 	[NL80211_ATTR_HW_TIMESTAMP_ENABLED] = { .type = NLA_FLAG },
 	[NL80211_ATTR_EMA_RNR_ELEMS] = { .type = NLA_NESTED },
+	[NL80211_ATTR_MLO_LINK_DISABLED] = { .type = NLA_FLAG },
 };
 
 /* policy for the key attributes */
@@ -6368,11 +6369,26 @@ bool nl80211_put_sta_rate(struct sk_buff *msg, struct rate_info *info, int attr)
 		return false;
 
 	switch (info->bw) {
+	case RATE_INFO_BW_1:
+		rate_flg = NL80211_RATE_INFO_1_MHZ_WIDTH;
+		break;
+	case RATE_INFO_BW_2:
+		rate_flg = NL80211_RATE_INFO_2_MHZ_WIDTH;
+		break;
+	case RATE_INFO_BW_4:
+		rate_flg = NL80211_RATE_INFO_4_MHZ_WIDTH;
+		break;
 	case RATE_INFO_BW_5:
 		rate_flg = NL80211_RATE_INFO_5_MHZ_WIDTH;
 		break;
+	case RATE_INFO_BW_8:
+		rate_flg = NL80211_RATE_INFO_8_MHZ_WIDTH;
+		break;
 	case RATE_INFO_BW_10:
 		rate_flg = NL80211_RATE_INFO_10_MHZ_WIDTH;
+		break;
+	case RATE_INFO_BW_16:
+		rate_flg = NL80211_RATE_INFO_16_MHZ_WIDTH;
 		break;
 	default:
 		WARN_ON(1);
@@ -6431,6 +6447,14 @@ bool nl80211_put_sta_rate(struct sk_buff *msg, struct rate_info *info, int attr)
 		if (info->bw == RATE_INFO_BW_HE_RU &&
 		    nla_put_u8(msg, NL80211_RATE_INFO_HE_RU_ALLOC,
 			       info->he_ru_alloc))
+			return false;
+	} else if (info->flags & RATE_INFO_FLAGS_S1G_MCS) {
+		if (nla_put_u8(msg, NL80211_RATE_INFO_S1G_MCS, info->mcs))
+			return false;
+		if (nla_put_u8(msg, NL80211_RATE_INFO_S1G_NSS, info->nss))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_SHORT_GI &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_SHORT_GI))
 			return false;
 	} else if (info->flags & RATE_INFO_FLAGS_EHT_MCS) {
 		if (nla_put_u8(msg, NL80211_RATE_INFO_EHT_MCS, info->mcs))
@@ -11115,6 +11139,9 @@ static int nl80211_associate(struct sk_buff *skb, struct genl_info *info)
 					goto free;
 				}
 			}
+
+			req.links[link_id].disabled =
+				nla_get_flag(attrs[NL80211_ATTR_MLO_LINK_DISABLED]);
 		}
 
 		if (!req.links[req.link_id].bss) {
@@ -11125,6 +11152,13 @@ static int nl80211_associate(struct sk_buff *skb, struct genl_info *info)
 		if (req.links[req.link_id].elems_len) {
 			GENL_SET_ERR_MSG(info,
 					 "cannot have per-link elems on assoc link");
+			err = -EINVAL;
+			goto free;
+		}
+
+		if (req.links[req.link_id].disabled) {
+			GENL_SET_ERR_MSG(info,
+					 "cannot have assoc link disabled");
 			err = -EINVAL;
 			goto free;
 		}

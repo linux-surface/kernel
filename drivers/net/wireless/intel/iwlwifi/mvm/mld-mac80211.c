@@ -422,7 +422,7 @@ static int iwl_mvm_mld_start_ap_ibss(struct ieee80211_hw *hw,
 	if (iwl_mvm_phy_ctx_count(mvm) > 1)
 		iwl_mvm_teardown_tdls_peers(mvm);
 
-	iwl_mvm_ftm_restart_responder(mvm, vif);
+	iwl_mvm_ftm_restart_responder(mvm, vif, link_conf);
 
 	goto out_unlock;
 
@@ -697,7 +697,11 @@ iwl_mvm_mld_link_info_changed_ap_ibss(struct iwl_mvm *mvm,
 	if (link_conf->he_support)
 		link_changes |= LINK_CONTEXT_MODIFY_HE_PARAMS;
 
-	if (changes & (BSS_CHANGED_ERP_CTS_PROT | BSS_CHANGED_HT |
+	if (changes & BSS_CHANGED_ERP_SLOT)
+		link_changes |= LINK_CONTEXT_MODIFY_RATES_INFO;
+
+	if (changes & (BSS_CHANGED_ERP_CTS_PROT | BSS_CHANGED_ERP_SLOT |
+		       BSS_CHANGED_HT |
 		       BSS_CHANGED_BANDWIDTH | BSS_CHANGED_QOS |
 		       BSS_CHANGED_HE_BSS_COLOR) &&
 		       iwl_mvm_link_changed(mvm, vif, link_conf,
@@ -711,7 +715,7 @@ iwl_mvm_mld_link_info_changed_ap_ibss(struct iwl_mvm *mvm,
 
 	/* FIXME: need to decide if we need FTM responder per link */
 	if (changes & BSS_CHANGED_FTM_RESPONDER) {
-		int ret = iwl_mvm_ftm_start_responder(mvm, vif);
+		int ret = iwl_mvm_ftm_start_responder(mvm, vif, link_conf);
 
 		if (ret)
 			IWL_WARN(mvm, "Failed to enable FTM responder (%d)\n",
@@ -1093,7 +1097,7 @@ const struct ieee80211_ops iwl_mvm_mld_hw_ops = {
 	.abort_pmsr = iwl_mvm_abort_pmsr,
 
 #ifdef CONFIG_IWLWIFI_DEBUGFS
-	.sta_add_debugfs = iwl_mvm_sta_add_debugfs,
+	.link_sta_add_debugfs = iwl_mvm_link_sta_add_debugfs,
 #endif
 	.set_hw_timestamp = iwl_mvm_set_hw_timestamp,
 

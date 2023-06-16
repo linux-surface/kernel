@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2012-2014, 2018-2022 Intel Corporation
+ * Copyright (C) 2012-2014, 2018-2023 Intel Corporation
  * Copyright (C) 2013-2015 Intel Mobile Communications GmbH
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
  */
@@ -300,6 +300,7 @@ struct iwl_probe_resp_data {
  * @he_ru_2mhz_block: 26-tone RU OFDMA transmissions should be blocked
  * @queue_params: QoS params for this MAC
  * @mgmt_queue: queue number for unbufferable management frames
+ * @igtk: the current IGTK programmed into the firmware
  */
 struct iwl_mvm_vif_link_info {
 	u8 bssid[ETH_ALEN];
@@ -316,6 +317,8 @@ struct iwl_mvm_vif_link_info {
 
 	enum ieee80211_smps_mode smps_requests[NUM_IWL_MVM_SMPS_REQ];
 	struct iwl_probe_resp_data __rcu *probe_resp_data;
+
+	struct ieee80211_key_conf *igtk;
 
 	bool he_ru_2mhz_block;
 	bool active;
@@ -1430,6 +1433,12 @@ static inline bool iwl_mvm_has_mld_api(const struct iwl_fw *fw)
 			   IWL_UCODE_TLV_CAPA_MLD_API_SUPPORT);
 }
 
+static inline bool iwl_mvm_has_new_station_api(const struct iwl_fw *fw)
+{
+	return iwl_mvm_has_mld_api(fw) ||
+	       iwl_fw_lookup_cmd_ver(fw, ADD_STA, 0) >= 12;
+}
+
 static inline bool iwl_mvm_has_new_tx_api(struct iwl_mvm *mvm)
 {
 	/* TODO - replace with TLV once defined */
@@ -1841,6 +1850,7 @@ void iwl_mvm_channel_switch_error_notif(struct iwl_mvm *mvm,
 /* Bindings */
 int iwl_mvm_binding_add_vif(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
 int iwl_mvm_binding_remove_vif(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
+u32 iwl_mvm_get_lmac_id(struct iwl_mvm *mvm, enum nl80211_band band);
 
 /* Links */
 int iwl_mvm_add_link(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
@@ -2219,7 +2229,7 @@ static inline void iwl_mvm_vendor_cmds_register(struct iwl_mvm *mvm) {}
 #endif
 
 /* Location Aware Regulatory */
-struct iwl_mcc_update_resp *
+struct iwl_mcc_update_resp_v8 *
 iwl_mvm_update_mcc(struct iwl_mvm *mvm, const char *alpha2,
 		   enum iwl_mcc_source src_id);
 int iwl_mvm_init_mcc(struct iwl_mvm *mvm);
@@ -2239,9 +2249,11 @@ int iwl_mvm_sf_update(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		      bool added_vif);
 
 /* FTM responder */
-int iwl_mvm_ftm_start_responder(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
+int iwl_mvm_ftm_start_responder(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
+				struct ieee80211_bss_conf *bss_conf);
 void iwl_mvm_ftm_restart_responder(struct iwl_mvm *mvm,
-				   struct ieee80211_vif *vif);
+				   struct ieee80211_vif *vif,
+				   struct ieee80211_bss_conf *bss_conf);
 void iwl_mvm_ftm_responder_stats(struct iwl_mvm *mvm,
 				 struct iwl_rx_cmd_buffer *rxb);
 int iwl_mvm_ftm_resp_remove_pasn_sta(struct iwl_mvm *mvm,
@@ -2337,10 +2349,10 @@ int iwl_mvm_get_sar_geo_profile(struct iwl_mvm *mvm);
 int iwl_mvm_ppag_send_cmd(struct iwl_mvm *mvm);
 void iwl_mvm_get_acpi_tables(struct iwl_mvm *mvm);
 #ifdef CONFIG_IWLWIFI_DEBUGFS
-void iwl_mvm_sta_add_debugfs(struct ieee80211_hw *hw,
-			     struct ieee80211_vif *vif,
-			     struct ieee80211_sta *sta,
-			     struct dentry *dir);
+void iwl_mvm_link_sta_add_debugfs(struct ieee80211_hw *hw,
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_link_sta *link_sta,
+				  struct dentry *dir);
 #endif
 
 /* new MLD related APIs */

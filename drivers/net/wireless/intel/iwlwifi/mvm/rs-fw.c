@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
  * Copyright (C) 2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2022 Intel Corporation
+ * Copyright (C) 2018-2023 Intel Corporation
  */
 #include "rs.h"
 #include "fw-api.h"
@@ -94,8 +94,7 @@ static u16 rs_fw_get_config_flags(struct iwl_mvm *mvm,
 	    IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD))
 		flags |= IWL_TLC_MNG_CFG_FLAGS_LDPC_MSK;
 
-	sband_he_cap = ieee80211_get_he_iftype_cap(sband,
-						   ieee80211_vif_type_p2p(vif));
+	sband_he_cap = ieee80211_get_he_iftype_cap_vif(sband, vif);
 	if (sband_he_cap &&
 	    !(sband_he_cap->he_cap_elem.phy_cap_info[1] &
 			IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD))
@@ -479,7 +478,7 @@ void iwl_mvm_tlc_update_notif(struct iwl_mvm *mvm,
 		IWL_DEBUG_RATE(mvm, "new rate: %s\n", pretty_rate);
 	}
 
-	if (flags & IWL_TLC_NOTIF_FLAG_AMSDU && !mvmsta->orig_amsdu_len) {
+	if (flags & IWL_TLC_NOTIF_FLAG_AMSDU && !mvm_link_sta->orig_amsdu_len) {
 		u16 size = le32_to_cpu(notif->amsdu_size);
 		int i;
 
@@ -489,7 +488,7 @@ void iwl_mvm_tlc_update_notif(struct iwl_mvm *mvm,
 			 * so also check with orig_amsdu_len which holds the
 			 * original data before debugfs changed the value
 			 */
-			WARN_ON(mvmsta->orig_amsdu_len < size);
+			WARN_ON(mvm_link_sta->orig_amsdu_len < size);
 			goto out;
 		}
 
@@ -591,6 +590,21 @@ void iwl_mvm_rs_fw_rate_init(struct iwl_mvm *mvm,
 	unsigned int link_id = link_conf->link_id;
 	int cmd_ver;
 	int ret;
+
+	/* Enable external EHT LTF only for GL device and if there's
+	 * mutual support by AP and client
+	 */
+	if (CSR_HW_REV_TYPE(mvm->trans->hw_rev) == IWL_CFG_MAC_TYPE_GL &&
+	    sband->iftype_data->eht_cap.has_eht &&
+	    sband->iftype_data->eht_cap.eht_cap_elem.phy_cap_info[5] &
+	    IEEE80211_EHT_PHY_CAP5_SUPP_EXTRA_EHT_LTF &&
+	    link_sta->eht_cap.has_eht &&
+	    link_sta->eht_cap.eht_cap_elem.phy_cap_info[5] &
+	    IEEE80211_EHT_PHY_CAP5_SUPP_EXTRA_EHT_LTF) {
+		IWL_DEBUG_RATE(mvm, "Set support for Extra EHT LTF\n");
+		cfg_cmd.flags |=
+			cpu_to_le16(IWL_TLC_MNG_CFG_FLAGS_EHT_EXTRA_LTF_MSK);
+	}
 
 	rcu_read_lock();
 	mvm_link_sta = rcu_dereference(mvmsta->link[link_id]);

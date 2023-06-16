@@ -45,9 +45,9 @@ static u16 iwl_mvm_tx_csum_pre_bz(struct iwl_mvm *mvm, struct sk_buff *skb,
 				  struct ieee80211_tx_info *info, bool amsdu)
 {
 	struct ieee80211_hdr *hdr = (void *)skb->data;
+	u16 mh_len = ieee80211_hdrlen(hdr->frame_control);
 	u16 offload_assist = 0;
 #if IS_ENABLED(CONFIG_INET)
-	u16 mh_len = ieee80211_hdrlen(hdr->frame_control);
 	u8 protocol = 0;
 
 	/* Do not compute checksum if already computed */
@@ -119,6 +119,8 @@ static u16 iwl_mvm_tx_csum_pre_bz(struct iwl_mvm *mvm, struct sk_buff *skb,
 	else
 		udp_hdr(skb)->check = 0;
 
+out:
+#endif
 	/*
 	 * mac header len should include IV, size is in words unless
 	 * the IV is added by the firmware like in WEP.
@@ -131,8 +133,6 @@ static u16 iwl_mvm_tx_csum_pre_bz(struct iwl_mvm *mvm, struct sk_buff *skb,
 	mh_len /= 2;
 	offload_assist |= mh_len << TX_CMD_OFFLD_MH_SIZE;
 
-out:
-#endif
 	if (amsdu)
 		offload_assist |= BIT(TX_CMD_OFFLD_AMSDU);
 	else if (ieee80211_hdrlen(hdr->frame_control) % 4)
@@ -344,9 +344,9 @@ static u32 iwl_mvm_get_inject_tx_rate(struct iwl_mvm *mvm,
 			result |= RATE_MCS_SGI_MSK_V1;
 		if (rate->flags & IEEE80211_TX_RC_40_MHZ_WIDTH)
 			result |= u32_encode_bits(1, RATE_MCS_CHAN_WIDTH_MSK_V1);
-		if (rate->flags & IEEE80211_TX_CTL_LDPC)
+		if (info->flags & IEEE80211_TX_CTL_LDPC)
 			result |= RATE_MCS_LDPC_MSK_V1;
-		if (u32_get_bits(rate->flags, IEEE80211_TX_CTL_STBC))
+		if (u32_get_bits(info->flags, IEEE80211_TX_CTL_STBC))
 			result |= RATE_MCS_STBC_MSK;
 	} else {
 		return 0;
@@ -897,7 +897,7 @@ unsigned int iwl_mvm_max_amsdu_size(struct iwl_mvm *mvm,
 			band = mvmsta->vif->bss_conf.chandef.chan->band;
 		}
 
-		lmac = iwl_mvm_get_lmac_id(mvm->fw, band);
+		lmac = iwl_mvm_get_lmac_id(mvm, band);
 	} else if (fw_has_capa(&mvm->fw->ucode_capa,
 			       IWL_UCODE_TLV_CAPA_CDB_SUPPORT)) {
 		/* for real MLO restrict to both LMACs if they exist */

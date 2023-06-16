@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2006	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007	Johannes Berg <johannes@sipsolutions.net>
- * Copyright (C) 2020-2022 Intel Corporation
+ * Copyright (C) 2020-2023 Intel Corporation
  */
 
 #include <linux/kernel.h>
@@ -266,6 +266,9 @@ static int ieee80211_set_smps(struct ieee80211_link_data *link,
 	struct ieee80211_sub_if_data *sdata = link->sdata;
 	struct ieee80211_local *local = sdata->local;
 	int err;
+
+	if (sdata->vif.driver_flags & IEEE80211_VIF_DISABLE_SMPS_OVERRIDE)
+		return -EOPNOTSUPP;
 
 	if (!(local->hw.wiphy->features & NL80211_FEATURE_STATIC_SMPS) &&
 	    smps_mode == IEEE80211_SMPS_STATIC)
@@ -717,7 +720,7 @@ static void add_sta_files(struct ieee80211_sub_if_data *sdata)
 	DEBUGFS_ADD_MODE(uapsd_queues, 0600);
 	DEBUGFS_ADD_MODE(uapsd_max_sp_len, 0600);
 	DEBUGFS_ADD_MODE(tdls_wider_bw, 0600);
-	DEBUGFS_ADD_MODE(valid_links, 0200);
+	DEBUGFS_ADD_MODE(valid_links, 0400);
 	DEBUGFS_ADD_MODE(active_links, 0600);
 }
 
