@@ -47,11 +47,18 @@ struct ovl_path {
 	struct dentry *dentry;
 };
 
+struct ovl_entry {
+	unsigned int __numlower;
+	struct ovl_path __lowerstack[];
+};
+
 /* private information held for overlayfs's superblock */
 struct ovl_fs {
 	unsigned int numlayer;
 	/* Number of unique fs among layers including upper fs */
 	unsigned int numfs;
+	/* Number of data-only lower layers */
+	unsigned int numdatalayer;
 	const struct ovl_layer *layers;
 	struct ovl_sb *fs;
 	/* workbasedir is the path at workdir= mount option */
@@ -85,6 +92,13 @@ struct ovl_fs {
 	errseq_t errseq;
 };
 
+
+/* Number of lower layers, not including data-only layers */
+static inline unsigned int ovl_numlowerlayer(struct ovl_fs *ofs)
+{
+	return ofs->numlayer - ofs->numdatalayer - 1;
+}
+
 static inline struct vfsmount *ovl_upper_mnt(struct ovl_fs *ofs)
 {
 	return ofs->layers[0].mnt;
@@ -105,36 +119,53 @@ static inline bool ovl_should_sync(struct ovl_fs *ofs)
 	return !ofs->config.ovl_volatile;
 }
 
-/* private information held for every overlayfs dentry */
-struct ovl_entry {
-	union {
-		struct {
-			unsigned long flags;
-		};
-		struct rcu_head rcu;
-	};
-	unsigned numlower;
-	struct ovl_path lowerstack[];
-};
-
-struct ovl_entry *ovl_alloc_entry(unsigned int numlower);
-
-static inline struct ovl_entry *OVL_E(struct dentry *dentry)
+static inline unsigned int ovl_numlower(struct ovl_entry *oe)
 {
-	return (struct ovl_entry *) dentry->d_fsdata;
+	return oe ? oe->__numlower : 0;
+}
+
+static inline struct ovl_path *ovl_lowerstack(struct ovl_entry *oe)
+{
+	return ovl_numlower(oe) ? oe->__lowerstack : NULL;
+}
+
+static inline struct ovl_path *ovl_lowerpath(struct ovl_entry *oe)
+{
+	return ovl_lowerstack(oe);
+}
+
+static inline struct ovl_path *ovl_lowerdata(struct ovl_entry *oe)
+{
+	struct ovl_path *lowerstack = ovl_lowerstack(oe);
+
+	return lowerstack ? &lowerstack[oe->__numlower - 1] : NULL;
+}
+
+/* May return NULL if lazy lookup of lowerdata is needed */
+static inline struct dentry *ovl_lowerdata_dentry(struct ovl_entry *oe)
+{
+	struct ovl_path *lowerdata = ovl_lowerdata(oe);
+
+	return lowerdata ? READ_ONCE(lowerdata->dentry) : NULL;
+}
+
+/* private information held for every overlayfs dentry */
+static inline unsigned long *OVL_E_FLAGS(struct dentry *dentry)
+{
+	return (unsigned long *) &dentry->d_fsdata;
 }
 
 struct ovl_inode {
 	union {
 		struct ovl_dir_cache *cache;	/* directory */
-		struct inode *lowerdata;	/* regular file */
+		const char *lowerdata_redirect;	/* regular file */
 	};
 	const char *redirect;
 	u64 version;
 	unsigned long flags;
 	struct inode vfs_inode;
 	struct dentry *__upperdentry;
-	struct ovl_path lowerpath;
+	struct ovl_entry *oe;
 
 	/* synchronize copy up and more */
 	struct mutex lock;
@@ -143,6 +174,16 @@ struct ovl_inode {
 static inline struct ovl_inode *OVL_I(struct inode *inode)
 {
 	return container_of(inode, struct ovl_inode, vfs_inode);
+}
+
+static inline struct ovl_entry *OVL_I_E(struct inode *inode)
+{
+	return inode ? OVL_I(inode)->oe : NULL;
+}
+
+static inline struct ovl_entry *OVL_E(struct dentry *dentry)
+{
+	return OVL_I_E(d_inode(dentry));
 }
 
 static inline struct dentry *ovl_upperdentry_dereference(struct ovl_inode *oi)

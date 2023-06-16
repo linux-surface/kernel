@@ -240,15 +240,22 @@ int ovl_getattr(struct mnt_idmap *idmap, const struct path *path,
 			/*
 			 * If lower is not same as lowerdata or if there was
 			 * no origin on upper, we can end up here.
+			 * With lazy lowerdata lookup, guess lowerdata blocks
+			 * from size to avoid lowerdata lookup on stat(2).
 			 */
 			struct kstat lowerdatastat;
 			u32 lowermask = STATX_BLOCKS;
 
 			ovl_path_lowerdata(dentry, &realpath);
-			err = vfs_getattr(&realpath, &lowerdatastat,
-					  lowermask, flags);
-			if (err)
-				goto out;
+			if (realpath.dentry) {
+				err = vfs_getattr(&realpath, &lowerdatastat,
+						  lowermask, flags);
+				if (err)
+					goto out;
+			} else {
+				lowerdatastat.blocks =
+					round_up(stat->size, stat->blksize) >> 9;
+			}
 			stat->blocks = lowerdatastat.blocks;
 		}
 	}
@@ -288,8 +295,8 @@ int ovl_permission(struct mnt_idmap *idmap,
 	int err;
 
 	/* Careful in RCU walk mode */
-	ovl_i_path_real(inode, &realpath);
-	if (!realpath.dentry) {
+	realinode = ovl_i_path_real(inode, &realpath);
+	if (!realinode) {
 		WARN_ON(!(mask & MAY_NOT_BLOCK));
 		return -ECHILD;
 	}
@@ -302,7 +309,6 @@ int ovl_permission(struct mnt_idmap *idmap,
 	if (err)
 		return err;
 
-	realinode = d_inode(realpath.dentry);
 	old_cred = ovl_override_creds(inode->i_sb);
 	if (!upperinode &&
 	    !special_file(realinode->i_mode) && mask & MAY_WRITE) {
@@ -559,19 +565,19 @@ struct posix_acl *do_ovl_get_acl(struct mnt_idmap *idmap,
 				 struct inode *inode, int type,
 				 bool rcu, bool noperm)
 {
-	struct inode *realinode = ovl_inode_real(inode);
+	struct inode *realinode;
 	struct posix_acl *acl;
 	struct path realpath;
 
-	if (!IS_POSIXACL(realinode))
-		return NULL;
-
 	/* Careful in RCU walk mode */
-	ovl_i_path_real(inode, &realpath);
-	if (!realpath.dentry) {
+	realinode = ovl_i_path_real(inode, &realpath);
+	if (!realinode) {
 		WARN_ON(!rcu);
 		return ERR_PTR(-ECHILD);
 	}
+
+	if (!IS_POSIXACL(realinode))
+		return NULL;
 
 	if (rcu) {
 		/*
@@ -709,6 +715,9 @@ static int ovl_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	int err;
 	struct inode *realinode = ovl_inode_realdata(inode);
 	const struct cred *old_cred;
+
+	if (!realinode)
+		return -EIO;
 
 	if (!realinode->i_op->fiemap)
 		return -EOPNOTSUPP;
@@ -1003,14 +1012,10 @@ void ovl_inode_init(struct inode *inode, struct ovl_inode_params *oip,
 	struct inode *realinode;
 	struct ovl_inode *oi = OVL_I(inode);
 
-	if (oip->upperdentry)
-		oi->__upperdentry = oip->upperdentry;
-	if (oip->lowerpath && oip->lowerpath->dentry) {
-		oi->lowerpath.dentry = dget(oip->lowerpath->dentry);
-		oi->lowerpath.layer = oip->lowerpath->layer;
-	}
-	if (oip->lowerdata)
-		oi->lowerdata = igrab(d_inode(oip->lowerdata));
+	oi->__upperdentry = oip->upperdentry;
+	oi->oe = oip->oe;
+	oi->redirect = oip->redirect;
+	oi->lowerdata_redirect = oip->lowerdata_redirect;
 
 	realinode = ovl_inode_real(inode);
 	ovl_copyattr(inode);
@@ -1325,7 +1330,7 @@ struct inode *ovl_get_inode(struct super_block *sb,
 {
 	struct ovl_fs *ofs = OVL_FS(sb);
 	struct dentry *upperdentry = oip->upperdentry;
-	struct ovl_path *lowerpath = oip->lowerpath;
+	struct ovl_path *lowerpath = ovl_lowerpath(oip->oe);
 	struct inode *realinode = upperdentry ? d_inode(upperdentry) : NULL;
 	struct inode *inode;
 	struct dentry *lowerdentry = lowerpath ? lowerpath->dentry : NULL;
@@ -1369,7 +1374,9 @@ struct inode *ovl_get_inode(struct super_block *sb,
 			}
 
 			dput(upperdentry);
+			ovl_free_entry(oip->oe);
 			kfree(oip->redirect);
+			kfree(oip->lowerdata_redirect);
 			goto out;
 		}
 
@@ -1398,14 +1405,12 @@ struct inode *ovl_get_inode(struct super_block *sb,
 	if (oip->index)
 		ovl_set_flag(OVL_INDEX, inode);
 
-	OVL_I(inode)->redirect = oip->redirect;
-
 	if (bylower)
 		ovl_set_flag(OVL_CONST_INO, inode);
 
 	/* Check for non-merge dir that may have whiteouts */
 	if (is_dir) {
-		if (((upperdentry && lowerdentry) || oip->numlower > 1) ||
+		if (((upperdentry && lowerdentry) || ovl_numlower(oip->oe) > 1) ||
 		    ovl_path_check_origin_xattr(ofs, &realpath)) {
 			ovl_set_flag(OVL_WHITEOUTS, inode);
 		}
