@@ -139,7 +139,7 @@ struct cb_desc {
 	u8 rata_index;
 	u8 queue_index;
 	u16 txbuf_size;
-	u8 RATRIndex;
+	u8 ratr_index;
 	u8 bAMSDU:1;
 	u8 bFromAggrQ:1;
 	u8 reserved6:6;
@@ -1651,17 +1651,6 @@ struct rtllib_device {
 	};
 
 	/* Callback functions */
-	void (*set_security)(struct net_device *dev,
-			     struct rtllib_security *sec);
-
-	/* Used to TX data frame by using txb structs.
-	 * this is not used if in the softmac_features
-	 * is set the flag IEEE_SOFTMAC_TX_QUEUE
-	 */
-	int (*hard_start_xmit)(struct rtllib_txb *txb,
-			       struct net_device *dev);
-
-	int (*reset_port)(struct net_device *dev);
 
 	/* Softmac-generated frames (management) are TXed via this
 	 * callback if the flag IEEE_SOFTMAC_SINGLE_QUEUE is
@@ -1682,23 +1671,11 @@ struct rtllib_device {
 	void (*softmac_data_hard_start_xmit)(struct sk_buff *skb,
 			       struct net_device *dev, int rate);
 
-	/* stops the HW queue for DATA frames. Useful to avoid
-	 * waste time to TX data frame when we are reassociating
-	 * This function can sleep.
-	 */
-	void (*data_hard_stop)(struct net_device *dev);
-
-	/* OK this is complementing to data_poll_hard_stop */
-	void (*data_hard_resume)(struct net_device *dev);
-
 	/* ask to the driver to retune the radio.
 	 * This function can sleep. the driver should ensure
 	 * the radio has been switched before return.
 	 */
 	void (*set_chan)(struct net_device *dev, short ch);
-
-	void (*rtllib_start_hw_scan)(struct net_device *dev);
-	void (*rtllib_stop_hw_scan)(struct net_device *dev);
 
 	/* indicate the driver that the link state is changed
 	 * for example it may indicate the card is associated now.
@@ -1737,14 +1714,8 @@ struct rtllib_device {
 	bool (*GetHalfNmodeSupportByAPsHandler)(struct net_device *dev);
 	u8   (*rtllib_ap_sec_type)(struct rtllib_device *ieee);
 	void (*InitialGainHandler)(struct net_device *dev, u8 Operation);
-	bool (*SetFwCmdHandler)(struct net_device *dev,
-				enum fw_cmd_io_type FwCmdIO);
-	void (*UpdateBeaconInterruptHandler)(struct net_device *dev,
-					     bool start);
 	void (*ScanOperationBackupHandler)(struct net_device *dev,
 					   u8 Operation);
-	void (*LedControlHandler)(struct net_device *dev,
-				  enum led_ctl_mode LedAction);
 	void (*SetHwRegHandler)(struct net_device *dev, u8 variable, u8 *val);
 
 	void (*AllowAllDestAddrHandler)(struct net_device *dev,
