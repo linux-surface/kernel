@@ -704,18 +704,6 @@ config GPIO_VISCONTI
 	help
 	  Say yes here to support GPIO on Tohisba Visconti.
 
-config GPIO_VX855
-	tristate "VIA VX855/VX875 GPIO"
-	depends on (X86 || COMPILE_TEST) && PCI
-	select MFD_CORE
-	select MFD_VX855
-	help
-	  Support access to the VX855/VX875 GPIO lines through the GPIO library.
-
-	  This driver provides common support for accessing the device.
-	  Additional drivers must be enabled in order to use the
-	  functionality of the device.
-
 config GPIO_WCD934X
 	tristate "Qualcomm Technologies Inc WCD9340/WCD9341 GPIO controller driver"
 	depends on MFD_WCD934X && OF_GPIO
@@ -835,7 +823,19 @@ config GPIO_IDT3243X
 endmenu
 
 menu "Port-mapped I/O GPIO drivers"
-	depends on X86 # Unconditional I/O space access
+	depends on X86 && HAS_IOPORT # I/O space access
+
+config GPIO_VX855
+	tristate "VIA VX855/VX875 GPIO"
+	depends on PCI
+	select MFD_CORE
+	select MFD_VX855
+	help
+	  Support access to the VX855/VX875 GPIO lines through the GPIO library.
+
+	  This driver provides common support for accessing the device.
+	  Additional drivers must be enabled in order to use the
+	  functionality of the device.
 
 config GPIO_I8255
 	tristate
@@ -1440,6 +1440,22 @@ config GPIO_TPS65218
 	  Select this option to enable GPIO driver for the TPS65218
 	  chip family.
 
+config GPIO_TPS65219
+	tristate "TPS65219 GPIO"
+	depends on MFD_TPS65219
+	default MFD_TPS65219
+	help
+	  Select this option to enable GPIO driver for the TPS65219 chip
+	  family.
+	  GPIO0 is statically configured as either input or output prior to
+	  Linux boot. It is used for MULTI_DEVICE_ENABLE function. This setting
+	  is statically configured by NVM. GPIO0 can't be used as a generic
+	  GPIO. It's either a GPO when MULTI_DEVICE_EN=0 or a GPI when
+	  MULTI_DEVICE_EN=1.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called gpio_tps65219.
+
 config GPIO_TPS6586X
 	bool "TPS6586X GPIO"
 	depends on MFD_TPS6586X
@@ -1732,6 +1748,15 @@ config GPIO_AGGREGATOR
 	    - Provide a generic driver for a GPIO-operated device in an
 	      industrial control context, to be operated from userspace using
 	      the GPIO chardev interface.
+
+config GPIO_DELAY
+	tristate "GPIO delay"
+	depends on OF_GPIO
+	help
+	  Say yes here to enable the GPIO delay, which provides a way to
+	  configure platform specific delays for GPIO ramp-up or ramp-down
+	  delays. This can serve the following purposes:
+	    - Open-drain output using an RC filter
 
 config GPIO_LATCH
 	tristate "GPIO latch driver"
