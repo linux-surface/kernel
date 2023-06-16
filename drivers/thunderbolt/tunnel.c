@@ -41,9 +41,14 @@
  * Number of credits we try to allocate for each DMA path if not limited
  * by the host router baMaxHI.
  */
-#define TB_DMA_CREDITS			14U
+#define TB_DMA_CREDITS			14
 /* Minimum number of credits for DMA path */
-#define TB_MIN_DMA_CREDITS		1U
+#define TB_MIN_DMA_CREDITS		1
+
+static unsigned int dma_credits = TB_DMA_CREDITS;
+module_param(dma_credits, uint, 0444);
+MODULE_PARM_DESC(dma_credits, "specify custom credits for DMA tunnels (default: "
+                __MODULE_STRING(TB_DMA_CREDITS) ")");
 
 static bool bw_alloc_mode = true;
 module_param(bw_alloc_mode, bool, 0444);
@@ -95,7 +100,7 @@ static unsigned int tb_available_credits(const struct tb_port *port,
 	pcie = tb_acpi_may_tunnel_pcie() ? sw->max_pcie_credits : 0;
 
 	if (tb_acpi_is_xdomain_allowed()) {
-		spare = min_not_zero(sw->max_dma_credits, TB_DMA_CREDITS);
+		spare = min_not_zero(sw->max_dma_credits, dma_credits);
 		/* Add some credits for potential second DMA tunnel */
 		spare += TB_MIN_DMA_CREDITS;
 	} else {
@@ -1132,6 +1137,47 @@ static int tb_dp_init_video_path(struct tb_path *path)
 	return 0;
 }
 
+static void tb_dp_dump(struct tb_tunnel *tunnel)
+{
+	struct tb_port *in, *out;
+	u32 dp_cap, rate, lanes;
+
+	in = tunnel->src_port;
+	out = tunnel->dst_port;
+
+	if (tb_port_read(in, &dp_cap, TB_CFG_PORT,
+			 in->cap_adap + DP_LOCAL_CAP, 1))
+		return;
+
+	rate = tb_dp_cap_get_rate(dp_cap);
+	lanes = tb_dp_cap_get_lanes(dp_cap);
+
+	tb_port_dbg(in, "maximum supported bandwidth %u Mb/s x%u = %u Mb/s\n",
+		    rate, lanes, tb_dp_bandwidth(rate, lanes));
+
+	out = tunnel->dst_port;
+
+	if (tb_port_read(out, &dp_cap, TB_CFG_PORT,
+			 out->cap_adap + DP_LOCAL_CAP, 1))
+		return;
+
+	rate = tb_dp_cap_get_rate(dp_cap);
+	lanes = tb_dp_cap_get_lanes(dp_cap);
+
+	tb_port_dbg(out, "maximum supported bandwidth %u Mb/s x%u = %u Mb/s\n",
+		    rate, lanes, tb_dp_bandwidth(rate, lanes));
+
+	if (tb_port_read(in, &dp_cap, TB_CFG_PORT,
+			 in->cap_adap + DP_REMOTE_CAP, 1))
+		return;
+
+	rate = tb_dp_cap_get_rate(dp_cap);
+	lanes = tb_dp_cap_get_lanes(dp_cap);
+
+	tb_port_dbg(in, "reduced bandwidth %u Mb/s x%u = %u Mb/s\n",
+		    rate, lanes, tb_dp_bandwidth(rate, lanes));
+}
+
 /**
  * tb_tunnel_discover_dp() - Discover existing Display Port tunnels
  * @tb: Pointer to the domain structure
@@ -1208,6 +1254,8 @@ struct tb_tunnel *tb_tunnel_discover_dp(struct tb *tb, struct tb_port *in,
 		tb_tunnel_warn(tunnel, "path is not complete, cleaning up\n");
 		goto err_deactivate;
 	}
+
+	tb_dp_dump(tunnel);
 
 	tb_tunnel_dbg(tunnel, "discovered\n");
 	return tunnel;
@@ -1452,6 +1500,10 @@ struct tb_tunnel *tb_tunnel_alloc_dma(struct tb *tb, struct tb_port *nhi,
 	struct tb_path *path;
 	int credits;
 
+	/* Ring 0 is reserved for control channel */
+	if (WARN_ON(!receive_ring || !transmit_ring))
+		return NULL;
+
 	if (receive_ring > 0)
 		npaths++;
 	if (transmit_ring > 0)
@@ -1468,7 +1520,7 @@ struct tb_tunnel *tb_tunnel_alloc_dma(struct tb *tb, struct tb_port *nhi,
 	tunnel->dst_port = dst;
 	tunnel->deinit = tb_dma_deinit;
 
-	credits = min_not_zero(TB_DMA_CREDITS, nhi->sw->max_dma_credits);
+	credits = min_not_zero(dma_credits, nhi->sw->max_dma_credits);
 
 	if (receive_ring > 0) {
 		path = tb_path_alloc(tb, dst, receive_path, nhi, receive_ring, 0,

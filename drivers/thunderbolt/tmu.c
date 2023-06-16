@@ -308,7 +308,7 @@ int tb_switch_tmu_post_time(struct tb_switch *sw)
 		return ret;
 
 	for (i = 0; i < ARRAY_SIZE(gm_local_time); i++)
-		tb_sw_dbg(root_switch, "local_time[%d]=0x%08x\n", i,
+		tb_sw_dbg(root_switch, "TMU: local_time[%d]=0x%08x\n", i,
 			  gm_local_time[i]);
 
 	/* Convert to nanoseconds (drop fractional part) */
@@ -383,26 +383,16 @@ out:
  */
 int tb_switch_tmu_disable(struct tb_switch *sw)
 {
-	/*
-	 * No need to disable TMU on devices that don't support CLx since
-	 * on these devices e.g. Alpine Ridge and earlier, the TMU mode
-	 * HiFi bi-directional is enabled by default and we don't change it.
-	 */
-	if (!tb_switch_is_clx_supported(sw))
-		return 0;
-
 	/* Already disabled? */
 	if (sw->tmu.rate == TB_SWITCH_TMU_RATE_OFF)
 		return 0;
 
-
 	if (tb_route(sw)) {
 		bool unidirectional = sw->tmu.unidirectional;
-		struct tb_switch *parent = tb_switch_parent(sw);
 		struct tb_port *down, *up;
 		int ret;
 
-		down = tb_port_at(tb_route(sw), parent);
+		down = tb_switch_downstream_port(sw);
 		up = tb_upstream_port(sw);
 		/*
 		 * In case of uni-directional time sync, TMU handshake is
@@ -440,12 +430,11 @@ int tb_switch_tmu_disable(struct tb_switch *sw)
 	return 0;
 }
 
-static void __tb_switch_tmu_off(struct tb_switch *sw, bool unidirectional)
+static void tb_switch_tmu_off(struct tb_switch *sw, bool unidirectional)
 {
-	struct tb_switch *parent = tb_switch_parent(sw);
 	struct tb_port *down, *up;
 
-	down = tb_port_at(tb_route(sw), parent);
+	down = tb_switch_downstream_port(sw);
 	up = tb_upstream_port(sw);
 	/*
 	 * In case of any failure in one of the steps when setting
@@ -457,7 +446,8 @@ static void __tb_switch_tmu_off(struct tb_switch *sw, bool unidirectional)
 	tb_port_tmu_time_sync_disable(down);
 	tb_port_tmu_time_sync_disable(up);
 	if (unidirectional)
-		tb_switch_tmu_rate_write(parent, TB_SWITCH_TMU_RATE_OFF);
+		tb_switch_tmu_rate_write(tb_switch_parent(sw),
+					 TB_SWITCH_TMU_RATE_OFF);
 	else
 		tb_switch_tmu_rate_write(sw, TB_SWITCH_TMU_RATE_OFF);
 
@@ -470,14 +460,13 @@ static void __tb_switch_tmu_off(struct tb_switch *sw, bool unidirectional)
  * This function is called when the previous TMU mode was
  * TB_SWITCH_TMU_RATE_OFF.
  */
-static int __tb_switch_tmu_enable_bidirectional(struct tb_switch *sw)
+static int tb_switch_tmu_enable_bidirectional(struct tb_switch *sw)
 {
-	struct tb_switch *parent = tb_switch_parent(sw);
 	struct tb_port *up, *down;
 	int ret;
 
 	up = tb_upstream_port(sw);
-	down = tb_port_at(tb_route(sw), parent);
+	down = tb_switch_downstream_port(sw);
 
 	ret = tb_port_tmu_unidirectional_disable(up);
 	if (ret)
@@ -502,12 +491,14 @@ static int __tb_switch_tmu_enable_bidirectional(struct tb_switch *sw)
 	return 0;
 
 out:
-	__tb_switch_tmu_off(sw, false);
+	tb_switch_tmu_off(sw, false);
 	return ret;
 }
 
-static int tb_switch_tmu_objection_mask(struct tb_switch *sw)
+/* Only needed for Titan Ridge */
+static int tb_switch_tmu_disable_objections(struct tb_switch *sw)
 {
+	struct tb_port *up = tb_upstream_port(sw);
 	u32 val;
 	int ret;
 
@@ -518,32 +509,30 @@ static int tb_switch_tmu_objection_mask(struct tb_switch *sw)
 
 	val &= ~TB_TIME_VSEC_3_CS_9_TMU_OBJ_MASK;
 
-	return tb_sw_write(sw, &val, TB_CFG_SWITCH,
-			   sw->cap_vsec_tmu + TB_TIME_VSEC_3_CS_9, 1);
-}
-
-static int tb_switch_tmu_unidirectional_enable(struct tb_switch *sw)
-{
-	struct tb_port *up = tb_upstream_port(sw);
+	ret = tb_sw_write(sw, &val, TB_CFG_SWITCH,
+			  sw->cap_vsec_tmu + TB_TIME_VSEC_3_CS_9, 1);
+	if (ret)
+		return ret;
 
 	return tb_port_tmu_write(up, TMU_ADP_CS_6,
 				 TMU_ADP_CS_6_DISABLE_TMU_OBJ_MASK,
-				 TMU_ADP_CS_6_DISABLE_TMU_OBJ_MASK);
+				 TMU_ADP_CS_6_DISABLE_TMU_OBJ_CL1 |
+				 TMU_ADP_CS_6_DISABLE_TMU_OBJ_CL2);
 }
 
 /*
  * This function is called when the previous TMU mode was
  * TB_SWITCH_TMU_RATE_OFF.
  */
-static int __tb_switch_tmu_enable_unidirectional(struct tb_switch *sw)
+static int tb_switch_tmu_enable_unidirectional(struct tb_switch *sw)
 {
-	struct tb_switch *parent = tb_switch_parent(sw);
 	struct tb_port *up, *down;
 	int ret;
 
 	up = tb_upstream_port(sw);
-	down = tb_port_at(tb_route(sw), parent);
-	ret = tb_switch_tmu_rate_write(parent, sw->tmu.rate_request);
+	down = tb_switch_downstream_port(sw);
+	ret = tb_switch_tmu_rate_write(tb_switch_parent(sw),
+				       sw->tmu.rate_request);
 	if (ret)
 		return ret;
 
@@ -570,16 +559,15 @@ static int __tb_switch_tmu_enable_unidirectional(struct tb_switch *sw)
 	return 0;
 
 out:
-	__tb_switch_tmu_off(sw, true);
+	tb_switch_tmu_off(sw, true);
 	return ret;
 }
 
-static void __tb_switch_tmu_change_mode_prev(struct tb_switch *sw)
+static void tb_switch_tmu_change_mode_prev(struct tb_switch *sw)
 {
-	struct tb_switch *parent = tb_switch_parent(sw);
 	struct tb_port *down, *up;
 
-	down = tb_port_at(tb_route(sw), parent);
+	down = tb_switch_downstream_port(sw);
 	up = tb_upstream_port(sw);
 	/*
 	 * In case of any failure in one of the steps when change mode,
@@ -589,7 +577,7 @@ static void __tb_switch_tmu_change_mode_prev(struct tb_switch *sw)
 	 */
 	tb_port_tmu_set_unidirectional(down, sw->tmu.unidirectional);
 	if (sw->tmu.unidirectional_request)
-		tb_switch_tmu_rate_write(parent, sw->tmu.rate);
+		tb_switch_tmu_rate_write(tb_switch_parent(sw), sw->tmu.rate);
 	else
 		tb_switch_tmu_rate_write(sw, sw->tmu.rate);
 
@@ -597,20 +585,20 @@ static void __tb_switch_tmu_change_mode_prev(struct tb_switch *sw)
 	tb_port_tmu_set_unidirectional(up, sw->tmu.unidirectional);
 }
 
-static int __tb_switch_tmu_change_mode(struct tb_switch *sw)
+static int tb_switch_tmu_change_mode(struct tb_switch *sw)
 {
-	struct tb_switch *parent = tb_switch_parent(sw);
 	struct tb_port *up, *down;
 	int ret;
 
 	up = tb_upstream_port(sw);
-	down = tb_port_at(tb_route(sw), parent);
+	down = tb_switch_downstream_port(sw);
 	ret = tb_port_tmu_set_unidirectional(down, sw->tmu.unidirectional_request);
 	if (ret)
 		goto out;
 
 	if (sw->tmu.unidirectional_request)
-		ret = tb_switch_tmu_rate_write(parent, sw->tmu.rate_request);
+		ret = tb_switch_tmu_rate_write(tb_switch_parent(sw),
+					       sw->tmu.rate_request);
 	else
 		ret = tb_switch_tmu_rate_write(sw, sw->tmu.rate_request);
 	if (ret)
@@ -635,7 +623,7 @@ static int __tb_switch_tmu_change_mode(struct tb_switch *sw)
 	return 0;
 
 out:
-	__tb_switch_tmu_change_mode_prev(sw);
+	tb_switch_tmu_change_mode_prev(sw);
 	return ret;
 }
 
@@ -643,45 +631,20 @@ out:
  * tb_switch_tmu_enable() - Enable TMU on a router
  * @sw: Router whose TMU to enable
  *
- * Enables TMU of a router to be in uni-directional Normal/HiFi
- * or bi-directional HiFi mode. Calling tb_switch_tmu_configure() is required
- * before calling this function, to select the mode Normal/HiFi and
- * directionality (uni-directional/bi-directional).
- * In HiFi mode all tunneling should work. In Normal mode, DP tunneling can't
- * work. Uni-directional mode is required for CLx (Link Low-Power) to work.
+ * Enables TMU of a router to be in uni-directional Normal/HiFi or
+ * bi-directional HiFi mode. Calling tb_switch_tmu_configure() is
+ * required before calling this function.
  */
 int tb_switch_tmu_enable(struct tb_switch *sw)
 {
 	bool unidirectional = sw->tmu.unidirectional_request;
 	int ret;
 
-	if (unidirectional && !sw->tmu.has_ucap)
-		return -EOPNOTSUPP;
-
-	/*
-	 * No need to enable TMU on devices that don't support CLx since on
-	 * these devices e.g. Alpine Ridge and earlier, the TMU mode HiFi
-	 * bi-directional is enabled by default.
-	 */
-	if (!tb_switch_is_clx_supported(sw))
-		return 0;
-
-	if (tb_switch_tmu_is_enabled(sw, sw->tmu.unidirectional_request))
+	if (tb_switch_tmu_is_enabled(sw))
 		return 0;
 
 	if (tb_switch_is_titan_ridge(sw) && unidirectional) {
-		/*
-		 * Titan Ridge supports CL0s and CL1 only. CL0s and CL1 are
-		 * enabled and supported together.
-		 */
-		if (!tb_switch_is_clx_enabled(sw, TB_CL1))
-			return -EOPNOTSUPP;
-
-		ret = tb_switch_tmu_objection_mask(sw);
-		if (ret)
-			return ret;
-
-		ret = tb_switch_tmu_unidirectional_enable(sw);
+		ret = tb_switch_tmu_disable_objections(sw);
 		if (ret)
 			return ret;
 	}
@@ -698,13 +661,13 @@ int tb_switch_tmu_enable(struct tb_switch *sw)
 		 */
 		if (sw->tmu.rate == TB_SWITCH_TMU_RATE_OFF) {
 			if (unidirectional)
-				ret = __tb_switch_tmu_enable_unidirectional(sw);
+				ret = tb_switch_tmu_enable_unidirectional(sw);
 			else
-				ret = __tb_switch_tmu_enable_bidirectional(sw);
+				ret = tb_switch_tmu_enable_bidirectional(sw);
 			if (ret)
 				return ret;
 		} else if (sw->tmu.rate == TB_SWITCH_TMU_RATE_NORMAL) {
-			ret = __tb_switch_tmu_change_mode(sw);
+			ret = tb_switch_tmu_change_mode(sw);
 			if (ret)
 				return ret;
 		}
@@ -735,39 +698,16 @@ int tb_switch_tmu_enable(struct tb_switch *sw)
  *
  * Selects the rate of the TMU and directionality (uni-directional or
  * bi-directional). Must be called before tb_switch_tmu_enable().
+ *
+ * Returns %0 in success and negative errno otherwise.
  */
-void tb_switch_tmu_configure(struct tb_switch *sw,
-			     enum tb_switch_tmu_rate rate, bool unidirectional)
+int tb_switch_tmu_configure(struct tb_switch *sw, enum tb_switch_tmu_rate rate,
+			    bool unidirectional)
 {
+	if (unidirectional && !sw->tmu.has_ucap)
+		return -EINVAL;
+
 	sw->tmu.unidirectional_request = unidirectional;
 	sw->tmu.rate_request = rate;
-}
-
-static int tb_switch_tmu_config_enable(struct device *dev, void *rate)
-{
-	if (tb_is_switch(dev)) {
-		struct tb_switch *sw = tb_to_switch(dev);
-
-		tb_switch_tmu_configure(sw, *(enum tb_switch_tmu_rate *)rate,
-					tb_switch_is_clx_enabled(sw, TB_CL1));
-		if (tb_switch_tmu_enable(sw))
-			tb_sw_dbg(sw, "fail switching TMU mode for 1st depth router\n");
-	}
-
 	return 0;
-}
-
-/**
- * tb_switch_enable_tmu_1st_child - Configure and enable TMU for 1st chidren
- * @sw: The router to configure and enable it's children TMU
- * @rate: Rate of the TMU to configure the router's chidren to
- *
- * Configures and enables the TMU mode of 1st depth children of the specified
- * router to the specified rate.
- */
-void tb_switch_enable_tmu_1st_child(struct tb_switch *sw,
-				    enum tb_switch_tmu_rate rate)
-{
-	device_for_each_child(&sw->dev, &rate,
-			      tb_switch_tmu_config_enable);
 }

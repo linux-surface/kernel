@@ -117,13 +117,6 @@ struct tb_switch_tmu {
 	enum tb_switch_tmu_rate rate_request;
 };
 
-enum tb_clx {
-	TB_CLX_DISABLE,
-	/* CL0s and CL1 are enabled and supported together */
-	TB_CL1 = BIT(0),
-	TB_CL2 = BIT(1),
-};
-
 /**
  * struct tb_switch - a thunderbolt switch
  * @dev: Device for the switch
@@ -174,7 +167,7 @@ enum tb_clx {
  * @min_dp_main_credits: Router preferred minimum number of buffers for DP MAIN
  * @max_pcie_credits: Router preferred number of buffers for PCIe
  * @max_dma_credits: Router preferred number of buffers for DMA/P2P
- * @clx: CLx state on the upstream link of the router
+ * @clx: CLx states on the upstream link of the router
  *
  * When the switch is being added or removed to the domain (other
  * switches) you need to have domain lock held.
@@ -225,7 +218,7 @@ struct tb_switch {
 	unsigned int min_dp_main_credits;
 	unsigned int max_pcie_credits;
 	unsigned int max_dma_credits;
-	enum tb_clx clx;
+	unsigned int clx;
 };
 
 /**
@@ -454,6 +447,11 @@ struct tb_path {
 #define TB_WAKE_ON_USB3		BIT(3)
 #define TB_WAKE_ON_PCIE		BIT(4)
 #define TB_WAKE_ON_DP		BIT(5)
+
+/* CL states */
+#define TB_CL0S			BIT(0)
+#define TB_CL1			BIT(1)
+#define TB_CL2			BIT(2)
 
 /**
  * struct tb_cm_ops - Connection manager specific operations vector
@@ -857,6 +855,20 @@ static inline struct tb_switch *tb_switch_parent(struct tb_switch *sw)
 	return tb_to_switch(sw->dev.parent);
 }
 
+/**
+ * tb_switch_downstream_port() - Return downstream facing port of parent router
+ * @sw: Device router pointer
+ *
+ * Only call for device routers. Returns the downstream facing port of
+ * the parent router.
+ */
+static inline struct tb_port *tb_switch_downstream_port(struct tb_switch *sw)
+{
+	if (WARN_ON(!tb_route(sw)))
+		return NULL;
+	return tb_port_at(tb_route(sw), tb_switch_parent(sw));
+}
+
 static inline bool tb_switch_is_light_ridge(const struct tb_switch *sw)
 {
 	return sw->config.vendor_id == PCI_VENDOR_ID_INTEL &&
@@ -973,67 +985,43 @@ int tb_switch_tmu_init(struct tb_switch *sw);
 int tb_switch_tmu_post_time(struct tb_switch *sw);
 int tb_switch_tmu_disable(struct tb_switch *sw);
 int tb_switch_tmu_enable(struct tb_switch *sw);
-void tb_switch_tmu_configure(struct tb_switch *sw,
-			     enum tb_switch_tmu_rate rate,
-			     bool unidirectional);
-void tb_switch_enable_tmu_1st_child(struct tb_switch *sw,
-				    enum tb_switch_tmu_rate rate);
+int tb_switch_tmu_configure(struct tb_switch *sw, enum tb_switch_tmu_rate rate,
+			    bool unidirectional);
 /**
  * tb_switch_tmu_is_enabled() - Checks if the specified TMU mode is enabled
  * @sw: Router whose TMU mode to check
- * @unidirectional: If uni-directional (bi-directional otherwise)
  *
- * Return true if hardware TMU configuration matches the one passed in
- * as parameter. That is HiFi/Normal and either uni-directional or bi-directional.
+ * Return true if hardware TMU configuration matches the requested
+ * configuration.
  */
-static inline bool tb_switch_tmu_is_enabled(const struct tb_switch *sw,
-					    bool unidirectional)
+static inline bool tb_switch_tmu_is_enabled(const struct tb_switch *sw)
 {
 	return sw->tmu.rate == sw->tmu.rate_request &&
-	       sw->tmu.unidirectional == unidirectional;
+	       sw->tmu.unidirectional == sw->tmu.unidirectional_request;
 }
 
-static inline const char *tb_switch_clx_name(enum tb_clx clx)
-{
-	switch (clx) {
-	/* CL0s and CL1 are enabled and supported together */
-	case TB_CL1:
-		return "CL0s/CL1";
-	default:
-		return "unknown";
-	}
-}
+bool tb_port_clx_is_enabled(struct tb_port *port, unsigned int clx);
 
-int tb_switch_enable_clx(struct tb_switch *sw, enum tb_clx clx);
-int tb_switch_disable_clx(struct tb_switch *sw, enum tb_clx clx);
+int tb_switch_clx_init(struct tb_switch *sw);
+bool tb_switch_clx_is_supported(const struct tb_switch *sw);
+int tb_switch_clx_enable(struct tb_switch *sw, unsigned int clx);
+int tb_switch_clx_disable(struct tb_switch *sw);
 
 /**
- * tb_switch_is_clx_enabled() - Checks if the CLx is enabled
+ * tb_switch_clx_is_enabled() - Checks if the CLx is enabled
  * @sw: Router to check for the CLx
- * @clx: The CLx state to check for
+ * @clx: The CLx states to check for
  *
  * Checks if the specified CLx is enabled on the router upstream link.
+ * Returns true if any of the given states is enabled.
+ *
  * Not applicable for a host router.
  */
-static inline bool tb_switch_is_clx_enabled(const struct tb_switch *sw,
-					    enum tb_clx clx)
+static inline bool tb_switch_clx_is_enabled(const struct tb_switch *sw,
+					    unsigned int clx)
 {
-	return sw->clx == clx;
+	return sw->clx & clx;
 }
-
-/**
- * tb_switch_is_clx_supported() - Is CLx supported on this type of router
- * @sw: The router to check CLx support for
- */
-static inline bool tb_switch_is_clx_supported(const struct tb_switch *sw)
-{
-	if (sw->quirks & QUIRK_NO_CLX)
-		return false;
-
-	return tb_switch_is_usb4(sw) || tb_switch_is_titan_ridge(sw);
-}
-
-int tb_switch_mask_clx_objections(struct tb_switch *sw);
 
 int tb_switch_pcie_l1_enable(struct tb_switch *sw);
 
@@ -1080,7 +1068,6 @@ void tb_port_lane_bonding_disable(struct tb_port *port);
 int tb_port_wait_for_link_width(struct tb_port *port, int width,
 				int timeout_msec);
 int tb_port_update_credits(struct tb_port *port);
-bool tb_port_is_clx_enabled(struct tb_port *port, unsigned int clx);
 
 int tb_switch_find_vse_cap(struct tb_switch *sw, enum tb_switch_vse_cap vsec);
 int tb_switch_find_cap(struct tb_switch *sw, enum tb_switch_cap cap);
@@ -1181,6 +1168,17 @@ struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 static inline struct tb_switch *tb_xdomain_parent(struct tb_xdomain *xd)
 {
 	return tb_to_switch(xd->dev.parent);
+}
+
+/**
+ * tb_xdomain_downstream_port() - Return downstream facing port of parent router
+ * @xd: Xdomain pointer
+ *
+ * Returns the downstream port the XDomain is connected to.
+ */
+static inline struct tb_port *tb_xdomain_downstream_port(struct tb_xdomain *xd)
+{
+	return tb_port_at(xd->route, tb_xdomain_parent(xd));
 }
 
 int tb_retimer_nvm_read(struct tb_retimer *rt, unsigned int address, void *buf,
@@ -1302,6 +1300,11 @@ static inline struct usb4_port *tb_to_usb4_port_device(struct device *dev)
 struct usb4_port *usb4_port_device_add(struct tb_port *port);
 void usb4_port_device_remove(struct usb4_port *usb4);
 int usb4_port_device_resume(struct usb4_port *usb4);
+
+static inline bool usb4_port_device_is_offline(const struct usb4_port *usb4)
+{
+	return usb4->offline;
+}
 
 void tb_check_quirks(struct tb_switch *sw);
 
