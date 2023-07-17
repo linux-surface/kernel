@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2020-2023 Dorian Stoll
  *
  * Linux driver for Intel Precise Touch & Stylus
  */
 
 #include <linux/dma-mapping.h>
+#include <linux/slab.h>
 #include <linux/types.h>
 
 #include "desc.h"
@@ -107,10 +107,6 @@ err:
 
 int ipts_resources_free(struct ipts_resources *res)
 {
-	/*
-	 * Some compilers (AOSP clang) complain about a redefined
-	 * variable when this is declared inside of the for loop.
-	 */
 	int i = 0;
 
 	if (!res)

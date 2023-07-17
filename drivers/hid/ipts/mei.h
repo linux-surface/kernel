@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2023 Dorian Stoll
  *
  * Linux driver for Intel Precise Touch & Stylus
@@ -31,7 +30,7 @@ struct ipts_mei {
 	struct rw_semaphore message_lock;
 };
 
-/*
+/**
  * ipts_mei_recv() - Receive data from a MEI device.
  * @mei: The IPTS MEI device context.
  * @code: The IPTS command code to look for.
@@ -45,7 +44,7 @@ struct ipts_mei {
 int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts_response *rsp,
 		  u64 timeout);
 
-/*
+/**
  * ipts_mei_send() - Send data to a MEI device.
  * @ipts: The IPTS MEI device context.
  * @data: The data to send.
@@ -55,7 +54,7 @@ int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts
  */
 int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
 
-/*
+/**
  * ipts_mei_init() - Initialize the MEI device context.
  * @mei: The MEI device context to initialize.
  * @cldev: The MEI device the context will be bound to.
