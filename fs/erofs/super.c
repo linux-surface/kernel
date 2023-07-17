@@ -8,7 +8,6 @@
 #include <linux/statfs.h>
 #include <linux/parser.h>
 #include <linux/seq_file.h>
-#include <linux/crc32c.h>
 #include <linux/fs_context.h>
 #include <linux/fs_parser.h>
 #include <linux/dax.h>
@@ -51,33 +50,6 @@ void _erofs_info(struct super_block *sb, const char *function,
 	va_end(args);
 }
 
-static int erofs_superblock_csum_verify(struct super_block *sb, void *sbdata)
-{
-	size_t len = 1 << EROFS_SB(sb)->blkszbits;
-	struct erofs_super_block *dsb;
-	u32 expected_crc, crc;
-
-	if (len > EROFS_SUPER_OFFSET)
-		len -= EROFS_SUPER_OFFSET;
-
-	dsb = kmemdup(sbdata + EROFS_SUPER_OFFSET, len, GFP_KERNEL);
-	if (!dsb)
-		return -ENOMEM;
-
-	expected_crc = le32_to_cpu(dsb->checksum);
-	dsb->checksum = 0;
-	/* to allow for x86 boot sectors and other oddities. */
-	crc = crc32c(~0, dsb, len);
-	kfree(dsb);
-
-	if (crc != expected_crc) {
-		erofs_err(sb, "invalid checksum 0x%08x, 0x%08x expected",
-			  crc, expected_crc);
-		return -EBADMSG;
-	}
-	return 0;
-}
-
 static void erofs_inode_init_once(void *ptr)
 {
 	struct erofs_inode *vi = ptr;
@@ -113,15 +85,16 @@ static void erofs_free_inode(struct inode *inode)
 static bool check_layout_compatibility(struct super_block *sb,
 				       struct erofs_super_block *dsb)
 {
-	const unsigned int feature = le32_to_cpu(dsb->feature_incompat);
+	struct erofs_sb_info *sbi = EROFS_SB(sb);
 
-	EROFS_SB(sb)->feature_incompat = feature;
+	sbi->feature_compat = le32_to_cpu(dsb->feature_compat);
+	sbi->feature_incompat = le32_to_cpu(dsb->feature_incompat);
 
 	/* check if current kernel meets all mandatory requirements */
-	if (feature & (~EROFS_ALL_FEATURE_INCOMPAT)) {
+	if (sbi->feature_incompat & (~EROFS_ALL_FEATURE_INCOMPAT)) {
 		erofs_err(sb,
 			  "unidentified incompatible feature %x, please upgrade kernel version",
-			   feature & ~EROFS_ALL_FEATURE_INCOMPAT);
+			   sbi->feature_incompat & ~EROFS_ALL_FEATURE_INCOMPAT);
 		return false;
 	}
 	return true;
@@ -366,13 +339,6 @@ static int erofs_read_superblock(struct super_block *sb)
 	if (dsb->dirblkbits) {
 		erofs_err(sb, "dirblkbits %u isn't supported", dsb->dirblkbits);
 		goto out;
-	}
-
-	sbi->feature_compat = le32_to_cpu(dsb->feature_compat);
-	if (erofs_sb_has_sb_chksum(sbi)) {
-		ret = erofs_superblock_csum_verify(sb, data);
-		if (ret)
-			goto out;
 	}
 
 	ret = -EINVAL;
