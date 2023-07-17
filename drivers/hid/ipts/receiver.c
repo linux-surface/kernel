@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2020-2023 Dorian Stoll
  *
  * Linux driver for Intel Precise Touch & Stylus
@@ -66,7 +65,9 @@ static int ipts_receiver_event_loop(struct ipts_thread *thread)
 	dev_info(ipts->dev, "IPTS running in event mode\n");
 
 	while (!ipts_thread_should_stop(thread)) {
-		for (int i = 0; i < IPTS_BUFFERS; i++) {
+		int i = 0;
+
+		for (i = 0; i < IPTS_BUFFERS; i++) {
 			ret = ipts_control_wait_data(ipts, false);
 			if (ret == -EAGAIN)
 				break;
@@ -126,7 +127,7 @@ static int ipts_receiver_event_loop(struct ipts_thread *thread)
 	return 0;
 }
 
-static int ipts_receiver_doorbell_loop(struct ipts_thread *thread)
+static int ipts_receiver_poll_loop(struct ipts_thread *thread)
 {
 	int ret = 0;
 	u32 buffer = 0;
@@ -145,7 +146,7 @@ static int ipts_receiver_doorbell_loop(struct ipts_thread *thread)
 	if (!ipts)
 		return -EFAULT;
 
-	dev_info(ipts->dev, "IPTS running in doorbell mode\n");
+	dev_info(ipts->dev, "IPTS running in poll mode\n");
 
 	while (true) {
 		if (ipts_thread_should_stop(thread)) {
@@ -217,9 +218,9 @@ int ipts_receiver_start(struct ipts_context *ipts)
 	if (ipts->mode == IPTS_MODE_EVENT) {
 		ret = ipts_thread_start(&ipts->receiver_loop, ipts_receiver_event_loop, ipts,
 					"ipts_event");
-	} else if (ipts->mode == IPTS_MODE_DOORBELL) {
-		ret = ipts_thread_start(&ipts->receiver_loop, ipts_receiver_doorbell_loop, ipts,
-					"ipts_doorbell");
+	} else if (ipts->mode == IPTS_MODE_POLL) {
+		ret = ipts_thread_start(&ipts->receiver_loop, ipts_receiver_poll_loop, ipts,
+					"ipts_poll");
 	} else {
 		ret = -EINVAL;
 	}
