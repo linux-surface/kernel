@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2020-2023 Dorian Stoll
  *
  * Linux driver for Intel Precise Touch & Stylus
@@ -41,7 +40,9 @@ struct ipts_context {
 	struct ipts_buffer feature_report;
 	struct ipts_buffer descriptor;
 
+	bool hid_active;
 	struct hid_device *hid;
+
 	struct ipts_device_info info;
 	struct ipts_resources resources;
 

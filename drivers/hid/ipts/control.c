@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2020-2023 Dorian Stoll
  *
  * Linux driver for Intel Precise Touch & Stylus
@@ -88,6 +87,7 @@ static int ipts_control_set_mode(struct ipts_context *ipts, enum ipts_mode mode)
 
 static int ipts_control_set_mem_window(struct ipts_context *ipts, struct ipts_resources *res)
 {
+	int i = 0;
 	int ret = 0;
 	struct ipts_mem_window cmd = { 0 };
 	struct ipts_response rsp = { 0 };
@@ -98,7 +98,7 @@ static int ipts_control_set_mem_window(struct ipts_context *ipts, struct ipts_re
 	if (!res)
 		return -EFAULT;
 
-	for (int i = 0; i < IPTS_BUFFERS; i++) {
+	for (i = 0; i < IPTS_BUFFERS; i++) {
 		cmd.data_addr_lower[i] = lower_32_bits(res->data[i].dma_address);
 		cmd.data_addr_upper[i] = upper_32_bits(res->data[i].dma_address);
 		cmd.feedback_addr_lower[i] = lower_32_bits(res->feedback[i].dma_address);
@@ -342,12 +342,6 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
 	return ipts_control_send_feedback(ipts, IPTS_HID2ME_BUFFER);
 }
 
-static inline int ipts_control_reset_sensor(struct ipts_context *ipts)
-{
-	return ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_SOFT_RESET,
-					    IPTS_FEEDBACK_DATA_TYPE_VENDOR, NULL, 0);
-}
-
 int ipts_control_start(struct ipts_context *ipts)
 {
 	int ret = 0;
@@ -389,9 +383,9 @@ int ipts_control_start(struct ipts_context *ipts)
 		}
 
 		/*
-		 * Newer devices can be directly initialized in doorbell mode.
+		 * Newer devices can be directly initialized in polling mode.
 		 */
-		ipts->mode = IPTS_MODE_DOORBELL;
+		ipts->mode = IPTS_MODE_POLL;
 	}
 
 	ret = ipts_control_set_mode(ipts, ipts->mode);
@@ -418,6 +412,8 @@ int ipts_control_start(struct ipts_context *ipts)
 		return ret;
 	}
 
+	ipts_hid_enable(ipts);
+
 	ret = ipts_hid_init(ipts, info);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to initialize HID device: %d\n", ret);
@@ -434,17 +430,12 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 	if (!ipts)
 		return -EFAULT;
 
+	ipts_hid_disable(ipts);
 	dev_info(ipts->dev, "Stopping IPTS\n");
 
 	ret = ipts_receiver_stop(ipts);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to stop receiver: %d\n", ret);
-		return ret;
-	}
-
-	ret = ipts_control_reset_sensor(ipts);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to reset sensor: %d\n", ret);
 		return ret;
 	}
 
@@ -483,7 +474,7 @@ int ipts_control_restart(struct ipts_context *ipts)
 		return ret;
 
 	/*
-	 * Give the sensor some time to come back from resetting
+	 * Wait a second to give the sensor time to fully shut down.
 	 */
 	msleep(1000);
 
