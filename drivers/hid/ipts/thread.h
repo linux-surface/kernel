@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2023 Dorian Stoll
  *
  * Linux driver for Intel Precise Touch & Stylus
@@ -29,7 +28,7 @@ struct ipts_thread {
 	int (*threadfn)(struct ipts_thread *thread);
 };
 
-/*
+/**
  * ipts_thread_should_stop() - Returns true if the thread is asked to terminate.
  * @thread: The current thread.
  *
@@ -37,7 +36,7 @@ struct ipts_thread {
  */
 bool ipts_thread_should_stop(struct ipts_thread *thread);
 
-/*
+/**
  * ipts_thread_start() - Starts an IPTS thread.
  * @thread: The thread to initialize and start.
  * @threadfn: The function to execute.
@@ -49,7 +48,7 @@ bool ipts_thread_should_stop(struct ipts_thread *thread);
 int ipts_thread_start(struct ipts_thread *thread, int (*threadfn)(struct ipts_thread *thread),
 		      void *data, const char name[]);
 
-/*
+/**
  * ipts_thread_stop() - Asks the thread to terminate and waits until it has finished.
  * @thread: The thread that should stop.
  *
