@@ -1348,6 +1348,94 @@ void page_add_file_rmap(struct page *page, struct vm_area_struct *vma,
 }
 
 /**
+ * __remove_rmap_finish - common operations when taking down a mapping.
+ * @folio:	Folio containing all pages taken down.
+ * @vma:	The VM area containing the range.
+ * @compound:	True if pages were taken down from PMD or false if from PTE(s).
+ * @nr_unmapped: Number of pages within folio that are now unmapped.
+ * @nr_mapped:	Number of pages within folio that are still mapped.
+ */
+static void __remove_rmap_finish(struct folio *folio,
+				struct vm_area_struct *vma, bool compound,
+				int nr_unmapped, int nr_mapped)
+{
+	enum node_stat_item idx;
+
+	if (nr_unmapped) {
+		idx = folio_test_anon(folio) ? NR_ANON_MAPPED : NR_FILE_MAPPED;
+		__lruvec_stat_mod_folio(folio, idx, -nr_unmapped);
+
+		/*
+		 * Queue large anon folio for deferred split if at least one
+		 * page of the folio is unmapped and at least one page is still
+		 * mapped.
+		 */
+		if (folio_test_large(folio) &&
+		    folio_test_anon(folio) && nr_mapped)
+			deferred_split_folio(folio);
+	}
+
+	/*
+	 * It would be tidy to reset folio_test_anon mapping when fully
+	 * unmapped, but that might overwrite a racing page_add_anon_rmap
+	 * which increments mapcount after us but sets mapping before us:
+	 * so leave the reset to free_pages_prepare, and remember that
+	 * it's only reliable while mapped.
+	 */
+
+	munlock_vma_folio(folio, vma, compound);
+}
+
+/**
+ * folio_remove_rmap_range - Take down PTE mappings from a range of pages.
+ * @folio:	Folio containing all pages in range.
+ * @page:	First page in range to unmap.
+ * @nr:		Number of pages to unmap.
+ * @vma:	The VM area containing the range.
+ *
+ * All pages in the range must belong to the same VMA & folio. They must be
+ * mapped with PTEs, not a PMD.
+ *
+ * Context: Caller holds the pte lock.
+ */
+void folio_remove_rmap_range(struct folio *folio, struct page *page,
+					int nr, struct vm_area_struct *vma)
+{
+	atomic_t *mapped = &folio->_nr_pages_mapped;
+	int nr_unmapped = 0;
+	int nr_mapped = 0;
+	bool last;
+
+	if (unlikely(folio_test_hugetlb(folio))) {
+		VM_WARN_ON_FOLIO(1, folio);
+		return;
+	}
+
+	VM_WARN_ON_ONCE(page < &folio->page ||
+			page + nr > (&folio->page + folio_nr_pages(folio)));
+
+	if (!folio_test_large(folio)) {
+		/* Is this the page's last map to be removed? */
+		last = atomic_add_negative(-1, &page->_mapcount);
+		nr_unmapped = last;
+	} else {
+		for (; nr != 0; nr--, page++) {
+			/* Is this the page's last map to be removed? */
+			last = atomic_add_negative(-1, &page->_mapcount);
+			if (last)
+				nr_unmapped++;
+		}
+
+		/* Pages still mapped if folio mapped entirely */
+		nr_mapped = atomic_sub_return_relaxed(nr_unmapped, mapped);
+		if (nr_mapped >= COMPOUND_MAPPED)
+			nr_unmapped = 0;
+	}
+
+	__remove_rmap_finish(folio, vma, false, nr_unmapped, nr_mapped);
+}
+
+/**
  * page_remove_rmap - take down pte mapping from a page
  * @page:	page to remove mapping from
  * @vma:	the vm area from which the mapping is removed
@@ -1373,15 +1461,13 @@ void page_remove_rmap(struct page *page, struct vm_area_struct *vma,
 		return;
 	}
 
-	/* Is page being unmapped by PTE? Is this its last map to be removed? */
+	/* Is page being unmapped by PTE? */
 	if (likely(!compound)) {
-		last = atomic_add_negative(-1, &page->_mapcount);
-		nr = last;
-		if (last && folio_test_large(folio)) {
-			nr = atomic_dec_return_relaxed(mapped);
-			nr = (nr < COMPOUND_MAPPED);
-		}
-	} else if (folio_test_pmd_mappable(folio)) {
+		folio_remove_rmap_range(folio, page, 1, vma);
+		return;
+	}
+
+	if (folio_test_pmd_mappable(folio)) {
 		/* That test is redundant: it's for safety or to optimize out */
 
 		last = atomic_add_negative(-1, &folio->_entire_mapcount);
@@ -1409,29 +1495,8 @@ void page_remove_rmap(struct page *page, struct vm_area_struct *vma,
 			idx = NR_FILE_PMDMAPPED;
 		__lruvec_stat_mod_folio(folio, idx, -nr_pmdmapped);
 	}
-	if (nr) {
-		idx = folio_test_anon(folio) ? NR_ANON_MAPPED : NR_FILE_MAPPED;
-		__lruvec_stat_mod_folio(folio, idx, -nr);
 
-		/*
-		 * Queue anon large folio for deferred split if at least one
-		 * page of the folio is unmapped and at least one page
-		 * is still mapped.
-		 */
-		if (folio_test_large(folio) && folio_test_anon(folio))
-			if (!compound || nr < nr_pmdmapped)
-				deferred_split_folio(folio);
-	}
-
-	/*
-	 * It would be tidy to reset folio_test_anon mapping when fully
-	 * unmapped, but that might overwrite a racing page_add_anon_rmap
-	 * which increments mapcount after us but sets mapping before us:
-	 * so leave the reset to free_pages_prepare, and remember that
-	 * it's only reliable while mapped.
-	 */
-
-	munlock_vma_folio(folio, vma, compound);
+	__remove_rmap_finish(folio, vma, compound, nr, nr_pmdmapped - nr);
 }
 
 /*
