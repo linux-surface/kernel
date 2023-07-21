@@ -20,6 +20,15 @@ static int cmdline_load_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+static int cmdline_image_proc_show(struct seq_file *m, void *v)
+{
+#ifdef CONFIG_BOOT_CONFIG_FORCE
+	seq_puts(m, saved_bootconfig_string);
+	seq_putc(m, '\n');
+#endif
+	return 0;
+}
+
 static int __init proc_cmdline_init(void)
 {
 	struct proc_dir_entry *pde;
@@ -31,6 +40,9 @@ static int __init proc_cmdline_init(void)
 		pde = proc_create_single("cmdline_load", 0, NULL, cmdline_load_proc_show);
 		pde_make_permanent(pde);
 		pde->size = strnlen(boot_command_line, COMMAND_LINE_SIZE) + 1;
+		pde = proc_create_single("cmdline_image", 0, NULL, cmdline_image_proc_show);
+		pde_make_permanent(pde);
+		pde->size = strnlen(saved_bootconfig_string, COMMAND_LINE_SIZE) + 1;
 	}
 	return 0;
 }
