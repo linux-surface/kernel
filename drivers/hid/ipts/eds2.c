@@ -34,7 +34,7 @@ int ipts_eds2_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t
 	size = sizeof(ipts_singletouch_descriptor) + ipts->descriptor.size;
 
 	buffer = kzalloc(size, GFP_KERNEL);
-	if (!*buffer)
+	if (!buffer)
 		return -ENOMEM;
 
 	memcpy(buffer, ipts_singletouch_descriptor, sizeof(ipts_singletouch_descriptor));
