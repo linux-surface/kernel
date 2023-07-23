@@ -138,7 +138,7 @@ int ipts_eds2_raw_request(struct ipts_context *ipts, u8 *buffer, size_t size, u8
 		return -EIO;
 
 	if (request_type == HID_REQ_GET_REPORT)
-		return ipts_eds2_get_feature(ipts, buffer, report_id, size, feedback_type);
+		return ipts_eds2_get_feature(ipts, buffer, size, report_id, feedback_type);
 	else
-		return ipts_eds2_set_feature(ipts, buffer, report_id, size, feedback_type);
+		return ipts_eds2_set_feature(ipts, buffer, size, report_id, feedback_type);
 }
