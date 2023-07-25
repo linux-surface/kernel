@@ -15,7 +15,6 @@
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_bitbang.h>
 #include <linux/slab.h>
@@ -895,25 +894,16 @@ static int davinci_spi_probe(struct platform_device *pdev)
 		goto free_master;
 	}
 
-	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (r == NULL) {
-		ret = -ENOENT;
-		goto free_master;
-	}
-
-	dspi->pbase = r->start;
-
-	dspi->base = devm_ioremap_resource(&pdev->dev, r);
+	dspi->base = devm_platform_get_and_ioremap_resource(pdev, 0, &r);
 	if (IS_ERR(dspi->base)) {
 		ret = PTR_ERR(dspi->base);
 		goto free_master;
 	}
+	dspi->pbase = r->start;
 
 	init_completion(&dspi->done);
 
 	ret = platform_get_irq(pdev, 0);
-	if (ret == 0)
-		ret = -EINVAL;
 	if (ret < 0)
 		goto free_master;
 	dspi->irq = ret;
@@ -939,7 +929,7 @@ static int davinci_spi_probe(struct platform_device *pdev)
 	master->bus_num = pdev->id;
 	master->num_chipselect = pdata->num_chipselect;
 	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(2, 16);
-	master->flags = SPI_MASTER_MUST_RX | SPI_MASTER_GPIO_SS;
+	master->flags = SPI_CONTROLLER_MUST_RX | SPI_CONTROLLER_GPIO_SS;
 	master->setup = davinci_spi_setup;
 	master->cleanup = davinci_spi_cleanup;
 	master->can_dma = davinci_spi_can_dma;
