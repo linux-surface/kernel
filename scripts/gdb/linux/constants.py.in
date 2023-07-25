@@ -18,6 +18,7 @@
 #include <linux/irq.h>
 #include <linux/mount.h>
 #include <linux/of_fdt.h>
+#include <linux/page_ext.h>
 #include <linux/radix-tree.h>
 #include <linux/threads.h>
 #include <asm/memory.h>
@@ -94,6 +95,10 @@ if IS_BUILTIN(CONFIG_ARM64):
     LX_GDBPARSED(VA_BITS_MIN)
     LX_GDBPARSED(MODULES_VSIZE)
 
+/* linux/page_ext.h */
+LX_GDBPARSED(PAGE_EXT_OWNER)
+LX_GDBPARSED(PAGE_EXT_OWNER_ALLOCATED)
+
 /* Kernel Configs */
 LX_CONFIG(CONFIG_GENERIC_CLOCKEVENTS)
 LX_CONFIG(CONFIG_GENERIC_CLOCKEVENTS_BROADCAST)
@@ -134,3 +139,4 @@ if IS_BUILTIN(CONFIG_NUMA):
     LX_VALUE(CONFIG_NODES_SHIFT)
 LX_CONFIG(CONFIG_DEBUG_VIRTUAL)
 LX_CONFIG(CONFIG_STACKDEPOT)
+LX_CONFIG(CONFIG_PAGE_OWNER)
