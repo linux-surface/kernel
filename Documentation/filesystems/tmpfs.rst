@@ -110,13 +110,13 @@ configured with CONFIG_TRANSPARENT_HUGEPAGE and with huge supported for
 your system (has_transparent_hugepage(), which is architecture specific).
 The mount options for this are:
 
-===========  ==============================================================
-huge=never   Do not allocate huge pages.  This is the default.
-huge=always  Attempt to allocate huge page every time a new page is needed.
+================ ==============================================================
+huge=never       Do not allocate huge pages.  This is the default.
+huge=always      Attempt to allocate huge page every time a new page is needed.
 huge=within_size Only allocate huge page if it will be fully within i_size.
-             Also respect madvise(2) hints.
-huge=advise  Only allocate huge page if requested with madvise(2).
-===========  ==============================================================
+                 Also respect madvise(2) hints.
+huge=advise      Only allocate huge page if requested with madvise(2).
+================ ==============================================================
 
 See also Documentation/admin-guide/mm/transhuge.rst, which describes the
 sysfs file /sys/kernel/mm/transparent_hugepage/shmem_enabled: which can
