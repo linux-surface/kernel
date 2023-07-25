@@ -33,6 +33,7 @@
 			operating-points-v2 = <&cpu_opp_table>;
 			reg = <0x0>;
 			cpu-idle-states = <&CPU_SLEEP_0>;
+			next-level-cache = <&L2>;
 		};
 
 		cpu1: cpu@1 {
@@ -42,6 +43,7 @@
 			reg = <0x1>;
 			operating-points-v2 = <&cpu_opp_table>;
 			cpu-idle-states = <&CPU_SLEEP_0>;
+			next-level-cache = <&L2>;
 		};
 
 		cpu2: cpu@2 {
@@ -51,6 +53,7 @@
 			reg = <0x2>;
 			operating-points-v2 = <&cpu_opp_table>;
 			cpu-idle-states = <&CPU_SLEEP_0>;
+			next-level-cache = <&L2>;
 		};
 
 		cpu3: cpu@3 {
@@ -60,6 +63,13 @@
 			reg = <0x3>;
 			operating-points-v2 = <&cpu_opp_table>;
 			cpu-idle-states = <&CPU_SLEEP_0>;
+			next-level-cache = <&L2>;
+		};
+
+		L2: l2-cache {
+			compatible = "cache";
+			cache-level = <2>;
+			cache-unified;
 		};
 
 		idle-states {
@@ -638,6 +648,7 @@
 			status = "disabled";
 			interrupt-parent = <&gic>;
 			interrupts = <0 17 4>;
+			clock-frequency = <400000>;
 			reg = <0x0 0xff020000 0x0 0x1000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -649,6 +660,7 @@
 			status = "disabled";
 			interrupt-parent = <&gic>;
 			interrupts = <0 18 4>;
+			clock-frequency = <400000>;
 			reg = <0x0 0xff030000 0x0 0x1000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -888,8 +900,8 @@
 				compatible = "snps,dwc3";
 				reg = <0x0 0xfe200000 0x0 0x40000>;
 				interrupt-parent = <&gic>;
-				interrupt-names = "dwc_usb3", "otg";
-				interrupts = <0 65 4>, <0 69 4>;
+				interrupt-names = "host", "peripheral", "otg";
+				interrupts = <0 65 4>, <0 65 4>, <0 69 4>;
 				clock-names = "bus_early", "ref";
 				iommus = <&smmu 0x860>;
 				snps,quirk-frame-length-adjustment = <0x20>;
@@ -915,8 +927,8 @@
 				compatible = "snps,dwc3";
 				reg = <0x0 0xfe300000 0x0 0x40000>;
 				interrupt-parent = <&gic>;
-				interrupt-names = "dwc_usb3", "otg";
-				interrupts = <0 70 4>, <0 74 4>;
+				interrupt-names = "host", "peripheral", "otg";
+				interrupts = <0 70 4>, <0 70 4>, <0 74 4>;
 				clock-names = "bus_early", "ref";
 				iommus = <&smmu 0x861>;
 				snps,quirk-frame-length-adjustment = <0x20>;
