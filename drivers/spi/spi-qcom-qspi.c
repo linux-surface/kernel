@@ -69,7 +69,7 @@
 				 WR_FIFO_OVERRUN)
 #define QSPI_ALL_IRQS		(QSPI_ERR_IRQS | RESP_FIFO_RDY | \
 				 WR_FIFO_EMPTY | WR_FIFO_FULL | \
-				 TRANSACTION_DONE)
+				 TRANSACTION_DONE | DMA_CHAIN_DONE)
 
 #define PIO_XFER_CTRL		0x0014
 #define REQUEST_COUNT_MSK	0xffff
@@ -308,9 +308,11 @@ static int qcom_qspi_alloc_desc(struct qcom_qspi *ctrl, dma_addr_t dma_ptr,
 	dma_addr_t dma_cmd_desc;
 
 	/* allocate for dma cmd descriptor */
-	virt_cmd_desc = dma_pool_alloc(ctrl->dma_cmd_pool, GFP_KERNEL | __GFP_ZERO, &dma_cmd_desc);
-	if (!virt_cmd_desc)
-		return -ENOMEM;
+	virt_cmd_desc = dma_pool_alloc(ctrl->dma_cmd_pool, GFP_ATOMIC | __GFP_ZERO, &dma_cmd_desc);
+	if (!virt_cmd_desc) {
+		dev_warn_once(ctrl->dev, "Couldn't find memory for descriptor\n");
+		return -EAGAIN;
+	}
 
 	ctrl->virt_cmd_desc[ctrl->n_cmd_desc] = virt_cmd_desc;
 	ctrl->dma_cmd_desc[ctrl->n_cmd_desc] = dma_cmd_desc;
@@ -441,8 +443,10 @@ static int qcom_qspi_transfer_one(struct spi_master *master,
 
 		ret = qcom_qspi_setup_dma_desc(ctrl, xfer);
 		if (ret != -EAGAIN) {
-			if (!ret)
+			if (!ret) {
+				dma_wmb();
 				qcom_qspi_dma_xfer(ctrl);
+			}
 			goto exit;
 		}
 		dev_warn_once(ctrl->dev, "DMA failure, falling back to PIO\n");
@@ -602,6 +606,9 @@ static irqreturn_t qcom_qspi_irq(int irq, void *dev_id)
 
 	int_status = readl(ctrl->base + MSTR_INT_STATUS);
 	writel(int_status, ctrl->base + MSTR_INT_STATUS);
+
+	/* Ignore disabled interrupts */
+	int_status &= readl(ctrl->base + MSTR_INT_EN);
 
 	/* PIO mode handling */
 	if (ctrl->xfer.dir == QSPI_WRITE) {
