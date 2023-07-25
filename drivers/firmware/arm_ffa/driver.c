@@ -64,6 +64,7 @@ static const int ffa_linux_errmap[] = {
 	-EACCES,	/* FFA_RET_DENIED */
 	-EAGAIN,	/* FFA_RET_RETRY */
 	-ECANCELED,	/* FFA_RET_ABORTED */
+	-ENODATA,	/* FFA_RET_NO_DATA */
 };
 
 static inline int ffa_to_linux_errno(int errno)
@@ -336,7 +337,7 @@ static int ffa_mem_first_frag(u32 func_id, phys_addr_t buf, u32 buf_sz,
 	if (ret.a0 == FFA_ERROR)
 		return ffa_to_linux_errno((int)ret.a2);
 
-	if (ret.a0 == FFA_SUCCESS) {
+	if (ret.a0 == FFA_SUCCESS || ret.a0 == FFA_FN64_SUCCESS) {
 		if (handle)
 			*handle = PACK_HANDLE(ret.a2, ret.a3);
 	} else if (ret.a0 == FFA_MEM_FRAG_RX) {
