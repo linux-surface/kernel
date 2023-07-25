@@ -11,7 +11,8 @@
 #include <dt-bindings/net/ti-dp83867.h>
 #include <dt-bindings/phy/phy-cadence.h>
 #include <dt-bindings/phy/phy.h>
-#include <dt-bindings/mux/ti-serdes.h>
+
+#include "k3-serdes.h"
 
 / {
 	compatible = "ti,j721s2-evm", "ti,j721s2";
@@ -407,7 +408,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&mcu_fss0_ospi1_pins_default>;
 
-	flash@0{
+	flash@0 {
 		compatible = "jedec,spi-nor";
 		reg = <0x0>;
 		spi-tx-bus-width = <1>;
