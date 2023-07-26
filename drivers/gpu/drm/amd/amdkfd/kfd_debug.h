@@ -76,8 +76,9 @@ int kfd_dbg_send_exception_to_runtime(struct kfd_process *p,
 
 static inline bool kfd_dbg_is_per_vmid_supported(struct kfd_node *dev)
 {
-	return KFD_GC_VERSION(dev) == IP_VERSION(9, 4, 2) ||
-	       KFD_GC_VERSION(dev) >= IP_VERSION(11, 0, 0);
+	return (KFD_GC_VERSION(dev) == IP_VERSION(9, 4, 2) ||
+		KFD_GC_VERSION(dev) == IP_VERSION(9, 4, 3) ||
+		KFD_GC_VERSION(dev) >= IP_VERSION(11, 0, 0));
 }
 
 void debug_event_write_work_handler(struct work_struct *work);
@@ -98,6 +99,12 @@ static inline bool kfd_dbg_is_rlc_restore_supported(struct kfd_node *dev)
 {
 	return !(KFD_GC_VERSION(dev) == IP_VERSION(10, 1, 10) ||
 		 KFD_GC_VERSION(dev) == IP_VERSION(10, 1, 1));
+}
+
+static inline bool kfd_dbg_has_cwsr_workaround(struct kfd_node *dev)
+{
+	return KFD_GC_VERSION(dev) >= IP_VERSION(11, 0, 0) &&
+	       KFD_GC_VERSION(dev) <= IP_VERSION(11, 0, 3);
 }
 
 static inline bool kfd_dbg_has_gws_support(struct kfd_node *dev)

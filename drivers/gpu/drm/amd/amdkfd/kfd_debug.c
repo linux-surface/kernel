@@ -302,8 +302,7 @@ static int kfd_dbg_set_queue_workaround(struct queue *q, bool enable)
 	if (!q)
 		return 0;
 
-	if (KFD_GC_VERSION(q->device) < IP_VERSION(11, 0, 0) ||
-	    KFD_GC_VERSION(q->device) >= IP_VERSION(12, 0, 0))
+	if (!kfd_dbg_has_cwsr_workaround(q->device))
 		return 0;
 
 	if (enable && q->properties.is_user_cu_masked)
@@ -349,7 +348,7 @@ int kfd_dbg_set_mes_debug_mode(struct kfd_process_device *pdd)
 {
 	uint32_t spi_dbg_cntl = pdd->spi_dbg_override | pdd->spi_dbg_launch_mode;
 	uint32_t flags = pdd->process->dbg_flags;
-	bool sq_trap_en = !!spi_dbg_cntl;
+	bool sq_trap_en = !!spi_dbg_cntl || !kfd_dbg_has_cwsr_workaround(pdd->dev);
 
 	if (!kfd_dbg_is_per_vmid_supported(pdd->dev))
 		return 0;
@@ -446,7 +445,8 @@ int kfd_dbg_trap_set_dev_address_watch(struct kfd_process_device *pdd,
 					uint32_t *watch_id,
 					uint32_t watch_mode)
 {
-	int r = kfd_dbg_get_dev_watch_id(pdd, watch_id);
+	int xcc_id, r = kfd_dbg_get_dev_watch_id(pdd, watch_id);
+	uint32_t xcc_mask = pdd->dev->xcc_mask;
 
 	if (r)
 		return r;
@@ -460,13 +460,15 @@ int kfd_dbg_trap_set_dev_address_watch(struct kfd_process_device *pdd,
 	}
 
 	amdgpu_gfx_off_ctrl(pdd->dev->adev, false);
-	pdd->watch_points[*watch_id] = pdd->dev->kfd2kgd->set_address_watch(
+	for_each_inst(xcc_id, xcc_mask)
+		pdd->watch_points[*watch_id] = pdd->dev->kfd2kgd->set_address_watch(
 				pdd->dev->adev,
 				watch_address,
 				watch_address_mask,
 				*watch_id,
 				watch_mode,
-				pdd->dev->vm_info.last_vmid_kfd);
+				pdd->dev->vm_info.last_vmid_kfd,
+				xcc_id);
 	amdgpu_gfx_off_ctrl(pdd->dev->adev, true);
 
 	if (!pdd->dev->kfd->shared_resources.enable_mes)
@@ -751,7 +753,8 @@ int kfd_dbg_trap_enable(struct kfd_process *target, uint32_t fd,
 		if (!KFD_IS_SOC15(pdd->dev))
 			return -ENODEV;
 
-		if (!kfd_dbg_has_gws_support(pdd->dev) && pdd->qpd.num_gws)
+		if (pdd->qpd.num_gws && (!kfd_dbg_has_gws_support(pdd->dev) ||
+					 kfd_dbg_has_cwsr_workaround(pdd->dev)))
 			return -EBUSY;
 	}
 

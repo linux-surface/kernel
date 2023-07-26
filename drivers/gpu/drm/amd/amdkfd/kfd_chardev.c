@@ -1487,7 +1487,8 @@ static int kfd_ioctl_alloc_queue_gws(struct file *filep,
 		goto out_unlock;
 	}
 
-	if (!kfd_dbg_has_gws_support(dev) && p->debug_trap_enabled) {
+	if (p->debug_trap_enabled && (!kfd_dbg_has_gws_support(dev) ||
+				      kfd_dbg_has_cwsr_workaround(dev))) {
 		retval = -EBUSY;
 		goto out_unlock;
 	}
@@ -1852,15 +1853,14 @@ static uint32_t get_process_num_bos(struct kfd_process *p)
 	return num_of_bos;
 }
 
-static int criu_get_prime_handle(struct drm_gem_object *gobj, int flags,
+static int criu_get_prime_handle(struct kgd_mem *mem, int flags,
 				      u32 *shared_fd)
 {
 	struct dma_buf *dmabuf;
 	int ret;
 
-	dmabuf = amdgpu_gem_prime_export(gobj, flags);
-	if (IS_ERR(dmabuf)) {
-		ret = PTR_ERR(dmabuf);
+	ret = amdgpu_amdkfd_gpuvm_export_dmabuf(mem, &dmabuf);
+	if (ret) {
 		pr_err("dmabuf export failed for the BO\n");
 		return ret;
 	}
@@ -1940,7 +1940,7 @@ static int criu_checkpoint_bos(struct kfd_process *p,
 			}
 			if (bo_bucket->alloc_flags
 			    & (KFD_IOC_ALLOC_MEM_FLAGS_VRAM | KFD_IOC_ALLOC_MEM_FLAGS_GTT)) {
-				ret = criu_get_prime_handle(&dumper_bo->tbo.base,
+				ret = criu_get_prime_handle(kgd_mem,
 						bo_bucket->alloc_flags &
 						KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE ? DRM_RDWR : 0,
 						&bo_bucket->dmabuf_fd);
@@ -2402,7 +2402,7 @@ static int criu_restore_bo(struct kfd_process *p,
 	/* create the dmabuf object and export the bo */
 	if (bo_bucket->alloc_flags
 	    & (KFD_IOC_ALLOC_MEM_FLAGS_VRAM | KFD_IOC_ALLOC_MEM_FLAGS_GTT)) {
-		ret = criu_get_prime_handle(&kgd_mem->bo->tbo.base, DRM_RDWR,
+		ret = criu_get_prime_handle(kgd_mem, DRM_RDWR,
 					    &bo_bucket->dmabuf_fd);
 		if (ret)
 			return ret;
