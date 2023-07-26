@@ -2844,6 +2844,9 @@ static void spi_nor_init_flags(struct spi_nor *nor)
 	if (of_property_read_bool(np, "broken-flash-reset"))
 		nor->flags |= SNOR_F_BROKEN_RESET;
 
+	if (of_property_read_bool(np, "no-wp"))
+		nor->flags |= SNOR_F_NO_WP;
+
 	if (flags & SPI_NOR_SWP_IS_VOLATILE)
 		nor->flags |= SNOR_F_SWP_IS_VOLATILE;
 
@@ -3087,17 +3090,17 @@ static int spi_nor_init_params(struct spi_nor *nor)
 	return 0;
 }
 
-/** spi_nor_octal_dtr_enable() - enable Octal DTR I/O if needed
+/** spi_nor_set_octal_dtr() - enable or disable Octal DTR I/O.
  * @nor:                 pointer to a 'struct spi_nor'
  * @enable:              whether to enable or disable Octal DTR
  *
  * Return: 0 on success, -errno otherwise.
  */
-static int spi_nor_octal_dtr_enable(struct spi_nor *nor, bool enable)
+static int spi_nor_set_octal_dtr(struct spi_nor *nor, bool enable)
 {
 	int ret;
 
-	if (!nor->params->octal_dtr_enable)
+	if (!nor->params->set_octal_dtr)
 		return 0;
 
 	if (!(nor->read_proto == SNOR_PROTO_8_8_8_DTR &&
@@ -3107,7 +3110,7 @@ static int spi_nor_octal_dtr_enable(struct spi_nor *nor, bool enable)
 	if (!(nor->flags & SNOR_F_IO_MODE_EN_VOLATILE))
 		return 0;
 
-	ret = nor->params->octal_dtr_enable(nor, enable);
+	ret = nor->params->set_octal_dtr(nor, enable);
 	if (ret)
 		return ret;
 
@@ -3168,7 +3171,7 @@ static int spi_nor_init(struct spi_nor *nor)
 {
 	int err;
 
-	err = spi_nor_octal_dtr_enable(nor, true);
+	err = spi_nor_set_octal_dtr(nor, true);
 	if (err) {
 		dev_dbg(nor->dev, "octal mode not supported\n");
 		return err;
@@ -3270,7 +3273,7 @@ static int spi_nor_suspend(struct mtd_info *mtd)
 	int ret;
 
 	/* Disable octal DTR mode if we enabled it. */
-	ret = spi_nor_octal_dtr_enable(nor, false);
+	ret = spi_nor_set_octal_dtr(nor, false);
 	if (ret)
 		dev_err(nor->dev, "suspend() failed\n");
 
