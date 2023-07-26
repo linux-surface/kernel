@@ -45,4 +45,3 @@ else:
     import linux.radixtree
     import linux.interrupts
     import linux.mm
-    import linux.stackdepot
