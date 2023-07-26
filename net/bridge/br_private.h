@@ -387,6 +387,7 @@ struct net_bridge_port {
 	struct net_bridge_vlan_group	__rcu *vlgrp;
 #endif
 	struct net_bridge_port		__rcu *backup_port;
+	u32				backup_nhid;
 
 	/* STP */
 	u8				priority;
@@ -605,6 +606,8 @@ struct br_input_skb_cb {
 	 */
 	unsigned long fwd_hwdoms;
 #endif
+
+	u32 backup_nhid;
 };
 
 #define BR_INPUT_SKB_CB(__skb)	((struct br_input_skb_cb *)(__skb)->cb)
@@ -2115,6 +2118,12 @@ void br_switchdev_port_unoffload(struct net_bridge_port *p, const void *ctx,
 				 struct notifier_block *atomic_nb,
 				 struct notifier_block *blocking_nb);
 
+int br_switchdev_port_replay(struct net_bridge_port *p,
+			     struct net_device *dev, const void *ctx,
+			     struct notifier_block *atomic_nb,
+			     struct notifier_block *blocking_nb,
+			     struct netlink_ext_ack *extack);
+
 bool br_switchdev_frame_uses_tx_fwd_offload(struct sk_buff *skb);
 
 void br_switchdev_frame_set_offload_fwd_mark(struct sk_buff *skb);
@@ -2163,6 +2172,16 @@ br_switchdev_port_unoffload(struct net_bridge_port *p, const void *ctx,
 			    struct notifier_block *atomic_nb,
 			    struct notifier_block *blocking_nb)
 {
+}
+
+static inline int
+br_switchdev_port_replay(struct net_bridge_port *p,
+			 struct net_device *dev, const void *ctx,
+			 struct notifier_block *atomic_nb,
+			 struct notifier_block *blocking_nb,
+			 struct netlink_ext_ack *extack)
+{
+	return -EOPNOTSUPP;
 }
 
 static inline bool br_switchdev_frame_uses_tx_fwd_offload(struct sk_buff *skb)

@@ -25,6 +25,7 @@
 #include <linux/btf_ids.h>
 #include <linux/poison.h>
 #include <linux/module.h>
+#include <linux/cpumask.h>
 
 #include "disasm.h"
 
@@ -5412,10 +5413,23 @@ static bool is_flow_key_reg(struct bpf_verifier_env *env, int regno)
 	return reg->type == PTR_TO_FLOW_KEYS;
 }
 
+static u32 *reg2btf_ids[__BPF_REG_TYPE_MAX] = {
+#ifdef CONFIG_NET
+	[PTR_TO_SOCKET] = &btf_sock_ids[BTF_SOCK_TYPE_SOCK],
+	[PTR_TO_SOCK_COMMON] = &btf_sock_ids[BTF_SOCK_TYPE_SOCK_COMMON],
+	[PTR_TO_TCP_SOCK] = &btf_sock_ids[BTF_SOCK_TYPE_TCP],
+#endif
+	[CONST_PTR_TO_MAP] = btf_bpf_map_id,
+};
+
 static bool is_trusted_reg(const struct bpf_reg_state *reg)
 {
 	/* A referenced register is always trusted. */
 	if (reg->ref_obj_id)
+		return true;
+
+	/* Types listed in the reg2btf_ids are always trusted */
+	if (reg2btf_ids[base_type(reg->type)])
 		return true;
 
 	/* If a register is not referenced, it is trusted if it has the
@@ -6085,6 +6099,11 @@ static int check_ptr_to_btf_access(struct bpf_verifier_env *env,
 				   type_is_rcu_or_null(env, reg, field_name, btf_id)) {
 				/* __rcu tagged pointers can be NULL */
 				flag |= MEM_RCU | PTR_MAYBE_NULL;
+
+				/* We always trust them */
+				if (type_is_rcu_or_null(env, reg, field_name, btf_id) &&
+				    flag & PTR_UNTRUSTED)
+					flag &= ~PTR_UNTRUSTED;
 			} else if (flag & (MEM_PERCPU | MEM_USER)) {
 				/* keep as-is */
 			} else {
@@ -9135,19 +9154,33 @@ static void do_refine_retval_range(struct bpf_reg_state *regs, int ret_type,
 {
 	struct bpf_reg_state *ret_reg = &regs[BPF_REG_0];
 
-	if (ret_type != RET_INTEGER ||
-	    (func_id != BPF_FUNC_get_stack &&
-	     func_id != BPF_FUNC_get_task_stack &&
-	     func_id != BPF_FUNC_probe_read_str &&
-	     func_id != BPF_FUNC_probe_read_kernel_str &&
-	     func_id != BPF_FUNC_probe_read_user_str))
+	if (ret_type != RET_INTEGER)
 		return;
 
-	ret_reg->smax_value = meta->msize_max_value;
-	ret_reg->s32_max_value = meta->msize_max_value;
-	ret_reg->smin_value = -MAX_ERRNO;
-	ret_reg->s32_min_value = -MAX_ERRNO;
-	reg_bounds_sync(ret_reg);
+	switch (func_id) {
+	case BPF_FUNC_get_stack:
+	case BPF_FUNC_get_task_stack:
+	case BPF_FUNC_probe_read_str:
+	case BPF_FUNC_probe_read_kernel_str:
+	case BPF_FUNC_probe_read_user_str:
+		ret_reg->smax_value = meta->msize_max_value;
+		ret_reg->s32_max_value = meta->msize_max_value;
+		ret_reg->smin_value = -MAX_ERRNO;
+		ret_reg->s32_min_value = -MAX_ERRNO;
+		reg_bounds_sync(ret_reg);
+		break;
+	case BPF_FUNC_get_smp_processor_id:
+		ret_reg->umax_value = nr_cpu_ids - 1;
+		ret_reg->u32_max_value = nr_cpu_ids - 1;
+		ret_reg->smax_value = nr_cpu_ids - 1;
+		ret_reg->s32_max_value = nr_cpu_ids - 1;
+		ret_reg->umin_value = 0;
+		ret_reg->u32_min_value = 0;
+		ret_reg->smin_value = 0;
+		ret_reg->s32_min_value = 0;
+		reg_bounds_sync(ret_reg);
+		break;
+	}
 }
 
 static int
@@ -10049,15 +10082,6 @@ static bool __btf_type_is_scalar_struct(struct bpf_verifier_env *env,
 	}
 	return true;
 }
-
-
-static u32 *reg2btf_ids[__BPF_REG_TYPE_MAX] = {
-#ifdef CONFIG_NET
-	[PTR_TO_SOCKET] = &btf_sock_ids[BTF_SOCK_TYPE_SOCK],
-	[PTR_TO_SOCK_COMMON] = &btf_sock_ids[BTF_SOCK_TYPE_SOCK_COMMON],
-	[PTR_TO_TCP_SOCK] = &btf_sock_ids[BTF_SOCK_TYPE_TCP],
-#endif
-};
 
 enum kfunc_ptr_arg_type {
 	KF_ARG_PTR_TO_CTX,
