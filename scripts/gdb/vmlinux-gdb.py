@@ -46,4 +46,3 @@ else:
     import linux.interrupts
     import linux.mm
     import linux.stackdepot
-    import linux.page_owner
