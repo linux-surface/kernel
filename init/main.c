@@ -146,6 +146,11 @@ static char *extra_command_line;
 /* Extra init arguments */
 static char *extra_init_args;
 
+/* Untouched boot-config string */
+#ifdef CONFIG_BOOT_CONFIG_FORCE
+char saved_bootconfig_string[COMMAND_LINE_SIZE] __ro_after_init;
+#endif
+
 #ifdef CONFIG_BOOT_CONFIG
 /* Is bootconfig on command line? */
 static bool bootconfig_found;
@@ -434,6 +439,10 @@ static void __init setup_boot_config(void)
 			pr_info("No bootconfig data provided, so skipping bootconfig");
 		return;
 	}
+
+#ifdef CONFIG_BOOT_CONFIG_FORCE
+	strncpy(saved_bootconfig_string, data, COMMAND_LINE_SIZE);
+#endif
 
 	if (size >= XBC_DATA_MAX) {
 		pr_err("bootconfig size %ld greater than max size %d\n",
