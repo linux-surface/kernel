@@ -52,6 +52,7 @@
 #include <linux/sched/debug.h>
 #include <linux/nmi.h>
 #include <linux/kvm_para.h>
+#include <linux/delay.h>
 
 #include "workqueue_internal.h"
 
@@ -338,8 +339,10 @@ static cpumask_var_t *wq_numa_possible_cpumask;
  * Per-cpu work items which run for longer than the following threshold are
  * automatically considered CPU intensive and excluded from concurrency
  * management to prevent them from noticeably delaying other per-cpu work items.
+ * ULONG_MAX indicates that the user hasn't overridden it with a boot parameter.
+ * The actual value is initialized in wq_cpu_intensive_thresh_init().
  */
-static unsigned long wq_cpu_intensive_thresh_us = 10000;
+static unsigned long wq_cpu_intensive_thresh_us = ULONG_MAX;
 module_param_named(cpu_intensive_thresh_us, wq_cpu_intensive_thresh_us, ulong, 0644);
 
 static bool wq_disable_numa;
@@ -367,6 +370,9 @@ static bool workqueue_freezing;		/* PL: have wqs started freezing? */
 
 /* PL&A: allowable cpus for unbound wqs and work items */
 static cpumask_var_t wq_unbound_cpumask;
+
+/* for further constrain wq_unbound_cpumask by cmdline parameter*/
+static struct cpumask wq_cmdline_cpumask __initdata;
 
 /* CPU where unbound work was last round robin scheduled from this CPU */
 static DEFINE_PER_CPU(int, wq_rr_cpu_last);
@@ -6455,6 +6461,9 @@ void __init workqueue_init_early(void)
 	cpumask_copy(wq_unbound_cpumask, housekeeping_cpumask(HK_TYPE_WQ));
 	cpumask_and(wq_unbound_cpumask, wq_unbound_cpumask, housekeeping_cpumask(HK_TYPE_DOMAIN));
 
+	if (!cpumask_empty(&wq_cmdline_cpumask))
+		cpumask_and(wq_unbound_cpumask, wq_unbound_cpumask, &wq_cmdline_cpumask);
+
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
 
 	/* initialize CPU pools */
@@ -6513,6 +6522,42 @@ void __init workqueue_init_early(void)
 	       !system_freezable_power_efficient_wq);
 }
 
+static void __init wq_cpu_intensive_thresh_init(void)
+{
+	unsigned long thresh;
+	unsigned long bogo;
+
+	/* if the user set it to a specific value, keep it */
+	if (wq_cpu_intensive_thresh_us != ULONG_MAX)
+		return;
+
+	/*
+	 * The default of 10ms is derived from the fact that most modern (as of
+	 * 2023) processors can do a lot in 10ms and that it's just below what
+	 * most consider human-perceivable. However, the kernel also runs on a
+	 * lot slower CPUs including microcontrollers where the threshold is way
+	 * too low.
+	 *
+	 * Let's scale up the threshold upto 1 second if BogoMips is below 4000.
+	 * This is by no means accurate but it doesn't have to be. The mechanism
+	 * is still useful even when the threshold is fully scaled up. Also, as
+	 * the reports would usually be applicable to everyone, some machines
+	 * operating on longer thresholds won't significantly diminish their
+	 * usefulness.
+	 */
+	thresh = 10 * USEC_PER_MSEC;
+
+	/* see init/calibrate.c for lpj -> BogoMIPS calculation */
+	bogo = max_t(unsigned long, loops_per_jiffy / 500000 * HZ, 1);
+	if (bogo < 4000)
+		thresh = min_t(unsigned long, thresh * 4000 / bogo, USEC_PER_SEC);
+
+	pr_debug("wq_cpu_intensive_thresh: lpj=%lu BogoMIPS=%lu thresh_us=%lu\n",
+		 loops_per_jiffy, bogo, thresh);
+
+	wq_cpu_intensive_thresh_us = thresh;
+}
+
 /**
  * workqueue_init - bring workqueue subsystem fully online
  *
@@ -6527,6 +6572,8 @@ void __init workqueue_init(void)
 	struct workqueue_struct *wq;
 	struct worker_pool *pool;
 	int cpu, bkt;
+
+	wq_cpu_intensive_thresh_init();
 
 	/*
 	 * It'd be simpler to initialize NUMA in workqueue_init_early() but
@@ -6571,10 +6618,20 @@ void __init workqueue_init(void)
 	wq_watchdog_init();
 }
 
-/*
- * Despite the naming, this is a no-op function which is here only for avoiding
- * link error. Since compile-time warning may fail to catch, we will need to
- * emit run-time warning from __flush_workqueue().
- */
-void __warn_flushing_systemwide_wq(void) { }
+void __warn_flushing_systemwide_wq(void)
+{
+	pr_warn("WARNING: Flushing system-wide workqueues will be prohibited in near future.\n");
+	dump_stack();
+}
 EXPORT_SYMBOL(__warn_flushing_systemwide_wq);
+
+static int __init workqueue_unbound_cpus_setup(char *str)
+{
+	if (cpulist_parse(str, &wq_cmdline_cpumask) < 0) {
+		cpumask_clear(&wq_cmdline_cpumask);
+		pr_warn("workqueue.unbound_cpus: incorrect CPU range, using default\n");
+	}
+
+	return 1;
+}
+__setup("workqueue.unbound_cpus=", workqueue_unbound_cpus_setup);
