@@ -22,7 +22,6 @@
 #include <linux/radix-tree.h>
 #include <linux/slab.h>
 #include <linux/threads.h>
-#include <linux/vmalloc.h>
 #include <asm/memory.h>
 
 /* We need to stringify expanded macros so that they can be parsed */
@@ -96,13 +95,6 @@ if IS_BUILTIN(CONFIG_ARM64):
     LX_GDBPARSED(VA_BITS)
     LX_GDBPARSED(VA_BITS_MIN)
     LX_GDBPARSED(MODULES_VSIZE)
-
-/* linux/vmalloc.h */
-LX_VALUE(VM_IOREMAP)
-LX_VALUE(VM_ALLOC)
-LX_VALUE(VM_MAP)
-LX_VALUE(VM_USERMAP)
-LX_VALUE(VM_DMA_COHERENT)
 
 /* linux/page_ext.h */
 LX_GDBPARSED(PAGE_EXT_OWNER)
