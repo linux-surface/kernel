@@ -47,4 +47,3 @@ else:
     import linux.mm
     import linux.stackdepot
     import linux.page_owner
-    import linux.slab
