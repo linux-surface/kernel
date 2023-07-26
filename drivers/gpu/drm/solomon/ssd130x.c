@@ -153,7 +153,7 @@ static int ssd130x_buf_alloc(struct ssd130x_device *ssd130x)
 	const struct drm_format_info *fi;
 	unsigned int pitch;
 
-	fi = drm_format_info(DRM_FORMAT_C1);
+	fi = drm_format_info(DRM_FORMAT_R1);
 	if (!fi)
 		return -EINVAL;
 
@@ -596,7 +596,7 @@ static int ssd130x_fb_blit_rect(struct drm_framebuffer *fb, const struct iosys_m
 	rect->y1 = round_down(rect->y1, page_height);
 	rect->y2 = min_t(unsigned int, round_up(rect->y2, page_height), ssd130x->height);
 
-	dst_pitch = DIV_ROUND_UP(drm_rect_width(rect), page_height);
+	dst_pitch = DIV_ROUND_UP(drm_rect_width(rect), 8);
 
 	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
 	if (ret)
