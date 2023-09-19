@@ -449,14 +449,15 @@ ffa_setup_and_transmit(u32 func_id, void *buffer, u32 max_fragsize,
 	struct ffa_composite_mem_region *composite;
 	struct ffa_mem_region_addr_range *constituents;
 	struct ffa_mem_region_attributes *ep_mem_access;
+	bool mdesc_v1 = drv_info->version <= FFA_VERSION_1_0;
 	u32 idx, frag_len, length, buf_sz = 0, num_entries = sg_nents(args->sg);
 
 	mem_region->tag = args->tag;
 	mem_region->flags = args->flags;
 	mem_region->sender_id = drv_info->vm_id;
 	mem_region->attributes = ffa_memory_attributes_get(func_id);
-	ep_mem_access = buffer + COMPOSITE_OFFSET(0);
-	composite_offset = COMPOSITE_OFFSET(args->nattrs);
+	ep_mem_access = buffer + ffa_mem_desc_offset(buffer, 0, mdesc_v1);
+	composite_offset = ffa_mem_desc_offset(buffer, args->nattrs, mdesc_v1);
 
 	for (idx = 0; idx < args->nattrs; idx++, ep_mem_access++) {
 		ep_mem_access->receiver = args->attrs[idx].receiver;
