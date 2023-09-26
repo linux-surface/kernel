@@ -943,6 +943,7 @@ static int cacheinfo_cpu_online(unsigned int cpu)
 	if (rc)
 		goto err;
 	update_data_cache_size(true, cpu);
+	setup_pcp_cacheinfo();
 	return 0;
 err:
 	free_cache_attributes(cpu);
@@ -956,6 +957,7 @@ static int cacheinfo_cpu_pre_down(unsigned int cpu)
 
 	free_cache_attributes(cpu);
 	update_data_cache_size(false, cpu);
+	setup_pcp_cacheinfo();
 	return 0;
 }
 
