@@ -843,10 +843,14 @@ each zone between per-cpu lists.
 The batch value of each per-cpu page list remains the same regardless of
 the value of the high fraction so allocation latencies are unaffected.
 
-The initial value is zero. Kernel uses this value to set the high pcp->high
-mark based on the low watermark for the zone and the number of local
-online CPUs.  If the user writes '0' to this sysctl, it will revert to
-this default behavior.
+The initial value is zero. With this value, kernel will tune pcp->high
+automatically according to the requirements of workloads.  The lower
+limit of tuning is based on the low watermark for the zone and the
+number of local online CPUs.  The upper limit is the page number when
+the sysctl is set to the minimal value (8).  If the user writes '0' to
+this sysctl, it will revert to this default behavior.  In another
+words, if the user write other value, the auto-tuning will be disabled
+and the user specified pcp->high will be used.
 
 
 stat_interval
