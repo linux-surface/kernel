@@ -162,7 +162,7 @@ smart_scan
         skipped. How often these pages are skipped depends on how often
         de-duplication has already been tried and failed. By default this
         optimization is disabled. The ``pages_skipped`` metric shows how
-        effetive the setting is.
+        effective the setting is.
 
 The effectiveness of KSM and MADV_MERGEABLE is shown in ``/sys/kernel/mm/ksm/``:
 
