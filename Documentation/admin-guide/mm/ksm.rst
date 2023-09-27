@@ -156,12 +156,12 @@ stable_node_chains_prune_millisecs
         ``max_page_sharing`` yet.
 
 smart_scan
-        By default KSM checks every candidate page for each scan. It does
-        not take into account historic information. When smart scan is
+        Historically KSM checked every candidate page for each scan. It did
+        not take into account historic information.  When smart scan is
         enabled, pages that have previously not been de-duplicated get
         skipped. How often these pages are skipped depends on how often
         de-duplication has already been tried and failed. By default this
-        optimization is disabled. The ``pages_skipped`` metric shows how
+        optimization is enabled.  The ``pages_skipped`` metric shows how
         effective the setting is.
 
 The effectiveness of KSM and MADV_MERGEABLE is shown in ``/sys/kernel/mm/ksm/``:
