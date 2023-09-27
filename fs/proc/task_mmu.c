@@ -1940,6 +1940,7 @@ static void make_uffd_wp_huge_pte(struct vm_area_struct *vma,
 		set_huge_pte_at(vma->vm_mm, addr, ptep,
 				make_pte_marker(PTE_MARKER_UFFD_WP), psize);
 }
+#endif /* CONFIG_HUGETLB_PAGE */
 
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) || defined(CONFIG_HUGETLB_PAGE)
 static void pagemap_scan_backout_range(struct pagemap_scan_private *p,
@@ -1954,7 +1955,7 @@ static void pagemap_scan_backout_range(struct pagemap_scan_private *p,
 
 	p->found_pages -= (end - addr) / PAGE_SIZE;
 }
-#endif /* CONFIG_HUGETLB_PAGE */
+#endif
 
 static bool pagemap_scan_is_interesting_page(unsigned long categories,
 					     const struct pagemap_scan_private *p)
@@ -1967,7 +1968,6 @@ static bool pagemap_scan_is_interesting_page(unsigned long categories,
 
 	return true;
 }
-#endif
 
 static bool pagemap_scan_is_interesting_vma(unsigned long categories,
 					    const struct pagemap_scan_private *p)
