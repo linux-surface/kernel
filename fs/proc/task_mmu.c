@@ -1941,6 +1941,7 @@ static void make_uffd_wp_huge_pte(struct vm_area_struct *vma,
 				make_pte_marker(PTE_MARKER_UFFD_WP), psize);
 }
 
+#if defined(CONFIG_TRANSPARENT_HUGEPAGE) || defined(CONFIG_HUGETLB_PAGE)
 static void pagemap_scan_backout_range(struct pagemap_scan_private *p,
 				       unsigned long addr, unsigned long end)
 {
@@ -1966,6 +1967,7 @@ static bool pagemap_scan_is_interesting_page(unsigned long categories,
 
 	return true;
 }
+#endif
 
 static bool pagemap_scan_is_interesting_vma(unsigned long categories,
 					    const struct pagemap_scan_private *p)
