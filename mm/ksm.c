@@ -287,8 +287,9 @@ static unsigned int zero_checksum __read_mostly;
 /* Whether to merge empty (zeroed) pages with actual zero pages */
 static bool ksm_use_zero_pages __read_mostly;
 
-/* Skip pages that couldn't be de-duplicated previously  */
-static bool ksm_smart_scan;
+/* Skip pages that couldn't be de-duplicated previously */
+/* Default to true at least temporarily, for testing */
+static bool ksm_smart_scan = true;
 
 /* The number of zero pages which is placed by KSM */
 unsigned long ksm_zero_pages;
