@@ -354,7 +354,7 @@ static ssize_t hugetlbfs_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 		/* Find the folio */
 		folio = filemap_lock_hugetlb_folio(h, mapping, index);
-		if (unlikely(folio == NULL)) {
+		if (IS_ERR(folio)) {
 			/*
 			 * We have a HOLE, zero out the user-buffer for the
 			 * length of the hole or request.
