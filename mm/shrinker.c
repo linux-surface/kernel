@@ -96,7 +96,7 @@ int alloc_shrinker_info(struct mem_cgroup *memcg)
 	return ret;
 
 err:
-	up_write(&shrinker_rwsem);
+	mutex_unlock(&shrinker_mutex);
 	free_shrinker_info(memcg);
 	return -ENOMEM;
 }
