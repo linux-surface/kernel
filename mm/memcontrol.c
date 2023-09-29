@@ -3132,11 +3132,11 @@ __always_inline struct obj_cgroup *current_obj_cgroup(void)
 		 * to use the objcg by the current task.
 		 */
 		return objcg;
-	} else {
-		memcg = this_cpu_read(int_active_memcg);
-		if (unlikely(memcg))
-			goto from_memcg;
 	}
+
+	memcg = this_cpu_read(int_active_memcg);
+	if (unlikely(memcg))
+		goto from_memcg;
 	return NULL;
 
 from_memcg:
