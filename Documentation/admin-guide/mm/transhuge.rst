@@ -187,6 +187,10 @@ pages (=16K if the page size is 4K). The example above enables order-9
 By enabling multiple orders, allocation of each order will be
 attempted, highest to lowest, until a successful allocation is made.
 If the PMD-order is unset, then no PMD-sized THPs will be allocated.
+It is also possible to enable the recommended set of orders, which
+will be optimized for the architecture and mm::
+
+	echo recommend >/sys/kernel/mm/transparent_hugepage/anon_orders
 
 The kernel will ignore any orders that it does not support so read the
 file back to determine which orders are enabled::

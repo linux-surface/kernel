@@ -464,10 +464,18 @@ static ssize_t anon_orders_store(struct kobject *kobj,
 	int err;
 	int ret = count;
 	unsigned int orders;
+	int arch;
 
-	err = kstrtouint(buf, 0, &orders);
-	if (err)
-		ret = -EINVAL;
+	if (sysfs_streq(buf, "recommend")) {
+		arch = max(arch_wants_pte_order(), PAGE_ALLOC_COSTLY_ORDER);
+		orders = BIT(arch);
+		orders |= BIT(PAGE_ALLOC_COSTLY_ORDER);
+		orders |= BIT(PMD_ORDER);
+	} else {
+		err = kstrtouint(buf, 0, &orders);
+		if (err)
+			ret = -EINVAL;
+	}
 
 	if (ret > 0) {
 		orders &= THP_ORDERS_ALL_ANON;
