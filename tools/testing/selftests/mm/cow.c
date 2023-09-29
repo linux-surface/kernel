@@ -33,10 +33,13 @@
 static size_t pagesize;
 static int pagemap_fd;
 static size_t pmdsize;
+static size_t ptesize;
 static int nr_hugetlbsizes;
 static size_t hugetlbsizes[10];
 static int gup_fd;
 static bool has_huge_zeropage;
+static unsigned int orig_anon_orders;
+static bool orig_anon_orders_valid;
 
 static void detect_huge_zeropage(void)
 {
@@ -1118,6 +1121,14 @@ static void run_anon_test_case(struct test_case const *test_case)
 		run_with_partial_mremap_thp(test_case->fn, test_case->desc, pmdsize);
 		run_with_partial_shared_thp(test_case->fn, test_case->desc, pmdsize);
 	}
+	if (ptesize) {
+		run_with_pte_mapped_thp(test_case->fn, test_case->desc, ptesize);
+		run_with_pte_mapped_thp_swap(test_case->fn, test_case->desc, ptesize);
+		run_with_single_pte_of_thp(test_case->fn, test_case->desc, ptesize);
+		run_with_single_pte_of_thp_swap(test_case->fn, test_case->desc, ptesize);
+		run_with_partial_mremap_thp(test_case->fn, test_case->desc, ptesize);
+		run_with_partial_shared_thp(test_case->fn, test_case->desc, ptesize);
+	}
 	for (i = 0; i < nr_hugetlbsizes; i++)
 		run_with_hugetlb(test_case->fn, test_case->desc,
 				 hugetlbsizes[i]);
@@ -1139,6 +1150,8 @@ static int tests_per_anon_test_case(void)
 
 	if (pmdsize)
 		tests += 8;
+	if (ptesize)
+		tests += 6;
 	return tests;
 }
 
@@ -1693,6 +1706,80 @@ static int tests_per_non_anon_test_case(void)
 	return tests;
 }
 
+#define ANON_ORDERS_FILE "/sys/kernel/mm/transparent_hugepage/anon_orders"
+
+static int read_anon_orders(unsigned int *orders)
+{
+	ssize_t buflen = 80;
+	char buf[buflen];
+	int fd;
+
+	fd = open(ANON_ORDERS_FILE, O_RDONLY);
+	if (fd == -1)
+		return -1;
+
+	buflen = read(fd, buf, buflen);
+	close(fd);
+
+	if (buflen < 1)
+		return -1;
+
+	*orders = strtoul(buf, NULL, 16);
+
+	return 0;
+}
+
+static int write_anon_orders(unsigned int orders)
+{
+	ssize_t buflen = 80;
+	char buf[buflen];
+	int fd;
+
+	fd = open(ANON_ORDERS_FILE, O_WRONLY);
+	if (fd == -1)
+		return -1;
+
+	buflen = snprintf(buf, buflen, "0x%08x\n", orders);
+	buflen = write(fd, buf, buflen);
+	close(fd);
+
+	if (buflen < 1)
+		return -1;
+
+	return 0;
+}
+
+static size_t save_thp_anon_orders(void)
+{
+	/*
+	 * If the kernel supports multiple orders for anon THP (indicated by the
+	 * presence of anon_orders file), configure it for the PMD-order and the
+	 * PMD-order - 1, which we will report back and use as the PTE-order THP
+	 * size. Save the original value so that it can be restored on exit. If
+	 * the kernel does not support multiple orders, report back 0 for the
+	 * PTE-size so those tests are skipped.
+	 */
+
+	int pteorder = sz2ord(pmdsize) - 1;
+	unsigned int orders = (1UL << sz2ord(pmdsize)) | (1UL << pteorder);
+
+	if (read_anon_orders(&orig_anon_orders))
+		return 0;
+
+	orig_anon_orders_valid = true;
+
+	if (write_anon_orders(orders))
+		return 0;
+
+	return pagesize << pteorder;
+}
+
+static void restore_thp_anon_orders(void)
+{
+	if (orig_anon_orders_valid)
+		write_anon_orders(orig_anon_orders);
+}
+
 int main(int argc, char **argv)
 {
 	int err;
@@ -1702,6 +1789,10 @@ int main(int argc, char **argv)
 	if (pmdsize)
 		ksft_print_msg("[INFO] detected PMD-mapped THP size: %zu KiB\n",
 			       pmdsize / 1024);
+	ptesize = save_thp_anon_orders();
+	if (ptesize)
+		ksft_print_msg("[INFO] configured PTE-mapped THP size: %zu KiB\n",
+			       ptesize / 1024);
 	nr_hugetlbsizes = detect_hugetlb_page_sizes(hugetlbsizes,
 						    ARRAY_SIZE(hugetlbsizes));
 	detect_huge_zeropage();
@@ -1719,6 +1810,8 @@ int main(int argc, char **argv)
 	run_anon_test_cases();
 	run_anon_thp_test_cases();
 	run_non_anon_test_cases();
+
+	restore_thp_anon_orders();
 
 	err = ksft_get_fail_cnt();
 	if (err)
