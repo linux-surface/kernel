@@ -74,7 +74,7 @@ static unsigned long deferred_split_scan(struct shrinker *shrink,
 static atomic_t huge_zero_refcount;
 struct page *huge_zero_page __read_mostly;
 unsigned long huge_zero_pfn __read_mostly = ~0UL;
-unsigned int huge_anon_orders __read_mostly = BIT(PMD_ORDER);
+unsigned int huge_anon_orders __read_mostly;
 static unsigned int huge_anon_always_mask __read_mostly;
 
 /**
@@ -527,6 +527,9 @@ static const struct attribute_group hugepage_attr_group = {
 static int __init hugepage_init_sysfs(struct kobject **hugepage_kobj)
 {
 	int err;
+
+	/* powerpc's PMD_ORDER isn't a compile-time constant */
+	huge_anon_orders = BIT(PMD_ORDER);
 
 	*hugepage_kobj = kobject_create_and_add("transparent_hugepage", mm_kobj);
 	if (unlikely(!*hugepage_kobj)) {
