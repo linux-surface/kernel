@@ -1323,7 +1323,7 @@ void folio_add_new_anon_rmap(struct folio *folio, struct vm_area_struct *vma,
 	if (likely(!folio_test_large(folio))) {
 		/* increment count (starts at -1) */
 		atomic_set(&folio->_mapcount, 0);
-		__page_set_anon_rmap(folio, &folio->page, vma, address, 1);
+		__folio_set_anon(folio, vma, address, 1);
 	} else if (!folio_test_pmd_mappable(folio)) {
 		int i;
 
@@ -1332,8 +1332,8 @@ void folio_add_new_anon_rmap(struct folio *folio, struct vm_area_struct *vma,
 
 			/* increment count (starts at -1) */
 			atomic_set(&page->_mapcount, 0);
-			__page_set_anon_rmap(folio, page, vma,
-					address + (i << PAGE_SHIFT), 1);
+			__folio_set_anon(folio, vma,
+				         address + (i << PAGE_SHIFT), 1);
 		}
 
 		atomic_set(&folio->_nr_pages_mapped, nr);
@@ -1341,7 +1341,7 @@ void folio_add_new_anon_rmap(struct folio *folio, struct vm_area_struct *vma,
 		/* increment count (starts at -1) */
 		atomic_set(&folio->_entire_mapcount, 0);
 		atomic_set(&folio->_nr_pages_mapped, COMPOUND_MAPPED);
-		__page_set_anon_rmap(folio, &folio->page, vma, address, 1);
+		__folio_set_anon(folio, vma, address, 1);
 		__lruvec_stat_mod_folio(folio, NR_ANON_THPS, nr);
 	}
 
