@@ -394,6 +394,7 @@ struct mem_size_stats {
 	unsigned long anonymous;
 	unsigned long lazyfree;
 	unsigned long anonymous_thp;
+	unsigned long anonymous_thp_pte;
 	unsigned long shmem_thp;
 	unsigned long file_thp;
 	unsigned long swap;
@@ -454,6 +455,8 @@ static void smaps_account(struct mem_size_stats *mss, struct page *page,
 		mss->anonymous += size;
 		if (!PageSwapBacked(page) && !dirty && !PageDirty(page))
 			mss->lazyfree += size;
+		if (!compound && PageTransCompound(page))
+			mss->anonymous_thp_pte += size;
 	}
 
 	if (PageKsm(page))
@@ -835,6 +838,7 @@ static void __show_smap(struct seq_file *m, const struct mem_size_stats *mss,
 	SEQ_PUT_DEC(" kB\nKSM:            ", mss->ksm);
 	SEQ_PUT_DEC(" kB\nLazyFree:       ", mss->lazyfree);
 	SEQ_PUT_DEC(" kB\nAnonHugePages:  ", mss->anonymous_thp);
+	SEQ_PUT_DEC(" kB\nAnonHugePteMap: ", mss->anonymous_thp_pte);
 	SEQ_PUT_DEC(" kB\nShmemPmdMapped: ", mss->shmem_thp);
 	SEQ_PUT_DEC(" kB\nFilePmdMapped:  ", mss->file_thp);
 	SEQ_PUT_DEC(" kB\nShared_Hugetlb: ", mss->shared_hugetlb);

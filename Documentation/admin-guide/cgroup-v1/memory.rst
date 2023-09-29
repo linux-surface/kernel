@@ -542,7 +542,10 @@ memory.stat file includes following statistics:
     cache           # of bytes of page cache memory.
     rss             # of bytes of anonymous and swap cache memory (includes
                     transparent hugepages).
-    rss_huge        # of bytes of anonymous transparent hugepages.
+    rss_huge        # of bytes of anonymous transparent hugepages, mapped by
+                    PMD.
+    anon_thp_pte    # of bytes of anonymous transparent hugepages, mapped by
+                    PTE.
     mapped_file     # of bytes of mapped file (includes tmpfs/shmem)
     pgpgin          # of charging events to the memory cgroup. The charging
                     event happens each time a page is accounted as either mapped

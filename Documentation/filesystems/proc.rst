@@ -464,6 +464,7 @@ Memory Area, or VMA) there is a series of lines such as the following::
     KSM:                   0 kB
     LazyFree:              0 kB
     AnonHugePages:         0 kB
+    AnonHugePteMap:        0 kB
     ShmemPmdMapped:        0 kB
     Shared_Hugetlb:        0 kB
     Private_Hugetlb:       0 kB
@@ -511,7 +512,11 @@ pressure if the memory is clean. Please note that the printed value might
 be lower than the real value due to optimizations used in the current
 implementation. If this is not desirable please file a bug report.
 
-"AnonHugePages" shows the amount of memory backed by transparent hugepage.
+"AnonHugePages" shows the amount of memory backed by transparent hugepage,
+mapped by PMD.
+
+"AnonHugePteMap" shows the amount of memory backed by transparent hugepage,
+mapped by PTE.
 
 "ShmemPmdMapped" shows the amount of shared (shmem/tmpfs) memory backed by
 huge pages.
@@ -1006,6 +1011,7 @@ Example output. You may not have all of these fields.
     EarlyMemtestBad:       0 kB
     HardwareCorrupted:     0 kB
     AnonHugePages:   4149248 kB
+    AnonHugePteMap:        0 kB
     ShmemHugePages:        0 kB
     ShmemPmdMapped:        0 kB
     FileHugePages:         0 kB
@@ -1165,7 +1171,11 @@ HardwareCorrupted
               The amount of RAM/memory in KB, the kernel identifies as
               corrupted.
 AnonHugePages
-              Non-file backed huge pages mapped into userspace page tables
+              Non-file backed huge pages mapped into userspace page tables by
+              PMD
+AnonHugePteMap
+              Non-file backed huge pages mapped into userspace page tables by
+              PTE
 ShmemHugePages
               Memory used by shared memory (shmem) and tmpfs allocated
               with huge pages

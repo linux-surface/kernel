@@ -34,6 +34,7 @@ Description:
 			Anonymous:	      68 kB
 			LazyFree:	       0 kB
 			AnonHugePages:	       0 kB
+			AnonHugePteMap:        0 kB
 			ShmemPmdMapped:	       0 kB
 			Shared_Hugetlb:	       0 kB
 			Private_Hugetlb:       0 kB

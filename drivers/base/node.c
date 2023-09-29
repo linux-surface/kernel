@@ -443,6 +443,7 @@ static ssize_t node_read_meminfo(struct device *dev,
 			     "Node %d SUnreclaim:     %8lu kB\n"
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 			     "Node %d AnonHugePages:  %8lu kB\n"
+			     "Node %d AnonHugePteMap: %8lu kB\n"
 			     "Node %d ShmemHugePages: %8lu kB\n"
 			     "Node %d ShmemPmdMapped: %8lu kB\n"
 			     "Node %d FileHugePages:  %8lu kB\n"
@@ -475,6 +476,7 @@ static ssize_t node_read_meminfo(struct device *dev,
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 			     ,
 			     nid, K(node_page_state(pgdat, NR_ANON_THPS)),
+			     nid, K(node_page_state(pgdat, NR_ANON_THPS_PTEMAPPED)),
 			     nid, K(node_page_state(pgdat, NR_SHMEM_THPS)),
 			     nid, K(node_page_state(pgdat, NR_SHMEM_PMDMAPPED)),
 			     nid, K(node_page_state(pgdat, NR_FILE_THPS)),

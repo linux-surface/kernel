@@ -827,6 +827,7 @@ void __mod_memcg_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 		case NR_ANON_MAPPED:
 		case NR_FILE_MAPPED:
 		case NR_ANON_THPS:
+		case NR_ANON_THPS_PTEMAPPED:
 		case NR_SHMEM_PMDMAPPED:
 		case NR_FILE_PMDMAPPED:
 			WARN_ON_ONCE(!in_task());
@@ -1517,6 +1518,7 @@ static const struct memory_stat memory_stats[] = {
 #endif
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	{ "anon_thp",			NR_ANON_THPS			},
+	{ "anon_thp_pte",		NR_ANON_THPS_PTEMAPPED		},
 	{ "file_thp",			NR_FILE_THPS			},
 	{ "shmem_thp",			NR_SHMEM_THPS			},
 #endif
@@ -4185,6 +4187,7 @@ static const unsigned int memcg1_stats[] = {
 	NR_ANON_MAPPED,
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	NR_ANON_THPS,
+	NR_ANON_THPS_PTEMAPPED,
 #endif
 	NR_SHMEM,
 	NR_FILE_MAPPED,
@@ -4203,6 +4206,7 @@ static const char *const memcg1_stat_names[] = {
 	"rss",
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	"rss_huge",
+	"anon_thp_pte",
 #endif
 	"shmem",
 	"mapped_file",
@@ -6403,6 +6407,10 @@ retry:
 			 * can be done but it would be too convoluted so simply
 			 * ignore such a partial THP and keep it in original
 			 * memcg. There should be somebody mapping the head.
+			 * This simplification also means that pte-mapped large
+			 * folios are never migrated, which means we don't need
+			 * to worry about migrating the NR_ANON_THPS_PTEMAPPED
+			 * accounting.
 			 */
 			if (PageTransCompound(page))
 				goto put;

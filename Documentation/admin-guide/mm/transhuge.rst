@@ -291,10 +291,13 @@ Monitoring usage
 ================
 
 The number of anonymous transparent huge pages currently used by the
-system is available by reading the AnonHugePages field in ``/proc/meminfo``.
-To identify what applications are using anonymous transparent huge pages,
-it is necessary to read ``/proc/PID/smaps`` and count the AnonHugePages fields
-for each mapping.
+system is available by reading the AnonHugePages and AnonHugePteMap
+fields in ``/proc/meminfo``. To identify what applications are using
+anonymous transparent huge pages, it is necessary to read
+``/proc/PID/smaps`` and count the AnonHugePages and AnonHugePteMap
+fields for each mapping. Note that in both cases, AnonHugePages refers
+only to PMD-mapped THPs. AnonHugePteMap refers to THPs that are mapped
+using PTEs.
 
 The number of file transparent huge pages mapped to userspace is available
 by reading ShmemPmdMapped and ShmemHugePages fields in ``/proc/meminfo``.

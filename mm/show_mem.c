@@ -251,6 +251,7 @@ static void show_free_areas(unsigned int filter, nodemask_t *nodemask, int max_z
 			" shmem_thp:%lukB"
 			" shmem_pmdmapped:%lukB"
 			" anon_thp:%lukB"
+			" anon_thp_pte:%lukB"
 #endif
 			" writeback_tmp:%lukB"
 			" kernel_stack:%lukB"
@@ -277,6 +278,7 @@ static void show_free_areas(unsigned int filter, nodemask_t *nodemask, int max_z
 			K(node_page_state(pgdat, NR_SHMEM_THPS)),
 			K(node_page_state(pgdat, NR_SHMEM_PMDMAPPED)),
 			K(node_page_state(pgdat, NR_ANON_THPS)),
+			K(node_page_state(pgdat, NR_ANON_THPS_PTEMAPPED)),
 #endif
 			K(node_page_state(pgdat, NR_WRITEBACK_TEMP)),
 			node_page_state(pgdat, NR_KERNEL_STACK_KB),

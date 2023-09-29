@@ -1421,7 +1421,11 @@ PAGE_SIZE multiple when read back.
 
 	  anon_thp
 		Amount of memory used in anonymous mappings backed by
-		transparent hugepages
+		transparent hugepages, mapped by PMD
+
+	  anon_thp_pte
+		Amount of memory used in anonymous mappings backed by
+		transparent hugepages, mapped by PTE
 
 	  file_thp
 		Amount of cached filesystem data backed by transparent
