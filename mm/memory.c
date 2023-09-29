@@ -4309,7 +4309,7 @@ vm_fault_t do_set_pmd(struct vm_fault *vmf, struct page *page)
 	pmd_t entry;
 	vm_fault_t ret = VM_FAULT_FALLBACK;
 
-	if (!transhuge_vma_suitable(vma, haddr))
+	if (!transhuge_vma_suitable(vma, haddr, BIT(PMD_ORDER)))
 		return ret;
 
 	page = compound_head(page);
@@ -5107,7 +5107,7 @@ static vm_fault_t __handle_mm_fault(struct vm_area_struct *vma,
 		return VM_FAULT_OOM;
 retry_pud:
 	if (pud_none(*vmf.pud) &&
-	    hugepage_vma_check(vma, vm_flags, false, true, true)) {
+	    hugepage_vma_check(vma, vm_flags, false, true, true, BIT(PUD_ORDER))) {
 		ret = create_huge_pud(&vmf);
 		if (!(ret & VM_FAULT_FALLBACK))
 			return ret;
@@ -5141,7 +5141,7 @@ retry_pud:
 		goto retry_pud;
 
 	if (pmd_none(*vmf.pmd) &&
-	    hugepage_vma_check(vma, vm_flags, false, true, true)) {
+	    hugepage_vma_check(vma, vm_flags, false, true, true, BIT(PMD_ORDER))) {
 		ret = create_huge_pmd(&vmf);
 		if (!(ret & VM_FAULT_FALLBACK))
 			return ret;

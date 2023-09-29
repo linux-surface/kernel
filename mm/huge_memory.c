@@ -74,12 +74,48 @@ static unsigned long deferred_split_scan(struct shrinker *shrink,
 static atomic_t huge_zero_refcount;
 struct page *huge_zero_page __read_mostly;
 unsigned long huge_zero_pfn __read_mostly = ~0UL;
+unsigned int huge_anon_orders __read_mostly = BIT(PMD_ORDER);
+static unsigned int huge_anon_always_mask __read_mostly;
 
-bool hugepage_vma_check(struct vm_area_struct *vma, unsigned long vm_flags,
-			bool smaps, bool in_pf, bool enforce_sysfs)
+/**
+ * hugepage_vma_check - determine which hugepage orders can be applied to vma
+ * @vma:  the vm area to check
+ * @vm_flags: use these vm_flags instead of vma->vm_flags
+ * @smaps: whether answer will be used for smaps file
+ * @in_pf: whether answer will be used by page fault handler
+ * @enforce_sysfs: whether sysfs config should be taken into account
+ * @orders: bitfield of all orders to consider
+ *
+ * Calculates the intersection of the requested hugepage orders and the allowed
+ * hugepage orders for the provided vma. Permitted orders are encoded as a set
+ * bit at the corresponding bit position (bit-2 corresponds to order-2, bit-3
+ * corresponds to order-3, etc). Order-0 is never considered a hugepage order.
+ *
+ * Return: bitfield of orders allowed for hugepage in the vma. 0 if no hugepage
+ * orders are allowed.
+ */
+unsigned int hugepage_vma_check(struct vm_area_struct *vma,
+				unsigned long vm_flags, bool smaps, bool in_pf,
+				bool enforce_sysfs, unsigned int orders)
 {
+	/*
+	 * Fix up the orders mask; Supported orders for file vmas are static.
+	 * Supported orders for anon vmas are configured dynamically - but only
+	 * use the dynamic set if enforce_sysfs=true, otherwise use the full
+	 * set.
+	 */
+	if (vma_is_anonymous(vma))
+		orders &= enforce_sysfs ? READ_ONCE(huge_anon_orders)
+					: THP_ORDERS_ALL_ANON;
+	else
+		orders &= THP_ORDERS_ALL_FILE;
+
+	/* No orders in the intersection. */
+	if (!orders)
+		return 0;
+
 	if (!vma->vm_mm)		/* vdso */
-		return false;
+		return 0;
 
 	/*
 	 * Explicitly disabled through madvise or prctl, or some
@@ -88,16 +124,16 @@ bool hugepage_vma_check(struct vm_area_struct *vma, unsigned long vm_flags,
 	 * */
 	if ((vm_flags & VM_NOHUGEPAGE) ||
 	    test_bit(MMF_DISABLE_THP, &vma->vm_mm->flags))
-		return false;
+		return 0;
 	/*
 	 * If the hardware/firmware marked hugepage support disabled.
 	 */
 	if (transparent_hugepage_flags & (1 << TRANSPARENT_HUGEPAGE_UNSUPPORTED))
-		return false;
+		return 0;
 
 	/* khugepaged doesn't collapse DAX vma, but page fault is fine. */
 	if (vma_is_dax(vma))
-		return in_pf;
+		return in_pf ? orders : 0;
 
 	/*
 	 * Special VMA and hugetlb VMA.
@@ -105,17 +141,29 @@ bool hugepage_vma_check(struct vm_area_struct *vma, unsigned long vm_flags,
 	 * VM_MIXEDMAP set.
 	 */
 	if (vm_flags & VM_NO_KHUGEPAGED)
-		return false;
+		return 0;
 
 	/*
-	 * Check alignment for file vma and size for both file and anon vma.
+	 * Check alignment for file vma and size for both file and anon vma by
+	 * filtering out the unsuitable orders.
 	 *
 	 * Skip the check for page fault. Huge fault does the check in fault
-	 * handlers. And this check is not suitable for huge PUD fault.
+	 * handlers.
 	 */
-	if (!in_pf &&
-	    !transhuge_vma_suitable(vma, (vma->vm_end - HPAGE_PMD_SIZE)))
-		return false;
+	if (!in_pf) {
+		int order = first_order(orders);
+		unsigned long addr;
+
+		while (orders) {
+			addr = vma->vm_end - (PAGE_SIZE << order);
+			if (transhuge_vma_suitable(vma, addr, BIT(order)))
+				break;
+			order = next_order(&orders, order);
+		}
+
+		if (!orders)
+			return 0;
+	}
 
 	/*
 	 * Enabled via shmem mount options or sysfs settings.
@@ -124,23 +172,35 @@ bool hugepage_vma_check(struct vm_area_struct *vma, unsigned long vm_flags,
 	 */
 	if (!in_pf && shmem_file(vma->vm_file))
 		return shmem_is_huge(file_inode(vma->vm_file), vma->vm_pgoff,
-				     !enforce_sysfs, vma->vm_mm, vm_flags);
+				     !enforce_sysfs, vma->vm_mm, vm_flags)
+			? orders : 0;
 
 	/* Enforce sysfs THP requirements as necessary */
-	if (enforce_sysfs &&
-	    (!hugepage_flags_enabled() || (!(vm_flags & VM_HUGEPAGE) &&
-					   !hugepage_flags_always())))
-		return false;
+	if (enforce_sysfs) {
+		/* enabled=never. */
+		if (!hugepage_flags_enabled())
+			return 0;
+
+		/* enabled=madvise without VM_HUGEPAGE. */
+		if (!(vm_flags & VM_HUGEPAGE) && !hugepage_flags_always()) {
+			if (vma_is_anonymous(vma)) {
+				orders &= READ_ONCE(huge_anon_always_mask);
+				if (!orders)
+					return 0;
+			} else
+				return 0;
+		}
+	}
 
 	/* Only regular file is valid */
 	if (!in_pf && file_thp_enabled(vma))
-		return true;
+		return orders;
 
 	if (!vma_is_anonymous(vma))
-		return false;
+		return 0;
 
 	if (vma_is_temporary_stack(vma))
-		return false;
+		return 0;
 
 	/*
 	 * THPeligible bit of smaps should show 1 for proper VMAs even
@@ -150,9 +210,9 @@ bool hugepage_vma_check(struct vm_area_struct *vma, unsigned long vm_flags,
 	 * the first page fault.
 	 */
 	if (!vma->anon_vma)
-		return (smaps || in_pf);
+		return (smaps || in_pf) ? orders : 0;
 
-	return true;
+	return orders;
 }
 
 static bool get_huge_zero_page(void)
@@ -391,11 +451,69 @@ static ssize_t hpage_pmd_size_show(struct kobject *kobj,
 static struct kobj_attribute hpage_pmd_size_attr =
 	__ATTR_RO(hpage_pmd_size);
 
+static ssize_t anon_orders_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "0x%08x\n", READ_ONCE(huge_anon_orders));
+}
+
+static ssize_t anon_orders_store(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
+{
+	int err;
+	int ret = count;
+	unsigned int orders;
+
+	err = kstrtouint(buf, 0, &orders);
+	if (err)
+		ret = -EINVAL;
+
+	if (ret > 0) {
+		orders &= THP_ORDERS_ALL_ANON;
+		WRITE_ONCE(huge_anon_orders, orders);
+
+		err = start_stop_khugepaged();
+		if (err)
+			ret = err;
+	}
+
+	return ret;
+}
+
+static struct kobj_attribute anon_orders_attr = __ATTR_RW(anon_orders);
+
+static ssize_t anon_always_mask_show(struct kobject *kobj,
+				     struct kobj_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "0x%08x\n", READ_ONCE(huge_anon_always_mask));
+}
+
+static ssize_t anon_always_mask_store(struct kobject *kobj,
+				      struct kobj_attribute *attr,
+				      const char *buf, size_t count)
+{
+	int err;
+	unsigned int always_mask;
+
+	err = kstrtouint(buf, 0, &always_mask);
+	if (err)
+		return -EINVAL;
+
+	WRITE_ONCE(huge_anon_always_mask, always_mask);
+
+	return count;
+}
+
+static struct kobj_attribute anon_always_mask_attr = __ATTR_RW(anon_always_mask);
+
 static struct attribute *hugepage_attr[] = {
 	&enabled_attr.attr,
 	&defrag_attr.attr,
 	&use_zero_page_attr.attr,
 	&hpage_pmd_size_attr.attr,
+	&anon_orders_attr.attr,
+	&anon_always_mask_attr.attr,
 #ifdef CONFIG_SHMEM
 	&shmem_enabled_attr.attr,
 #endif
@@ -805,7 +923,7 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 	struct folio *folio;
 	unsigned long haddr = vmf->address & HPAGE_PMD_MASK;
 
-	if (!transhuge_vma_suitable(vma, haddr))
+	if (!transhuge_vma_suitable(vma, haddr, BIT(PMD_ORDER)))
 		return VM_FAULT_FALLBACK;
 	if (unlikely(anon_vma_prepare(vma)))
 		return VM_FAULT_OOM;
