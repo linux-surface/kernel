@@ -353,7 +353,9 @@ anonymous transparent huge pages, it is necessary to read
 ``/proc/PID/smaps`` and count the AnonHugePages and AnonHugePteMap
 fields for each mapping. Note that in both cases, AnonHugePages refers
 only to PMD-mapped THPs. AnonHugePteMap refers to THPs that are mapped
-using PTEs.
+using PTEs. This includes all THPs whose order is smaller than
+PMD-order, as well as any PMD-order THPs that happen to be PTE-mapped
+for other reasons.
 
 The number of file transparent huge pages mapped to userspace is available
 by reading ShmemPmdMapped and ShmemHugePages fields in ``/proc/meminfo``.
@@ -366,6 +368,11 @@ frequently will incur overhead.
 
 There are a number of counters in ``/proc/vmstat`` that may be used to
 monitor how successfully the system is providing huge pages for use.
+
+.. note::
+   Currently the below counters only record events relating to
+   PMD-order THPs. Events relating to smaller order THPs are not
+   included.
 
 thp_fault_alloc
 	is incremented every time a huge page is successfully
