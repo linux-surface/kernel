@@ -3053,7 +3053,7 @@ static struct obj_cgroup *current_objcg_update(struct obj_cgroup *old)
 	rcu_read_lock();
 	do {
 		/* Atomically drop the update bit, */
-		WARN_ON_ONCE(cmpxchg(&current->objcg, tmp, 0) != tmp);
+		WARN_ON_ONCE(cmpxchg(&current->objcg, tmp, NULL) != tmp);
 
 		/* ...obtain the new objcg pointer */
 		memcg = mem_cgroup_from_task(current);
