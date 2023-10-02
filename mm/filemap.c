@@ -3314,10 +3314,10 @@ retry_find:
 	 */
 	if (unlikely(!folio_test_uptodate(folio))) {
 		/*
-		 * If the invalidate lock is not held, the folio was in cache and
-		 * uptodate and now it is not. Strange but possible since we
-		 * didn't hold the page lock all the time. Let's drop everything,
-		 * get the invalidate lock and try again.
+		 * If the invalidate lock is not held, the folio was in cache
+		 * and uptodate and now it is not. Strange but possible since we
+		 * didn't hold the page lock all the time. Let's drop
+		 * everything, get the invalidate lock and try again.
 		 */
 		if (!mapping_locked) {
 			folio_unlock(folio);
