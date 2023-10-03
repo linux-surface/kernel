@@ -1525,9 +1525,11 @@ i3c_master_register_new_i3c_devs(struct i3c_master_controller *master)
 			desc->dev->dev.of_node = desc->boardinfo->of_node;
 
 		ret = device_register(&desc->dev->dev);
-		if (ret)
+		if (ret) {
 			dev_err(&master->dev,
 				"Failed to add I3C device (err = %d)\n", ret);
+			put_device(&desc->dev->dev);
+		}
 	}
 }
 
@@ -2309,7 +2311,7 @@ static int i3c_master_i2c_adapter_init(struct i3c_master_controller *master)
 	adap->dev.parent = master->dev.parent;
 	adap->owner = master->dev.parent->driver->owner;
 	adap->algo = &i3c_master_i2c_algo;
-	strncpy(adap->name, dev_name(master->dev.parent), sizeof(adap->name));
+	strscpy(adap->name, dev_name(master->dev.parent), sizeof(adap->name));
 
 	/* FIXME: Should we allow i3c masters to override these values? */
 	adap->timeout = 1000;
@@ -2628,6 +2630,10 @@ int i3c_master_register(struct i3c_master_controller *master,
 
 	device_initialize(&master->dev);
 	dev_set_name(&master->dev, "i3c-%d", i3cbus->id);
+
+	master->dev.dma_mask = parent->dma_mask;
+	master->dev.coherent_dma_mask = parent->coherent_dma_mask;
+	master->dev.dma_parms = parent->dma_parms;
 
 	ret = of_populate_i3c_bus(master);
 	if (ret)
