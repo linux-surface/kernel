@@ -279,6 +279,8 @@ static const struct arm64_ftr_bits ftr_id_aa64zfr0[] = {
 	ARM64_FTR_BITS(FTR_VISIBLE_IF_IS_ENABLED(CONFIG_ARM64_SVE),
 		       FTR_STRICT, FTR_LOWER_SAFE, ID_AA64ZFR0_EL1_SHA3_SHIFT, 4, 0),
 	ARM64_FTR_BITS(FTR_VISIBLE_IF_IS_ENABLED(CONFIG_ARM64_SVE),
+		       FTR_STRICT, FTR_LOWER_SAFE, ID_AA64ZFR0_EL1_B16B16_SHIFT, 4, 0),
+	ARM64_FTR_BITS(FTR_VISIBLE_IF_IS_ENABLED(CONFIG_ARM64_SVE),
 		       FTR_STRICT, FTR_LOWER_SAFE, ID_AA64ZFR0_EL1_BF16_SHIFT, 4, 0),
 	ARM64_FTR_BITS(FTR_VISIBLE_IF_IS_ENABLED(CONFIG_ARM64_SVE),
 		       FTR_STRICT, FTR_LOWER_SAFE, ID_AA64ZFR0_EL1_BitPerm_SHIFT, 4, 0),
@@ -611,18 +613,6 @@ static const struct arm64_ftr_bits ftr_id_dfr1[] = {
 	ARM64_FTR_END,
 };
 
-static const struct arm64_ftr_bits ftr_zcr[] = {
-	ARM64_FTR_BITS(FTR_HIDDEN, FTR_NONSTRICT, FTR_LOWER_SAFE,
-		ZCR_ELx_LEN_SHIFT, ZCR_ELx_LEN_WIDTH, 0),	/* LEN */
-	ARM64_FTR_END,
-};
-
-static const struct arm64_ftr_bits ftr_smcr[] = {
-	ARM64_FTR_BITS(FTR_HIDDEN, FTR_NONSTRICT, FTR_LOWER_SAFE,
-		SMCR_ELx_LEN_SHIFT, SMCR_ELx_LEN_WIDTH, 0),	/* LEN */
-	ARM64_FTR_END,
-};
-
 /*
  * Common ftr bits for a 32bit register with all hidden, strict
  * attributes, with 4bit feature fields and a default safe value of
@@ -734,10 +724,6 @@ static const struct __ftr_reg_entry {
 			       &id_aa64mmfr1_override),
 	ARM64_FTR_REG(SYS_ID_AA64MMFR2_EL1, ftr_id_aa64mmfr2),
 	ARM64_FTR_REG(SYS_ID_AA64MMFR3_EL1, ftr_id_aa64mmfr3),
-
-	/* Op1 = 0, CRn = 1, CRm = 2 */
-	ARM64_FTR_REG(SYS_ZCR_EL1, ftr_zcr),
-	ARM64_FTR_REG(SYS_SMCR_EL1, ftr_smcr),
 
 	/* Op1 = 1, CRn = 0, CRm = 0 */
 	ARM64_FTR_REG(SYS_GMID_EL1, ftr_gmid),
@@ -1040,21 +1026,20 @@ void __init init_cpu_features(struct cpuinfo_arm64 *info)
 
 	if (IS_ENABLED(CONFIG_ARM64_SVE) &&
 	    id_aa64pfr0_sve(read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1))) {
-		info->reg_zcr = read_zcr_features();
-		init_cpu_ftr_reg(SYS_ZCR_EL1, info->reg_zcr);
+		sve_kernel_enable(NULL);
 		vec_init_vq_map(ARM64_VEC_SVE);
 	}
 
 	if (IS_ENABLED(CONFIG_ARM64_SME) &&
 	    id_aa64pfr1_sme(read_sanitised_ftr_reg(SYS_ID_AA64PFR1_EL1))) {
-		info->reg_smcr = read_smcr_features();
+		sme_kernel_enable(NULL);
+
 		/*
 		 * We mask out SMPS since even if the hardware
 		 * supports priorities the kernel does not at present
 		 * and we block access to them.
 		 */
 		info->reg_smidr = read_cpuid(SMIDR_EL1) & ~SMIDR_EL1_SMPS;
-		init_cpu_ftr_reg(SYS_SMCR_EL1, info->reg_smcr);
 		vec_init_vq_map(ARM64_VEC_SME);
 	}
 
@@ -1289,28 +1274,25 @@ void update_cpu_features(int cpu,
 	taint |= check_update_ftr_reg(SYS_ID_AA64SMFR0_EL1, cpu,
 				      info->reg_id_aa64smfr0, boot->reg_id_aa64smfr0);
 
+	/* Probe vector lengths */
 	if (IS_ENABLED(CONFIG_ARM64_SVE) &&
 	    id_aa64pfr0_sve(read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1))) {
-		info->reg_zcr = read_zcr_features();
-		taint |= check_update_ftr_reg(SYS_ZCR_EL1, cpu,
-					info->reg_zcr, boot->reg_zcr);
-
-		/* Probe vector lengths */
-		if (!system_capabilities_finalized())
+		if (!system_capabilities_finalized()) {
+			sve_kernel_enable(NULL);
 			vec_update_vq_map(ARM64_VEC_SVE);
+		}
 	}
 
 	if (IS_ENABLED(CONFIG_ARM64_SME) &&
 	    id_aa64pfr1_sme(read_sanitised_ftr_reg(SYS_ID_AA64PFR1_EL1))) {
-		info->reg_smcr = read_smcr_features();
+		sme_kernel_enable(NULL);
+
 		/*
 		 * We mask out SMPS since even if the hardware
 		 * supports priorities the kernel does not at present
 		 * and we block access to them.
 		 */
 		info->reg_smidr = read_cpuid(SMIDR_EL1) & ~SMIDR_EL1_SMPS;
-		taint |= check_update_ftr_reg(SYS_SMCR_EL1, cpu,
-					info->reg_smcr, boot->reg_smcr);
 
 		/* Probe vector lengths */
 		if (!system_capabilities_finalized())
@@ -2821,6 +2803,7 @@ static const struct arm64_cpu_capabilities arm64_elf_hwcaps[] = {
 	HWCAP_CAP(ID_AA64ZFR0_EL1, AES, IMP, CAP_HWCAP, KERNEL_HWCAP_SVEAES),
 	HWCAP_CAP(ID_AA64ZFR0_EL1, AES, PMULL128, CAP_HWCAP, KERNEL_HWCAP_SVEPMULL),
 	HWCAP_CAP(ID_AA64ZFR0_EL1, BitPerm, IMP, CAP_HWCAP, KERNEL_HWCAP_SVEBITPERM),
+	HWCAP_CAP(ID_AA64ZFR0_EL1, B16B16, IMP, CAP_HWCAP, KERNEL_HWCAP_SVE_B16B16),
 	HWCAP_CAP(ID_AA64ZFR0_EL1, BF16, IMP, CAP_HWCAP, KERNEL_HWCAP_SVEBF16),
 	HWCAP_CAP(ID_AA64ZFR0_EL1, BF16, EBF16, CAP_HWCAP, KERNEL_HWCAP_SVE_EBF16),
 	HWCAP_CAP(ID_AA64ZFR0_EL1, SHA3, IMP, CAP_HWCAP, KERNEL_HWCAP_SVESHA3),
@@ -3153,36 +3136,20 @@ static void verify_local_elf_hwcaps(void)
 
 static void verify_sve_features(void)
 {
-	u64 safe_zcr = read_sanitised_ftr_reg(SYS_ZCR_EL1);
-	u64 zcr = read_zcr_features();
-
-	unsigned int safe_len = safe_zcr & ZCR_ELx_LEN_MASK;
-	unsigned int len = zcr & ZCR_ELx_LEN_MASK;
-
-	if (len < safe_len || vec_verify_vq_map(ARM64_VEC_SVE)) {
+	if (vec_verify_vq_map(ARM64_VEC_SVE)) {
 		pr_crit("CPU%d: SVE: vector length support mismatch\n",
 			smp_processor_id());
 		cpu_die_early();
 	}
-
-	/* Add checks on other ZCR bits here if necessary */
 }
 
 static void verify_sme_features(void)
 {
-	u64 safe_smcr = read_sanitised_ftr_reg(SYS_SMCR_EL1);
-	u64 smcr = read_smcr_features();
-
-	unsigned int safe_len = safe_smcr & SMCR_ELx_LEN_MASK;
-	unsigned int len = smcr & SMCR_ELx_LEN_MASK;
-
-	if (len < safe_len || vec_verify_vq_map(ARM64_VEC_SME)) {
+	if (vec_verify_vq_map(ARM64_VEC_SME)) {
 		pr_crit("CPU%d: SME: vector length support mismatch\n",
 			smp_processor_id());
 		cpu_die_early();
 	}
-
-	/* Add checks on other SMCR bits here if necessary */
 }
 
 static void verify_hyp_capabilities(void)
