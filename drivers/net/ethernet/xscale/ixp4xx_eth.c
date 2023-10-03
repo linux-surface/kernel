@@ -24,6 +24,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/etherdevice.h>
+#include <linux/if_vlan.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/net_tstamp.h>
@@ -1488,6 +1489,13 @@ static int ixp4xx_eth_probe(struct platform_device *pdev)
 	ndev->dev.dma_mask = dev->dma_mask;
 	ndev->dev.coherent_dma_mask = dev->coherent_dma_mask;
 
+	/* Maximum frame size is 16320 bytes and includes VLAN and
+	 * ethernet headers. See "IXP400 Software Programmer's Guide"
+	 * section 10.3.2, page 161.
+	 */
+	ndev->min_mtu = ETH_MIN_MTU;
+	ndev->max_mtu = 16320 - VLAN_ETH_HLEN;
+
 	netif_napi_add_weight(ndev, &port->napi, eth_poll, NAPI_WEIGHT);
 
 	if (!(port->npe = npe_request(NPE_ID(port->id))))
@@ -1533,7 +1541,7 @@ err_free_mem:
 	return err;
 }
 
-static int ixp4xx_eth_remove(struct platform_device *pdev)
+static void ixp4xx_eth_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct phy_device *phydev = ndev->phydev;
@@ -1544,7 +1552,6 @@ static int ixp4xx_eth_remove(struct platform_device *pdev)
 	ixp4xx_mdio_remove();
 	npe_port_tab[NPE_ID(port->id)] = NULL;
 	npe_release(port->npe);
-	return 0;
 }
 
 static const struct of_device_id ixp4xx_eth_of_match[] = {
@@ -1560,7 +1567,7 @@ static struct platform_driver ixp4xx_eth_driver = {
 		.of_match_table = of_match_ptr(ixp4xx_eth_of_match),
 	},
 	.probe		= ixp4xx_eth_probe,
-	.remove		= ixp4xx_eth_remove,
+	.remove_new	= ixp4xx_eth_remove,
 };
 module_platform_driver(ixp4xx_eth_driver);
 
