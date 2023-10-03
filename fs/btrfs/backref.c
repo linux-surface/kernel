@@ -1129,6 +1129,9 @@ static int add_inline_refs(struct btrfs_backref_walk_ctx *ctx,
 						       count, sc, GFP_NOFS);
 			break;
 		}
+		case BTRFS_EXTENT_OWNER_REF_KEY:
+			ASSERT(btrfs_fs_incompat(ctx->fs_info, SIMPLE_QUOTA));
+			break;
 		default:
 			WARN_ON(1);
 		}
@@ -2825,26 +2828,20 @@ void free_ipath(struct inode_fs_paths *ipath)
 	kfree(ipath);
 }
 
-struct btrfs_backref_iter *btrfs_backref_iter_alloc(struct btrfs_fs_info *fs_info)
+int btrfs_backref_iter_init(struct btrfs_fs_info *fs_info,
+			    struct btrfs_backref_iter *iter)
 {
-	struct btrfs_backref_iter *ret;
-
-	ret = kzalloc(sizeof(*ret), GFP_NOFS);
-	if (!ret)
-		return NULL;
-
-	ret->path = btrfs_alloc_path();
-	if (!ret->path) {
-		kfree(ret);
-		return NULL;
-	}
+	memset(iter, 0, sizeof(struct btrfs_backref_iter));
+	iter->path = btrfs_alloc_path();
+	if (!iter->path)
+		return -ENOMEM;
 
 	/* Current backref iterator only supports iteration in commit root */
-	ret->path->search_commit_root = 1;
-	ret->path->skip_locking = 1;
-	ret->fs_info = fs_info;
+	iter->path->search_commit_root = 1;
+	iter->path->skip_locking = 1;
+	iter->fs_info = fs_info;
 
-	return ret;
+	return 0;
 }
 
 int btrfs_backref_iter_start(struct btrfs_backref_iter *iter, u64 bytenr)
@@ -2998,7 +2995,7 @@ int btrfs_backref_iter_next(struct btrfs_backref_iter *iter)
 }
 
 void btrfs_backref_init_cache(struct btrfs_fs_info *fs_info,
-			      struct btrfs_backref_cache *cache, int is_reloc)
+			      struct btrfs_backref_cache *cache, bool is_reloc)
 {
 	int i;
 

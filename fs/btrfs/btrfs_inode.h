@@ -8,6 +8,8 @@
 
 #include <linux/hash.h>
 #include <linux/refcount.h>
+#include <linux/fscrypt.h>
+#include <trace/events/btrfs.h>
 #include "extent_map.h"
 #include "extent_io.h"
 #include "ordered-data.h"
@@ -78,6 +80,15 @@ struct btrfs_inode {
 	 * to read in roots of subvolumes
 	 */
 	struct btrfs_key location;
+
+	/* Cached value of inode property 'compression'. */
+	u8 prop_compress;
+
+	/*
+	 * Force compression on the file using the defrag ioctl, could be
+	 * different from prop_compress and takes precedence if set.
+	 */
+	u8 defrag_compress;
 
 	/*
 	 * Lock for counters and all fields used to determine if the inode is in
@@ -232,16 +243,6 @@ struct btrfs_inode {
 	unsigned outstanding_extents;
 
 	struct btrfs_block_rsv block_rsv;
-
-	/*
-	 * Cached values of inode properties
-	 */
-	unsigned prop_compress;		/* per-file compression algorithm */
-	/*
-	 * Force compression on the file using the defrag ioctl, could be
-	 * different from prop_compress and takes precedence if set
-	 */
-	unsigned defrag_compress;
 
 	struct btrfs_delayed_node *delayed_node;
 
@@ -481,9 +482,9 @@ struct extent_map *btrfs_get_extent(struct btrfs_inode *inode,
 				    struct page *page, size_t pg_offset,
 				    u64 start, u64 end);
 int btrfs_update_inode(struct btrfs_trans_handle *trans,
-		       struct btrfs_root *root, struct btrfs_inode *inode);
+		       struct btrfs_inode *inode);
 int btrfs_update_inode_fallback(struct btrfs_trans_handle *trans,
-				struct btrfs_root *root, struct btrfs_inode *inode);
+				struct btrfs_inode *inode);
 int btrfs_orphan_add(struct btrfs_trans_handle *trans, struct btrfs_inode *inode);
 int btrfs_orphan_cleanup(struct btrfs_root *root);
 int btrfs_cont_expand(struct btrfs_inode *inode, loff_t oldsize, loff_t size);
