@@ -45,10 +45,22 @@ components:
    the two is using hugepages just because of the fact the TLB miss is
    going to run faster.
 
+Furthermore, it is possible to configure THP to allocate large folios
+to back anonymous memory, which are smaller than PMD-size (for example
+16K, 32K, 64K, etc). These THPs continue to be PTE-mapped, but in many
+cases can still provide the similar benefits to those outlined above:
+Page faults are significantly reduced (by a factor of e.g. 4, 8, 16,
+etc), but latency spikes are much less prominent because the size of
+each page isn't as huge as the PMD-sized variant and there is less
+memory to clear in each page fault. Some architectures also employ TLB
+compression mechanisms to squeeze more entries in when a set of PTEs
+are virtually and physically contiguous and approporiately aligned. In
+this case, TLB misses will occur less often.
+
 THP can be enabled system wide or restricted to certain tasks or even
 memory ranges inside task's address space. Unless THP is completely
 disabled, there is ``khugepaged`` daemon that scans memory and
-collapses sequences of basic pages into huge pages.
+collapses sequences of basic pages into PMD-sized huge pages.
 
 The THP behaviour is controlled via :ref:`sysfs <thp_sysfs>`
 interface and using madvise(2) and prctl(2) system calls.
@@ -146,24 +158,72 @@ madvise
 never
 	should be self-explanatory.
 
-By default kernel tries to use huge zero page on read page fault to
-anonymous mapping. It's possible to disable huge zero page by writing 0
-or enable it back by writing 1::
+By default kernel tries to use huge, PMD-mapped zero page on read page
+fault to anonymous mapping. It's possible to disable huge zero page by
+writing 0 or enable it back by writing 1::
 
 	echo 0 >/sys/kernel/mm/transparent_hugepage/use_zero_page
 	echo 1 >/sys/kernel/mm/transparent_hugepage/use_zero_page
 
 Some userspace (such as a test program, or an optimized memory allocation
-library) may want to know the size (in bytes) of a transparent hugepage::
+library) may want to know the size (in bytes) of a PMD-mappable
+transparent hugepage::
 
 	cat /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
 
+By default, allocation of anonymous THPs that are smaller than
+PMD-size is disabled. These smaller allocation orders can be enabled
+by writing an encoded set of orders as follows::
+
+	echo 0x208 >/sys/kernel/mm/transparent_hugepage/anon_orders
+
+Where an order refers to the number of pages in the large folio as
+2^order, and where each order is encoded in the written value such
+that each set bit represents an enabled order; So setting bit-2
+indicates that order-2 folios are in use, and order-2 means 2^2=4
+pages (=16K if the page size is 4K). The example above enables order-9
+(PMD-order) and order-3.
+
+By enabling multiple orders, allocation of each order will be
+attempted, highest to lowest, until a successful allocation is made.
+If the PMD-order is unset, then no PMD-sized THPs will be allocated.
+It is also possible to enable the recommended set of orders, which
+will be optimized for the architecture and mm::
+
+	echo recommend >/sys/kernel/mm/transparent_hugepage/anon_orders
+
+The kernel will ignore any orders that it does not support so read the
+file back to determine which orders are enabled::
+
+	cat /sys/kernel/mm/transparent_hugepage/anon_orders
+
+For some workloads it may be desirable to limit some THP orders to be
+used only for MADV_HUGEPAGE regions, while allowing others to be used
+always. For example, a workload may only benefit from PMD-sized THP in
+specific areas, but can take benefit of 32K sized THP more generally.
+In this case, THP can be enabled in ``madvise`` mode as normal, but
+specific orders can be configured to be allocated as if in ``always``
+mode. The below example enables orders 9 and 3, with order-9 only
+applied to MADV_HUGEPAGE regions, and order-3 applied always::
+
+	echo madvise >/sys/kernel/mm/transparent_hugepage/enabled
+	echo 0x208 >/sys/kernel/mm/transparent_hugepage/anon_orders
+	echo 0x008 >/sys/kernel/mm/transparent_hugepage/anon_always_mask
+
 khugepaged will be automatically started when
-transparent_hugepage/enabled is set to "always" or "madvise, and it'll
-be automatically shutdown if it's set to "never".
+transparent_hugepage/enabled is set to "always" or "madvise",
+providing the PMD-order is enabled in
+transparent_hugepage/anon_orders, and it'll be automatically shutdown
+if it's set to "never" or the PMD-order is disabled in
+transparent_hugepage/anon_orders.
 
 Khugepaged controls
 -------------------
+
+.. note::
+   khugepaged currently only searches for opportunities to collapse to
+   PMD-sized THP and no attempt is made to collapse to smaller order
+   THP.
 
 khugepaged runs usually at low frequency so while one may not want to
 invoke defrag algorithms synchronously during the page faults, it
@@ -285,16 +345,21 @@ Need of application restart
 The transparent_hugepage/enabled values and tmpfs mount option only affect
 future behavior. So to make them effective you need to restart any
 application that could have been using hugepages. This also applies to the
-regions registered in khugepaged.
+regions registered in khugepaged, and transparent_hugepage/anon_orders.
 
 Monitoring usage
 ================
 
 The number of anonymous transparent huge pages currently used by the
-system is available by reading the AnonHugePages field in ``/proc/meminfo``.
-To identify what applications are using anonymous transparent huge pages,
-it is necessary to read ``/proc/PID/smaps`` and count the AnonHugePages fields
-for each mapping.
+system is available by reading the AnonHugePages and AnonHugePteMap
+fields in ``/proc/meminfo``. To identify what applications are using
+anonymous transparent huge pages, it is necessary to read
+``/proc/PID/smaps`` and count the AnonHugePages and AnonHugePteMap
+fields for each mapping. Note that in both cases, AnonHugePages refers
+only to PMD-mapped THPs. AnonHugePteMap refers to THPs that are mapped
+using PTEs. This includes all THPs whose order is smaller than
+PMD-order, as well as any PMD-order THPs that happen to be PTE-mapped
+for other reasons.
 
 The number of file transparent huge pages mapped to userspace is available
 by reading ShmemPmdMapped and ShmemHugePages fields in ``/proc/meminfo``.
@@ -307,6 +372,11 @@ frequently will incur overhead.
 
 There are a number of counters in ``/proc/vmstat`` that may be used to
 monitor how successfully the system is providing huge pages for use.
+
+.. note::
+   Currently the below counters only record events relating to
+   PMD-order THPs. Events relating to smaller order THPs are not
+   included.
 
 thp_fault_alloc
 	is incremented every time a huge page is successfully
@@ -413,7 +483,7 @@ for huge pages.
 Optimizing the applications
 ===========================
 
-To be guaranteed that the kernel will map a 2M page immediately in any
+To be guaranteed that the kernel will map a thp immediately in any
 memory region, the mmap region has to be hugepage naturally
 aligned. posix_memalign() can provide that guarantee.
 

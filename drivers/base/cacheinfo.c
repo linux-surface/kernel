@@ -898,6 +898,41 @@ err:
 	return rc;
 }
 
+static void update_data_cache_size_cpu(unsigned int cpu)
+{
+	struct cpu_cacheinfo *ci;
+	struct cacheinfo *leaf;
+	unsigned int i, nr_shared;
+	unsigned int size_data = 0;
+
+	if (!per_cpu_cacheinfo(cpu))
+		return;
+
+	ci = ci_cacheinfo(cpu);
+	for (i = 0; i < cache_leaves(cpu); i++) {
+		leaf = per_cpu_cacheinfo_idx(cpu, i);
+		if (leaf->type != CACHE_TYPE_DATA &&
+		    leaf->type != CACHE_TYPE_UNIFIED)
+			continue;
+		nr_shared = cpumask_weight(&leaf->shared_cpu_map);
+		if (!nr_shared)
+			continue;
+		size_data += leaf->size / nr_shared;
+	}
+	ci->size_data = size_data;
+}
+
+static void update_data_cache_size(bool cpu_online, unsigned int cpu)
+{
+	unsigned int icpu;
+
+	for_each_online_cpu(icpu) {
+		if (!cpu_online && icpu == cpu)
+			continue;
+		update_data_cache_size_cpu(icpu);
+	}
+}
+
 static int cacheinfo_cpu_online(unsigned int cpu)
 {
 	int rc = detect_cache_attributes(cpu);
@@ -906,7 +941,12 @@ static int cacheinfo_cpu_online(unsigned int cpu)
 		return rc;
 	rc = cache_add_dev(cpu);
 	if (rc)
-		free_cache_attributes(cpu);
+		goto err;
+	update_data_cache_size(true, cpu);
+	setup_pcp_cacheinfo();
+	return 0;
+err:
+	free_cache_attributes(cpu);
 	return rc;
 }
 
@@ -916,6 +956,8 @@ static int cacheinfo_cpu_pre_down(unsigned int cpu)
 		cpu_cache_sysfs_exit(cpu);
 
 	free_cache_attributes(cpu);
+	update_data_cache_size(false, cpu);
+	setup_pcp_cacheinfo();
 	return 0;
 }
 

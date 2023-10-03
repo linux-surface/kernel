@@ -1421,7 +1421,11 @@ PAGE_SIZE multiple when read back.
 
 	  anon_thp
 		Amount of memory used in anonymous mappings backed by
-		transparent hugepages
+		transparent hugepages, mapped by PMD
+
+	  anon_thp_pte
+		Amount of memory used in anonymous mappings backed by
+		transparent hugepages, mapped by PTE
 
 	  file_thp
 		Amount of cached filesystem data backed by transparent
@@ -1531,6 +1535,15 @@ PAGE_SIZE multiple when read back.
 		Number of transparent hugepages which were allocated to allow
 		collapsing an existing range of pages. This counter is not
 		present when CONFIG_TRANSPARENT_HUGEPAGE is not set.
+
+	  thp_swpout (npn)
+		Number of transparent hugepages which are swapout in one piece
+		without splitting.
+
+	  thp_swpout_fallback (npn)
+		Number of transparent hugepages which were split before swapout.
+		Usually because failed to allocate some continuous swap space
+		for the huge page.
 
   memory.numa_stat
 	A read-only nested-keyed file which exists on non-root cgroups.

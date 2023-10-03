@@ -1110,6 +1110,16 @@ extern pte_t ptep_modify_prot_start(struct vm_area_struct *vma,
 extern void ptep_modify_prot_commit(struct vm_area_struct *vma,
 				    unsigned long addr, pte_t *ptep,
 				    pte_t old_pte, pte_t new_pte);
+
+#define arch_wants_pte_order arch_wants_pte_order
+static inline int arch_wants_pte_order(void)
+{
+	/*
+	 * Many arm64 CPUs support hardware page aggregation (HPA), which can
+	 * coalesce 4 contiguous pages into a single TLB entry.
+	 */
+	return 2;
+}
 #endif /* !__ASSEMBLY__ */
 
 #endif /* __ASM_PGTABLE_H */
