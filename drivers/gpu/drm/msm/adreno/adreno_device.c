@@ -476,6 +476,20 @@ static const struct adreno_info gpulist[] = {
 		.zapfw = "a640_zap.mdt",
 		.hwcg = a640_hwcg,
 	}, {
+		.chip_ids = ADRENO_CHIP_IDS(0x06080001),
+		.family = ADRENO_6XX_GEN2,
+		.revn = 680,
+		.fw = {
+			[ADRENO_FW_SQE] = "a680_sqe.fw",
+			[ADRENO_FW_GMU] = "a680_gmu.bin",
+		},
+		.gmem = SZ_2M,
+		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
+		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT,
+		.init = a6xx_gpu_init,
+		.zapfw = "a640_zap.mdt",
+		.hwcg = a640_hwcg,
+	}, {
 		.chip_ids = ADRENO_CHIP_IDS(0x06090000),
 		.family = ADRENO_6XX_GEN4,
 		.fw = {
