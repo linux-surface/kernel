@@ -1,0 +1,50 @@
+soc/arm
+	patch
+		MAINTAINERS: Add entry for AMD PENSANDO
+		arm64: Add config for AMD Pensando SoC platforms
+
+soc/dt
+	patch
+		dt-bindings: arm: add AMD Pensando boards
+		arm64: dts: Add AMD Pensando Elba SoC support
+
+soc/drivers
+
+soc/defconfig
+	patch
+		ARM: defconfig: cleanup orphaned CONFIGs
+
+soc/late
+
+arm/fixes
+	patch
+		arm64: dts: mediatek: Fix "mediatek,merge-mute" and "mediatek,merge-fifo-en" types
+		ARM: uniphier: fix cache kernel-doc warnings
+	<no branch> (06f114cf7cbe96a07c51c47114d79e9654275919)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v6.6/fixes-signed
+	<no branch> (f09752eaf0e8f8befc26b44c4d3e15633e56d16a)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-6.6
+	patch
+		arm64: defconfig: remove CONFIG_COMMON_CLK_NPCM8XX=y
+	<no branch> (1558209533f140624a00408bdab796ab3f309450)
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-fixes-for-v6.6-rc3
+	<no branch> (069969d6c5264d2348fd6cf0cedc00fd87ff3cee)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-for-for-v6.6
+	patch
+		soc: loongson: loongson_pm2: Add dependency for INPUT
+		dt-bindings: soc: loongson,ls2k-pmc: Use fallbacks for ls2k-pmc compatible
+		soc: loongson: loongson_pm2: Drop useless of_device_id compatible
+		dt-bindings: soc: loongson,ls2k-pmc: Allow syscon-reboot/syscon-poweroff as child
+		soc: loongson: loongson_pm2: Populate children syscon nodes
+		soc: loongson: loongson2_guts: Convert to devm_platform_ioremap_resource()
+		soc: loongson: loongson2_guts: Remove unneeded semicolon
+	<no branch> (9c888dbf2164e320e63f3ebfd85a99486bee9c3a)
+		git://git.kernel.org/pub/scm/linux/kernel/git/joel/bmc tags/aspeed-6.6-maintainers
+	<no branch> (9dda1178479aa0a73fe0eaabfe2d9a1c603cfeed)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/ffa-fix-6.6
+	<no branch> (c3638b851bc1ca0022dca9d6ca4beaa6ef03a216)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-fix-6.6
+	patch
+		ARM: locomo: fix locomolcd_power declaration
+		arm64: defconfig: enable syscon-poweroff driver
+
