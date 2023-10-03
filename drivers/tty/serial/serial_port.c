@@ -55,6 +55,8 @@ static int serial_port_probe(struct device *dev)
 	pm_runtime_set_autosuspend_delay(dev, SERIAL_PORT_AUTOSUSPEND_DELAY_MS);
 	pm_runtime_use_autosuspend(dev);
 
+	pm_runtime_forbid(dev);
+
 	return 0;
 }
 
