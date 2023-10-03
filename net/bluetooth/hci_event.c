@@ -3268,6 +3268,17 @@ static void hci_conn_request_evt(struct hci_dev *hdev, void *data,
 
 	bt_dev_dbg(hdev, "bdaddr %pMR type 0x%x", &ev->bdaddr, ev->link_type);
 
+	/* Reject incoming connection from device with same BD ADDR against
+	 * CVE-2020-26555
+	 */
+	if (!bacmp(&hdev->bdaddr, &ev->bdaddr))
+	{
+		bt_dev_dbg(hdev, "Reject connection with same BD_ADDR %pMR\n",
+			   &ev->bdaddr);
+		hci_reject_conn(hdev, &ev->bdaddr);
+		return;
+	}
+
 	mask |= hci_proto_connect_ind(hdev, &ev->bdaddr, ev->link_type,
 				      &flags);
 
@@ -4741,6 +4752,15 @@ static void hci_link_key_notify_evt(struct hci_dev *hdev, void *data,
 	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &ev->bdaddr);
 	if (!conn)
 		goto unlock;
+
+	/* Ignore NULL link key against CVE-2020-26555 */
+	if (!memcmp(ev->link_key, ZERO_KEY, HCI_LINK_KEY_SIZE)) {
+		bt_dev_dbg(hdev, "Ignore NULL link key (ZERO KEY) for %pMR",
+			   &ev->bdaddr);
+		hci_disconnect(conn, HCI_ERROR_AUTH_FAILURE);
+		hci_conn_drop(conn);
+		goto unlock;
+	}
 
 	hci_conn_hold(conn);
 	conn->disc_timeout = HCI_DISCONN_TIMEOUT;
@@ -6582,7 +6602,7 @@ static void hci_le_pa_sync_estabilished_evt(struct hci_dev *hdev, void *data,
 	struct hci_ev_le_pa_sync_established *ev = data;
 	int mask = hdev->link_mode;
 	__u8 flags = 0;
-	struct hci_conn *bis;
+	struct hci_conn *pa_sync;
 
 	bt_dev_dbg(hdev, "status 0x%2.2x", ev->status);
 
@@ -6599,20 +6619,19 @@ static void hci_le_pa_sync_estabilished_evt(struct hci_dev *hdev, void *data,
 	if (!(flags & HCI_PROTO_DEFER))
 		goto unlock;
 
-	/* Add connection to indicate the PA sync event */
-	bis = hci_conn_add(hdev, ISO_LINK, BDADDR_ANY,
-			   HCI_ROLE_SLAVE);
+	if (ev->status) {
+		/* Add connection to indicate the failed PA sync event */
+		pa_sync = hci_conn_add(hdev, ISO_LINK, BDADDR_ANY,
+				       HCI_ROLE_SLAVE);
 
-	if (!bis)
-		goto unlock;
+		if (!pa_sync)
+			goto unlock;
 
-	if (ev->status)
-		set_bit(HCI_CONN_PA_SYNC_FAILED, &bis->flags);
-	else
-		set_bit(HCI_CONN_PA_SYNC, &bis->flags);
+		set_bit(HCI_CONN_PA_SYNC_FAILED, &pa_sync->flags);
 
-	/* Notify connection to iso layer */
-	hci_connect_cfm(bis, ev->status);
+		/* Notify iso layer */
+		hci_connect_cfm(pa_sync, ev->status);
+	}
 
 unlock:
 	hci_dev_unlock(hdev);
@@ -7021,6 +7040,14 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
+static int hci_iso_term_big_sync(struct hci_dev *hdev, void *data)
+{
+	u8 handle = PTR_UINT(data);
+
+	return hci_le_terminate_big_sync(hdev, handle,
+					 HCI_ERROR_LOCAL_HOST_TERM);
+}
+
 static void hci_le_create_big_complete_evt(struct hci_dev *hdev, void *data,
 					   struct sk_buff *skb)
 {
@@ -7065,16 +7092,17 @@ static void hci_le_create_big_complete_evt(struct hci_dev *hdev, void *data,
 		rcu_read_lock();
 	}
 
+	rcu_read_unlock();
+
 	if (!ev->status && !i)
 		/* If no BISes have been connected for the BIG,
 		 * terminate. This is in case all bound connections
 		 * have been closed before the BIG creation
 		 * has completed.
 		 */
-		hci_le_terminate_big_sync(hdev, ev->handle,
-					  HCI_ERROR_LOCAL_HOST_TERM);
+		hci_cmd_sync_queue(hdev, hci_iso_term_big_sync,
+				   UINT_PTR(ev->handle), NULL);
 
-	rcu_read_unlock();
 	hci_dev_unlock(hdev);
 }
 
@@ -7095,7 +7123,7 @@ static void hci_le_big_sync_established_evt(struct hci_dev *hdev, void *data,
 	hci_dev_lock(hdev);
 
 	if (!ev->status) {
-		pa_sync = hci_conn_hash_lookup_pa_sync(hdev, ev->handle);
+		pa_sync = hci_conn_hash_lookup_pa_sync_big_handle(hdev, ev->handle);
 		if (pa_sync)
 			/* Also mark the BIG sync established event on the
 			 * associated PA sync hcon
@@ -7156,15 +7184,42 @@ static void hci_le_big_info_adv_report_evt(struct hci_dev *hdev, void *data,
 	struct hci_evt_le_big_info_adv_report *ev = data;
 	int mask = hdev->link_mode;
 	__u8 flags = 0;
+	struct hci_conn *pa_sync;
 
 	bt_dev_dbg(hdev, "sync_handle 0x%4.4x", le16_to_cpu(ev->sync_handle));
 
 	hci_dev_lock(hdev);
 
 	mask |= hci_proto_connect_ind(hdev, BDADDR_ANY, ISO_LINK, &flags);
-	if (!(mask & HCI_LM_ACCEPT))
+	if (!(mask & HCI_LM_ACCEPT)) {
 		hci_le_pa_term_sync(hdev, ev->sync_handle);
+		goto unlock;
+	}
 
+	if (!(flags & HCI_PROTO_DEFER))
+		goto unlock;
+
+	pa_sync = hci_conn_hash_lookup_pa_sync_handle
+			(hdev,
+			le16_to_cpu(ev->sync_handle));
+
+	if (pa_sync)
+		goto unlock;
+
+	/* Add connection to indicate the PA sync event */
+	pa_sync = hci_conn_add(hdev, ISO_LINK, BDADDR_ANY,
+			       HCI_ROLE_SLAVE);
+
+	if (!pa_sync)
+		goto unlock;
+
+	pa_sync->sync_handle = le16_to_cpu(ev->sync_handle);
+	set_bit(HCI_CONN_PA_SYNC, &pa_sync->flags);
+
+	/* Notify iso layer */
+	hci_connect_cfm(pa_sync, 0x00);
+
+unlock:
 	hci_dev_unlock(hdev);
 }
 
