@@ -144,6 +144,9 @@ struct dev_pm_opp *dev_pm_opp_find_level_exact(struct device *dev,
 struct dev_pm_opp *dev_pm_opp_find_level_ceil(struct device *dev,
 					      unsigned int *level);
 
+struct dev_pm_opp *dev_pm_opp_find_level_floor(struct device *dev,
+					       unsigned long *level);
+
 struct dev_pm_opp *dev_pm_opp_find_bw_ceil(struct device *dev,
 					   unsigned int *bw, int index);
 
@@ -304,6 +307,12 @@ static inline struct dev_pm_opp *dev_pm_opp_find_level_exact(struct device *dev,
 
 static inline struct dev_pm_opp *dev_pm_opp_find_level_ceil(struct device *dev,
 					unsigned int *level)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline struct dev_pm_opp *dev_pm_opp_find_level_floor(struct device *dev,
+							     unsigned long *level)
 {
 	return ERR_PTR(-EOPNOTSUPP);
 }
