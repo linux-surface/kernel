@@ -794,51 +794,6 @@ int create_hyp_exec_mappings(phys_addr_t phys_addr, size_t size,
 	return 0;
 }
 
-static struct kvm_pgtable_mm_ops kvm_user_mm_ops = {
-	/* We shouldn't need any other callback to walk the PT */
-	.phys_to_virt		= kvm_host_va,
-};
-
-static int get_user_mapping_size(struct kvm *kvm, u64 addr)
-{
-	struct kvm_pgtable pgt = {
-		.pgd		= (kvm_pteref_t)kvm->mm->pgd,
-		.ia_bits	= vabits_actual,
-		.start_level	= (KVM_PGTABLE_MAX_LEVELS -
-				   CONFIG_PGTABLE_LEVELS),
-		.mm_ops		= &kvm_user_mm_ops,
-	};
-	unsigned long flags;
-	kvm_pte_t pte = 0;	/* Keep GCC quiet... */
-	u32 level = ~0;
-	int ret;
-
-	/*
-	 * Disable IRQs so that we hazard against a concurrent
-	 * teardown of the userspace page tables (which relies on
-	 * IPI-ing threads).
-	 */
-	local_irq_save(flags);
-	ret = kvm_pgtable_get_leaf(&pgt, addr, &pte, &level);
-	local_irq_restore(flags);
-
-	if (ret)
-		return ret;
-
-	/*
-	 * Not seeing an error, but not updating level? Something went
-	 * deeply wrong...
-	 */
-	if (WARN_ON(level >= KVM_PGTABLE_MAX_LEVELS))
-		return -EFAULT;
-
-	/* Oops, the userspace PTs are gone... Replay the fault */
-	if (!kvm_pte_valid(pte))
-		return -EAGAIN;
-
-	return BIT(ARM64_HW_PGTABLE_LEVEL_SHIFT(level));
-}
-
 static struct kvm_pgtable_mm_ops kvm_s2_mm_ops = {
 	.zalloc_page		= stage2_memcache_zalloc_page,
 	.zalloc_pages_exact	= kvm_s2_zalloc_pages_exact,
@@ -1277,7 +1232,7 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
  *
  * Returns the size of the mapping.
  */
-static long
+static unsigned long
 transparent_hugepage_adjust(struct kvm *kvm, struct kvm_memory_slot *memslot,
 			    unsigned long hva, kvm_pfn_t *pfnp,
 			    phys_addr_t *ipap)
@@ -1290,36 +1245,13 @@ transparent_hugepage_adjust(struct kvm *kvm, struct kvm_memory_slot *memslot,
 	 * block map is contained within the memslot.
 	 */
 	if (fault_supports_stage2_huge_mapping(memslot, hva, PMD_SIZE)) {
-		int sz = get_user_mapping_size(kvm, hva);
-
-		if (sz < 0)
-			return sz;
+		size_t sz = folio_size(pfn_folio(pfn));
 
 		if (sz < PMD_SIZE)
 			return PAGE_SIZE;
 
-		/*
-		 * The address we faulted on is backed by a transparent huge
-		 * page.  However, because we map the compound huge page and
-		 * not the individual tail page, we need to transfer the
-		 * refcount to the head page.  We have to be careful that the
-		 * THP doesn't start to split while we are adjusting the
-		 * refcounts.
-		 *
-		 * We are sure this doesn't happen, because mmu_invalidate_retry
-		 * was successful and we are holding the mmu_lock, so if this
-		 * THP is trying to split, it will be blocked in the mmu
-		 * notifier before touching any of the pages, specifically
-		 * before being able to call __split_huge_page_refcount().
-		 *
-		 * We can therefore safely transfer the refcount from PG_tail
-		 * to PG_head and switch the pfn from a tail page to the head
-		 * page accordingly.
-		 */
 		*ipap &= PMD_MASK;
-		kvm_release_pfn_clean(pfn);
 		pfn &= ~(PTRS_PER_PMD - 1);
-		get_page(pfn_to_page(pfn));
 		*pfnp = pfn;
 
 		return PMD_SIZE;
@@ -1408,7 +1340,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	kvm_pfn_t pfn;
 	bool logging_active = memslot_is_logging(memslot);
 	unsigned long fault_level = kvm_vcpu_trap_get_fault_level(vcpu);
-	long vma_pagesize, fault_granule;
+	unsigned long vma_pagesize, fault_granule;
 	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
 	struct kvm_pgtable *pgt;
 
@@ -1553,11 +1485,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			vma_pagesize = transparent_hugepage_adjust(kvm, memslot,
 								   hva, &pfn,
 								   &fault_ipa);
-
-		if (vma_pagesize < 0) {
-			ret = vma_pagesize;
-			goto out_unlock;
-		}
 	}
 
 	if (fault_status != ESR_ELx_FSC_PERM && !device && kvm_has_mte(kvm)) {
