@@ -8,9 +8,11 @@
  */
 
 #define _GNU_SOURCE
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <linux/landlock.h>
 #include <linux/magic.h>
+#include <netinet/in.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,6 +20,7 @@
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/sendfile.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
@@ -677,17 +680,7 @@ static int create_ruleset(struct __test_metadata *const _metadata,
 	return ruleset_fd;
 }
 
-static void enforce_ruleset(struct __test_metadata *const _metadata,
-			    const int ruleset_fd)
-{
-	ASSERT_EQ(0, prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
-	ASSERT_EQ(0, landlock_restrict_self(ruleset_fd, 0))
-	{
-		TH_LOG("Failed to enforce ruleset: %s", strerror(errno));
-	}
-}
-
-TEST_F_FORK(layout0, proc_nsfs)
+TEST_F_FORK(layout1, proc_nsfs)
 {
 	const struct rule rules[] = {
 		{
@@ -4760,6 +4753,66 @@ TEST_F_FORK(layout3_fs, release_inodes)
 
 	/* Checks that access to the new mount point is denied. */
 	ASSERT_EQ(EACCES, test_open(TMP_DIR, O_RDONLY));
+}
+
+static const char loopback_ipv4[] = "127.0.0.1";
+const unsigned short sock_port = 15000;
+
+TEST_F_FORK(layout1, with_net)
+{
+	const struct rule rules[] = {
+		{
+			.path = dir_s1d2,
+			.access = ACCESS_RO,
+		},
+		{},
+	};
+	struct landlock_ruleset_attr ruleset_attr_net = {
+		.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP |
+				      LANDLOCK_ACCESS_NET_CONNECT_TCP,
+	};
+	struct landlock_net_port_attr tcp_bind = {
+		.allowed_access = LANDLOCK_ACCESS_NET_BIND_TCP,
+
+		.port = sock_port,
+	};
+	int sockfd, ruleset_fd, ruleset_fd_net;
+	struct sockaddr_in addr4;
+
+	addr4.sin_family = AF_INET;
+	addr4.sin_port = htons(sock_port);
+	addr4.sin_addr.s_addr = inet_addr(loopback_ipv4);
+	memset(&addr4.sin_zero, '\0', 8);
+
+	/* Creates ruleset for network access. */
+	ruleset_fd_net = landlock_create_ruleset(&ruleset_attr_net,
+						 sizeof(ruleset_attr_net), 0);
+	ASSERT_LE(0, ruleset_fd_net);
+
+	/* Adds a network rule. */
+	ASSERT_EQ(0, landlock_add_rule(ruleset_fd_net, LANDLOCK_RULE_NET_PORT,
+				       &tcp_bind, 0));
+
+	enforce_ruleset(_metadata, ruleset_fd_net);
+	ASSERT_EQ(0, close(ruleset_fd_net));
+
+	ruleset_fd = create_ruleset(_metadata, ACCESS_RW, rules);
+
+	ASSERT_LE(0, ruleset_fd);
+	enforce_ruleset(_metadata, ruleset_fd);
+	ASSERT_EQ(0, close(ruleset_fd));
+
+	/* Tests on a directory with the network rule loaded. */
+	ASSERT_EQ(0, test_open(dir_s1d2, O_RDONLY));
+	ASSERT_EQ(0, test_open(file1_s1d2, O_RDONLY));
+
+	sockfd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	ASSERT_LE(0, sockfd);
+	/* Binds a socket to port 15000. */
+	ASSERT_EQ(0, bind(sockfd, &addr4, sizeof(addr4)));
+
+	/* Closes bounded socket. */
+	ASSERT_EQ(0, close(sockfd));
 }
 
 TEST_HARNESS_MAIN
