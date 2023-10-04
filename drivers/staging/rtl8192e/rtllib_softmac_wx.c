@@ -50,12 +50,6 @@ int rtllib_wx_set_freq(struct rtllib_device *ieee, struct iw_request_info *a,
 		}
 		ieee->current_network.channel = fwrq->m;
 		ieee->set_chan(ieee->dev, ieee->current_network.channel);
-
-		if (ieee->iw_mode == IW_MODE_ADHOC)
-			if (ieee->link_state == MAC80211_LINKED) {
-				rtllib_stop_send_beacons(ieee);
-				rtllib_start_send_beacons(ieee);
-			}
 	}
 
 	ret = 0;
@@ -258,7 +252,6 @@ int rtllib_wx_set_mode(struct rtllib_device *ieee, struct iw_request_info *a,
 	mutex_lock(&ieee->wx_mutex);
 	switch (wrqu->mode) {
 	case IW_MODE_MONITOR:
-	case IW_MODE_ADHOC:
 	case IW_MODE_INFRA:
 		break;
 	case IW_MODE_AUTO:
@@ -317,7 +310,6 @@ void rtllib_wx_sync_scan_wq(void *data)
 	rtllib_sta_ps_send_null_frame(ieee, 1);
 
 	rtllib_stop_all_queues(ieee);
-	rtllib_stop_send_beacons(ieee);
 	ieee->link_state = MAC80211_LINKED_SCANNING;
 	ieee->link_change(ieee->dev);
 	/* wait for ps packet to be kicked out successfully */
@@ -361,9 +353,6 @@ void rtllib_wx_sync_scan_wq(void *data)
 		ieee->link_detect_info.NumRecvBcnInPeriod = 1;
 		ieee->link_detect_info.NumRecvDataInPeriod = 1;
 	}
-	if (ieee->iw_mode == IW_MODE_ADHOC)
-		rtllib_start_send_beacons(ieee);
-
 	rtllib_wake_all_queues(ieee);
 
 out:

@@ -18,30 +18,6 @@
 static int WDCAPARA_ADD[] = {EDCAPARA_BE, EDCAPARA_BK, EDCAPARA_VI,
 			     EDCAPARA_VO};
 
-void rtl92e_start_beacon(struct net_device *dev)
-{
-	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
-	struct rtllib_network *net = &priv->rtllib->current_network;
-	u16 BcnTimeCfg = 0;
-	u16 BcnCW = 6;
-	u16 BcnIFS = 0xf;
-
-	rtl92e_irq_disable(dev);
-
-	rtl92e_writew(dev, ATIMWND, 2);
-
-	rtl92e_writew(dev, BCN_INTERVAL, net->beacon_interval);
-	rtl92e_writew(dev, BCN_DRV_EARLY_INT, 10);
-	rtl92e_writew(dev, BCN_DMATIME, 256);
-
-	rtl92e_writeb(dev, BCN_ERR_THRESH, 100);
-
-	BcnTimeCfg |= BcnCW << BCN_TCFG_CW_SHIFT;
-	BcnTimeCfg |= BcnIFS << BCN_TCFG_IFS;
-	rtl92e_writew(dev, BCN_TCFG, BcnTimeCfg);
-	rtl92e_irq_enable(dev);
-}
-
 static void _rtl92e_update_msr(struct net_device *dev)
 {
 	struct r8192_priv *priv = rtllib_priv(dev);
@@ -54,10 +30,6 @@ static void _rtl92e_update_msr(struct net_device *dev)
 	case IW_MODE_INFRA:
 		if (priv->rtllib->link_state == MAC80211_LINKED)
 			msr |= MSR_LINK_MANAGED;
-		break;
-	case IW_MODE_ADHOC:
-		if (priv->rtllib->link_state == MAC80211_LINKED)
-			msr |= MSR_LINK_ADHOC;
 		break;
 	default:
 		break;
@@ -706,7 +678,6 @@ static void _rtl92e_net_update(struct net_device *dev)
 {
 	struct r8192_priv *priv = rtllib_priv(dev);
 	struct rtllib_network *net;
-	u16 BcnTimeCfg = 0, BcnCW = 6, BcnIFS = 0xf;
 	u16 rate_config = 0;
 
 	net = &priv->rtllib->current_network;
@@ -715,19 +686,6 @@ static void _rtl92e_net_update(struct net_device *dev)
 	priv->basic_rate = rate_config &= 0x15f;
 	rtl92e_writew(dev, BSSIDR, *(u16 *)net->bssid);
 	rtl92e_writel(dev, BSSIDR + 2, *(u32 *)(net->bssid + 2));
-
-	if (priv->rtllib->iw_mode == IW_MODE_ADHOC) {
-		rtl92e_writew(dev, ATIMWND, 2);
-		rtl92e_writew(dev, BCN_DMATIME, 256);
-		rtl92e_writew(dev, BCN_INTERVAL, net->beacon_interval);
-		rtl92e_writew(dev, BCN_DRV_EARLY_INT, 10);
-		rtl92e_writeb(dev, BCN_ERR_THRESH, 100);
-
-		BcnTimeCfg |= (BcnCW << BCN_TCFG_CW_SHIFT);
-		BcnTimeCfg |= BcnIFS << BCN_TCFG_IFS;
-
-		rtl92e_writew(dev, BCN_TCFG, BcnTimeCfg);
-	}
 }
 
 void rtl92e_link_change(struct net_device *dev)
@@ -749,7 +707,7 @@ void rtl92e_link_change(struct net_device *dev)
 	}
 	_rtl92e_update_msr(dev);
 
-	if (ieee->iw_mode == IW_MODE_INFRA || ieee->iw_mode == IW_MODE_ADHOC) {
+	if (ieee->iw_mode == IW_MODE_INFRA) {
 		u32 reg;
 
 		reg = rtl92e_readl(dev, RCR);
@@ -1411,12 +1369,12 @@ static void _rtl92e_process_phyinfo(struct r8192_priv *priv, u8 *buffer,
 	static u32 slide_beacon_adc_pwdb_index;
 	static u32 slide_beacon_adc_pwdb_statistics;
 	static u32 last_beacon_adc_pwdb;
-	struct rtllib_hdr_3addr *hdr;
+	struct ieee80211_hdr_3addr *hdr;
 	u16 sc;
 	unsigned int seq;
 
-	hdr = (struct rtllib_hdr_3addr *)buffer;
-	sc = le16_to_cpu(hdr->seq_ctl);
+	hdr = (struct ieee80211_hdr_3addr *)buffer;
+	sc = le16_to_cpu(hdr->seq_ctrl);
 	seq = WLAN_GET_SEQ_SEQ(sc);
 	curr_st->Seq_Num = seq;
 	if (!prev_st->bIsAMPDU)
@@ -1561,7 +1519,7 @@ static void _rtl92e_translate_rx_signal_stats(struct net_device *dev,
 	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
 	bool bpacket_match_bssid, bpacket_toself;
 	bool bPacketBeacon = false;
-	struct rtllib_hdr_3addr *hdr;
+	struct ieee80211_hdr_3addr *hdr;
 	bool bToSelfBA = false;
 	static struct rtllib_rx_stats  previous_stats;
 	u16 fc, type;
@@ -1570,21 +1528,21 @@ static void _rtl92e_translate_rx_signal_stats(struct net_device *dev,
 
 	tmp_buf = skb->data + pstats->RxDrvInfoSize + pstats->RxBufShift;
 
-	hdr = (struct rtllib_hdr_3addr *)tmp_buf;
-	fc = le16_to_cpu(hdr->frame_ctl);
+	hdr = (struct ieee80211_hdr_3addr *)tmp_buf;
+	fc = le16_to_cpu(hdr->frame_control);
 	type = WLAN_FC_GET_TYPE(fc);
 	praddr = hdr->addr1;
 
 	bpacket_match_bssid =
 		((type != RTLLIB_FTYPE_CTL) &&
 		 ether_addr_equal(priv->rtllib->current_network.bssid,
-				  (fc & RTLLIB_FCTL_TODS) ? hdr->addr1 :
-				  (fc & RTLLIB_FCTL_FROMDS) ? hdr->addr2 :
+				  (fc & IEEE80211_FCTL_TODS) ? hdr->addr1 :
+				  (fc & IEEE80211_FCTL_FROMDS) ? hdr->addr2 :
 				  hdr->addr3) &&
 		 (!pstats->bHwError) && (!pstats->bCRC) && (!pstats->bICV));
 	bpacket_toself = bpacket_match_bssid &&		/* check this */
 			 ether_addr_equal(praddr, priv->rtllib->dev->dev_addr);
-	if (WLAN_FC_GET_FRAMETYPE(fc) == RTLLIB_STYPE_BEACON)
+	if (ieee80211_is_beacon(hdr->frame_control))
 		bPacketBeacon = true;
 	_rtl92e_process_phyinfo(priv, tmp_buf, &previous_stats, pstats);
 	_rtl92e_query_rxphystatus(priv, pstats, pdesc, pdrvinfo,
@@ -1870,7 +1828,7 @@ rtl92e_init_variables(struct net_device  *dev)
 	priv->bfirst_after_down = false;
 }
 
-void rtl92e_enable_irq(struct net_device *dev)
+void rtl92e_irq_enable(struct net_device *dev)
 {
 	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
 
@@ -1879,7 +1837,7 @@ void rtl92e_enable_irq(struct net_device *dev)
 	rtl92e_writel(dev, INTA_MASK, priv->irq_mask[0]);
 }
 
-void rtl92e_disable_irq(struct net_device *dev)
+void rtl92e_irq_disable(struct net_device *dev)
 {
 	struct r8192_priv *priv = (struct r8192_priv *)rtllib_priv(dev);
 

@@ -352,7 +352,6 @@ void HTConstructCapabilityElement(struct rtllib_device *ieee, u8 *posHTCap,
 void HTConstructInfoElement(struct rtllib_device *ieee, u8 *posHTInfo,
 			    u8 *len, u8 IsEncrypt)
 {
-	struct rt_hi_throughput *pHT = ieee->ht_info;
 	struct ht_info_ele *pHTInfoEle = (struct ht_info_ele *)posHTInfo;
 
 	if (!posHTInfo || !pHTInfoEle) {
@@ -363,32 +362,7 @@ void HTConstructInfoElement(struct rtllib_device *ieee, u8 *posHTInfo,
 	}
 
 	memset(posHTInfo, 0, *len);
-	if (ieee->iw_mode == IW_MODE_ADHOC) {
-		pHTInfoEle->ControlChl	= ieee->current_network.channel;
-		pHTInfoEle->ExtChlOffset = ((!pHT->bRegBW40MHz) ?
-					    HT_EXTCHNL_OFFSET_NO_EXT :
-					    (ieee->current_network.channel <= 6)
-					    ? HT_EXTCHNL_OFFSET_UPPER :
-					    HT_EXTCHNL_OFFSET_LOWER);
-		pHTInfoEle->RecommemdedTxWidth	= pHT->bRegBW40MHz;
-		pHTInfoEle->RIFS			= 0;
-		pHTInfoEle->PSMPAccessOnly		= 0;
-		pHTInfoEle->SrvIntGranularity		= 0;
-		pHTInfoEle->OptMode			= pHT->current_op_mode;
-		pHTInfoEle->NonGFDevPresent		= 0;
-		pHTInfoEle->DualBeacon			= 0;
-		pHTInfoEle->SecondaryBeacon		= 0;
-		pHTInfoEle->LSigTxopProtectFull		= 0;
-		pHTInfoEle->PcoActive			= 0;
-		pHTInfoEle->PcoPhase			= 0;
-
-		memset(pHTInfoEle->BasicMSC, 0, 16);
-
-		*len = 22 + 2;
-
-	} else {
-		*len = 0;
-	}
+	*len = 0;
 }
 
 void HTConstructRT2RTAggElement(struct rtllib_device *ieee, u8 *posRT2RTAgg,
@@ -768,42 +742,6 @@ void HT_update_self_and_peer_setting(struct rtllib_device *ieee,
 	}
 }
 EXPORT_SYMBOL(HT_update_self_and_peer_setting);
-
-void HTUseDefaultSetting(struct rtllib_device *ieee)
-{
-	struct rt_hi_throughput *ht_info = ieee->ht_info;
-
-	if (ht_info->enable_ht) {
-		ht_info->bCurrentHTSupport = true;
-		ht_info->bCurSuppCCK = ht_info->bRegSuppCCK;
-
-		ht_info->bCurBW40MHz = ht_info->bRegBW40MHz;
-		ht_info->bCurShortGI20MHz = ht_info->bRegShortGI20MHz;
-
-		ht_info->bCurShortGI40MHz = ht_info->bRegShortGI40MHz;
-
-		if (ieee->iw_mode == IW_MODE_ADHOC)
-			ieee->current_network.qos_data.active =
-				 ieee->current_network.qos_data.supported;
-		ht_info->bCurrent_AMSDU_Support = ht_info->bAMSDU_Support;
-		ht_info->nCurrent_AMSDU_MaxSize = ht_info->nAMSDU_MaxSize;
-
-		ht_info->bCurrentAMPDUEnable = ht_info->bAMPDUEnable;
-		ht_info->CurrentAMPDUFactor = ht_info->AMPDU_Factor;
-
-		ht_info->current_mpdu_density = ht_info->current_mpdu_density;
-
-		HTFilterMCSRate(ieee, ieee->reg_dot11tx_ht_oper_rate_set,
-				ieee->dot11ht_oper_rate_set);
-		ieee->HTHighestOperaRate = HTGetHighestMCSRate(ieee,
-							       ieee->dot11ht_oper_rate_set,
-							       MCS_FILTER_ALL);
-		ieee->HTCurrentOperaRate = ieee->HTHighestOperaRate;
-
-	} else {
-		ht_info->bCurrentHTSupport = false;
-	}
-}
 
 u8 HTCCheck(struct rtllib_device *ieee, u8 *pFrame)
 {
