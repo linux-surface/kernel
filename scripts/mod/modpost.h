@@ -163,12 +163,12 @@ static inline unsigned int get_secindex(const struct elf_info *info,
  *
  * Internal symbols created by tools should be ignored by modpost.
  */
-static inline int is_valid_name(struct elf_info *elf, Elf_Sym *sym)
+static inline bool is_valid_name(struct elf_info *elf, Elf_Sym *sym)
 {
 	const char *name = elf->strtab + sym->st_name;
 
 	if (!name || !strlen(name))
-		return 0;
+		return false;
 	return !is_mapping_symbol(name);
 }
 
