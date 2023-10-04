@@ -82,7 +82,10 @@
 #define CTX \
 	hws->ctx
 
-#define DC_LOGGER_INIT()
+#define DC_LOGGER \
+	ctx->logger
+#define DC_LOGGER_INIT() \
+	struct dc_context *ctx = dc->ctx
 
 #define REG(reg)\
 	hws->regs->reg
@@ -1041,7 +1044,8 @@ void dce110_edp_backlight_control(
 
 	link_transmitter_control(ctx->dc_bios, &cntl);
 
-	if (enable && link->dpcd_sink_ext_caps.bits.oled) {
+	if (enable && link->dpcd_sink_ext_caps.bits.oled &&
+	    !link->dc->config.edp_no_power_sequencing) {
 		post_T7_delay += link->panel_config.pps.extra_post_t7_ms;
 		msleep(post_T7_delay);
 	}
@@ -1174,18 +1178,17 @@ void dce110_disable_stream(struct pipe_ctx *pipe_ctx)
 
 	link_hwss->reset_stream_encoder(pipe_ctx);
 
-	if (dc->link_srv->dp_is_128b_132b_signal(pipe_ctx)) {
+	if (dc->link_srv->dp_is_128b_132b_signal(pipe_ctx) && dccg) {
 		dto_params.otg_inst = tg->inst;
 		dto_params.timing = &pipe_ctx->stream->timing;
 		dp_hpo_inst = pipe_ctx->stream_res.hpo_dp_stream_enc->inst;
-		if (dccg) {
-			dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
-			dccg->funcs->disable_symclk32_se(dccg, dp_hpo_inst);
-			dccg->funcs->set_dpstreamclk(dccg, REFCLK, tg->inst, dp_hpo_inst);
-		}
+
+		dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
+		dccg->funcs->disable_symclk32_se(dccg, dp_hpo_inst);
+		dccg->funcs->set_dpstreamclk(dccg, REFCLK, tg->inst, dp_hpo_inst);
 	} else if (dccg && dccg->funcs->disable_symclk_se) {
 		dccg->funcs->disable_symclk_se(dccg, stream_enc->stream_enc_inst,
-				link_enc->transmitter - TRANSMITTER_UNIPHY_A);
+					       link_enc->transmitter - TRANSMITTER_UNIPHY_A);
 	}
 
 	if (dc->link_srv->dp_is_128b_132b_signal(pipe_ctx)) {
@@ -1226,7 +1229,7 @@ void dce110_blank_stream(struct pipe_ctx *pipe_ctx)
 	struct dce_hwseq *hws = link->dc->hwseq;
 
 	if (link->local_sink && link->local_sink->sink_signal == SIGNAL_TYPE_EDP) {
-		if (!stream->skip_edp_power_down)
+		if (!link->skip_implict_edp_power_control)
 			hws->funcs.edp_backlight_control(link, false);
 		link->dc->hwss.set_abm_immediate_disable(pipe_ctx);
 	}
@@ -2002,9 +2005,6 @@ static bool should_enable_fbc(struct dc *dc,
 
 			pipe_ctx = &res_ctx->pipe_ctx[i];
 
-			if (!pipe_ctx)
-				continue;
-
 			/* fbc not applicable on underlay pipe */
 			if (pipe_ctx->pipe_idx != underlay_idx) {
 				*pipe_idx = i;
@@ -2460,6 +2460,7 @@ static bool wait_for_reset_trigger_to_occur(
 	struct dc_context *dc_ctx,
 	struct timing_generator *tg)
 {
+	struct dc_context *ctx = dc_ctx;
 	bool rc = false;
 
 	/* To avoid endless loop we wait at most
@@ -2503,6 +2504,7 @@ static void dce110_enable_timing_synchronization(
 	struct dc_context *dc_ctx = dc->ctx;
 	struct dcp_gsl_params gsl_params = { 0 };
 	int i;
+	DC_LOGGER_INIT();
 
 	DC_SYNC_INFO("GSL: Setting-up...\n");
 
@@ -2548,6 +2550,7 @@ static void dce110_enable_per_frame_crtc_position_reset(
 	struct dc_context *dc_ctx = dc->ctx;
 	struct dcp_gsl_params gsl_params = { 0 };
 	int i;
+	DC_LOGGER_INIT();
 
 	gsl_params.gsl_group = 0;
 	gsl_params.gsl_master = 0;
@@ -2693,7 +2696,6 @@ static void dce110_program_front_end_for_pipe(
 	unsigned int i;
 	struct dce_hwseq *hws = dc->hwseq;
 
-	DC_LOGGER_INIT();
 	memset(&tbl_entry, 0, sizeof(tbl_entry));
 
 	memset(&adjust, 0, sizeof(adjust));

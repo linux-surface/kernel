@@ -56,7 +56,10 @@
 #include "link_hwss.h"
 #include "link.h"
 
-#define DC_LOGGER_INIT(logger)
+#define DC_LOGGER \
+	dc_logger
+#define DC_LOGGER_INIT(logger) \
+	struct dal_logger *dc_logger = logger
 
 #define CTX \
 	hws->ctx
@@ -94,7 +97,7 @@ static int find_free_gsl_group(const struct dc *dc)
  * gsl_0 <=> pipe_ctx->stream_res.gsl_group == 1
  * Using a magic value like -1 would require tracking all inits/resets
  */
-static void dcn20_setup_gsl_group_as_lock(
+ void dcn20_setup_gsl_group_as_lock(
 		const struct dc *dc,
 		struct pipe_ctx *pipe_ctx,
 		bool enable)
@@ -614,6 +617,8 @@ void dcn20_plane_atomic_disable(struct dc *dc, struct pipe_ctx *pipe_ctx)
 	memset(&pipe_ctx->plane_res, 0, sizeof(pipe_ctx->plane_res));
 	pipe_ctx->top_pipe = NULL;
 	pipe_ctx->bottom_pipe = NULL;
+	pipe_ctx->prev_odm_pipe = NULL;
+	pipe_ctx->next_odm_pipe = NULL;
 	pipe_ctx->plane_state = NULL;
 }
 
@@ -666,6 +671,37 @@ static int calc_mpc_flow_ctrl_cnt(const struct dc_stream_state *stream,
 		flow_ctrl_cnt /= 2;
 
 	return flow_ctrl_cnt;
+}
+
+static enum phyd32clk_clock_source get_phyd32clk_src(struct dc_link *link)
+{
+	switch (link->link_enc->transmitter) {
+	case TRANSMITTER_UNIPHY_A:
+		return PHYD32CLKA;
+	case TRANSMITTER_UNIPHY_B:
+		return PHYD32CLKB;
+	case TRANSMITTER_UNIPHY_C:
+		return PHYD32CLKC;
+	case TRANSMITTER_UNIPHY_D:
+		return PHYD32CLKD;
+	case TRANSMITTER_UNIPHY_E:
+		return PHYD32CLKE;
+	default:
+		return PHYD32CLKA;
+	}
+}
+
+static int get_odm_segment_count(struct pipe_ctx *pipe_ctx)
+{
+	struct pipe_ctx *odm_pipe = pipe_ctx->next_odm_pipe;
+	int count = 1;
+
+	while (odm_pipe != NULL) {
+		count++;
+		odm_pipe = odm_pipe->next_odm_pipe;
+	}
+
+	return count;
 }
 
 enum dc_status dcn20_enable_stream_timing(
@@ -815,6 +851,23 @@ enum dc_status dcn20_enable_stream_timing(
 		if (pipe_ctx->stream_res.tg && pipe_ctx->stream_res.tg->funcs->phantom_crtc_post_enable)
 			pipe_ctx->stream_res.tg->funcs->phantom_crtc_post_enable(pipe_ctx->stream_res.tg);
 	}
+
+	if (dc->link_srv->dp_is_128b_132b_signal(pipe_ctx)) {
+		struct dccg *dccg = dc->res_pool->dccg;
+		struct timing_generator *tg = pipe_ctx->stream_res.tg;
+		struct dtbclk_dto_params dto_params = {0};
+
+		if (dccg->funcs->set_dtbclk_p_src)
+			dccg->funcs->set_dtbclk_p_src(dccg, DTBCLK0, tg->inst);
+
+		dto_params.otg_inst = tg->inst;
+		dto_params.pixclk_khz = pipe_ctx->stream->timing.pix_clk_100hz / 10;
+		dto_params.num_odm_segments = get_odm_segment_count(pipe_ctx);
+		dto_params.timing = &pipe_ctx->stream->timing;
+		dto_params.ref_dtbclk_khz = dc->clk_mgr->funcs->get_dtb_ref_clk_frequency(dc->clk_mgr);
+		dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
+	}
+
 	return DC_OK;
 }
 
@@ -1380,13 +1433,9 @@ static void dcn20_detect_pipe_changes(struct pipe_ctx *old_pipe, struct pipe_ctx
 	}
 
 	/* Detect top pipe only changes */
-	if (!new_pipe->top_pipe && !new_pipe->prev_odm_pipe) {
+	if (resource_is_pipe_type(new_pipe, OTG_MASTER)) {
 		/* Detect odm changes */
-		if ((old_pipe->next_odm_pipe && new_pipe->next_odm_pipe
-			&& old_pipe->next_odm_pipe->pipe_idx != new_pipe->next_odm_pipe->pipe_idx)
-				|| (!old_pipe->next_odm_pipe && new_pipe->next_odm_pipe)
-				|| (old_pipe->next_odm_pipe && !new_pipe->next_odm_pipe)
-				|| old_pipe->stream_res.opp != new_pipe->stream_res.opp)
+		if (resource_is_odm_topology_changed(new_pipe, old_pipe))
 			new_pipe->update_flags.bits.odm = 1;
 
 		/* Detect global sync changes */
@@ -1645,8 +1694,18 @@ static void dcn20_update_dchubp_dpp(
 
 	if (pipe_ctx->update_flags.bits.enable ||
 		pipe_ctx->update_flags.bits.plane_changed ||
-		plane_state->update_flags.bits.addr_update)
+		plane_state->update_flags.bits.addr_update) {
+		if (resource_is_pipe_type(pipe_ctx, OTG_MASTER) &&
+				pipe_ctx->stream->mall_stream_config.type == SUBVP_MAIN) {
+			union block_sequence_params params;
+
+			params.subvp_save_surf_addr.dc_dmub_srv = dc->ctx->dmub_srv;
+			params.subvp_save_surf_addr.addr = &pipe_ctx->plane_state->address;
+			params.subvp_save_surf_addr.subvp_index = pipe_ctx->subvp_index;
+			hwss_subvp_save_surf_addr(&params);
+		}
 		hws->funcs.update_plane_addr(dc, pipe_ctx);
+	}
 
 	if (pipe_ctx->update_flags.bits.enable)
 		hubp->funcs->set_blank(hubp, false);
@@ -1723,7 +1782,11 @@ static void dcn20_program_pipe(
 		hws->funcs.update_odm(dc, context, pipe_ctx);
 
 	if (pipe_ctx->update_flags.bits.enable) {
-		dcn20_enable_plane(dc, pipe_ctx, context);
+		if (hws->funcs.enable_plane)
+			hws->funcs.enable_plane(dc, pipe_ctx, context);
+		else
+			dcn20_enable_plane(dc, pipe_ctx, context);
+
 		if (dc->res_pool->hubbub->funcs->force_wm_propagate_to_pipes)
 			dc->res_pool->hubbub->funcs->force_wm_propagate_to_pipes(dc->res_pool->hubbub);
 	}
@@ -1793,14 +1856,8 @@ void dcn20_program_front_end_for_ctx(
 	struct dce_hwseq *hws = dc->hwseq;
 	DC_LOGGER_INIT(dc->ctx->logger);
 
-	/* Carry over GSL groups in case the context is changing. */
-	for (i = 0; i < dc->res_pool->pipe_count; i++) {
-		struct pipe_ctx *pipe_ctx = &context->res_ctx.pipe_ctx[i];
-		struct pipe_ctx *old_pipe_ctx = &dc->current_state->res_ctx.pipe_ctx[i];
-
-		if (pipe_ctx->stream == old_pipe_ctx->stream)
-			pipe_ctx->stream_res.gsl_group = old_pipe_ctx->stream_res.gsl_group;
-	}
+	if (resource_is_pipe_topology_changed(dc->current_state, context))
+		resource_log_pipe_topology_update(dc, context);
 
 	if (dc->hwss.program_triplebuffer != NULL && dc->debug.enable_tri_buf) {
 		for (i = 0; i < dc->res_pool->pipe_count; i++) {
@@ -1830,8 +1887,16 @@ void dcn20_program_front_end_for_ctx(
 			dc->current_state->res_ctx.pipe_ctx[i].stream->mall_stream_config.type == SUBVP_PHANTOM) {
 			struct timing_generator *tg = dc->current_state->res_ctx.pipe_ctx[i].stream_res.tg;
 
-			if (tg->funcs->enable_crtc)
+			if (tg->funcs->enable_crtc) {
+				if (dc->hwss.blank_phantom) {
+					int main_pipe_width, main_pipe_height;
+
+					main_pipe_width = dc->current_state->res_ctx.pipe_ctx[i].stream->mall_stream_config.paired_stream->dst.width;
+					main_pipe_height = dc->current_state->res_ctx.pipe_ctx[i].stream->mall_stream_config.paired_stream->dst.height;
+					dc->hwss.blank_phantom(dc, tg, main_pipe_width, main_pipe_height);
+				}
 				tg->funcs->enable_crtc(tg);
+			}
 		}
 	}
 	/* OTG blank before disabling all front ends */
@@ -1928,8 +1993,6 @@ void dcn20_post_unlock_program_front_end(
 	const unsigned int TIMEOUT_FOR_PIPE_ENABLE_US = 100000;
 	unsigned int polling_interval_us = 1;
 	struct dce_hwseq *hwseq = dc->hwseq;
-
-	DC_LOGGER_INIT(dc->ctx->logger);
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++)
 		if (context->res_ctx.pipe_ctx[i].update_flags.bits.disable)
@@ -2641,37 +2704,6 @@ void dcn20_update_mpcc(struct dc *dc, struct pipe_ctx *pipe_ctx)
 	hubp->mpcc_id = mpcc_id;
 }
 
-static enum phyd32clk_clock_source get_phyd32clk_src(struct dc_link *link)
-{
-	switch (link->link_enc->transmitter) {
-	case TRANSMITTER_UNIPHY_A:
-		return PHYD32CLKA;
-	case TRANSMITTER_UNIPHY_B:
-		return PHYD32CLKB;
-	case TRANSMITTER_UNIPHY_C:
-		return PHYD32CLKC;
-	case TRANSMITTER_UNIPHY_D:
-		return PHYD32CLKD;
-	case TRANSMITTER_UNIPHY_E:
-		return PHYD32CLKE;
-	default:
-		return PHYD32CLKA;
-	}
-}
-
-static int get_odm_segment_count(struct pipe_ctx *pipe_ctx)
-{
-	struct pipe_ctx *odm_pipe = pipe_ctx->next_odm_pipe;
-	int count = 1;
-
-	while (odm_pipe != NULL) {
-		count++;
-		odm_pipe = odm_pipe->next_odm_pipe;
-	}
-
-	return count;
-}
-
 void dcn20_enable_stream(struct pipe_ctx *pipe_ctx)
 {
 	enum dc_lane_count lane_count =
@@ -2711,8 +2743,7 @@ void dcn20_enable_stream(struct pipe_ctx *pipe_ctx)
 		dto_params.timing = &pipe_ctx->stream->timing;
 		dto_params.ref_dtbclk_khz = dc->clk_mgr->funcs->get_dtb_ref_clk_frequency(dc->clk_mgr);
 		dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
-	} else {
-		}
+	}
 	if (hws->funcs.calculate_dccg_k1_k2_values && dc->res_pool->dccg->funcs->set_pixel_rate_div) {
 		hws->funcs.calculate_dccg_k1_k2_values(pipe_ctx, &k1_div, &k2_div);
 
@@ -2833,7 +2864,7 @@ void dcn20_fpga_init_hw(struct dc *dc)
 	res_pool->mpc->funcs->mpc_init(res_pool->mpc);
 
 	/* initialize OPP mpc_tree parameter */
-	for (i = 0; i < dc->res_pool->res_cap->num_opp; i++) {
+	for (i = 0; i < dc->res_pool->pipe_count; i++) {
 		res_pool->opps[i]->mpc_tree_params.opp_id = res_pool->opps[i]->inst;
 		res_pool->opps[i]->mpc_tree_params.opp_list = NULL;
 		for (j = 0; j < MAX_PIPES; j++)

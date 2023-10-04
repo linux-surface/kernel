@@ -62,7 +62,7 @@
 #define REG(reg)\
 	hws->regs->reg
 #define DC_LOGGER \
-		dc->ctx->logger
+	stream->ctx->logger
 
 
 #undef FN
@@ -476,7 +476,8 @@ void dcn314_disable_link_output(struct dc_link *link,
 	struct dmcu *dmcu = dc->res_pool->dmcu;
 
 	if (signal == SIGNAL_TYPE_EDP &&
-			link->dc->hwss.edp_backlight_control)
+			link->dc->hwss.edp_backlight_control &&
+			!link->skip_implict_edp_power_control)
 		link->dc->hwss.edp_backlight_control(link, false);
 	else if (dmcu != NULL && dmcu->funcs->lock_phy)
 		dmcu->funcs->lock_phy(dmcu);
