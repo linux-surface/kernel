@@ -51,6 +51,10 @@ int amd_iommu_pc_get_reg(struct amd_iommu *iommu, u8 bank, u8 cntr,
 int amd_iommu_pc_set_reg(struct amd_iommu *iommu, u8 bank, u8 cntr,
 			 u8 fxn, u64 *value);
 
+/* Device capabilities */
+int amd_iommu_pdev_enable_cap_pri(struct pci_dev *pdev);
+void amd_iommu_pdev_disable_cap_pri(struct pci_dev *pdev);
+
 int amd_iommu_register_ppr_notifier(struct notifier_block *nb);
 int amd_iommu_unregister_ppr_notifier(struct notifier_block *nb);
 void amd_iommu_domain_direct_map(struct iommu_domain *dom);
@@ -87,9 +91,25 @@ static inline bool is_rd890_iommu(struct pci_dev *pdev)
 	       (pdev->device == PCI_DEVICE_ID_RD890_IOMMU);
 }
 
-static inline bool iommu_feature(struct amd_iommu *iommu, u64 mask)
+static inline bool check_feature(u64 mask)
 {
-	return !!(iommu->features & mask);
+	return (amd_iommu_efr & mask);
+}
+
+static inline bool check_feature2(u64 mask)
+{
+	return (amd_iommu_efr2 & mask);
+}
+
+static inline int check_feature_gpt_level(void)
+{
+	return ((amd_iommu_efr >> FEATURE_GATS_SHIFT) & FEATURE_GATS_MASK);
+}
+
+static inline bool amd_iommu_gt_ppr_supported(void)
+{
+	return (check_feature(FEATURE_GT) &&
+		check_feature(FEATURE_PPR));
 }
 
 static inline u64 iommu_virt_to_phys(void *vaddr)
@@ -105,7 +125,6 @@ static inline void *iommu_phys_to_virt(unsigned long paddr)
 static inline
 void amd_iommu_domain_set_pt_root(struct protection_domain *domain, u64 root)
 {
-	atomic64_set(&domain->iop.pt_root, root);
 	domain->iop.root = (u64 *)(root & PAGE_MASK);
 	domain->iop.mode = root & 7; /* lowest 3 bits encode pgtable mode */
 }
@@ -145,9 +164,6 @@ static inline void amd_iommu_apply_ivrs_quirks(void) { }
 void amd_iommu_domain_set_pgtable(struct protection_domain *domain,
 				  u64 *root, int mode);
 struct dev_table_entry *get_dev_table(struct amd_iommu *iommu);
-
-extern u64 amd_iommu_efr;
-extern u64 amd_iommu_efr2;
 
 extern bool amd_iommu_snp_en;
 #endif
