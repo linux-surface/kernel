@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
+
 #include <linux/module.h>
 #include <linux/input.h>
 #include <linux/hid.h>
@@ -21,7 +23,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #define CHECK(fn, ...) ({ int r = fn(__VA_ARGS__); if (r < 0) pci_err(ithc->pci, "%s: %s failed with %i\n", __func__, #fn, r); r; })
-#define CHECK_RET(...) do { int r = CHECK(__VA_ARGS__); if (r < 0) return r; } while(0)
+#define CHECK_RET(...) do { int r = CHECK(__VA_ARGS__); if (r < 0) return r; } while (0)
 
 #define NUM_RX_BUF 16
 
@@ -35,8 +37,13 @@ struct ithc {
 	struct pci_dev *pci;
 	int irq;
 	struct task_struct *poll_thread;
+
 	struct pm_qos_request activity_qos;
-	struct timer_list activity_timer;
+	struct hrtimer activity_start_timer;
+	struct hrtimer activity_end_timer;
+	ktime_t last_rx_time;
+	unsigned int cur_rx_seq_count;
+	unsigned int cur_rx_seq_errors;
 
 	struct hid_device *hid;
 	bool hid_parse_done;
@@ -54,7 +61,7 @@ struct ithc {
 };
 
 int ithc_reset(struct ithc *ithc);
-void ithc_set_active(struct ithc *ithc);
+void ithc_set_active(struct ithc *ithc, unsigned int duration_us);
 int ithc_debug_init(struct ithc *ithc);
 void ithc_log_regs(struct ithc *ithc);
 
