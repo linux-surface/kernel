@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
+
 #define PRD_SIZE_MASK            0xffffff
 #define PRD_FLAG_END             0x1000000
 #define PRD_FLAG_SUCCESS         0x2000000
@@ -59,7 +61,7 @@ struct ithc_dma_rx {
 	struct ithc_dma_data_buffer bufs[NUM_RX_BUF];
 };
 
-int ithc_dma_rx_init(struct ithc *ithc, u8 channel, const char *devname);
+int ithc_dma_rx_init(struct ithc *ithc, u8 channel);
 void ithc_dma_rx_enable(struct ithc *ithc, u8 channel);
 int ithc_dma_tx_init(struct ithc *ithc);
 int ithc_dma_rx(struct ithc *ithc, u8 channel);
