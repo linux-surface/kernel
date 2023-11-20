@@ -51,14 +51,7 @@ void __init add_to_machine_keyring(const char *source, const void *data, size_t 
  */
 static __init bool uefi_check_trust_mok_keys(void)
 {
-	struct efi_mokvar_table_entry *mokvar_entry;
-
-	mokvar_entry = efi_mokvar_entry_find("MokListTrustedRT");
-
-	if (mokvar_entry)
-		return true;
-
-	return false;
+	return true;
 }
 
 static bool __init trust_moklist(void)
