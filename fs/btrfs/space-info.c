@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <linux/minmax.h>
 #include "misc.h"
 #include "ctree.h"
 #include "space-info.h"
@@ -189,6 +190,8 @@ void btrfs_clear_space_info_full(struct btrfs_fs_info *info)
  * scheduled for background reclaim.
  */
 #define BTRFS_DEFAULT_ZONED_RECLAIM_THRESH			(75)
+
+#define BTRFS_DYNAMIC_RECLAIM_THRESH_MAX			(90)
 
 /*
  * Calculate chunk size depending on volume type (regular or zoned).
@@ -1868,4 +1871,75 @@ u64 btrfs_account_ro_block_groups_free_space(struct btrfs_space_info *sinfo)
 	spin_unlock(&sinfo->lock);
 
 	return free_bytes;
+}
+
+static u64 calc_pct_ratio(u64 x, u64 y)
+{
+	int err;
+
+	if (!y)
+		return 0;
+again:
+	err = check_mul_overflow(100, x, &x);
+	if (err)
+		goto lose_precision;
+	return div64_u64(x, y);
+lose_precision:
+	x >>= 10;
+	y >>= 10;
+	if (!y)
+		y = 1;
+	goto again;
+}
+
+/*
+ * The dynamic threshold formula is:
+ * (unused / allocated) * (unused / unallocated) or equivalently
+ * unused^2 / (allocated * unallocated)
+ *
+ * The fundamental goal of automatic reclaim is to protect the filesystem's
+ * unallocated space and thus minimize the probability of the filesystem going
+ * read only when a metadata allocation failure causes a transaction abort.
+ *
+ * However, relocations happen into the space_info's unused space, therefore
+ * automatic reclaim must also back off as that space runs low. There is no
+ * value in doing trivial "relocations" of re-writing the same block group
+ * into a fresh one.
+ *
+ * unused / allocated sets a baseline, very conservative threshold which
+ * properly goes to 0 as unused goes to a small portion of the allocated space.
+ *
+ * On its own, this would likely do very little reclaim, so include
+ * unused / unallocated (which can be greatly in excess of 100%) to bias heavily
+ * towards reclaim when unallocated goes low or unused goes high.
+ */
+
+static int calc_dynamic_reclaim_threshold(struct btrfs_space_info *space_info)
+{
+	struct btrfs_fs_info *fs_info = space_info->fs_info;
+	u64 unalloc = atomic64_read(&fs_info->free_chunk_space);
+	u64 alloc = space_info->total_bytes;
+	u64 used = btrfs_space_info_used(space_info, false);
+	u64 unused = alloc - used;
+	/* unused <= alloc; clamped to 100 */
+	int unused_pct = calc_pct_ratio(unused, alloc);
+	u64 unused_unalloc_ratio = calc_pct_ratio(unused, unalloc);
+	int err;
+	u64 thresh;
+
+	err = check_mul_overflow(unused_pct, unused_unalloc_ratio, &thresh);
+	if (err)
+		return BTRFS_DYNAMIC_RECLAIM_THRESH_MAX;
+	/* Both quantities are percentages; remove the squared factor of 100. */
+	thresh = div64_u64(thresh, 100);
+	return clamp_val(thresh, 0, BTRFS_DYNAMIC_RECLAIM_THRESH_MAX);
+}
+
+int btrfs_calc_reclaim_threshold(struct btrfs_space_info *space_info)
+{
+	lockdep_assert_held(&space_info->lock);
+
+	if (READ_ONCE(space_info->dynamic_reclaim))
+		return calc_dynamic_reclaim_threshold(space_info);
+	return READ_ONCE(space_info->bg_reclaim_threshold);
 }
