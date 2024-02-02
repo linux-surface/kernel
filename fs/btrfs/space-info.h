@@ -184,6 +184,12 @@ struct btrfs_space_info {
 	 * threshold in the cleaner thread.
 	 */
 	bool periodic_reclaim;
+
+	/*
+	 * Periodic reclaim should be a no-op if a space_info hasn't
+	 * freed any space since the last time we tried.
+	 */
+	bool periodic_reclaim_ready;
 };
 
 struct reserve_ticket {

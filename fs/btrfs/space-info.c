@@ -1967,6 +1967,12 @@ static int do_reclaim_sweep(struct btrfs_fs_info *fs_info,
 	bool urgent;
 
 	spin_lock(&space_info->lock);
+	if (space_info->periodic_reclaim_ready) {
+		space_info->periodic_reclaim_ready = false;
+	} else {
+		spin_unlock(&space_info->lock);
+		return 0;
+	}
 	urgent = is_reclaim_urgent(space_info);
 	thresh_pct = btrfs_calc_reclaim_threshold(space_info);
 	spin_unlock(&space_info->lock);
