@@ -538,18 +538,18 @@ static void imgu_vb2_stop_streaming(struct vb2_queue *vq)
 
 	WARN_ON(!node->enabled);
 
-	pipe = node->pipe;
-	dev_dbg(dev, "Try to stream off node [%u][%u]", pipe, node->id);
-	imgu_pipe = &imgu->imgu_pipe[pipe];
-	r = v4l2_subdev_call(&imgu_pipe->imgu_sd.subdev, video, s_stream, 0);
-	if (r)
-		dev_err(&imgu->pci_dev->dev,
-			"failed to stop subdev streaming\n");
-
 	mutex_lock(&imgu->streaming_lock);
 	/* Was this the first node with streaming disabled? */
 	if (imgu->streaming && imgu_all_nodes_streaming(imgu, node)) {
 		/* Yes, really stop streaming now */
+		pipe = node->pipe;
+		dev_dbg(dev, "Try to stream off node [%u][%u]", pipe, node->id);
+		imgu_pipe = &imgu->imgu_pipe[pipe];
+		r = v4l2_subdev_call(&imgu_pipe->imgu_sd.subdev, video, s_stream, 0);
+		if (r)
+			dev_err(&imgu->pci_dev->dev,
+				"failed to stop subdev streaming\n");
+
 		dev_dbg(dev, "IMGU streaming is ready to stop");
 		r = imgu_s_stream(imgu, false);
 		if (!r)
