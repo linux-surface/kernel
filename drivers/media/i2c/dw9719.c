@@ -6,13 +6,14 @@
  * https://github.com/ZenfoneArea/android_kernel_asus_zenfone5
  */
 
+#include <asm/unaligned.h>
+
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/types.h>
 
-#include <media/v4l2-cci.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-subdev.h>
@@ -20,31 +21,29 @@
 #define DW9719_MAX_FOCUS_POS	1023
 #define DW9719_CTRL_STEPS	16
 #define DW9719_CTRL_DELAY_US	1000
+#define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
 
-#define DW9719_INFO			CCI_REG8(0)
+#define DW9719_INFO			0
 #define DW9719_ID			0xF1
+#define DW9719_CONTROL			2
+#define DW9719_VCM_CURRENT		3
 
-#define DW9719_CONTROL			CCI_REG8(2)
+#define DW9719_MODE			6
+#define DW9719_VCM_FREQ			7
+
+#define DW9719_MODE_SAC3		0x40
+#define DW9719_DEFAULT_VCM_FREQ		0x60
 #define DW9719_ENABLE_RINGING		0x02
 
-#define DW9719_VCM_CURRENT		CCI_REG16(3)
-
-#define DW9719_MODE			CCI_REG8(6)
-#define DW9719_MODE_SAC_SHIFT		4
-#define DW9719_MODE_SAC3		4
-
-#define DW9719_VCM_FREQ			CCI_REG8(7)
-#define DW9719_DEFAULT_VCM_FREQ		0x60
+#define NUM_REGULATORS			2
 
 #define to_dw9719_device(x) container_of(x, struct dw9719_device, sd)
 
 struct dw9719_device {
-	struct v4l2_subdev sd;
 	struct device *dev;
-	struct regmap *regmap;
-	struct regulator *regulator;
-	u32 sac_mode;
-	u32 vcm_freq;
+	struct i2c_client *client;
+	struct regulator_bulk_data regulators[NUM_REGULATORS];
+	struct v4l2_subdev sd;
 
 	struct dw9719_v4l2_ctrls {
 		struct v4l2_ctrl_handler handler;
@@ -52,18 +51,79 @@ struct dw9719_device {
 	} ctrls;
 };
 
+static int dw9719_i2c_rd8(struct i2c_client *client, u8 reg, u8 *val)
+{
+	struct i2c_msg msg[2];
+	u8 buf[2] = { reg };
+	int ret;
+
+	msg[0].addr = client->addr;
+	msg[0].flags = 0;
+	msg[0].len = 1;
+	msg[0].buf = buf;
+
+	msg[1].addr = client->addr;
+	msg[1].flags = I2C_M_RD;
+	msg[1].len = 1;
+	msg[1].buf = &buf[1];
+	*val = 0;
+
+	ret = i2c_transfer(client->adapter, msg, 2);
+	if (ret < 0)
+		return ret;
+
+	*val = buf[1];
+
+	return 0;
+}
+
+static int dw9719_i2c_wr8(struct i2c_client *client, u8 reg, u8 val)
+{
+	struct i2c_msg msg;
+	int ret;
+
+	u8 buf[2] = { reg, val };
+
+	msg.addr = client->addr;
+	msg.flags = 0;
+	msg.len = sizeof(buf);
+	msg.buf = buf;
+
+	ret = i2c_transfer(client->adapter, &msg, 1);
+
+	return ret < 0 ? ret : 0;
+}
+
+static int dw9719_i2c_wr16(struct i2c_client *client, u8 reg, u16 val)
+{
+	struct i2c_msg msg;
+	u8 buf[3] = { reg };
+	int ret;
+
+	put_unaligned_be16(val, buf + 1);
+
+	msg.addr = client->addr;
+	msg.flags = 0;
+	msg.len = sizeof(buf);
+	msg.buf = buf;
+
+	ret = i2c_transfer(client->adapter, &msg, 1);
+
+	return ret < 0 ? ret : 0;
+}
+
 static int dw9719_detect(struct dw9719_device *dw9719)
 {
 	int ret;
-	u64 val;
+	u8 val;
 
-	ret = cci_read(dw9719->regmap, DW9719_INFO, &val, NULL);
+	ret = dw9719_i2c_rd8(dw9719->client, DW9719_INFO, &val);
 	if (ret < 0)
 		return ret;
 
 	if (val != DW9719_ID) {
 		dev_err(dw9719->dev, "Failed to detect correct id\n");
-		return -ENXIO;
+		ret = -ENXIO;
 	}
 
 	return 0;
@@ -71,37 +131,54 @@ static int dw9719_detect(struct dw9719_device *dw9719)
 
 static int dw9719_power_down(struct dw9719_device *dw9719)
 {
-	return regulator_disable(dw9719->regulator);
+	return regulator_bulk_disable(NUM_REGULATORS, dw9719->regulators);
 }
 
 static int dw9719_power_up(struct dw9719_device *dw9719)
 {
 	int ret;
 
-	ret = regulator_enable(dw9719->regulator);
+	ret = regulator_bulk_enable(NUM_REGULATORS, dw9719->regulators);
 	if (ret)
 		return ret;
 
 	/* Jiggle SCL pin to wake up device */
-	cci_write(dw9719->regmap, DW9719_CONTROL, 1, &ret);
+	ret = dw9719_i2c_wr8(dw9719->client, DW9719_CONTROL, 1);
 
-	/* Need 100us to transit from SHUTDOWN to STANDBY */
-	fsleep(100);
+	/* Need 100us to transit from SHUTDOWN to STANDBY*/
+	usleep_range(100, 1000);
 
-	cci_write(dw9719->regmap, DW9719_CONTROL, DW9719_ENABLE_RINGING, &ret);
-	cci_write(dw9719->regmap, DW9719_MODE,
-		  dw9719->sac_mode << DW9719_MODE_SAC_SHIFT, &ret);
-	cci_write(dw9719->regmap, DW9719_VCM_FREQ, dw9719->vcm_freq, &ret);
+	ret = dw9719_i2c_wr8(dw9719->client, DW9719_CONTROL,
+			     DW9719_ENABLE_RINGING);
+	if (ret < 0)
+		goto fail_powerdown;
 
-	if (ret)
-		dw9719_power_down(dw9719);
+	ret = dw9719_i2c_wr8(dw9719->client, DW9719_MODE, DW9719_MODE_SAC3);
+	if (ret < 0)
+		goto fail_powerdown;
 
+	ret = dw9719_i2c_wr8(dw9719->client, DW9719_VCM_FREQ,
+			     DW9719_DEFAULT_VCM_FREQ);
+	if (ret < 0)
+		goto fail_powerdown;
+
+	return 0;
+
+fail_powerdown:
+	dw9719_power_down(dw9719);
 	return ret;
 }
 
 static int dw9719_t_focus_abs(struct dw9719_device *dw9719, s32 value)
 {
-	return cci_write(dw9719->regmap, DW9719_VCM_CURRENT, value, NULL);
+	int ret;
+
+	value = clamp(value, 0, DW9719_MAX_FOCUS_POS);
+	ret = dw9719_i2c_wr16(dw9719->client, DW9719_VCM_CURRENT, value);
+	if (ret < 0)
+		return ret;
+
+	return 0;
 }
 
 static int dw9719_set_ctrl(struct v4l2_ctrl *ctrl)
@@ -132,7 +209,7 @@ static const struct v4l2_ctrl_ops dw9719_ctrl_ops = {
 	.s_ctrl = dw9719_set_ctrl,
 };
 
-static int dw9719_suspend(struct device *dev)
+static int __maybe_unused dw9719_suspend(struct device *dev)
 {
 	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 	struct dw9719_device *dw9719 = to_dw9719_device(sd);
@@ -151,7 +228,7 @@ static int dw9719_suspend(struct device *dev)
 	return dw9719_power_down(dw9719);
 }
 
-static int dw9719_resume(struct device *dev)
+static int __maybe_unused dw9719_resume(struct device *dev)
 {
 	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 	struct dw9719_device *dw9719 = to_dw9719_device(sd);
@@ -201,7 +278,9 @@ static int dw9719_init_controls(struct dw9719_device *dw9719)
 	const struct v4l2_ctrl_ops *ops = &dw9719_ctrl_ops;
 	int ret;
 
-	v4l2_ctrl_handler_init(&dw9719->ctrls.handler, 1);
+	ret = v4l2_ctrl_handler_init(&dw9719->ctrls.handler, 1);
+	if (ret)
+		return ret;
 
 	dw9719->ctrls.focus = v4l2_ctrl_new_std(&dw9719->ctrls.handler, ops,
 						V4L2_CID_FOCUS_ABSOLUTE, 0,
@@ -214,7 +293,8 @@ static int dw9719_init_controls(struct dw9719_device *dw9719)
 	}
 
 	dw9719->sd.ctrl_handler = &dw9719->ctrls.handler;
-	return 0;
+
+	return ret;
 
 err_free_handler:
 	v4l2_ctrl_handler_free(&dw9719->ctrls.handler);
@@ -232,26 +312,24 @@ static int dw9719_probe(struct i2c_client *client)
 	if (!dw9719)
 		return -ENOMEM;
 
-	dw9719->regmap = devm_cci_regmap_init_i2c(client, 8);
-	if (IS_ERR(dw9719->regmap))
-		return PTR_ERR(dw9719->regmap);
-
+	dw9719->client = client;
 	dw9719->dev = &client->dev;
-	dw9719->sac_mode = DW9719_MODE_SAC3;
-	dw9719->vcm_freq = DW9719_DEFAULT_VCM_FREQ;
 
-	/* Optional indication of SAC mode select */
-	device_property_read_u32(&client->dev, "dongwoon,sac-mode",
-				 &dw9719->sac_mode);
+	dw9719->regulators[0].supply = "vdd";
+	/*
+	 * The DW9719 has only the 1 VDD voltage input, but some PMICs such as
+	 * the TPS68470 PMIC have I2C passthrough capability, to disconnect the
+	 * sensor's I2C pins from the I2C bus when the sensors VSIO (Sensor-IO)
+	 * is off, because some sensors then short these pins to ground;
+	 * and the DW9719 might sit behind this passthrough, this it needs to
+	 * enable VSIO as that will also enable the I2C passthrough.
+	 */
+	dw9719->regulators[1].supply = "vsio";
 
-	/* Optional indication of VCM frequency */
-	device_property_read_u32(&client->dev, "dongwoon,vcm-freq",
-				 &dw9719->vcm_freq);
-
-	dw9719->regulator = devm_regulator_get(&client->dev, "vdd");
-	if (IS_ERR(dw9719->regulator))
-		return dev_err_probe(&client->dev, PTR_ERR(dw9719->regulator),
-				     "getting regulator\n");
+	ret = devm_regulator_bulk_get(&client->dev, NUM_REGULATORS,
+				      dw9719->regulators);
+	if (ret)
+		return dev_err_probe(&client->dev, ret, "getting regulators\n");
 
 	v4l2_i2c_subdev_init(&dw9719->sd, client, &dw9719_ops);
 	dw9719->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
@@ -312,17 +390,13 @@ err_free_ctrl_handler:
 static void dw9719_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct dw9719_device *dw9719 =
-		container_of(sd, struct dw9719_device, sd);
+	struct dw9719_device *dw9719 = container_of(sd, struct dw9719_device,
+						    sd);
 
+	pm_runtime_disable(&client->dev);
 	v4l2_async_unregister_subdev(sd);
 	v4l2_ctrl_handler_free(&dw9719->ctrls.handler);
 	media_entity_cleanup(&dw9719->sd.entity);
-
-	pm_runtime_disable(&client->dev);
-	if (!pm_runtime_status_suspended(&client->dev))
-		dw9719_power_down(dw9719);
-	pm_runtime_set_suspended(&client->dev);
 }
 
 static const struct i2c_device_id dw9719_id_table[] = {
@@ -331,13 +405,14 @@ static const struct i2c_device_id dw9719_id_table[] = {
 };
 MODULE_DEVICE_TABLE(i2c, dw9719_id_table);
 
-static DEFINE_RUNTIME_DEV_PM_OPS(dw9719_pm_ops, dw9719_suspend, dw9719_resume,
-				 NULL);
+static const struct dev_pm_ops dw9719_pm_ops = {
+	SET_RUNTIME_PM_OPS(dw9719_suspend, dw9719_resume, NULL)
+};
 
 static struct i2c_driver dw9719_i2c_driver = {
 	.driver = {
 		.name = "dw9719",
-		.pm = pm_sleep_ptr(&dw9719_pm_ops),
+		.pm = &dw9719_pm_ops,
 	},
 	.probe = dw9719_probe,
 	.remove = dw9719_remove,
