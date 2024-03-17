@@ -29,6 +29,22 @@ static DEFINE_MUTEX(pwm_lock);
 
 static DEFINE_IDR(pwm_chips);
 
+static void pwmchip_lock(struct pwm_chip *chip)
+{
+	if (chip->atomic)
+		spin_lock(&chip->atomic_lock);
+	else
+		mutex_lock(&chip->nonatomic_lock);
+}
+
+static void pwmchip_unlock(struct pwm_chip *chip)
+{
+	if (chip->atomic)
+		spin_unlock(&chip->atomic_lock);
+	else
+		mutex_unlock(&chip->nonatomic_lock);
+}
+
 static void pwm_apply_debug(struct pwm_device *pwm,
 			    const struct pwm_state *state)
 {
@@ -183,6 +199,7 @@ static int __pwm_apply(struct pwm_device *pwm, const struct pwm_state *state)
 int pwm_apply_might_sleep(struct pwm_device *pwm, const struct pwm_state *state)
 {
 	int err;
+	struct pwm_chip *chip = pwm->chip;
 
 	/*
 	 * Some lowlevel driver's implementations of .apply() make use of
@@ -193,7 +210,13 @@ int pwm_apply_might_sleep(struct pwm_device *pwm, const struct pwm_state *state)
 	 */
 	might_sleep();
 
-	if (IS_ENABLED(CONFIG_PWM_DEBUG) && pwm->chip->atomic) {
+	pwmchip_lock(chip);
+	if (!chip->operational) {
+		pwmchip_unlock(chip);
+		return -ENODEV;
+	}
+
+	if (IS_ENABLED(CONFIG_PWM_DEBUG) && chip->atomic) {
 		/*
 		 * Catch any drivers that have been marked as atomic but
 		 * that will sleep anyway.
@@ -204,6 +227,8 @@ int pwm_apply_might_sleep(struct pwm_device *pwm, const struct pwm_state *state)
 	} else {
 		err = __pwm_apply(pwm, state);
 	}
+
+	pwmchip_unlock(chip);
 
 	return err;
 }
@@ -291,16 +316,26 @@ EXPORT_SYMBOL_GPL(pwm_adjust_config);
 int pwm_capture(struct pwm_device *pwm, struct pwm_capture *result,
 		unsigned long timeout)
 {
+	struct pwm_chip *chip;
 	int err;
 
-	if (!pwm || !pwm->chip->ops)
+	if (!pwm || !(chip = pwm->chip)->ops)
 		return -EINVAL;
 
-	if (!pwm->chip->ops->capture)
+	if (!chip->ops->capture)
 		return -ENOSYS;
 
 	mutex_lock(&pwm_lock);
-	err = pwm->chip->ops->capture(pwm->chip, pwm, result, timeout);
+
+	pwmchip_lock(chip);
+
+	if (chip->operational)
+		err = chip->ops->capture(pwm->chip, pwm, result, timeout);
+	else
+		err = -ENODEV;
+
+	pwmchip_unlock(chip);
+
 	mutex_unlock(&pwm_lock);
 
 	return err;
@@ -340,6 +375,14 @@ static int pwm_device_request(struct pwm_device *pwm, const char *label)
 	if (test_bit(PWMF_REQUESTED, &pwm->flags))
 		return -EBUSY;
 
+	/*
+	 * This function is called while holding pwm_lock. As .operational only
+	 * changes while holding this lock, checking it here without holding the
+	 * chip lock is fine.
+	 */
+	if (!chip->operational)
+		return -ENODEV;
+
 	if (!try_module_get(chip->owner))
 		return -ENODEV;
 
@@ -368,7 +411,12 @@ err_get_device:
 		 */
 		struct pwm_state state = { 0, };
 
+		pwmchip_lock(chip);
+
 		err = ops->get_state(chip, pwm, &state);
+
+		pwmchip_unlock(chip);
+
 		trace_pwm_get(pwm, &state, err);
 
 		if (!err)
@@ -997,6 +1045,7 @@ struct pwm_chip *pwmchip_alloc(struct device *parent, unsigned int npwm, size_t 
 
 	chip->npwm = npwm;
 	chip->uses_pwmchip_alloc = true;
+	chip->operational = false;
 
 	pwmchip_dev = &chip->dev;
 	device_initialize(pwmchip_dev);
@@ -1102,6 +1151,11 @@ int __pwmchip_add(struct pwm_chip *chip, struct module *owner)
 
 	chip->owner = owner;
 
+	if (chip->atomic)
+		spin_lock_init(&chip->atomic_lock);
+	else
+		mutex_init(&chip->nonatomic_lock);
+
 	mutex_lock(&pwm_lock);
 
 	ret = idr_alloc(&pwm_chips, chip, 0, 0, GFP_KERNEL);
@@ -1115,6 +1169,10 @@ int __pwmchip_add(struct pwm_chip *chip, struct module *owner)
 	if (IS_ENABLED(CONFIG_OF))
 		of_pwmchip_add(chip);
 
+	pwmchip_lock(chip);
+	chip->operational = true;
+	pwmchip_unlock(chip);
+
 	ret = device_add(&chip->dev);
 	if (ret)
 		goto err_device_add;
@@ -1124,6 +1182,10 @@ int __pwmchip_add(struct pwm_chip *chip, struct module *owner)
 	return 0;
 
 err_device_add:
+	pwmchip_lock(chip);
+	chip->operational = false;
+	pwmchip_unlock(chip);
+
 	if (IS_ENABLED(CONFIG_OF))
 		of_pwmchip_remove(chip);
 
@@ -1145,11 +1207,26 @@ EXPORT_SYMBOL_GPL(__pwmchip_add);
 void pwmchip_remove(struct pwm_chip *chip)
 {
 	pwmchip_sysfs_unexport(chip);
+	unsigned int i;
+
+	mutex_lock(&pwm_lock);
+
+	pwmchip_lock(chip);
+	chip->operational = false;
+	pwmchip_unlock(chip);
+
+	for (i = 0; i < chip->npwm; ++i) {
+		struct pwm_device *pwm = &chip->pwms[i];
+
+		if (test_and_clear_bit(PWMF_REQUESTED, &pwm->flags)) {
+			dev_alert(&chip->dev, "Freeing requested PWM #%u\n", i);
+			if (pwm->chip->ops->free)
+				pwm->chip->ops->free(pwm->chip, pwm);
+		}
+	}
 
 	if (IS_ENABLED(CONFIG_OF))
 		of_pwmchip_remove(chip);
-
-	mutex_lock(&pwm_lock);
 
 	idr_remove(&pwm_chips, chip->id);
 
@@ -1532,12 +1609,17 @@ void pwm_put(struct pwm_device *pwm)
 
 	mutex_lock(&pwm_lock);
 
-	if (!test_and_clear_bit(PWMF_REQUESTED, &pwm->flags)) {
+	/*
+	 * If the chip isn't operational, PWMF_REQUESTED was already cleared. So
+	 * don't warn in this case. This can only happen if a consumer called
+	 * pwm_put() twice.
+	 */
+	if (chip->operational && !test_and_clear_bit(PWMF_REQUESTED, &pwm->flags)) {
 		pr_warn("PWM device already freed\n");
 		goto out;
 	}
 
-	if (chip->ops->free)
+	if (chip->operational && chip->ops->free)
 		pwm->chip->ops->free(pwm->chip, pwm);
 
 	pwm->label = NULL;
