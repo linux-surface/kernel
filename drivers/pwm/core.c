@@ -21,6 +21,8 @@
 
 #include <dt-bindings/pwm/pwm.h>
 
+#include <uapi/linux/pwm.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/pwm.h>
 
@@ -249,6 +251,25 @@ int pwm_apply_atomic(struct pwm_device *pwm, const struct pwm_state *state)
 }
 EXPORT_SYMBOL_GPL(pwm_apply_atomic);
 
+static int pwm_get_state_hw(struct pwm_device *pwm, struct pwm_state *state)
+{
+	struct pwm_chip *chip = pwm->chip;
+	const struct pwm_ops *ops = chip->ops;
+	int ret = -EOPNOTSUPP;
+
+	if (ops->get_state) {
+		pwmchip_lock(chip);
+
+		ret = ops->get_state(chip, pwm, state);
+
+		pwmchip_unlock(chip);
+
+		trace_pwm_get(pwm, state, ret);
+	}
+
+	return ret;
+}
+
 /**
  * pwm_adjust_config() - adjust the current PWM config to the PWM arguments
  * @pwm: PWM device
@@ -411,14 +432,7 @@ err_get_device:
 		 */
 		struct pwm_state state = { 0, };
 
-		pwmchip_lock(chip);
-
-		err = ops->get_state(chip, pwm, &state);
-
-		pwmchip_unlock(chip);
-
-		trace_pwm_get(pwm, &state, err);
-
+		err = pwm_get_state_hw(pwm, &state);
 		if (!err)
 			pwm->state = state;
 
@@ -1120,6 +1134,250 @@ static bool pwm_ops_check(const struct pwm_chip *chip)
 	return true;
 }
 
+struct pwm_cdev_data {
+	struct pwm_chip *chip;
+	struct pwm_device *pwm[];
+};
+
+static int pwm_cdev_open(struct inode *inode, struct file *file)
+{
+	struct pwm_chip *chip = container_of(inode->i_cdev, struct pwm_chip, cdev);
+	struct pwm_cdev_data *cdata;
+	int ret;
+
+	mutex_lock(&pwm_lock);
+
+	if (!chip->operational) {
+		ret = -ENXIO;
+		goto out_unlock;
+	}
+
+	cdata = kzalloc(struct_size(cdata, pwm, chip->npwm), GFP_KERNEL);
+	if (!cdata) {
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
+
+	cdata->chip = chip;
+
+	file->private_data = cdata;
+
+	ret = nonseekable_open(inode, file);
+
+out_unlock:
+	mutex_unlock(&pwm_lock);
+
+	return ret;
+}
+
+static int pwm_cdev_release(struct inode *inode, struct file *file)
+{
+	struct pwm_cdev_data *cdata = file->private_data;
+	unsigned int i;
+
+	for (i = 0; i < cdata->chip->npwm; ++i) {
+		if (cdata->pwm[i])
+			pwm_put(cdata->pwm[i]);
+	}
+	kfree(cdata);
+
+	return 0;
+}
+
+static int pwm_cdev_request(struct pwm_cdev_data *cdata, unsigned int hwpwm)
+{
+	struct pwm_chip *chip = cdata->chip;
+
+	if (hwpwm >= chip->npwm)
+		return -EINVAL;
+
+	if (!cdata->pwm[hwpwm]) {
+		struct pwm_device *pwm = &chip->pwms[hwpwm];
+		int ret;
+
+		ret = pwm_device_request(pwm, "pwm-cdev");
+		if (ret < 0)
+			return ret;
+
+		cdata->pwm[hwpwm] = pwm;
+	}
+
+	return 0;
+}
+
+static int pwm_cdev_free(struct pwm_cdev_data *cdata, unsigned int hwpwm)
+{
+	struct pwm_chip *chip = cdata->chip;
+
+	if (hwpwm >= chip->npwm)
+		return -EINVAL;
+
+	if (cdata->pwm[hwpwm]) {
+		struct pwm_device *pwm = cdata->pwm[hwpwm];
+
+		pwm_put(pwm);
+
+		cdata->pwm[hwpwm] = NULL;
+	}
+
+	return 0;
+}
+
+static long pwm_cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	int ret = 0;
+	struct pwm_cdev_data *cdata = file->private_data;
+	struct pwm_chip *chip = cdata->chip;
+
+	mutex_lock(&pwm_lock);
+
+	if (!chip->operational) {
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+
+	switch (cmd) {
+	case PWM_IOCTL_GET_NUM_PWMS:
+		ret = chip->npwm;
+		break;
+
+	case PWM_IOCTL_REQUEST:
+		{
+			unsigned int hwpwm;
+
+			ret = get_user(hwpwm, (unsigned int __user *)arg);
+			if (ret)
+				goto out_unlock;
+
+			ret = pwm_cdev_request(cdata, hwpwm);
+		}
+		break;
+
+	case PWM_IOCTL_FREE:
+		{
+			unsigned int hwpwm;
+
+			ret = get_user(hwpwm, (unsigned int __user *)arg);
+			if (ret)
+				goto out_unlock;
+
+			ret = pwm_cdev_free(cdata, hwpwm);
+		}
+		break;
+
+	case PWM_IOCTL_GET:
+		{
+			struct pwmchip_state cstate;
+			struct pwm_state state;
+			struct pwm_device *pwm;
+
+			ret = copy_from_user(&cstate, (struct pwmchip_state __user *)arg, sizeof(cstate));
+			if (ret)
+				goto out_unlock;
+
+			ret = pwm_cdev_request(cdata, cstate.hwpwm);
+			if (ret)
+				goto out_unlock;
+
+			pwm = cdata->pwm[cstate.hwpwm];
+
+			ret = pwm_get_state_hw(pwm, &state);
+			if (ret)
+				goto out_unlock;
+
+			if (state.enabled) {
+				cstate.period = state.period;
+				if (state.polarity == PWM_POLARITY_NORMAL) {
+					cstate.duty_offset = 0;
+					cstate.duty_cycle = state.duty_cycle;
+				} else {
+					cstate.duty_offset = state.duty_cycle;
+					cstate.duty_cycle = state.period - state.duty_cycle;
+				}
+			} else {
+				cstate.period = 0;
+				cstate.duty_cycle = 0;
+				cstate.duty_offset = 0;
+			}
+			ret = copy_to_user((struct pwmchip_state __user *)arg, &cstate, sizeof(cstate));
+		}
+		break;
+
+	case PWM_IOCTL_APPLY:
+		{
+			struct pwmchip_state cstate;
+			struct pwm_state state = { };
+			struct pwm_device *pwm;
+
+			ret = copy_from_user(&cstate, (struct pwmchip_state __user *)arg, sizeof(cstate));
+			if (ret)
+				goto out_unlock;
+
+			if (cstate.period > 0 &&
+			    (cstate.duty_cycle > cstate.period ||
+			     cstate.duty_offset >= cstate.period)) {
+				ret = -EINVAL;
+				goto out_unlock;
+			}
+
+			/*
+			 * While the API provides a duty_offset member
+			 * to describe (among others) also inversed
+			 * polarity wave forms, the translation into the
+			 * traditional representation with a (binary) polarity
+			 * isn't trivial because the lowlevel drivers round
+			 * duty_cycle down when applying a setting and so in the
+			 * representation with duty_offset the rounding is
+			 * inconsistent. I have no idea what's the best way to
+			 * fix that, so to not commit to a solution yet, just
+			 * refuse requests with .duty_offset that would yield
+			 * inversed polarity for now.
+			 */
+			if (cstate.duty_cycle < cstate.period &&
+			    cstate.duty_offset + cstate.duty_cycle >= cstate.period) {
+				ret = -EINVAL;
+				goto out_unlock;
+			}
+
+			ret = pwm_cdev_request(cdata, cstate.hwpwm);
+			if (ret)
+				goto out_unlock;
+
+			pwm = cdata->pwm[cstate.hwpwm];
+
+			if (cstate.period > 0) {
+				state.enabled = true;
+				state.period = cstate.period;
+				state.polarity = PWM_POLARITY_NORMAL;
+				state.duty_cycle = cstate.duty_cycle;
+			} else {
+				state.enabled = false;
+			}
+
+			ret = pwm_apply_might_sleep(pwm, &state);
+		}
+		break;
+
+	default:
+		ret = -ENOTTY;
+		break;
+	}
+out_unlock:
+	mutex_unlock(&pwm_lock);
+
+	return ret;
+}
+
+static const struct file_operations pwm_cdev_fileops = {
+	.open = pwm_cdev_open,
+	.release = pwm_cdev_release,
+	.owner = THIS_MODULE,
+	.llseek = no_llseek,
+	.unlocked_ioctl = pwm_cdev_ioctl,
+};
+
+static dev_t pwm_devt;
+
 /**
  * __pwmchip_add() - register a new PWM chip
  * @chip: the PWM chip to add
@@ -1173,7 +1431,13 @@ int __pwmchip_add(struct pwm_chip *chip, struct module *owner)
 	chip->operational = true;
 	pwmchip_unlock(chip);
 
-	ret = device_add(&chip->dev);
+	if (chip->id < 256)
+		chip->dev.devt = MKDEV(MAJOR(pwm_devt), chip->id);
+
+	cdev_init(&chip->cdev, &pwm_cdev_fileops);
+	chip->cdev.owner = owner;
+
+	ret = cdev_device_add(&chip->cdev, &chip->dev);
 	if (ret)
 		goto err_device_add;
 
@@ -1232,7 +1496,7 @@ void pwmchip_remove(struct pwm_chip *chip)
 
 	mutex_unlock(&pwm_lock);
 
-	device_del(&chip->dev);
+	cdev_device_del(&chip->cdev, &chip->dev);
 }
 EXPORT_SYMBOL_GPL(pwmchip_remove);
 
@@ -1785,9 +2049,29 @@ DEFINE_SEQ_ATTRIBUTE(pwm_debugfs);
 
 static int __init pwm_init(void)
 {
-	if (IS_ENABLED(CONFIG_DEBUG_FS))
-		debugfs_create_file("pwm", 0444, NULL, NULL, &pwm_debugfs_fops);
+	struct dentry *pwm_debugfs = NULL;
+	int ret;
 
-	return class_register(&pwm_class);
+	if (IS_ENABLED(CONFIG_DEBUG_FS))
+		pwm_debugfs = debugfs_create_file("pwm", 0444, NULL, NULL,
+						  &pwm_debugfs_fops);
+
+	ret = alloc_chrdev_region(&pwm_devt, 0, 256, "pwm");
+	if (ret) {
+		pr_warn("Failed to initialize chrdev region for PWM usage\n");
+		goto err_alloc_chrdev;
+	}
+
+	ret = class_register(&pwm_class);
+	if (ret) {
+		pr_warn("Failed to initialize PWM class\n");
+
+		unregister_chrdev_region(pwm_devt, 256);
+err_alloc_chrdev:
+
+		debugfs_remove(pwm_debugfs);
+	}
+
+	return ret;
 }
 subsys_initcall(pwm_init);
