@@ -366,7 +366,6 @@ static int ad7944_probe(struct spi_device *spi)
 	struct ad7944_adc *adc;
 	bool have_refin = false;
 	struct regulator *ref;
-	const char *str_val;
 	int ret;
 
 	indio_dev = devm_iio_device_alloc(dev, sizeof(*adc));
@@ -382,16 +381,18 @@ static int ad7944_probe(struct spi_device *spi)
 
 	adc->timing_spec = chip_info->timing_spec;
 
-	if (device_property_read_string(dev, "adi,spi-mode", &str_val) == 0) {
-		ret = sysfs_match_string(ad7944_spi_modes, str_val);
-		if (ret < 0)
-			return dev_err_probe(dev, -EINVAL,
-					     "unsupported adi,spi-mode\n");
+	ret = device_property_match_property_string(dev, "adi,spi-mode",
+						    ad7944_spi_modes,
+						    ARRAY_SIZE(ad7944_spi_modes));
+	if (ret < 0) {
+		if (ret != -EINVAL)
+			return dev_err_probe(dev, ret,
+					     "getting adi,spi-mode property failed\n");
 
-		adc->spi_mode = ret;
-	} else {
 		/* absence of adi,spi-mode property means default mode */
 		adc->spi_mode = AD7944_SPI_MODE_DEFAULT;
+	} else {
+		adc->spi_mode = ret;
 	}
 
 	if (adc->spi_mode == AD7944_SPI_MODE_CHAIN)
