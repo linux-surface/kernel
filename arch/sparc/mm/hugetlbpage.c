@@ -409,7 +409,7 @@ pte_t huge_ptep_get_and_clear(struct mm_struct *mm, unsigned long addr,
 
 int pmd_huge(pmd_t pmd)
 {
-	return pmd_leaf(pmd);;
+	return pmd_leaf(pmd);
 }
 
 int pud_huge(pud_t pud)
