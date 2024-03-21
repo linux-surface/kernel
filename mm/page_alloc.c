@@ -1703,6 +1703,10 @@ bool move_freepages_block_isolate(struct zone *zone, struct page *page,
 				       NULL, NULL))
 		return false;
 
+	/* No splits needed if buddies can't span multiple blocks */
+	if (pageblock_order == MAX_PAGE_ORDER)
+		goto move;
+
 	/* We're a tail block in a larger buddy */
 	pfn = find_large_buddy(start_pfn);
 	if (pfn != start_pfn) {
@@ -1730,7 +1734,7 @@ bool move_freepages_block_isolate(struct zone *zone, struct page *page,
 		split_large_buddy(zone, page, pfn, order);
 		return true;
 	}
-
+move:
 	mt = get_pfnblock_migratetype(page, start_pfn);
 	nr_moved = move_freepages(zone, start_pfn, end_pfn, migratetype);
 	if (!is_migrate_isolate(mt))
