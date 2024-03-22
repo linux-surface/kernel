@@ -181,8 +181,6 @@ struct zswap_pool {
 
 /* Global LRU lists shared by all zswap pools. */
 static struct list_lru zswap_list_lru;
-/* counter of pages stored in all zswap pools. */
-static atomic_t zswap_nr_stored = ATOMIC_INIT(0);
 
 /* The lock protects zswap_next_shrink updates. */
 static DEFINE_SPINLOCK(zswap_shrink_lock);
@@ -885,7 +883,6 @@ static void zswap_entry_free(struct zswap_entry *entry)
 	else {
 		zswap_lru_del(&zswap_list_lru, entry);
 		zpool_free(zswap_find_zpool(entry), entry->handle);
-		atomic_dec(&zswap_nr_stored);
 		zswap_pool_put(entry->pool);
 	}
 	if (entry->objcg) {
@@ -1318,7 +1315,7 @@ static unsigned long zswap_shrinker_count(struct shrinker *shrinker,
 #else
 	/* use pool stats instead of memcg stats */
 	nr_backing = zswap_total_pages();
-	nr_stored = atomic_read(&zswap_nr_stored);
+	nr_stored = atomic_read(&zswap_stored_pages);
 #endif
 
 	if (!nr_stored)
@@ -1338,6 +1335,11 @@ static unsigned long zswap_shrinker_count(struct shrinker *shrinker,
 	 * This ensures that the better zswap compresses memory, the fewer
 	 * pages we will evict to swap (as it will otherwise incur IO for
 	 * relatively small memory saving).
+	 *
+	 * The memory saving factor calculated here takes same-filled pages into
+	 * account, but those are not freeable since they almost occupy no
+	 * space. Hence, we may scale nr_freeable down a little bit more than we
+	 * should if we have a lot of same-filled pages.
 	 */
 	return mult_frac(nr_freeable, nr_backing, nr_stored);
 }
@@ -1583,7 +1585,6 @@ insert_entry:
 	if (entry->length) {
 		INIT_LIST_HEAD(&entry->lru);
 		zswap_lru_add(&zswap_list_lru, entry);
-		atomic_inc(&zswap_nr_stored);
 	}
 	spin_unlock(&tree->lock);
 
