@@ -87,6 +87,9 @@ static int dw9719_power_up(struct dw9719_device *dw9719, bool detect)
 	if (ret)
 		return ret;
 
+	/* Wait for device to be acknowledged */
+	fsleep(10000);
+
 	/* Jiggle SCL pin to wake up device */
 	cci_write(dw9719->regmap, DW9719_CONTROL, DW9719_SHUTDOWN, &ret);
 	fsleep(100);
