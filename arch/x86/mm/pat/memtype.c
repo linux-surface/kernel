@@ -958,6 +958,7 @@ static int follow_phys(struct vm_area_struct *vma, unsigned long *prot,
 
 	if (follow_pte(vma->vm_mm, vma->vm_start, &ptep, &ptl))
 		return -EINVAL;
+
 	pte = ptep_get(ptep);
 	*prot = pgprot_val(pte_pgprot(pte));
 	*phys = (resource_size_t)pte_pfn(pte) << PAGE_SHIFT;
