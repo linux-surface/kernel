@@ -121,6 +121,9 @@ static int dw9719_power_up(struct dw9719_device *dw9719, bool detect)
 	if (ret)
 		return ret;
 
+	/* Wait for device to be acknowledged */
+	fsleep(10000);
+
 	/*
 	 * Need 100us to transition from SHUTDOWN to STANDBY.
 	 * Jiggle the SCL pin to wake up the device (even when the regulator is
