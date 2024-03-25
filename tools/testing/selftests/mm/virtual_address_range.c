@@ -117,19 +117,17 @@ static int validate_complete_va_space(void)
 	prev_end_addr = 0;
 	while (fgets(line, sizeof(line), file)) {
 		unsigned long hop;
-		int ret;
 
-		ret = sscanf(line, "%lx-%lx %s[rwxp-]",
-			     &start_addr, &end_addr, prot);
-		if (ret != 3)
-			ksft_exit_fail_msg("sscanf failed, cannot parse\n");
+		if (sscanf(line, "%lx-%lx %s[rwxp-]",
+			   &start_addr, &end_addr, prot) != 3)
+			ksft_exit_fail_msg("cannot parse /proc/self/maps\n");
 
 		/* end of userspace mappings; ignore vsyscall mapping */
 		if (start_addr & (1UL << 63))
 			return 0;
 
-		/* /proc/self/maps must have gaps less than 1GB only */
-		if (start_addr - prev_end_addr >= SZ_1GB)
+		/* /proc/self/maps must have gaps less than MAP_CHUNK_SIZE */
+		if (start_addr - prev_end_addr >= MAP_CHUNK_SIZE)
 			return 1;
 
 		prev_end_addr = end_addr;
@@ -149,8 +147,7 @@ static int validate_complete_va_space(void)
 		while (start_addr + hop < end_addr) {
 			if (write(fd, (void *)(start_addr + hop), 1) != 1)
 				return 1;
-			else
-				lseek(fd, 0, SEEK_SET);
+			lseek(fd, 0, SEEK_SET);
 
 			hop += MAP_CHUNK_SIZE;
 		}
