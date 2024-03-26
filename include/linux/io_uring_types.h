@@ -205,6 +205,7 @@ struct io_submit_state {
 
 	bool			plug_started;
 	bool			need_plug;
+	bool			cq_flush;
 	unsigned short		submit_nr;
 	unsigned int		cqes_count;
 	struct blk_plug		plug;
@@ -219,7 +220,7 @@ struct io_ev_fd {
 };
 
 struct io_alloc_cache {
-	struct io_wq_work_node	list;
+	void			**entries;
 	unsigned int		nr_cached;
 	unsigned int		max_cached;
 	size_t			elem_size;
@@ -300,6 +301,8 @@ struct io_ring_ctx {
 		struct io_hash_table	cancel_table_locked;
 		struct io_alloc_cache	apoll_cache;
 		struct io_alloc_cache	netmsg_cache;
+		struct io_alloc_cache	rw_cache;
+		struct io_alloc_cache	uring_cache;
 
 		/*
 		 * Any cancelable uring_cmd is added to this list in
@@ -341,8 +344,6 @@ struct io_ring_ctx {
 		struct list_head	ltimeout_list;
 		unsigned		cq_last_tm_flush;
 	} ____cacheline_aligned_in_smp;
-
-	struct io_uring_cqe	completion_cqes[16];
 
 	spinlock_t		completion_lock;
 
@@ -439,8 +440,6 @@ struct io_ring_ctx {
 };
 
 struct io_tw_state {
-	/* ->uring_lock is taken, callbacks can use io_tw_lock to lock it */
-	bool locked;
 };
 
 enum {
