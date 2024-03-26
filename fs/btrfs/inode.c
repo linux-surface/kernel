@@ -4635,7 +4635,7 @@ static int btrfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
 	struct btrfs_fs_info *fs_info = BTRFS_I(inode)->root->fs_info;
-	int err = 0;
+	int ret = 0;
 	struct btrfs_trans_handle *trans;
 	u64 last_unlink_trans;
 	struct fscrypt_name fname;
@@ -4651,33 +4651,33 @@ static int btrfs_rmdir(struct inode *dir, struct dentry *dentry)
 		return btrfs_delete_subvolume(BTRFS_I(dir), dentry);
 	}
 
-	err = fscrypt_setup_filename(dir, &dentry->d_name, 1, &fname);
-	if (err)
-		return err;
+	ret = fscrypt_setup_filename(dir, &dentry->d_name, 1, &fname);
+	if (ret)
+		return ret;
 
 	/* This needs to handle no-key deletions later on */
 
 	trans = __unlink_start_trans(BTRFS_I(dir));
 	if (IS_ERR(trans)) {
-		err = PTR_ERR(trans);
+		ret = PTR_ERR(trans);
 		goto out_notrans;
 	}
 
 	if (unlikely(btrfs_ino(BTRFS_I(inode)) == BTRFS_EMPTY_SUBVOL_DIR_OBJECTID)) {
-		err = btrfs_unlink_subvol(trans, BTRFS_I(dir), dentry);
+		ret = btrfs_unlink_subvol(trans, BTRFS_I(dir), dentry);
 		goto out;
 	}
 
-	err = btrfs_orphan_add(trans, BTRFS_I(inode));
-	if (err)
+	ret = btrfs_orphan_add(trans, BTRFS_I(inode));
+	if (ret)
 		goto out;
 
 	last_unlink_trans = BTRFS_I(inode)->last_unlink_trans;
 
 	/* now the directory is empty */
-	err = btrfs_unlink_inode(trans, BTRFS_I(dir), BTRFS_I(d_inode(dentry)),
+	ret = btrfs_unlink_inode(trans, BTRFS_I(dir), BTRFS_I(d_inode(dentry)),
 				 &fname.disk_name);
-	if (!err) {
+	if (!ret) {
 		btrfs_i_size_write(BTRFS_I(inode), 0);
 		/*
 		 * Propagate the last_unlink_trans value of the deleted dir to
@@ -4699,7 +4699,7 @@ out_notrans:
 	btrfs_btree_balance_dirty(fs_info);
 	fscrypt_free_filename(&fname);
 
-	return err;
+	return ret;
 }
 
 /*
@@ -4923,16 +4923,16 @@ int btrfs_cont_expand(struct btrfs_inode *inode, loff_t oldsize, loff_t size)
 	u64 last_byte;
 	u64 cur_offset;
 	u64 hole_size;
-	int err = 0;
+	int ret = 0;
 
 	/*
 	 * If our size started in the middle of a block we need to zero out the
 	 * rest of the block before we expand the i_size, otherwise we could
 	 * expose stale data.
 	 */
-	err = btrfs_truncate_block(inode, oldsize, 0, 0);
-	if (err)
-		return err;
+	ret = btrfs_truncate_block(inode, oldsize, 0, 0);
+	if (ret)
+		return ret;
 
 	if (size <= hole_start)
 		return 0;
@@ -4943,7 +4943,7 @@ int btrfs_cont_expand(struct btrfs_inode *inode, loff_t oldsize, loff_t size)
 	while (1) {
 		em = btrfs_get_extent(inode, NULL, cur_offset, block_end - cur_offset);
 		if (IS_ERR(em)) {
-			err = PTR_ERR(em);
+			ret = PTR_ERR(em);
 			em = NULL;
 			break;
 		}
@@ -4954,13 +4954,13 @@ int btrfs_cont_expand(struct btrfs_inode *inode, loff_t oldsize, loff_t size)
 		if (!(em->flags & EXTENT_FLAG_PREALLOC)) {
 			struct extent_map *hole_em;
 
-			err = maybe_insert_hole(inode, cur_offset, hole_size);
-			if (err)
+			ret = maybe_insert_hole(inode, cur_offset, hole_size);
+			if (ret)
 				break;
 
-			err = btrfs_inode_set_file_extent_range(inode,
+			ret = btrfs_inode_set_file_extent_range(inode,
 							cur_offset, hole_size);
-			if (err)
+			if (ret)
 				break;
 
 			hole_em = alloc_extent_map();
@@ -4981,12 +4981,12 @@ int btrfs_cont_expand(struct btrfs_inode *inode, loff_t oldsize, loff_t size)
 			hole_em->ram_bytes = hole_size;
 			hole_em->generation = btrfs_get_fs_generation(fs_info);
 
-			err = btrfs_replace_extent_map_range(inode, hole_em, true);
+			ret = btrfs_replace_extent_map_range(inode, hole_em, true);
 			free_extent_map(hole_em);
 		} else {
-			err = btrfs_inode_set_file_extent_range(inode,
+			ret = btrfs_inode_set_file_extent_range(inode,
 							cur_offset, hole_size);
-			if (err)
+			if (ret)
 				break;
 		}
 next:
@@ -4998,7 +4998,7 @@ next:
 	}
 	free_extent_map(em);
 	unlock_extent(io_tree, hole_start, block_end - 1, &cached_state);
-	return err;
+	return ret;
 }
 
 static int btrfs_setsize(struct inode *inode, struct iattr *attr)
@@ -7911,17 +7911,6 @@ static int btrfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	btrfs_inode_unlock(btrfs_inode, BTRFS_ILOCK_SHARED);
 
 	return ret;
-}
-
-static int btrfs_writepages(struct address_space *mapping,
-			    struct writeback_control *wbc)
-{
-	return extent_writepages(mapping, wbc);
-}
-
-static void btrfs_readahead(struct readahead_control *rac)
-{
-	extent_readahead(rac);
 }
 
 /*
