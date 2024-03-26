@@ -1668,7 +1668,7 @@ static int migrate_pages_batch(struct list_head *from,
 			 */
 			if (nr_pages > 2 &&
 			   !list_empty(&folio->_deferred_list)) {
-				if (try_split_folio(folio, from) == 0) {
+				if (try_split_folio(folio, split_folios) == 0) {
 					stats->nr_thp_split += is_thp;
 					stats->nr_split++;
 					continue;
