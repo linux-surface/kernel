@@ -1083,6 +1083,9 @@ static __init int hmat_init(void)
 	if (!hmat_set_default_dram_perf())
 		register_mt_adistance_algorithm(&hmat_adist_nb);
 
+	/* Post-create CPUless memory tiers after getting HMAT info */
+	mt_init_with_hmat();
+
 	return 0;
 out_put:
 	hmat_free_structures();

@@ -6109,6 +6109,30 @@ sub process {
 				WARN("TRAILING_SEMICOLON",
 				     "macros should not use a trailing semicolon\n" . "$herectx");
 			}
+
+			if ($dstat =~ /^\+\s*#\s*define\s+$Ident\s*(\((?:[^\(\)]++|(?-1))*\))\s+(\S+.*)(\/\/.*)?/) {
+				my $params = $1 || "";
+				my $body = $2 || "";
+
+			    # get the individual params
+				$params =~ tr/()//d;
+				# remove leading and trailing whitespace
+				$params =~ s/^\s+|\s+$//g;
+
+				$ctx =~ s/\n*$//;
+				my $cnt = statement_rawlines($ctx);
+				my $herectx = get_stat_here($linenr, $cnt, $here);
+
+				if ($params ne "") {
+					my @paramList = split /,\s*/, $params;
+					foreach my $param(@paramList) {
+						if ($body !~ /\b$param\b/) {
+							ERROR("UNUSED_PARAM_IN_MACRO",
+							     "Parameter '$param' is not used in function-like macro, please use static inline instead\n" . "$herectx");
+						}
+					}
+				}
+			}
 		}
 
 # check for redundant bracing round if etc

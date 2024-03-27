@@ -263,7 +263,6 @@ unsigned long thp_vma_allowable_orders(struct vm_area_struct *vma,
 unsigned long thp_get_unmapped_area(struct file *filp, unsigned long addr,
 		unsigned long len, unsigned long pgoff, unsigned long flags);
 
-void folio_prep_large_rmappable(struct folio *folio);
 bool can_split_folio(struct folio *folio, int *pextra_pins);
 int split_huge_page_to_list_to_order(struct page *page, struct list_head *list,
 		unsigned int new_order);
@@ -349,12 +348,12 @@ struct page *follow_devmap_pud(struct vm_area_struct *vma, unsigned long addr,
 
 vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf);
 
-extern struct page *huge_zero_page;
+extern struct folio *huge_zero_folio;
 extern unsigned long huge_zero_pfn;
 
-static inline bool is_huge_zero_page(struct page *page)
+static inline bool is_huge_zero_folio(const struct folio *folio)
 {
-	return READ_ONCE(huge_zero_page) == page;
+	return READ_ONCE(huge_zero_folio) == folio;
 }
 
 static inline bool is_huge_zero_pmd(pmd_t pmd)
@@ -367,8 +366,8 @@ static inline bool is_huge_zero_pud(pud_t pud)
 	return false;
 }
 
-struct page *mm_get_huge_zero_page(struct mm_struct *mm);
-void mm_put_huge_zero_page(struct mm_struct *mm);
+struct folio *mm_get_huge_zero_folio(struct mm_struct *mm);
+void mm_put_huge_zero_folio(struct mm_struct *mm);
 
 #define mk_huge_pmd(page, prot) pmd_mkhuge(mk_pmd(page, prot))
 
@@ -410,8 +409,6 @@ static inline unsigned long thp_vma_allowable_orders(struct vm_area_struct *vma,
 {
 	return 0;
 }
-
-static inline void folio_prep_large_rmappable(struct folio *folio) {}
 
 #define transparent_hugepage_flags 0UL
 
@@ -483,7 +480,7 @@ static inline vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf)
 	return 0;
 }
 
-static inline bool is_huge_zero_page(struct page *page)
+static inline bool is_huge_zero_folio(const struct folio *folio)
 {
 	return false;
 }
@@ -498,7 +495,7 @@ static inline bool is_huge_zero_pud(pud_t pud)
 	return false;
 }
 
-static inline void mm_put_huge_zero_page(struct mm_struct *mm)
+static inline void mm_put_huge_zero_folio(struct mm_struct *mm)
 {
 	return;
 }
@@ -534,17 +531,5 @@ static inline int split_folio_to_order(struct folio *folio, int new_order)
 
 #define split_folio_to_list(f, l) split_folio_to_list_to_order(f, l, 0)
 #define split_folio(f) split_folio_to_order(f, 0)
-
-/*
- * archs that select ARCH_WANTS_THP_SWAP but don't support THP_SWP due to
- * limitations in the implementation like arm64 MTE can override this to
- * false
- */
-#ifndef arch_thp_swp_supported
-static inline bool arch_thp_swp_supported(void)
-{
-	return true;
-}
-#endif
 
 #endif /* _LINUX_HUGE_MM_H */

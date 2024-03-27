@@ -38,6 +38,7 @@
 #include <linux/sched/sysctl.h>
 #include <linux/memory-tiers.h>
 #include <linux/compat.h>
+#include <linux/pgalloc_tag.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -73,7 +74,7 @@ static unsigned long deferred_split_scan(struct shrinker *shrink,
 					 struct shrink_control *sc);
 
 static atomic_t huge_zero_refcount;
-struct page *huge_zero_page __read_mostly;
+struct folio *huge_zero_folio __read_mostly;
 unsigned long huge_zero_pfn __read_mostly = ~0UL;
 unsigned long huge_anon_orders_always __read_mostly;
 unsigned long huge_anon_orders_madvise __read_mostly;
@@ -191,24 +192,24 @@ unsigned long __thp_vma_allowable_orders(struct vm_area_struct *vma,
 
 static bool get_huge_zero_page(void)
 {
-	struct page *zero_page;
+	struct folio *zero_folio;
 retry:
 	if (likely(atomic_inc_not_zero(&huge_zero_refcount)))
 		return true;
 
-	zero_page = alloc_pages((GFP_TRANSHUGE | __GFP_ZERO) & ~__GFP_MOVABLE,
+	zero_folio = folio_alloc((GFP_TRANSHUGE | __GFP_ZERO) & ~__GFP_MOVABLE,
 			HPAGE_PMD_ORDER);
-	if (!zero_page) {
+	if (!zero_folio) {
 		count_vm_event(THP_ZERO_PAGE_ALLOC_FAILED);
 		return false;
 	}
 	preempt_disable();
-	if (cmpxchg(&huge_zero_page, NULL, zero_page)) {
+	if (cmpxchg(&huge_zero_folio, NULL, zero_folio)) {
 		preempt_enable();
-		__free_pages(zero_page, compound_order(zero_page));
+		folio_put(zero_folio);
 		goto retry;
 	}
-	WRITE_ONCE(huge_zero_pfn, page_to_pfn(zero_page));
+	WRITE_ONCE(huge_zero_pfn, folio_pfn(zero_folio));
 
 	/* We take additional reference here. It will be put back by shrinker */
 	atomic_set(&huge_zero_refcount, 2);
@@ -226,10 +227,10 @@ static void put_huge_zero_page(void)
 	BUG_ON(atomic_dec_and_test(&huge_zero_refcount));
 }
 
-struct page *mm_get_huge_zero_page(struct mm_struct *mm)
+struct folio *mm_get_huge_zero_folio(struct mm_struct *mm)
 {
 	if (test_bit(MMF_HUGE_ZERO_PAGE, &mm->flags))
-		return READ_ONCE(huge_zero_page);
+		return READ_ONCE(huge_zero_folio);
 
 	if (!get_huge_zero_page())
 		return NULL;
@@ -237,10 +238,10 @@ struct page *mm_get_huge_zero_page(struct mm_struct *mm)
 	if (test_and_set_bit(MMF_HUGE_ZERO_PAGE, &mm->flags))
 		put_huge_zero_page();
 
-	return READ_ONCE(huge_zero_page);
+	return READ_ONCE(huge_zero_folio);
 }
 
-void mm_put_huge_zero_page(struct mm_struct *mm)
+void mm_put_huge_zero_folio(struct mm_struct *mm)
 {
 	if (test_bit(MMF_HUGE_ZERO_PAGE, &mm->flags))
 		put_huge_zero_page();
@@ -257,10 +258,10 @@ static unsigned long shrink_huge_zero_page_scan(struct shrinker *shrink,
 				       struct shrink_control *sc)
 {
 	if (atomic_cmpxchg(&huge_zero_refcount, 1, 0) == 1) {
-		struct page *zero_page = xchg(&huge_zero_page, NULL);
-		BUG_ON(zero_page == NULL);
+		struct folio *zero_folio = xchg(&huge_zero_folio, NULL);
+		BUG_ON(zero_folio == NULL);
 		WRITE_ONCE(huge_zero_pfn, ~0UL);
-		__free_pages(zero_page, compound_order(zero_page));
+		folio_put(zero_folio);
 		return HPAGE_PMD_NR;
 	}
 
@@ -788,21 +789,12 @@ struct deferred_split *get_deferred_split_queue(struct folio *folio)
 }
 #endif
 
-void folio_prep_large_rmappable(struct folio *folio)
-{
-	if (!folio || !folio_test_large(folio))
-		return;
-	if (folio_order(folio) > 1)
-		INIT_LIST_HEAD(&folio->_deferred_list);
-	folio_set_large_rmappable(folio);
-}
-
-static inline bool is_transparent_hugepage(struct folio *folio)
+static inline bool is_transparent_hugepage(const struct folio *folio)
 {
 	if (!folio_test_large(folio))
 		return false;
 
-	return is_huge_zero_page(&folio->page) ||
+	return is_huge_zero_folio(folio) ||
 		folio_test_large_rmappable(folio);
 }
 
@@ -979,14 +971,14 @@ gfp_t vma_thp_gfp_mask(struct vm_area_struct *vma)
 }
 
 /* Caller must hold page table lock. */
-static void set_huge_zero_page(pgtable_t pgtable, struct mm_struct *mm,
+static void set_huge_zero_folio(pgtable_t pgtable, struct mm_struct *mm,
 		struct vm_area_struct *vma, unsigned long haddr, pmd_t *pmd,
-		struct page *zero_page)
+		struct folio *zero_folio)
 {
 	pmd_t entry;
 	if (!pmd_none(*pmd))
 		return;
-	entry = mk_pmd(zero_page, vma->vm_page_prot);
+	entry = mk_pmd(&zero_folio->page, vma->vm_page_prot);
 	entry = pmd_mkhuge(entry);
 	pgtable_trans_huge_deposit(mm, pmd, pgtable);
 	set_pmd_at(mm, haddr, pmd, entry);
@@ -1010,13 +1002,14 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 			!mm_forbids_zeropage(vma->vm_mm) &&
 			transparent_hugepage_use_zero_page()) {
 		pgtable_t pgtable;
-		struct page *zero_page;
+		struct folio *zero_folio;
 		vm_fault_t ret;
+
 		pgtable = pte_alloc_one(vma->vm_mm);
 		if (unlikely(!pgtable))
 			return VM_FAULT_OOM;
-		zero_page = mm_get_huge_zero_page(vma->vm_mm);
-		if (unlikely(!zero_page)) {
+		zero_folio = mm_get_huge_zero_folio(vma->vm_mm);
+		if (unlikely(!zero_folio)) {
 			pte_free(vma->vm_mm, pgtable);
 			count_vm_event(THP_FAULT_FALLBACK);
 			return VM_FAULT_FALLBACK;
@@ -1034,8 +1027,8 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 				ret = handle_userfault(vmf, VM_UFFD_MISSING);
 				VM_BUG_ON(ret & VM_FAULT_FALLBACK);
 			} else {
-				set_huge_zero_page(pgtable, vma->vm_mm, vma,
-						   haddr, vmf->pmd, zero_page);
+				set_huge_zero_folio(pgtable, vma->vm_mm, vma,
+						   haddr, vmf->pmd, zero_folio);
 				update_mmu_cache_pmd(vma, vmf->address, vmf->pmd);
 				spin_unlock(vmf->ptl);
 			}
@@ -1344,11 +1337,11 @@ int copy_huge_pmd(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	 */
 	if (is_huge_zero_pmd(pmd)) {
 		/*
-		 * get_huge_zero_page() will never allocate a new page here,
-		 * since we already have a zero page to copy. It just takes a
-		 * reference.
+		 * mm_get_huge_zero_folio() will never allocate a new
+		 * folio here, since we already have a zero page to
+		 * copy. It just takes a reference.
 		 */
-		mm_get_huge_zero_page(dst_mm);
+		mm_get_huge_zero_folio(dst_mm);
 		goto out_zero_page;
 	}
 
@@ -1754,7 +1747,7 @@ vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf)
 	 */
 	if (node_is_toptier(nid))
 		last_cpupid = folio_last_cpupid(folio);
-	target_nid = numa_migrate_prep(folio, vma, haddr, nid, &flags);
+	target_nid = numa_migrate_prep(folio, vmf, haddr, nid, &flags);
 	if (target_nid == NUMA_NO_NODE) {
 		folio_put(folio);
 		goto out_map;
@@ -1824,12 +1817,12 @@ bool madvise_free_huge_pmd(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		goto out;
 	}
 
-	folio = pfn_folio(pmd_pfn(orig_pmd));
+	folio = pmd_folio(orig_pmd);
 	/*
 	 * If other processes are mapping this folio, we couldn't discard
 	 * the folio unless they all do MADV_FREE so let's skip the folio.
 	 */
-	if (folio_estimated_sharers(folio) != 1)
+	if (folio_likely_mapped_shared(folio))
 		goto out;
 
 	if (!folio_trylock(folio))
@@ -2094,7 +2087,7 @@ int change_huge_pmd(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		if (pmd_protnone(*pmd))
 			goto unlock;
 
-		folio = page_folio(pmd_page(*pmd));
+		folio = pmd_folio(*pmd);
 		toptier = node_is_toptier(folio_nid(folio));
 		/*
 		 * Skip scanning top tier node if normal numa
@@ -2671,7 +2664,7 @@ void __split_huge_pmd(struct vm_area_struct *vma, pmd_t *pmd,
 		 * It's safe to call pmd_page when folio is set because it's
 		 * guaranteed that pmd is present.
 		 */
-		if (folio && folio != page_folio(pmd_page(*pmd)))
+		if (folio && folio != pmd_folio(*pmd))
 			goto out;
 		__split_huge_pmd_locked(vma, pmd, range.start, freeze);
 	}
@@ -2863,7 +2856,7 @@ static void __split_huge_page_tail(struct folio *folio, int tail,
 	clear_compound_head(page_tail);
 	if (new_order) {
 		prep_compound_page(page_tail, new_order);
-		folio_prep_large_rmappable(new_folio);
+		folio_set_large_rmappable(new_folio);
 	}
 
 	/* Finally unfreeze refcount. Additional reference from page cache. */
@@ -2946,6 +2939,7 @@ static void __split_huge_page(struct page *page, struct list_head *list,
 	/* Caller disabled irqs, so they are still disabled here */
 
 	split_page_owner(head, order, new_order);
+	pgalloc_tag_split(head, 1 << order);
 
 	/* See comment in __split_huge_page_tail() */
 	if (folio_test_anon(folio)) {
@@ -3013,28 +3007,40 @@ bool can_split_folio(struct folio *folio, int *pextra_pins)
 }
 
 /*
- * This function splits huge page into pages in @new_order. @page can point to
- * any subpage of huge page to split. Split doesn't change the position of
- * @page.
+ * This function splits a large folio into smaller folios of order @new_order.
+ * @page can point to any page of the large folio to split. The split operation
+ * does not change the position of @page.
  *
- * NOTE: order-1 anonymous folio is not supported because _deferred_list,
- * which is used by partially mapped folios, is stored in subpage 2 and an
- * order-1 folio only has subpage 0 and 1. File-backed order-1 folios are OK,
- * since they do not use _deferred_list.
+ * Prerequisites:
  *
- * Only caller must hold pin on the @page, otherwise split fails with -EBUSY.
- * The huge page must be locked.
+ * 1) The caller must hold a reference on the @page's owning folio, also known
+ *    as the large folio.
+ *
+ * 2) The large folio must be locked.
+ *
+ * 3) The folio must not be pinned. Any unexpected folio references, including
+ *    GUP pins, will result in the folio not getting split; instead, the caller
+ *    will receive an -EBUSY.
+ *
+ * 4) @new_order > 1, usually. Splitting to order-1 anonymous folios is not
+ *    supported for non-file-backed folios, because folio->_deferred_list, which
+ *    is used by partially mapped folios, is stored in subpage 2, but an order-1
+ *    folio only has subpages 0 and 1. File-backed order-1 folios are supported,
+ *    since they do not use _deferred_list.
+ *
+ * After splitting, the caller's folio reference will be transferred to @page,
+ * resulting in a raised refcount of @page after this call. The other pages may
+ * be freed if they are not mapped.
  *
  * If @list is null, tail pages will be added to LRU list, otherwise, to @list.
  *
- * Pages in new_order will inherit mapping, flags, and so on from the hugepage.
+ * Pages in @new_order will inherit the mapping, flags, and so on from the
+ * huge page.
  *
- * GUP pin and PG_locked transferred to @page or the compound page @page belongs
- * to. Rest subpages can be freed if they are not mapped.
+ * Returns 0 if the huge page was split successfully.
  *
- * Returns 0 if the hugepage is split successfully.
- * Returns -EBUSY if the page is pinned or if anon_vma disappeared from under
- * us.
+ * Returns -EBUSY if @page's folio is pinned, or if the anon_vma disappeared
+ * from under us.
  */
 int split_huge_page_to_list_to_order(struct page *page, struct list_head *list,
 				     unsigned int new_order)
@@ -3080,7 +3086,7 @@ int split_huge_page_to_list_to_order(struct page *page, struct list_head *list,
 	}
 
 
-	is_hzp = is_huge_zero_page(&folio->page);
+	is_hzp = is_huge_zero_folio(folio);
 	if (is_hzp) {
 		pr_warn_ratelimited("Called split_huge_page for huge zero page\n");
 		return -EBUSY;
