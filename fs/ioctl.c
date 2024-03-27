@@ -796,6 +796,9 @@ static int ioctl_get_fs_sysfs_path(struct file *file, void __user *argp)
  *
  * When you add any new common ioctls to the switches above and below,
  * please ensure they have compatible arguments in compat mode.
+ *
+ * The commands which are implemented here should be kept in sync with the IOCTL
+ * security policies in the Landlock LSM.
  */
 static int do_vfs_ioctl(struct file *filp, unsigned int fd,
 			unsigned int cmd, unsigned long arg)
