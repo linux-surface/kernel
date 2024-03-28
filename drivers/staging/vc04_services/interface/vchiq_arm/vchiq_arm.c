@@ -690,7 +690,6 @@ int vchiq_initialise(struct vchiq_instance **instance_out)
 
 	instance = kzalloc(sizeof(*instance), GFP_KERNEL);
 	if (!instance) {
-		dev_err(state->dev, "core: %s: Cannot allocate vchiq instance\n", __func__);
 		ret = -ENOMEM;
 		goto failed;
 	}
@@ -727,8 +726,9 @@ void free_bulk_waiter(struct vchiq_instance *instance)
 
 int vchiq_shutdown(struct vchiq_instance *instance)
 {
-	int status = 0;
 	struct vchiq_state *state = instance->state;
+	struct vchiq_arm_state *arm_state;
+	int status = 0;
 
 	if (mutex_lock_killable(&state->mutex))
 		return -EAGAIN;
@@ -739,6 +739,9 @@ int vchiq_shutdown(struct vchiq_instance *instance)
 	mutex_unlock(&state->mutex);
 
 	dev_dbg(state->dev, "core: (%p): returning %d\n", instance, status);
+
+	arm_state = vchiq_platform_get_arm_state(state);
+	kthread_stop(arm_state->ka_thread);
 
 	free_bulk_waiter(instance);
 	kfree(instance);
@@ -956,10 +959,8 @@ vchiq_blocking_bulk_transfer(struct vchiq_instance *instance, unsigned int handl
 		}
 	} else {
 		waiter = kzalloc(sizeof(*waiter), GFP_KERNEL);
-		if (!waiter) {
-			dev_err(service->state->dev, "core: %s: - Out of memory\n", __func__);
+		if (!waiter)
 			return -ENOMEM;
-		}
 	}
 
 	status = vchiq_bulk_transfer(instance, handle, data, NULL, size,
@@ -1313,11 +1314,11 @@ vchiq_keepalive_thread_func(void *v)
 		goto shutdown;
 	}
 
-	while (1) {
+	while (!kthread_should_stop()) {
 		long rc = 0, uc = 0;
 
 		if (wait_for_completion_interruptible(&arm_state->ka_evt)) {
-			dev_err(state->dev, "suspend: %s: interrupted\n", __func__);
+			dev_dbg(state->dev, "suspend: %s: interrupted\n", __func__);
 			flush_signals(current);
 			continue;
 		}
@@ -1753,7 +1754,7 @@ static int vchiq_probe(struct platform_device *pdev)
 	 */
 	err = vchiq_register_chrdev(&pdev->dev);
 	if (err) {
-		dev_warn(&pdev->dev, "arm: Failed to initialize vchiq cdev\n");
+		dev_err(&pdev->dev, "arm: Failed to initialize vchiq cdev\n");
 		goto error_exit;
 	}
 
@@ -1763,7 +1764,7 @@ static int vchiq_probe(struct platform_device *pdev)
 	return 0;
 
 failed_platform_init:
-	dev_warn(&pdev->dev, "arm: Could not initialize vchiq platform\n");
+	dev_err(&pdev->dev, "arm: Could not initialize vchiq platform\n");
 error_exit:
 	return err;
 }

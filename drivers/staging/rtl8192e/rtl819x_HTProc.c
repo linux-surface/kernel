@@ -235,7 +235,7 @@ void ht_construct_capability_element(struct rtllib_device *ieee, u8 *pos_ht_cap,
 
 	if (!pos_ht_cap || !ht) {
 		netdev_warn(ieee->dev,
-			    "%s(): posHTCap and ht_info are null\n", __func__);
+			    "%s(): pos_ht_cap and ht_info are null\n", __func__);
 		return;
 	}
 	memset(pos_ht_cap, 0, *len);
@@ -543,19 +543,19 @@ void ht_initialize_ht_info(struct rtllib_device *ieee)
 	}
 }
 
-void ht_initialize_bss_desc(struct bss_ht *pBssHT)
+void ht_initialize_bss_desc(struct bss_ht *bss_ht)
 {
-	pBssHT->bd_support_ht = false;
-	memset(pBssHT->bd_ht_cap_buf, 0, sizeof(pBssHT->bd_ht_cap_buf));
-	pBssHT->bd_ht_cap_len = 0;
-	memset(pBssHT->bd_ht_info_buf, 0, sizeof(pBssHT->bd_ht_info_buf));
-	pBssHT->bd_ht_info_len = 0;
+	bss_ht->bd_support_ht = false;
+	memset(bss_ht->bd_ht_cap_buf, 0, sizeof(bss_ht->bd_ht_cap_buf));
+	bss_ht->bd_ht_cap_len = 0;
+	memset(bss_ht->bd_ht_info_buf, 0, sizeof(bss_ht->bd_ht_info_buf));
+	bss_ht->bd_ht_info_len = 0;
 
-	pBssHT->bd_ht_spec_ver = HT_SPEC_VER_IEEE;
+	bss_ht->bd_ht_spec_ver = HT_SPEC_VER_IEEE;
 
-	pBssHT->bd_rt2rt_aggregation = false;
-	pBssHT->bd_rt2rt_long_slot_time = false;
-	pBssHT->rt2rt_ht_mode = (enum rt_ht_capability)0;
+	bss_ht->bd_rt2rt_aggregation = false;
+	bss_ht->bd_rt2rt_long_slot_time = false;
+	bss_ht->rt2rt_ht_mode = (enum rt_ht_capability)0;
 }
 
 void ht_reset_self_and_save_peer_setting(struct rtllib_device *ieee,
@@ -625,7 +625,7 @@ EXPORT_SYMBOL(HT_update_self_and_peer_setting);
 u8 ht_c_check(struct rtllib_device *ieee, u8 *pFrame)
 {
 	if (ieee->ht_info->current_ht_support) {
-		if ((IsQoSDataFrame(pFrame) && Frame_Order(pFrame)) == 1) {
+		if ((IsQoSDataFrame(pFrame) && frame_order(pFrame)) == 1) {
 			netdev_dbg(ieee->dev, "HT CONTROL FILED EXIST!!\n");
 			return true;
 		}
