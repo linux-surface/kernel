@@ -29,6 +29,7 @@
 #include "dml2_translation_helper.h"
 
 #define NUM_DCFCLK_STAS 5
+#define NUM_DCFCLK_STAS_NEW 8
 
 void dml2_init_ip_params(struct dml2_context *dml2, const struct dc *in_dc, struct ip_params_st *out)
 {
@@ -228,17 +229,13 @@ void dml2_init_socbb_params(struct dml2_context *dml2, const struct dc *in_dc, s
 		break;
 
 	case dml_project_dcn35:
+	case dml_project_dcn351:
 		out->num_chans = 4;
 		out->round_trip_ping_latency_dcfclk_cycles = 106;
 		out->smn_latency_us = 2;
 		out->dispclk_dppclk_vco_speed_mhz = 3600;
 		break;
 
-	case dml_project_dcn351:
-		out->num_chans = 16;
-		out->round_trip_ping_latency_dcfclk_cycles = 1100;
-		out->smn_latency_us = 2;
-		break;
 	}
 	/* ---Overrides if available--- */
 	if (dml2->config.bbox_overrides.dram_num_chan)
@@ -254,11 +251,20 @@ void dml2_init_soc_states(struct dml2_context *dml2, const struct dc *in_dc,
 	struct dml2_policy_build_synthetic_soc_states_scratch *s = &dml2->v20.scratch.create_scratch.build_synthetic_socbb_scratch;
 	struct dml2_policy_build_synthetic_soc_states_params *p = &dml2->v20.scratch.build_synthetic_socbb_params;
 	unsigned int dcfclk_stas_mhz[NUM_DCFCLK_STAS];
+	unsigned int dcfclk_stas_mhz_new[NUM_DCFCLK_STAS_NEW];
+	unsigned int dml_project = dml2->v20.dml_core_ctx.project;
+
 	unsigned int i = 0;
 	unsigned int transactions_per_mem_clock = 16; // project specific, depends on used Memory type
 
-	p->dcfclk_stas_mhz = dcfclk_stas_mhz;
-	p->num_dcfclk_stas = NUM_DCFCLK_STAS;
+	if (dml_project == dml_project_dcn351) {
+		p->dcfclk_stas_mhz = dcfclk_stas_mhz_new;
+		p->num_dcfclk_stas = NUM_DCFCLK_STAS_NEW;
+	} else {
+		p->dcfclk_stas_mhz = dcfclk_stas_mhz;
+		p->num_dcfclk_stas = NUM_DCFCLK_STAS;
+	}
+
 	p->in_bbox = in_bbox;
 	p->out_states = out;
 	p->in_states = &dml2->v20.scratch.create_scratch.in_states;
@@ -436,8 +442,7 @@ void dml2_init_soc_states(struct dml2_context *dml2, const struct dc *in_dc,
 	}
 
 	dml2_policy_build_synthetic_soc_states(s, p);
-	if (dml2->v20.dml_core_ctx.project == dml_project_dcn35 ||
-		dml2->v20.dml_core_ctx.project == dml_project_dcn351) {
+	if (dml2->v20.dml_core_ctx.project == dml_project_dcn35) {
 		// Override last out_state with data from last in_state
 		// This will ensure that out_state contains max fclk
 		memcpy(&p->out_states->state_array[p->out_states->num_states - 1],

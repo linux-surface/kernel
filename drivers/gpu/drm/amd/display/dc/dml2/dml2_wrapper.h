@@ -88,6 +88,19 @@ struct dml2_dc_callbacks {
 	int (*get_odm_slice_index)(const struct pipe_ctx *opp_head);
 	int (*get_mpc_slice_index)(const struct pipe_ctx *dpp_pipe);
 	struct pipe_ctx *(*get_opp_head)(const struct pipe_ctx *pipe_ctx);
+	struct pipe_ctx *(*get_otg_master_for_stream)(
+		struct resource_context *res_ctx,
+		const struct dc_stream_state *stream);
+	int (*get_opp_heads_for_otg_master)(const struct pipe_ctx *otg_master,
+		struct resource_context *res_ctx,
+		struct pipe_ctx *opp_heads[MAX_PIPES]);
+	int (*get_dpp_pipes_for_plane)(const struct dc_plane_state *plane,
+			struct resource_context *res_ctx,
+			struct pipe_ctx *dpp_pipes[MAX_PIPES]);
+	struct dc_stream_status *(*get_stream_status)(
+		struct dc_state *state,
+		const struct dc_stream_state *stream);
+	struct dc_stream_state *(*get_stream_from_id)(const struct dc_state *state, unsigned int id);
 };
 
 struct dml2_dc_svp_callbacks {
@@ -96,10 +109,10 @@ struct dml2_dc_svp_callbacks {
 	struct dc_stream_state* (*create_phantom_stream)(const struct dc *dc,
 			struct dc_state *state,
 			struct dc_stream_state *main_stream);
-	struct dc_plane_state* (*create_phantom_plane)(struct dc *dc,
+	struct dc_plane_state* (*create_phantom_plane)(const struct dc *dc,
 			struct dc_state *state,
 			struct dc_plane_state *main_plane);
-	enum dc_status (*add_phantom_stream)(struct dc *dc,
+	enum dc_status (*add_phantom_stream)(const struct dc *dc,
 			struct dc_state *state,
 			struct dc_stream_state *phantom_stream,
 			struct dc_stream_state *main_stream);
@@ -108,7 +121,7 @@ struct dml2_dc_svp_callbacks {
 			struct dc_stream_state *stream,
 			struct dc_plane_state *plane_state,
 			struct dc_state *context);
-	enum dc_status (*remove_phantom_stream)(struct dc *dc,
+	enum dc_status (*remove_phantom_stream)(const struct dc *dc,
 			struct dc_state *state,
 			struct dc_stream_state *stream);
 	void (*release_phantom_plane)(const struct dc *dc,
@@ -121,6 +134,15 @@ struct dml2_dc_svp_callbacks {
 	enum mall_stream_type (*get_pipe_subvp_type)(const struct dc_state *state, const struct pipe_ctx *pipe_ctx);
 	enum mall_stream_type (*get_stream_subvp_type)(const struct dc_state *state, const struct dc_stream_state *stream);
 	struct dc_stream_state *(*get_paired_subvp_stream)(const struct dc_state *state, const struct dc_stream_state *stream);
+	bool (*remove_phantom_streams_and_planes)(
+			const struct dc *dc,
+			struct dc_state *state);
+	void (*release_phantom_streams_and_planes)(
+			const struct dc *dc,
+			struct dc_state *state);
+	unsigned int (*calculate_mall_ways_from_bytes)(
+				const struct dc *dc,
+				unsigned int total_size_in_mall_bytes);
 };
 
 struct dml2_clks_table_entry {

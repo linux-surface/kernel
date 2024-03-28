@@ -910,6 +910,8 @@ void dc_dmub_srv_log_diagnostic_data(struct dc_dmub_srv *dc_dmub_srv)
 		return;
 	}
 
+	DC_LOG_ERROR("%s: DMCUB error - collecting diagnostic data\n", __func__);
+
 	if (!dc_dmub_srv_get_diagnostic_data(dc_dmub_srv, &diag_data)) {
 		DC_LOG_ERROR("%s: dc_dmub_srv_get_diagnostic_data failed.", __func__);
 		return;
@@ -1199,8 +1201,23 @@ bool dc_dmub_srv_is_hw_pwr_up(struct dc_dmub_srv *dc_dmub_srv, bool wait)
 	return true;
 }
 
+static int count_active_streams(const struct dc *dc)
+{
+	int i, count = 0;
+
+	for (i = 0; i < dc->current_state->stream_count; ++i) {
+		struct dc_stream_state *stream = dc->current_state->streams[i];
+
+		if (stream && !stream->dpms_off)
+			count += 1;
+	}
+
+	return count;
+}
+
 static void dc_dmub_srv_notify_idle(const struct dc *dc, bool allow_idle)
 {
+	volatile const struct dmub_shared_state_ips_fw *ips_fw;
 	struct dc_dmub_srv *dc_dmub_srv;
 	union dmub_rb_cmd cmd = {0};
 
@@ -1211,6 +1228,7 @@ static void dc_dmub_srv_notify_idle(const struct dc *dc, bool allow_idle)
 		return;
 
 	dc_dmub_srv = dc->ctx->dmub_srv;
+	ips_fw = &dc_dmub_srv->dmub->shared_state[DMUB_SHARED_SHARE_FEATURE__IPS_FW].data.ips_fw;
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.idle_opt_notify_idle.header.type = DMUB_CMD__IDLE_OPT;
@@ -1225,6 +1243,12 @@ static void dc_dmub_srv_notify_idle(const struct dc *dc, bool allow_idle)
 		volatile struct dmub_shared_state_ips_driver *ips_driver =
 			&dc_dmub_srv->dmub->shared_state[DMUB_SHARED_SHARE_FEATURE__IPS_DRIVER].data.ips_driver;
 		union dmub_shared_state_ips_driver_signals new_signals;
+
+		DC_LOG_IPS(
+			"%s wait idle (ips1_commit=%d ips2_commit=%d)",
+			__func__,
+			ips_fw->signals.bits.ips1_commit,
+			ips_fw->signals.bits.ips2_commit);
 
 		dc_dmub_srv_wait_idle(dc->ctx->dmub_srv);
 
@@ -1245,19 +1269,46 @@ static void dc_dmub_srv_notify_idle(const struct dc *dc, bool allow_idle)
 			new_signals.bits.allow_pg = 1;
 			new_signals.bits.allow_ips1 = 1;
 			new_signals.bits.allow_ips2 = 1;
+		} else if (dc->config.disable_ips == DMUB_IPS_RCG_IN_ACTIVE_IPS2_IN_OFF) {
+			/* TODO: Move this logic out to hwseq */
+			if (count_active_streams(dc) == 0) {
+				/* IPS2 - Display off */
+				new_signals.bits.allow_pg = 1;
+				new_signals.bits.allow_ips1 = 1;
+				new_signals.bits.allow_ips2 = 1;
+				new_signals.bits.allow_z10 = 1;
+			} else {
+				/* RCG only */
+				new_signals.bits.allow_pg = 0;
+				new_signals.bits.allow_ips1 = 1;
+				new_signals.bits.allow_ips2 = 0;
+				new_signals.bits.allow_z10 = 0;
+			}
 		}
 
 		ips_driver->signals = new_signals;
 	}
 
+	DC_LOG_IPS(
+		"%s send allow_idle=%d (ips1_commit=%d ips2_commit=%d)",
+		__func__,
+		allow_idle,
+		ips_fw->signals.bits.ips1_commit,
+		ips_fw->signals.bits.ips2_commit);
+
 	/* NOTE: This does not use the "wake" interface since this is part of the wake path. */
 	/* We also do not perform a wait since DMCUB could enter idle after the notification. */
 	dm_execute_dmub_cmd(dc->ctx, &cmd, allow_idle ? DM_DMUB_WAIT_TYPE_NO_WAIT : DM_DMUB_WAIT_TYPE_WAIT);
+
+	/* Register access should stop at this point. */
+	if (allow_idle)
+		dc_dmub_srv->needs_idle_wake = true;
 }
 
 static void dc_dmub_srv_exit_low_power_state(const struct dc *dc)
 {
 	struct dc_dmub_srv *dc_dmub_srv;
+	uint32_t rcg_exit_count, ips1_exit_count, ips2_exit_count;
 
 	if (dc->debug.dmcub_emulation)
 		return;
@@ -1274,25 +1325,83 @@ static void dc_dmub_srv_exit_low_power_state(const struct dc *dc)
 			&dc_dmub_srv->dmub->shared_state[DMUB_SHARED_SHARE_FEATURE__IPS_DRIVER].data.ips_driver;
 		union dmub_shared_state_ips_driver_signals prev_driver_signals = ips_driver->signals;
 
+		rcg_exit_count = ips_fw->rcg_exit_count;
+		ips1_exit_count = ips_fw->ips1_exit_count;
+		ips2_exit_count = ips_fw->ips2_exit_count;
+
 		ips_driver->signals.all = 0;
 
-		if (prev_driver_signals.bits.allow_ips2) {
-			udelay(dc->debug.ips2_eval_delay_us);
+		DC_LOG_IPS(
+			"%s (allow ips1=%d ips2=%d) (commit ips1=%d ips2=%d) (count rcg=%d ips1=%d ips2=%d)",
+			__func__,
+			ips_driver->signals.bits.allow_ips1,
+			ips_driver->signals.bits.allow_ips2,
+			ips_fw->signals.bits.ips1_commit,
+			ips_fw->signals.bits.ips2_commit,
+			ips_fw->rcg_entry_count,
+			ips_fw->ips1_entry_count,
+			ips_fw->ips2_entry_count);
+
+		/* Note: register access has technically not resumed for DCN here, but we
+		 * need to be message PMFW through our standard register interface.
+		 */
+		dc_dmub_srv->needs_idle_wake = false;
+
+		if (prev_driver_signals.bits.allow_ips2 &&
+		    (!dc->debug.optimize_ips_handshake ||
+		     ips_fw->signals.bits.ips2_commit || !ips_fw->signals.bits.in_idle)) {
+			DC_LOG_IPS(
+				"wait IPS2 eval (ips1_commit=%d ips2_commit=%d)",
+				ips_fw->signals.bits.ips1_commit,
+				ips_fw->signals.bits.ips2_commit);
+
+			if (!dc->debug.optimize_ips_handshake || !ips_fw->signals.bits.ips2_commit)
+				udelay(dc->debug.ips2_eval_delay_us);
 
 			if (ips_fw->signals.bits.ips2_commit) {
+				DC_LOG_IPS(
+					"exit IPS2 #1 (ips1_commit=%d ips2_commit=%d)",
+					ips_fw->signals.bits.ips1_commit,
+					ips_fw->signals.bits.ips2_commit);
+
 				// Tell PMFW to exit low power state
 				dc->clk_mgr->funcs->exit_low_power_state(dc->clk_mgr);
+
+				DC_LOG_IPS(
+					"wait IPS2 entry delay (ips1_commit=%d ips2_commit=%d)",
+					ips_fw->signals.bits.ips1_commit,
+					ips_fw->signals.bits.ips2_commit);
 
 				// Wait for IPS2 entry upper bound
 				udelay(dc->debug.ips2_entry_delay_us);
 
+				DC_LOG_IPS(
+					"exit IPS2 #2 (ips1_commit=%d ips2_commit=%d)",
+					ips_fw->signals.bits.ips1_commit,
+					ips_fw->signals.bits.ips2_commit);
+
 				dc->clk_mgr->funcs->exit_low_power_state(dc->clk_mgr);
+
+				DC_LOG_IPS(
+					"wait IPS2 commit clear (ips1_commit=%d ips2_commit=%d)",
+					ips_fw->signals.bits.ips1_commit,
+					ips_fw->signals.bits.ips2_commit);
 
 				while (ips_fw->signals.bits.ips2_commit)
 					udelay(1);
 
+				DC_LOG_IPS(
+					"wait hw_pwr_up (ips1_commit=%d ips2_commit=%d)",
+					ips_fw->signals.bits.ips1_commit,
+					ips_fw->signals.bits.ips2_commit);
+
 				if (!dc_dmub_srv_is_hw_pwr_up(dc->ctx->dmub_srv, true))
 					ASSERT(0);
+
+				DC_LOG_IPS(
+					"resync inbox1 (ips1_commit=%d ips2_commit=%d)",
+					ips_fw->signals.bits.ips1_commit,
+					ips_fw->signals.bits.ips2_commit);
 
 				dmub_srv_sync_inbox1(dc->ctx->dmub_srv->dmub);
 			}
@@ -1300,14 +1409,29 @@ static void dc_dmub_srv_exit_low_power_state(const struct dc *dc)
 
 		dc_dmub_srv_notify_idle(dc, false);
 		if (prev_driver_signals.bits.allow_ips1) {
+			DC_LOG_IPS(
+				"wait for IPS1 commit clear (ips1_commit=%d ips2_commit=%d)",
+				ips_fw->signals.bits.ips1_commit,
+				ips_fw->signals.bits.ips2_commit);
+
 			while (ips_fw->signals.bits.ips1_commit)
 				udelay(1);
 
+			DC_LOG_IPS(
+				"wait for IPS1 commit clear done (ips1_commit=%d ips2_commit=%d)",
+				ips_fw->signals.bits.ips1_commit,
+				ips_fw->signals.bits.ips2_commit);
 		}
 	}
 
 	if (!dc_dmub_srv_is_hw_pwr_up(dc->ctx->dmub_srv, true))
 		ASSERT(0);
+
+	DC_LOG_IPS("%s exit (count rcg=%d ips1=%d ips2=%d)",
+		__func__,
+		rcg_exit_count,
+		ips1_exit_count,
+		ips2_exit_count);
 }
 
 void dc_dmub_srv_set_power_state(struct dc_dmub_srv *dc_dmub_srv, enum dc_acpi_cm_power_state powerState)
@@ -1335,21 +1459,42 @@ void dc_dmub_srv_apply_idle_power_optimizations(const struct dc *dc, bool allow_
 	if (dc_dmub_srv->idle_allowed == allow_idle)
 		return;
 
+	DC_LOG_IPS("%s state change: old=%d new=%d", __func__, dc_dmub_srv->idle_allowed, allow_idle);
+
 	/*
 	 * Entering a low power state requires a driver notification.
 	 * Powering up the hardware requires notifying PMFW and DMCUB.
 	 * Clearing the driver idle allow requires a DMCUB command.
 	 * DMCUB commands requires the DMCUB to be powered up and restored.
-	 *
-	 * Exit out early to prevent an infinite loop of DMCUB commands
-	 * triggering exit low power - use software state to track this.
 	 */
-	dc_dmub_srv->idle_allowed = allow_idle;
 
-	if (!allow_idle)
+	if (!allow_idle) {
+		dc_dmub_srv->idle_exit_counter += 1;
+
 		dc_dmub_srv_exit_low_power_state(dc);
-	else
+		/*
+		 * Idle is considered fully exited only after the sequence above
+		 * fully completes. If we have a race of two threads exiting
+		 * at the same time then it's safe to perform the sequence
+		 * twice as long as we're not re-entering.
+		 *
+		 * Infinite command submission is avoided by using the
+		 * dm_execute_dmub_cmd submission instead of the "wake" helpers.
+		 */
+		dc_dmub_srv->idle_allowed = false;
+
+		dc_dmub_srv->idle_exit_counter -= 1;
+		if (dc_dmub_srv->idle_exit_counter < 0) {
+			ASSERT(0);
+			dc_dmub_srv->idle_exit_counter = 0;
+		}
+	} else {
+		/* Consider idle as notified prior to the actual submission to
+		 * prevent multiple entries. */
+		dc_dmub_srv->idle_allowed = true;
+
 		dc_dmub_srv_notify_idle(dc, allow_idle);
+	}
 }
 
 bool dc_wake_and_execute_dmub_cmd(const struct dc_context *ctx, union dmub_rb_cmd *cmd,
@@ -1384,7 +1529,8 @@ bool dc_wake_and_execute_dmub_cmd_list(const struct dc_context *ctx, unsigned in
 	else
 		result = dm_execute_dmub_cmd(ctx, cmd, wait_type);
 
-	if (result && reallow_idle && !ctx->dc->debug.disable_dmub_reallow_idle)
+	if (result && reallow_idle && dc_dmub_srv->idle_exit_counter == 0 &&
+	    !ctx->dc->debug.disable_dmub_reallow_idle)
 		dc_dmub_srv_apply_idle_power_optimizations(ctx->dc, true);
 
 	return result;
@@ -1433,7 +1579,8 @@ bool dc_wake_and_execute_gpint(const struct dc_context *ctx, enum dmub_gpint_com
 
 	result = dc_dmub_execute_gpint(ctx, command_code, param, response, wait_type);
 
-	if (result && reallow_idle && !ctx->dc->debug.disable_dmub_reallow_idle)
+	if (result && reallow_idle && dc_dmub_srv->idle_exit_counter == 0 &&
+	    !ctx->dc->debug.disable_dmub_reallow_idle)
 		dc_dmub_srv_apply_idle_power_optimizations(ctx->dc, true);
 
 	return result;

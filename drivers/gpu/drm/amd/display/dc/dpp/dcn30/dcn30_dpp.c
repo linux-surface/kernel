@@ -26,9 +26,9 @@
 #include "dm_services.h"
 #include "core_types.h"
 #include "reg_helper.h"
-#include "dcn30_dpp.h"
+#include "dcn30/dcn30_dpp.h"
 #include "basics/conversion.h"
-#include "dcn30_cm_common.h"
+#include "dcn30/dcn30_cm_common.h"
 
 #define REG(reg)\
 	dpp->tf_regs->reg
@@ -1384,15 +1384,15 @@ static void dpp3_select_3dlut_ram_mask(
 }
 
 static bool dpp3_program_3dlut(struct dpp *dpp_base,
-			       struct tetrahedral_params *params)
+			       const struct tetrahedral_params *params)
 {
 	enum dc_lut_mode mode;
 	bool is_17x17x17;
 	bool is_12bits_color_channel;
-	struct dc_rgb *lut0;
-	struct dc_rgb *lut1;
-	struct dc_rgb *lut2;
-	struct dc_rgb *lut3;
+	const struct dc_rgb *lut0;
+	const struct dc_rgb *lut1;
+	const struct dc_rgb *lut2;
+	const struct dc_rgb *lut3;
 	int lut_size0;
 	int lut_size;
 

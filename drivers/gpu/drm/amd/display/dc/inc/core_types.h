@@ -90,6 +90,9 @@ struct resource_funcs {
 	void (*update_soc_for_wm_a)(
 				struct dc *dc, struct dc_state *context);
 
+	unsigned int (*calculate_mall_ways_from_bytes)(
+				const struct dc *dc,
+				unsigned int total_size_in_mall_bytes);
 	/**
 	 * @populate_dml_pipes - Populate pipe data struct
 	 *
@@ -496,7 +499,7 @@ struct dcn_bw_writeback {
 
 struct dcn_bw_output {
 	struct dc_clocks clk;
-	struct dcn_watermark_set watermarks;
+	union dcn_watermark_set watermarks;
 	struct dcn_bw_writeback bw_writeback;
 	int compbuf_size_kb;
 	unsigned int mall_ss_size_bytes;
@@ -520,25 +523,6 @@ struct bw_context {
 struct dc_dmub_cmd {
 	union dmub_rb_cmd dmub_cmd;
 	enum dm_dmub_wait_type wait_type;
-};
-
-struct dc_scratch_space {
-	/* used to temporarily backup plane states of a stream during
-	 * dc update. The reason is that plane states are overwritten
-	 * with surface updates in dc update. Once they are overwritten
-	 * current state is no longer valid. We want to temporarily
-	 * store current value in plane states so we can still recover
-	 * a valid current state during dc update.
-	 */
-	struct dc_plane_state plane_states[MAX_SURFACE_NUM];
-	struct dc_gamma gamma_correction[MAX_SURFACE_NUM];
-	struct dc_transfer_func in_transfer_func[MAX_SURFACE_NUM];
-	struct dc_3dlut lut3d_func[MAX_SURFACE_NUM];
-	struct dc_transfer_func in_shaper_func[MAX_SURFACE_NUM];
-	struct dc_transfer_func blend_tf[MAX_SURFACE_NUM];
-
-	struct dc_stream_state stream_state;
-	struct dc_transfer_func out_transfer_func;
 };
 
 /**
@@ -622,9 +606,6 @@ struct dc_state {
 	struct {
 		unsigned int stutter_period_us;
 	} perf_params;
-
-
-	struct dc_scratch_space scratch;
 };
 
 struct replay_context {

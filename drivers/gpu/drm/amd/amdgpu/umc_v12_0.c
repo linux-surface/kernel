@@ -266,25 +266,19 @@ static void umc_v12_0_mca_addr_to_pa(struct amdgpu_device *adev,
 }
 
 static void umc_v12_0_convert_error_address(struct amdgpu_device *adev,
-					    struct ras_err_data *err_data, uint64_t err_addr,
-					    uint32_t ch_inst, uint32_t umc_inst,
-					    uint32_t node_inst)
+					struct ras_err_data *err_data,
+					struct ta_ras_query_address_input *addr_in)
 {
 	uint32_t col, row, row_xor, bank, channel_index;
-	uint64_t soc_pa, retired_page, column;
-	struct ta_ras_query_address_input addr_in;
+	uint64_t soc_pa, retired_page, column, err_addr;
 	struct ta_ras_query_address_output addr_out;
 
-	addr_in.addr_type = TA_RAS_MCA_TO_PA;
-	addr_in.ma.err_addr = err_addr;
-	addr_in.ma.ch_inst = ch_inst;
-	addr_in.ma.umc_inst = umc_inst;
-	addr_in.ma.node_inst = node_inst;
-
-	if (psp_ras_query_address(&adev->psp, &addr_in, &addr_out))
+	err_addr = addr_in->ma.err_addr;
+	addr_in->addr_type = TA_RAS_MCA_TO_PA;
+	if (psp_ras_query_address(&adev->psp, addr_in, &addr_out))
 		/* fallback to old path if fail to get pa from psp */
-		umc_v12_0_mca_addr_to_pa(adev, err_addr, ch_inst, umc_inst,
-				node_inst, &addr_out);
+		umc_v12_0_mca_addr_to_pa(adev, err_addr, addr_in->ma.ch_inst,
+				addr_in->ma.umc_inst, addr_in->ma.node_inst, &addr_out);
 
 	soc_pa = addr_out.pa.pa;
 	bank = addr_out.pa.bank;
@@ -309,7 +303,7 @@ static void umc_v12_0_convert_error_address(struct amdgpu_device *adev,
 			"Error Address(PA):0x%-10llx Row:0x%-4x Col:0x%-2x Bank:0x%x Channel:0x%x\n",
 			retired_page, row, col, bank, channel_index);
 		amdgpu_umc_fill_error_record(err_data, err_addr,
-			retired_page, channel_index, umc_inst);
+			retired_page, channel_index, addr_in->ma.umc_inst);
 
 		/* shift R13 bit */
 		retired_page ^= (0x1ULL << UMC_V12_0_PA_R13_BIT);
@@ -317,7 +311,7 @@ static void umc_v12_0_convert_error_address(struct amdgpu_device *adev,
 			"Error Address(PA):0x%-10llx Row:0x%-4x Col:0x%-2x Bank:0x%x Channel:0x%x\n",
 			retired_page, row_xor, col, bank, channel_index);
 		amdgpu_umc_fill_error_record(err_data, err_addr,
-			retired_page, channel_index, umc_inst);
+			retired_page, channel_index, addr_in->ma.umc_inst);
 	}
 }
 
@@ -325,10 +319,11 @@ static int umc_v12_0_query_error_address(struct amdgpu_device *adev,
 					uint32_t node_inst, uint32_t umc_inst,
 					uint32_t ch_inst, void *data)
 {
+	struct ras_err_data *err_data = (struct ras_err_data *)data;
+	struct ta_ras_query_address_input addr_in;
 	uint64_t mc_umc_status_addr;
 	uint64_t mc_umc_status, err_addr;
 	uint64_t mc_umc_addrt0;
-	struct ras_err_data *err_data = (struct ras_err_data *)data;
 	uint64_t umc_reg_offset =
 		get_umc_v12_0_reg_offset(adev, node_inst, umc_inst, ch_inst);
 
@@ -357,8 +352,19 @@ static int umc_v12_0_query_error_address(struct amdgpu_device *adev,
 
 		err_addr = REG_GET_FIELD(err_addr, MCA_UMC_UMC0_MCUMC_ADDRT0, ErrorAddr);
 
-		umc_v12_0_convert_error_address(adev, err_data, err_addr,
-					ch_inst, umc_inst, node_inst);
+		if (!adev->aid_mask &&
+		    adev->smuio.funcs &&
+		    adev->smuio.funcs->get_socket_id)
+			addr_in.ma.socket_id = adev->smuio.funcs->get_socket_id(adev);
+		else
+			addr_in.ma.socket_id = 0;
+
+		addr_in.ma.err_addr = err_addr;
+		addr_in.ma.ch_inst = ch_inst;
+		addr_in.ma.umc_inst = umc_inst;
+		addr_in.ma.node_inst = node_inst;
+
+		umc_v12_0_convert_error_address(adev, err_data, &addr_in);
 	}
 
 	/* clear umc status */
@@ -404,10 +410,16 @@ static int umc_v12_0_err_cnt_init_per_channel(struct amdgpu_device *adev,
 static void umc_v12_0_ecc_info_query_ras_error_count(struct amdgpu_device *adev,
 					void *ras_error_status)
 {
+	struct ras_query_context qctx;
+
+	memset(&qctx, 0, sizeof(qctx));
+	qctx.event_id = amdgpu_ras_acquire_event_id(adev, amdgpu_ras_intr_triggered() ?
+						    RAS_EVENT_TYPE_ISR : RAS_EVENT_TYPE_INVALID);
+
 	amdgpu_mca_smu_log_ras_error(adev,
-		AMDGPU_RAS_BLOCK__UMC, AMDGPU_MCA_ERROR_TYPE_CE, ras_error_status);
+		AMDGPU_RAS_BLOCK__UMC, AMDGPU_MCA_ERROR_TYPE_CE, ras_error_status, &qctx);
 	amdgpu_mca_smu_log_ras_error(adev,
-		AMDGPU_RAS_BLOCK__UMC, AMDGPU_MCA_ERROR_TYPE_UE, ras_error_status);
+		AMDGPU_RAS_BLOCK__UMC, AMDGPU_MCA_ERROR_TYPE_UE, ras_error_status, &qctx);
 }
 
 static void umc_v12_0_ecc_info_query_ras_error_address(struct amdgpu_device *adev,
@@ -418,11 +430,15 @@ static void umc_v12_0_ecc_info_query_ras_error_address(struct amdgpu_device *ade
 	struct ras_err_info *err_info;
 	struct ras_err_addr *mca_err_addr, *tmp;
 	struct ras_err_data *err_data = (struct ras_err_data *)ras_error_status;
+	struct ta_ras_query_address_input addr_in;
 
 	for_each_ras_error(err_node, err_data) {
 		err_info = &err_node->err_info;
 		if (list_empty(&err_info->err_addr_list))
 			continue;
+
+		addr_in.ma.node_inst = err_info->mcm_info.die_id;
+		addr_in.ma.socket_id = err_info->mcm_info.socket_id;
 
 		list_for_each_entry_safe(mca_err_addr, tmp, &err_info->err_addr_list, node) {
 			mc_umc_status = mca_err_addr->err_status;
@@ -439,6 +455,10 @@ static void umc_v12_0_ecc_info_query_ras_error_address(struct amdgpu_device *ade
 							MCA_UMC_UMC0_MCUMC_ADDRT0, ErrorAddr);
 				InstanceIdLo = REG_GET_FIELD(mca_ipid, MCMP1_IPIDT0, InstanceIdLo);
 
+				addr_in.ma.err_addr = err_addr;
+				addr_in.ma.ch_inst = MCA_IPID_LO_2_UMC_CH(InstanceIdLo);
+				addr_in.ma.umc_inst = MCA_IPID_LO_2_UMC_INST(InstanceIdLo);
+
 				dev_info(adev->dev, "UMC:IPID:0x%llx, aid:%d, inst:%d, ch:%d, err_addr:0x%llx\n",
 					mca_ipid,
 					err_info->mcm_info.die_id,
@@ -447,10 +467,7 @@ static void umc_v12_0_ecc_info_query_ras_error_address(struct amdgpu_device *ade
 					err_addr);
 
 				umc_v12_0_convert_error_address(adev,
-					err_data, err_addr,
-					MCA_IPID_LO_2_UMC_CH(InstanceIdLo),
-					MCA_IPID_LO_2_UMC_INST(InstanceIdLo),
-					err_info->mcm_info.die_id);
+					err_data, &addr_in);
 			}
 
 			/* Delete error address node from list and free memory */
@@ -498,43 +515,44 @@ const struct amdgpu_ras_block_hw_ops umc_v12_0_ras_hw_ops = {
 	.query_ras_error_address = umc_v12_0_query_ras_error_address,
 };
 
-static int umc_v12_0_aca_bank_generate_report(struct aca_handle *handle, struct aca_bank *bank, enum aca_error_type type,
-					      struct aca_bank_report *report, void *data)
+static int umc_v12_0_aca_bank_parser(struct aca_handle *handle, struct aca_bank *bank,
+				     enum aca_smu_type type, void *data)
 {
 	struct amdgpu_device *adev = handle->adev;
-	u64 status;
+	struct aca_bank_info info;
+	enum aca_error_type err_type;
+	u64 status, count;
+	u32 ext_error_code;
 	int ret;
 
-	ret = aca_bank_info_decode(bank, &report->info);
+	status = bank->regs[ACA_REG_IDX_STATUS];
+	if (umc_v12_0_is_deferred_error(adev, status))
+		err_type = ACA_ERROR_TYPE_DEFERRED;
+	else if (umc_v12_0_is_uncorrectable_error(adev, status))
+		err_type = ACA_ERROR_TYPE_UE;
+	else if (umc_v12_0_is_correctable_error(adev, status))
+		err_type = ACA_ERROR_TYPE_CE;
+	else
+		return 0;
+
+	ret = aca_bank_info_decode(bank, &info);
 	if (ret)
 		return ret;
 
-	status = bank->regs[ACA_REG_IDX_STATUS];
-	switch (type) {
-	case ACA_ERROR_TYPE_UE:
-		if (umc_v12_0_is_uncorrectable_error(adev, status)) {
-			report->count[type] = 1;
-		}
-		break;
-	case ACA_ERROR_TYPE_CE:
-		if (umc_v12_0_is_correctable_error(adev, status)) {
-			report->count[type] = 1;
-		}
-		break;
-	default:
-		return -EINVAL;
-	}
+	ext_error_code = ACA_REG__STATUS__ERRORCODEEXT(status);
+	count = ext_error_code == 0 ?
+		ACA_REG__MISC0__ERRCNT(bank->regs[ACA_REG_IDX_MISC0]) : 1ULL;
 
-	return 0;
+	return aca_error_cache_log_bank_error(handle, &info, err_type, count);
 }
 
 static const struct aca_bank_ops umc_v12_0_aca_bank_ops = {
-	.aca_bank_generate_report = umc_v12_0_aca_bank_generate_report,
+	.aca_bank_parser = umc_v12_0_aca_bank_parser,
 };
 
 const struct aca_info umc_v12_0_aca_info = {
 	.hwip = ACA_HWIP_TYPE_UMC,
-	.mask = ACA_ERROR_UE_MASK | ACA_ERROR_CE_MASK,
+	.mask = ACA_ERROR_UE_MASK | ACA_ERROR_CE_MASK | ACA_ERROR_DEFERRED_MASK,
 	.bank_ops = &umc_v12_0_aca_bank_ops,
 };
 
