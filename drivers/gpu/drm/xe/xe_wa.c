@@ -173,11 +173,11 @@ static const struct xe_rtp_entry_sr gt_was[] = {
 	  XE_RTP_ACTIONS(CLR(MISCCPCTL, DOP_CLOCK_GATE_RENDER_ENABLE))
 	},
 	{ XE_RTP_NAME("14018575942"),
-	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1271)),
+	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1274)),
 	  XE_RTP_ACTIONS(SET(COMP_MOD_CTRL, FORCE_MISS_FTLB))
 	},
 	{ XE_RTP_NAME("22016670082"),
-	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1271)),
+	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1274)),
 	  XE_RTP_ACTIONS(SET(SQCNT1, ENFORCE_RAR))
 	},
 
@@ -328,12 +328,6 @@ static const struct xe_rtp_entry_sr engine_was[] = {
 		       FUNC(xe_rtp_match_first_render_or_compute)),
 	  XE_RTP_ACTIONS(SET(ROW_CHICKEN4, XEHP_DIS_BBL_SYSPIPE))
 	},
-	{ XE_RTP_NAME("16015675438"),
-	  XE_RTP_RULES(PLATFORM(DG2),
-		       FUNC(xe_rtp_match_first_render_or_compute)),
-	  XE_RTP_ACTIONS(SET(FF_SLICE_CS_CHICKEN2(RENDER_RING_BASE),
-			     PERF_FIX_BALANCING_CFE_DISABLE))
-	},
 	{ XE_RTP_NAME("18028616096"),
 	  XE_RTP_RULES(PLATFORM(DG2),
 		       FUNC(xe_rtp_match_first_render_or_compute)),
@@ -383,10 +377,10 @@ static const struct xe_rtp_entry_sr engine_was[] = {
 	  XE_RTP_RULES(PLATFORM(PVC), FUNC(xe_rtp_match_first_render_or_compute)),
 	  XE_RTP_ACTIONS(SET(ROW_CHICKEN4, XEHP_DIS_BBL_SYSPIPE))
 	},
-	{ XE_RTP_NAME("16015675438"),
-	  XE_RTP_RULES(PLATFORM(PVC), FUNC(xe_rtp_match_first_render_or_compute)),
-	  XE_RTP_ACTIONS(SET(FF_SLICE_CS_CHICKEN2(RENDER_RING_BASE),
-			     PERF_FIX_BALANCING_CFE_DISABLE))
+	{ XE_RTP_NAME("18020744125"),
+	  XE_RTP_RULES(PLATFORM(PVC), FUNC(xe_rtp_match_first_render_or_compute),
+		       ENGINE_CLASS(COMPUTE)),
+	  XE_RTP_ACTIONS(SET(RING_HWSTAM(RENDER_RING_BASE), ~0))
 	},
 	{ XE_RTP_NAME("14014999345"),
 	  XE_RTP_RULES(PLATFORM(PVC), ENGINE_CLASS(COMPUTE),
@@ -397,7 +391,7 @@ static const struct xe_rtp_entry_sr engine_was[] = {
 	/* Xe_LPG */
 
 	{ XE_RTP_NAME("14017856879"),
-	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1271),
+	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1274),
 		       FUNC(xe_rtp_match_first_render_or_compute)),
 	  XE_RTP_ACTIONS(SET(ROW_CHICKEN3, DIS_FIX_EOT1_FLUSH))
 	},
@@ -406,6 +400,11 @@ static const struct xe_rtp_entry_sr engine_was[] = {
 		       FUNC(xe_rtp_match_first_render_or_compute)),
 	  XE_RTP_ACTIONS(SET(XEHP_HDC_CHICKEN0, DIS_ATOMIC_CHAINING_TYPED_WRITES,
 			     XE_RTP_NOCHECK))
+	},
+	{ XE_RTP_NAME("14020495402"),
+	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1274),
+		       FUNC(xe_rtp_match_first_render_or_compute)),
+	  XE_RTP_ACTIONS(SET(ROW_CHICKEN2, DISABLE_TDL_SVHS_GATING))
 	},
 
 	/* Xe2_LPG */
@@ -537,7 +536,7 @@ static const struct xe_rtp_entry_sr lrc_was[] = {
 	/* Xe_LPG */
 
 	{ XE_RTP_NAME("18019271663"),
-	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1271)),
+	  XE_RTP_RULES(GRAPHICS_VERSION_RANGE(1270, 1274)),
 	  XE_RTP_ACTIONS(SET(CACHE_MODE_1, MSAA_OPTIMIZATION_REDUC_DISABLE))
 	},
 	{ XE_RTP_NAME("14019877138"),

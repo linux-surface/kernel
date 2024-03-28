@@ -648,6 +648,10 @@ static bool vma_userptr_invalidate(struct mmu_interval_notifier *mni,
 	if (!mmu_notifier_range_blockable(range))
 		return false;
 
+	vm_dbg(&xe_vma_vm(vma)->xe->drm,
+	       "NOTIFIER: addr=0x%016llx, range=0x%016llx",
+		xe_vma_start(vma), xe_vma_size(vma));
+
 	down_write(&vm->userptr.notifier_lock);
 	mmu_interval_set_seq(mni, cur_seq);
 
@@ -1386,9 +1390,8 @@ struct xe_vm *xe_vm_create(struct xe_device *xe, u32 flags)
 		vm->batch_invalidate_tlb = true;
 	}
 
-	if (flags & XE_VM_FLAG_LR_MODE) {
+	if (vm->flags & XE_VM_FLAG_LR_MODE) {
 		INIT_WORK(&vm->preempt.rebind_work, preempt_rebind_work_func);
-		vm->flags |= XE_VM_FLAG_LR_MODE;
 		vm->batch_invalidate_tlb = false;
 	}
 
@@ -1697,7 +1700,7 @@ next:
 		xe_exec_queue_last_fence_get(wait_exec_queue, vm) : fence;
 	if (last_op) {
 		for (i = 0; i < num_syncs; i++)
-			xe_sync_entry_signal(&syncs[i], NULL, fence);
+			xe_sync_entry_signal(&syncs[i], fence);
 	}
 
 	return fence;
@@ -1771,7 +1774,7 @@ next:
 
 	if (last_op) {
 		for (i = 0; i < num_syncs; i++)
-			xe_sync_entry_signal(&syncs[i], NULL,
+			xe_sync_entry_signal(&syncs[i],
 					     cf ? &cf->base : fence);
 	}
 
@@ -1832,7 +1835,7 @@ static int __xe_vm_bind(struct xe_vm *vm, struct xe_vma *vma,
 		fence = xe_exec_queue_last_fence_get(wait_exec_queue, vm);
 		if (last_op) {
 			for (i = 0; i < num_syncs; i++)
-				xe_sync_entry_signal(&syncs[i], NULL, fence);
+				xe_sync_entry_signal(&syncs[i], fence);
 		}
 	}
 
@@ -2033,7 +2036,7 @@ static int xe_vm_prefetch(struct xe_vm *vm, struct xe_vma *vma,
 	struct xe_exec_queue *wait_exec_queue = to_wait_exec_queue(vm, q);
 	int err;
 
-	xe_assert(vm->xe, region <= ARRAY_SIZE(region_to_mem_type));
+	xe_assert(vm->xe, region < ARRAY_SIZE(region_to_mem_type));
 
 	if (!xe_vma_has_no_bo(vma)) {
 		err = xe_bo_migrate(xe_vma_bo(vma), region_to_mem_type[region]);
@@ -2053,7 +2056,7 @@ static int xe_vm_prefetch(struct xe_vm *vm, struct xe_vma *vma,
 				struct dma_fence *fence =
 					xe_exec_queue_last_fence_get(wait_exec_queue, vm);
 
-				xe_sync_entry_signal(&syncs[i], NULL, fence);
+				xe_sync_entry_signal(&syncs[i], fence);
 				dma_fence_put(fence);
 			}
 		}
@@ -2931,7 +2934,7 @@ static int vm_bind_ioctl_signal_fences(struct xe_vm *vm,
 		return PTR_ERR(fence);
 
 	for (i = 0; i < num_syncs; i++)
-		xe_sync_entry_signal(&syncs[i], NULL, fence);
+		xe_sync_entry_signal(&syncs[i], fence);
 
 	xe_exec_queue_last_fence_set(to_wait_exec_queue(vm, q), vm,
 				     fence);
@@ -3234,6 +3237,10 @@ int xe_vm_invalidate_vma(struct xe_vma *vma)
 	xe_assert(xe, !xe_vma_is_null(vma));
 	trace_xe_vma_invalidate(vma);
 
+	vm_dbg(&xe_vma_vm(vma)->xe->drm,
+	       "INVALIDATE: addr=0x%016llx, range=0x%016llx",
+		xe_vma_start(vma), xe_vma_size(vma));
+
 	/* Check that we don't race with page-table updates */
 	if (IS_ENABLED(CONFIG_PROVE_LOCKING)) {
 		if (xe_vma_is_userptr(vma)) {
@@ -3352,8 +3359,10 @@ struct xe_vm_snapshot *xe_vm_snapshot_capture(struct xe_vm *vm)
 
 	if (num_snaps)
 		snap = kvzalloc(offsetof(struct xe_vm_snapshot, snap[num_snaps]), GFP_NOWAIT);
-	if (!snap)
+	if (!snap) {
+		snap = num_snaps ? ERR_PTR(-ENOMEM) : ERR_PTR(-ENODEV);
 		goto out_unlock;
+	}
 
 	snap->num_snaps = num_snaps;
 	i = 0;
@@ -3393,6 +3402,9 @@ out_unlock:
 
 void xe_vm_snapshot_capture_delayed(struct xe_vm_snapshot *snap)
 {
+	if (IS_ERR(snap))
+		return;
+
 	for (int i = 0; i < snap->num_snaps; i++) {
 		struct xe_bo *bo = snap->snap[i].bo;
 		struct iosys_map src;
@@ -3447,13 +3459,21 @@ void xe_vm_snapshot_print(struct xe_vm_snapshot *snap, struct drm_printer *p)
 {
 	unsigned long i, j;
 
-	for (i = 0; i < snap->num_snaps; i++) {
-		if (IS_ERR(snap->snap[i].data))
-			goto uncaptured;
+	if (IS_ERR(snap)) {
+		drm_printf(p, "[0].error: %li\n", PTR_ERR(snap));
+		return;
+	}
 
+	for (i = 0; i < snap->num_snaps; i++) {
 		drm_printf(p, "[%llx].length: 0x%lx\n", snap->snap[i].ofs, snap->snap[i].len);
-		drm_printf(p, "[%llx].data: ",
-			   snap->snap[i].ofs);
+
+		if (IS_ERR(snap->snap[i].data)) {
+			drm_printf(p, "[%llx].error: %li\n", snap->snap[i].ofs,
+				   PTR_ERR(snap->snap[i].data));
+			continue;
+		}
+
+		drm_printf(p, "[%llx].data: ", snap->snap[i].ofs);
 
 		for (j = 0; j < snap->snap[i].len; j += sizeof(u32)) {
 			u32 *val = snap->snap[i].data + j;
@@ -3463,12 +3483,6 @@ void xe_vm_snapshot_print(struct xe_vm_snapshot *snap, struct drm_printer *p)
 		}
 
 		drm_puts(p, "\n");
-		continue;
-
-uncaptured:
-		drm_printf(p, "Unable to capture range [%llx-%llx]: %li\n",
-			   snap->snap[i].ofs, snap->snap[i].ofs + snap->snap[i].len - 1,
-			   PTR_ERR(snap->snap[i].data));
 	}
 }
 
@@ -3476,7 +3490,7 @@ void xe_vm_snapshot_free(struct xe_vm_snapshot *snap)
 {
 	unsigned long i;
 
-	if (!snap)
+	if (IS_ERR(snap))
 		return;
 
 	for (i = 0; i < snap->num_snaps; i++) {

@@ -12,6 +12,7 @@
 #include "abi/guc_actions_abi.h"
 #include "abi/guc_errors_abi.h"
 #include "regs/xe_gt_regs.h"
+#include "regs/xe_gtt_defs.h"
 #include "regs/xe_guc_regs.h"
 #include "xe_bo.h"
 #include "xe_device.h"
@@ -33,14 +34,13 @@
 #include "xe_wa.h"
 #include "xe_wopcm.h"
 
-/* GuC addresses above GUC_GGTT_TOP also don't map through the GTT */
-#define GUC_GGTT_TOP    0xFEE00000
 static u32 guc_bo_ggtt_addr(struct xe_guc *guc,
 			    struct xe_bo *bo)
 {
 	struct xe_device *xe = guc_to_xe(guc);
 	u32 addr = xe_bo_ggtt_addr(bo);
 
+	/* GuC addresses above GUC_GGTT_TOP don't map through the GTT */
 	xe_assert(xe, addr >= xe_wopcm_size(guc_to_xe(guc)));
 	xe_assert(xe, addr < GUC_GGTT_TOP);
 	xe_assert(xe, bo->size <= GUC_GGTT_TOP - addr);
@@ -133,15 +133,10 @@ static u32 guc_ctl_ads_flags(struct xe_guc *guc)
 	return flags;
 }
 
-#define GUC_VER(maj, min, pat)	(((maj) << 16) | ((min) << 8) | (pat))
-
 static u32 guc_ctl_wa_flags(struct xe_guc *guc)
 {
 	struct xe_device *xe = guc_to_xe(guc);
 	struct xe_gt *gt = guc_to_gt(guc);
-	struct xe_uc_fw *uc_fw = &guc->fw;
-	struct xe_uc_fw_version *version = &uc_fw->versions.found[XE_UC_FW_VER_RELEASE];
-
 	u32 flags = 0;
 
 	if (XE_WA(gt, 22012773006))
@@ -164,20 +159,15 @@ static u32 guc_ctl_wa_flags(struct xe_guc *guc)
 	if (XE_WA(gt, 22012727170) || XE_WA(gt, 22012727685))
 		flags |= GUC_WA_CONTEXT_ISOLATION;
 
-	if ((XE_WA(gt, 16015675438) || XE_WA(gt, 18020744125)) &&
+	if (XE_WA(gt, 18020744125) &&
 	    !xe_hw_engine_mask_per_class(gt, XE_ENGINE_CLASS_RENDER))
 		flags |= GUC_WA_RCS_REGS_IN_CCS_REGS_LIST;
 
 	if (XE_WA(gt, 1509372804))
 		flags |= GUC_WA_RENDER_RST_RC6_EXIT;
 
-	if (XE_WA(gt, 14018913170)) {
-		if (GUC_VER(version->major, version->minor, version->patch) >= GUC_VER(70, 7, 0))
-			flags |= GUC_WA_ENABLE_TSC_CHECK_ON_RC6;
-		else
-			drm_dbg(&xe->drm, "Skip WA 14018913170: GUC version expected >= 70.7.0, found %u.%u.%u\n",
-				version->major, version->minor, version->patch);
-	}
+	if (XE_WA(gt, 14018913170))
+		flags |= GUC_WA_ENABLE_TSC_CHECK_ON_RC6;
 
 	return flags;
 }
@@ -250,10 +240,11 @@ static void guc_write_params(struct xe_guc *guc)
 static void guc_fini(struct drm_device *drm, void *arg)
 {
 	struct xe_guc *guc = arg;
+	struct xe_gt *gt = guc_to_gt(guc);
 
-	xe_force_wake_get(gt_to_fw(guc_to_gt(guc)), XE_FORCEWAKE_ALL);
+	xe_gt_WARN_ON(gt, xe_force_wake_get(gt_to_fw(gt), XE_FORCEWAKE_ALL));
 	xe_uc_fini_hw(&guc_to_gt(guc)->uc);
-	xe_force_wake_put(gt_to_fw(guc_to_gt(guc)), XE_FORCEWAKE_ALL);
+	xe_force_wake_put(gt_to_fw(gt), XE_FORCEWAKE_ALL);
 }
 
 /**

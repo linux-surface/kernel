@@ -25,21 +25,47 @@
 /**
  * DOC: Xe Power Management
  *
- * Xe PM shall be guided by the simplicity.
- * Use the simplest hook options whenever possible.
- * Let's not reinvent the runtime_pm references and hooks.
- * Shall have a clear separation of display and gt underneath this component.
+ * Xe PM implements the main routines for both system level suspend states and
+ * for the opportunistic runtime suspend states.
  *
- * What's next:
+ * System Level Suspend (S-States) - In general this is OS initiated suspend
+ * driven by ACPI for achieving S0ix (a.k.a. S2idle, freeze), S3 (suspend to ram),
+ * S4 (disk). The main functions here are `xe_pm_suspend` and `xe_pm_resume`. They
+ * are the main point for the suspend to and resume from these states.
  *
- * For now s2idle and s3 are only working in integrated devices. The next step
- * is to iterate through all VRAM's BO backing them up into the system memory
- * before allowing the system suspend.
+ * PCI Device Suspend (D-States) - This is the opportunistic PCIe device low power
+ * state D3, controlled by the PCI subsystem and ACPI with the help from the
+ * runtime_pm infrastructure.
+ * PCI D3 is special and can mean D3hot, where Vcc power is on for keeping memory
+ * alive and quicker low latency resume or D3Cold where Vcc power is off for
+ * better power savings.
+ * The Vcc control of PCI hierarchy can only be controlled at the PCI root port
+ * level, while the device driver can be behind multiple bridges/switches and
+ * paired with other devices. For this reason, the PCI subsystem cannot perform
+ * the transition towards D3Cold. The lowest runtime PM possible from the PCI
+ * subsystem is D3hot. Then, if all these paired devices in the same root port
+ * are in D3hot, ACPI will assist here and run its own methods (_PR3 and _OFF)
+ * to perform the transition from D3hot to D3cold. Xe may disallow this
+ * transition by calling pci_d3cold_disable(root_pdev) before going to runtime
+ * suspend. It will be based on runtime conditions such as VRAM usage for a
+ * quick and low latency resume for instance.
  *
- * Also runtime_pm needs to be here from the beginning.
+ * Runtime PM - This infrastructure provided by the Linux kernel allows the
+ * device drivers to indicate when the can be runtime suspended, so the device
+ * could be put at D3 (if supported), or allow deeper package sleep states
+ * (PC-states), and/or other low level power states. Xe PM component provides
+ * `xe_pm_runtime_suspend` and `xe_pm_runtime_resume` functions that PCI
+ * subsystem will call before transition to/from runtime suspend.
  *
- * RC6/RPS are also critical PM features. Let's start with GuCRC and GuC SLPC
- * and no wait boost. Frequency optimizations should come on a next stage.
+ * Also, Xe PM provides get and put functions that Xe driver will use to
+ * indicate activity. In order to avoid locking complications with the memory
+ * management, whenever possible, these get and put functions needs to be called
+ * from the higher/outer levels.
+ * The main cases that need to be protected from the outer levels are: IOCTL,
+ * sysfs, debugfs, dma-buf sharing, GPU execution.
+ *
+ * This component is not responsible for GT idleness (RC6) nor GT frequency
+ * management (RPS).
  */
 
 /**
@@ -54,13 +80,15 @@ int xe_pm_suspend(struct xe_device *xe)
 	u8 id;
 	int err;
 
+	drm_dbg(&xe->drm, "Suspending device\n");
+
 	for_each_gt(gt, xe, id)
 		xe_gt_suspend_prepare(gt);
 
 	/* FIXME: Super racey... */
 	err = xe_bo_evict_all(xe);
 	if (err)
-		return err;
+		goto err;
 
 	xe_display_pm_suspend(xe);
 
@@ -68,7 +96,7 @@ int xe_pm_suspend(struct xe_device *xe)
 		err = xe_gt_suspend(gt);
 		if (err) {
 			xe_display_pm_resume(xe);
-			return err;
+			goto err;
 		}
 	}
 
@@ -76,7 +104,11 @@ int xe_pm_suspend(struct xe_device *xe)
 
 	xe_display_pm_suspend_late(xe);
 
+	drm_dbg(&xe->drm, "Device suspended\n");
 	return 0;
+err:
+	drm_dbg(&xe->drm, "Device suspend failed %d\n", err);
+	return err;
 }
 
 /**
@@ -92,13 +124,15 @@ int xe_pm_resume(struct xe_device *xe)
 	u8 id;
 	int err;
 
+	drm_dbg(&xe->drm, "Resuming device\n");
+
 	for_each_tile(tile, xe, id)
 		xe_wa_apply_tile_workarounds(tile);
 
 	for_each_gt(gt, xe, id) {
 		err = xe_pcode_init(gt);
 		if (err)
-			return err;
+			goto err;
 	}
 
 	xe_display_pm_resume_early(xe);
@@ -109,7 +143,7 @@ int xe_pm_resume(struct xe_device *xe)
 	 */
 	err = xe_bo_restore_kernel(xe);
 	if (err)
-		return err;
+		goto err;
 
 	xe_irq_resume(xe);
 
@@ -120,9 +154,13 @@ int xe_pm_resume(struct xe_device *xe)
 
 	err = xe_bo_restore_user(xe);
 	if (err)
-		return err;
+		goto err;
 
+	drm_dbg(&xe->drm, "Device resumed\n");
 	return 0;
+err:
+	drm_dbg(&xe->drm, "Device resume failed %d\n", err);
+	return err;
 }
 
 static bool xe_pm_pci_d3cold_capable(struct xe_device *xe)
@@ -178,6 +216,12 @@ void xe_pm_init_early(struct xe_device *xe)
 	drmm_mutex_init(&xe->drm, &xe->mem_access.vram_userfault.lock);
 }
 
+/**
+ * xe_pm_init - Initialize Xe Power Management
+ * @xe: xe device instance
+ *
+ * This component is responsible for System and Device sleep states.
+ */
 void xe_pm_init(struct xe_device *xe)
 {
 	/* For now suspend/resume is only allowed with GuC */
@@ -196,6 +240,10 @@ void xe_pm_init(struct xe_device *xe)
 	xe_pm_runtime_init(xe);
 }
 
+/**
+ * xe_pm_runtime_fini - Finalize Runtime PM
+ * @xe: xe device instance
+ */
 void xe_pm_runtime_fini(struct xe_device *xe)
 {
 	struct device *dev = xe->drm.dev;
@@ -225,6 +273,28 @@ struct task_struct *xe_pm_read_callback_task(struct xe_device *xe)
 	return READ_ONCE(xe->pm_callback_task);
 }
 
+/**
+ * xe_pm_runtime_suspended - Check if runtime_pm state is suspended
+ * @xe: xe device instance
+ *
+ * This does not provide any guarantee that the device is going to remain
+ * suspended as it might be racing with the runtime state transitions.
+ * It can be used only as a non-reliable assertion, to ensure that we are not in
+ * the sleep state while trying to access some memory for instance.
+ *
+ * Returns true if PCI device is suspended, false otherwise.
+ */
+bool xe_pm_runtime_suspended(struct xe_device *xe)
+{
+	return pm_runtime_suspended(xe->drm.dev);
+}
+
+/**
+ * xe_pm_runtime_suspend - Prepare our device for D3hot/D3Cold
+ * @xe: xe device instance
+ *
+ * Returns 0 for success, negative error code otherwise.
+ */
 int xe_pm_runtime_suspend(struct xe_device *xe)
 {
 	struct xe_bo *bo, *on;
@@ -290,6 +360,12 @@ out:
 	return err;
 }
 
+/**
+ * xe_pm_runtime_resume - Waking up from D3hot/D3Cold
+ * @xe: xe device instance
+ *
+ * Returns 0 for success, negative error code otherwise.
+ */
 int xe_pm_runtime_resume(struct xe_device *xe)
 {
 	struct xe_gt *gt;
@@ -341,22 +417,99 @@ out:
 	return err;
 }
 
-int xe_pm_runtime_get(struct xe_device *xe)
+/**
+ * xe_pm_runtime_get - Get a runtime_pm reference and resume synchronously
+ * @xe: xe device instance
+ */
+void xe_pm_runtime_get(struct xe_device *xe)
 {
+	pm_runtime_get_noresume(xe->drm.dev);
+
+	if (xe_pm_read_callback_task(xe) == current)
+		return;
+
+	pm_runtime_resume(xe->drm.dev);
+}
+
+/**
+ * xe_pm_runtime_put - Put the runtime_pm reference back and mark as idle
+ * @xe: xe device instance
+ */
+void xe_pm_runtime_put(struct xe_device *xe)
+{
+	if (xe_pm_read_callback_task(xe) == current) {
+		pm_runtime_put_noidle(xe->drm.dev);
+	} else {
+		pm_runtime_mark_last_busy(xe->drm.dev);
+		pm_runtime_put(xe->drm.dev);
+	}
+}
+
+/**
+ * xe_pm_runtime_get_ioctl - Get a runtime_pm reference before ioctl
+ * @xe: xe device instance
+ *
+ * Returns: Any number greater than or equal to 0 for success, negative error
+ * code otherwise.
+ */
+int xe_pm_runtime_get_ioctl(struct xe_device *xe)
+{
+	if (WARN_ON(xe_pm_read_callback_task(xe) == current))
+		return -ELOOP;
+
 	return pm_runtime_get_sync(xe->drm.dev);
 }
 
-int xe_pm_runtime_put(struct xe_device *xe)
-{
-	pm_runtime_mark_last_busy(xe->drm.dev);
-	return pm_runtime_put(xe->drm.dev);
-}
-
+/**
+ * xe_pm_runtime_get_if_active - Get a runtime_pm reference if device active
+ * @xe: xe device instance
+ *
+ * Returns: Any number greater than or equal to 0 for success, negative error
+ * code otherwise.
+ */
 int xe_pm_runtime_get_if_active(struct xe_device *xe)
 {
 	return pm_runtime_get_if_active(xe->drm.dev);
 }
 
+/**
+ * xe_pm_runtime_get_if_in_use - Get a runtime_pm reference and resume if needed
+ * @xe: xe device instance
+ *
+ * Returns: True if device is awake and the reference was taken, false otherwise.
+ */
+bool xe_pm_runtime_get_if_in_use(struct xe_device *xe)
+{
+	if (xe_pm_read_callback_task(xe) == current) {
+		/* The device is awake, grab the ref and move on */
+		pm_runtime_get_noresume(xe->drm.dev);
+		return true;
+	}
+
+	return pm_runtime_get_if_in_use(xe->drm.dev) > 0;
+}
+
+/**
+ * xe_pm_runtime_resume_and_get - Resume, then get a runtime_pm ref if awake.
+ * @xe: xe device instance
+ *
+ * Returns: True if device is awake and the reference was taken, false otherwise.
+ */
+bool xe_pm_runtime_resume_and_get(struct xe_device *xe)
+{
+	if (xe_pm_read_callback_task(xe) == current) {
+		/* The device is awake, grab the ref and move on */
+		pm_runtime_get_noresume(xe->drm.dev);
+		return true;
+	}
+
+	return pm_runtime_resume_and_get(xe->drm.dev) >= 0;
+}
+
+/**
+ * xe_pm_assert_unbounded_bridge - Disable PM on unbounded pcie parent bridge
+ * @xe: xe device instance
+ */
 void xe_pm_assert_unbounded_bridge(struct xe_device *xe)
 {
 	struct pci_dev *pdev = to_pci_dev(xe->drm.dev);
@@ -371,6 +524,13 @@ void xe_pm_assert_unbounded_bridge(struct xe_device *xe)
 	}
 }
 
+/**
+ * xe_pm_set_vram_threshold - Set a vram threshold for allowing/blocking D3Cold
+ * @xe: xe device instance
+ * @threshold: VRAM size in bites for the D3cold threshold
+ *
+ * Returns 0 for success, negative error code otherwise.
+ */
 int xe_pm_set_vram_threshold(struct xe_device *xe, u32 threshold)
 {
 	struct ttm_resource_manager *man;
@@ -395,6 +555,13 @@ int xe_pm_set_vram_threshold(struct xe_device *xe, u32 threshold)
 	return 0;
 }
 
+/**
+ * xe_pm_d3cold_allowed_toggle - Check conditions to toggle d3cold.allowed
+ * @xe: xe device instance
+ *
+ * To be called during runtime_pm idle callback.
+ * Check for all the D3Cold conditions ahead of runtime suspend.
+ */
 void xe_pm_d3cold_allowed_toggle(struct xe_device *xe)
 {
 	struct ttm_resource_manager *man;

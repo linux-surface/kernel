@@ -30,7 +30,7 @@ write_dpt_rotated(struct xe_bo *bo, struct iosys_map *map, u32 *dpt_ofs, u32 bo_
 
 		for (row = 0; row < height; row++) {
 			u64 pte = ggtt->pt_ops->pte_encode_bo(bo, src_idx * XE_PAGE_SIZE,
-							      xe->pat.idx[XE_CACHE_WB]);
+							      xe->pat.idx[XE_CACHE_NONE]);
 
 			iosys_map_wr(map, *dpt_ofs, u64, pte);
 			*dpt_ofs += 8;
@@ -62,7 +62,7 @@ write_dpt_remapped(struct xe_bo *bo, struct iosys_map *map, u32 *dpt_ofs,
 		for (column = 0; column < width; column++) {
 			iosys_map_wr(map, *dpt_ofs, u64,
 				     pte_encode_bo(bo, src_idx * XE_PAGE_SIZE,
-				     xe->pat.idx[XE_CACHE_WB]));
+				     xe->pat.idx[XE_CACHE_NONE]));
 
 			*dpt_ofs += 8;
 			src_idx++;
@@ -100,17 +100,20 @@ static int __xe_pin_fb_vma_dpt(struct intel_framebuffer *fb,
 		dpt = xe_bo_create_pin_map(xe, tile0, NULL, dpt_size,
 					   ttm_bo_type_kernel,
 					   XE_BO_CREATE_VRAM0_BIT |
-					   XE_BO_CREATE_GGTT_BIT);
+					   XE_BO_CREATE_GGTT_BIT |
+					   XE_BO_PAGETABLE);
 	else
 		dpt = xe_bo_create_pin_map(xe, tile0, NULL, dpt_size,
 					   ttm_bo_type_kernel,
 					   XE_BO_CREATE_STOLEN_BIT |
-					   XE_BO_CREATE_GGTT_BIT);
+					   XE_BO_CREATE_GGTT_BIT |
+					   XE_BO_PAGETABLE);
 	if (IS_ERR(dpt))
 		dpt = xe_bo_create_pin_map(xe, tile0, NULL, dpt_size,
 					   ttm_bo_type_kernel,
 					   XE_BO_CREATE_SYSTEM_BIT |
-					   XE_BO_CREATE_GGTT_BIT);
+					   XE_BO_CREATE_GGTT_BIT |
+					   XE_BO_PAGETABLE);
 	if (IS_ERR(dpt))
 		return PTR_ERR(dpt);
 
@@ -119,7 +122,7 @@ static int __xe_pin_fb_vma_dpt(struct intel_framebuffer *fb,
 
 		for (x = 0; x < size / XE_PAGE_SIZE; x++) {
 			u64 pte = ggtt->pt_ops->pte_encode_bo(bo, x * XE_PAGE_SIZE,
-							      xe->pat.idx[XE_CACHE_WB]);
+							      xe->pat.idx[XE_CACHE_NONE]);
 
 			iosys_map_wr(&dpt->vmap, x * 8, u64, pte);
 		}
@@ -165,7 +168,7 @@ write_ggtt_rotated(struct xe_bo *bo, struct xe_ggtt *ggtt, u32 *ggtt_ofs, u32 bo
 
 		for (row = 0; row < height; row++) {
 			u64 pte = ggtt->pt_ops->pte_encode_bo(bo, src_idx * XE_PAGE_SIZE,
-							      xe->pat.idx[XE_CACHE_WB]);
+							      xe->pat.idx[XE_CACHE_NONE]);
 
 			xe_ggtt_set_pte(ggtt, *ggtt_ofs, pte);
 			*ggtt_ofs += XE_PAGE_SIZE;
@@ -211,7 +214,7 @@ static int __xe_pin_fb_vma_ggtt(struct intel_framebuffer *fb,
 
 		for (x = 0; x < size; x += XE_PAGE_SIZE) {
 			u64 pte = ggtt->pt_ops->pte_encode_bo(bo, x,
-							      xe->pat.idx[XE_CACHE_WB]);
+							      xe->pat.idx[XE_CACHE_NONE]);
 
 			xe_ggtt_set_pte(ggtt, vma->node.start + x, pte);
 		}
@@ -238,7 +241,6 @@ static int __xe_pin_fb_vma_ggtt(struct intel_framebuffer *fb,
 					   rot_info->plane[i].dst_stride);
 	}
 
-	xe_ggtt_invalidate(ggtt);
 out_unlock:
 	mutex_unlock(&ggtt->lock);
 out:
@@ -321,7 +323,7 @@ static void __xe_unpin_fb_vma(struct i915_vma *vma)
 		xe_bo_unpin_map_no_vm(vma->dpt);
 	else if (!drm_mm_node_allocated(&vma->bo->ggtt_node) ||
 		 vma->bo->ggtt_node.start != vma->node.start)
-		xe_ggtt_remove_node(ggtt, &vma->node);
+		xe_ggtt_remove_node(ggtt, &vma->node, false);
 
 	ttm_bo_reserve(&vma->bo->ttm, false, false, NULL);
 	ttm_bo_unpin(&vma->bo->ttm);

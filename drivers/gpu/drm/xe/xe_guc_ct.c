@@ -145,18 +145,22 @@ int xe_guc_ct_init(struct xe_guc_ct *ct)
 
 	xe_assert(xe, !(guc_ct_size() % PAGE_SIZE));
 
-	drmm_mutex_init(&xe->drm, &ct->lock);
 	spin_lock_init(&ct->fast_lock);
 	xa_init(&ct->fence_lookup);
 	INIT_WORK(&ct->g2h_worker, g2h_worker_func);
 	init_waitqueue_head(&ct->wq);
 	init_waitqueue_head(&ct->g2h_fence_wq);
 
+	err = drmm_mutex_init(&xe->drm, &ct->lock);
+	if (err)
+		return err;
+
 	primelockdep(ct);
 
 	bo = xe_managed_bo_create_pin_map(xe, tile, guc_ct_size(),
 					  XE_BO_CREATE_SYSTEM_BIT |
-					  XE_BO_CREATE_GGTT_BIT);
+					  XE_BO_CREATE_GGTT_BIT |
+					  XE_BO_GGTT_INVALIDATE);
 	if (IS_ERR(bo))
 		return PTR_ERR(bo);
 

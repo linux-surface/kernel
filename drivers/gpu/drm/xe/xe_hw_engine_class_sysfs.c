@@ -7,8 +7,10 @@
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
 
+#include "xe_device.h"
 #include "xe_gt.h"
 #include "xe_hw_engine_class_sysfs.h"
+#include "xe_pm.h"
 
 #define MAX_ENGINE_CLASS_NAME_LEN    16
 static int xe_add_hw_engine_class_defaults(struct xe_device *xe,
@@ -498,8 +500,8 @@ static void kobj_xe_hw_engine_class_fini(struct drm_device *drm, void *arg)
 	kobject_put(kobj);
 }
 
-	static struct kobj_eclass *
-kobj_xe_hw_engine_class(struct xe_device *xe, struct kobject *parent, char *name)
+static struct kobj_eclass *
+kobj_xe_hw_engine_class(struct xe_device *xe, struct kobject *parent, const char *name)
 {
 	struct kobj_eclass *keclass;
 	int err = 0;
@@ -513,6 +515,7 @@ kobj_xe_hw_engine_class(struct xe_device *xe, struct kobject *parent, char *name
 		kobject_put(&keclass->base);
 		return NULL;
 	}
+	keclass->xe = xe;
 
 	err = drmm_add_action_or_reset(&xe->drm, kobj_xe_hw_engine_class_fini,
 				       &keclass->base);
@@ -567,9 +570,51 @@ static void xe_hw_engine_sysfs_kobj_release(struct kobject *kobj)
 	kfree(kobj);
 }
 
+static ssize_t xe_hw_engine_class_sysfs_attr_show(struct kobject *kobj,
+						  struct attribute *attr,
+						  char *buf)
+{
+	struct xe_device *xe = kobj_to_xe(kobj);
+	struct kobj_attribute *kattr;
+	ssize_t ret = -EIO;
+
+	kattr = container_of(attr, struct kobj_attribute, attr);
+	if (kattr->show) {
+		xe_pm_runtime_get(xe);
+		ret = kattr->show(kobj, kattr, buf);
+		xe_pm_runtime_put(xe);
+	}
+
+	return ret;
+}
+
+static ssize_t xe_hw_engine_class_sysfs_attr_store(struct kobject *kobj,
+						   struct attribute *attr,
+						   const char *buf,
+						   size_t count)
+{
+	struct xe_device *xe = kobj_to_xe(kobj);
+	struct kobj_attribute *kattr;
+	ssize_t ret = -EIO;
+
+	kattr = container_of(attr, struct kobj_attribute, attr);
+	if (kattr->store) {
+		xe_pm_runtime_get(xe);
+		ret = kattr->store(kobj, kattr, buf, count);
+		xe_pm_runtime_put(xe);
+	}
+
+	return ret;
+}
+
+static const struct sysfs_ops xe_hw_engine_class_sysfs_ops = {
+	.show = xe_hw_engine_class_sysfs_attr_show,
+	.store = xe_hw_engine_class_sysfs_attr_store,
+};
+
 static const struct kobj_type xe_hw_engine_sysfs_kobj_type = {
 	.release = xe_hw_engine_sysfs_kobj_release,
-	.sysfs_ops = &kobj_sysfs_ops,
+	.sysfs_ops = &xe_hw_engine_class_sysfs_ops,
 };
 
 static void hw_engine_class_sysfs_fini(struct drm_device *drm, void *arg)
@@ -577,6 +622,24 @@ static void hw_engine_class_sysfs_fini(struct drm_device *drm, void *arg)
 	struct kobject *kobj = arg;
 
 	kobject_put(kobj);
+}
+
+static const char *xe_hw_engine_class_to_str(enum xe_engine_class class)
+{
+	switch (class) {
+	case XE_ENGINE_CLASS_RENDER:
+		return "rcs";
+	case XE_ENGINE_CLASS_VIDEO_DECODE:
+		return "vcs";
+	case XE_ENGINE_CLASS_VIDEO_ENHANCE:
+		return "vecs";
+	case XE_ENGINE_CLASS_COPY:
+		return "bcs";
+	case XE_ENGINE_CLASS_COMPUTE:
+		return "ccs";
+	default:
+		return NULL;
+	}
 }
 
 /**
@@ -608,7 +671,7 @@ int xe_hw_engine_class_sysfs_init(struct xe_gt *gt)
 		goto err_object;
 
 	for_each_hw_engine(hwe, gt, id) {
-		char name[MAX_ENGINE_CLASS_NAME_LEN];
+		const char *name;
 		struct kobj_eclass *keclass;
 
 		if (hwe->class == XE_ENGINE_CLASS_OTHER ||
@@ -619,24 +682,8 @@ int xe_hw_engine_class_sysfs_init(struct xe_gt *gt)
 			continue;
 
 		class_mask |= 1 << hwe->class;
-
-		switch (hwe->class) {
-		case XE_ENGINE_CLASS_RENDER:
-			strcpy(name, "rcs");
-			break;
-		case XE_ENGINE_CLASS_VIDEO_DECODE:
-			strcpy(name, "vcs");
-			break;
-		case XE_ENGINE_CLASS_VIDEO_ENHANCE:
-			strcpy(name, "vecs");
-			break;
-		case XE_ENGINE_CLASS_COPY:
-			strcpy(name, "bcs");
-			break;
-		case XE_ENGINE_CLASS_COMPUTE:
-			strcpy(name, "ccs");
-			break;
-		default:
+		name = xe_hw_engine_class_to_str(hwe->class);
+		if (!name) {
 			err = -EINVAL;
 			goto err_object;
 		}
