@@ -14,6 +14,7 @@
 #include "context.h"
 #include "control.h"
 #include "desc.h"
+#include "eds1.h"
 #include "spec-device.h"
 
 int ipts_eds1_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size)
