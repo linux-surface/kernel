@@ -16,6 +16,7 @@
 #include "context.h"
 #include "control.h"
 #include "hid.h"
+#include "receiver.h"
 #include "resources.h"
 #include "spec-device.h"
 #include "thread.h"

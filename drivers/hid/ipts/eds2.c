@@ -15,6 +15,7 @@
 #include "context.h"
 #include "control.h"
 #include "desc.h"
+#include "eds2.h"
 #include "spec-data.h"
 
 int ipts_eds2_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size)
