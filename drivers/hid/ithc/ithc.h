@@ -1,20 +1,19 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
 
-#include <linux/module.h>
-#include <linux/input.h>
-#include <linux/hid.h>
+#include <linux/acpi.h>
+#include <linux/debugfs.h>
+#include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/hid.h>
 #include <linux/highmem.h>
-#include <linux/pci.h>
+#include <linux/input.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/iopoll.h>
-#include <linux/delay.h>
 #include <linux/kthread.h>
 #include <linux/miscdevice.h>
-#include <linux/debugfs.h>
+#include <linux/module.h>
+#include <linux/pci.h>
 #include <linux/poll.h>
-#include <linux/timer.h>
-#include <linux/pm_qos.h>
 
 #define DEVNAME "ithc"
 #define DEVFULLNAME "Intel Touch Host Controller"
@@ -27,10 +26,37 @@
 
 #define NUM_RX_BUF 16
 
+// PCI device IDs:
+// Lakefield
+#define PCI_DEVICE_ID_INTEL_THC_LKF_PORT1    0x98d0
+#define PCI_DEVICE_ID_INTEL_THC_LKF_PORT2    0x98d1
+// Tiger Lake
+#define PCI_DEVICE_ID_INTEL_THC_TGL_LP_PORT1 0xa0d0
+#define PCI_DEVICE_ID_INTEL_THC_TGL_LP_PORT2 0xa0d1
+#define PCI_DEVICE_ID_INTEL_THC_TGL_H_PORT1  0x43d0
+#define PCI_DEVICE_ID_INTEL_THC_TGL_H_PORT2  0x43d1
+// Alder Lake
+#define PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1  0x7ad8
+#define PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2  0x7ad9
+#define PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1  0x51d0
+#define PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2  0x51d1
+#define PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1  0x54d0
+#define PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT2  0x54d1
+// Raptor Lake
+#define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT1  0x7a58
+#define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT2  0x7a59
+// Meteor Lake
+#define PCI_DEVICE_ID_INTEL_THC_MTL_PORT1    0x7e48
+#define PCI_DEVICE_ID_INTEL_THC_MTL_PORT2    0x7e4a
+
 struct ithc;
 
 #include "ithc-regs.h"
+#include "ithc-hid.h"
 #include "ithc-dma.h"
+#include "ithc-legacy.h"
+#include "ithc-quickspi.h"
+#include "ithc-debug.h"
 
 struct ithc {
 	char phys[32];
@@ -38,30 +64,21 @@ struct ithc {
 	int irq;
 	struct task_struct *poll_thread;
 
-	struct pm_qos_request activity_qos;
-	struct hrtimer activity_start_timer;
-	struct hrtimer activity_end_timer;
-	ktime_t last_rx_time;
-	unsigned int cur_rx_seq_count;
-	unsigned int cur_rx_seq_errors;
-
-	struct hid_device *hid;
-	bool hid_parse_done;
-	wait_queue_head_t wait_hid_parse;
-	wait_queue_head_t wait_hid_get_feature;
-	struct mutex hid_get_feature_mutex;
-	void *hid_get_feature_buf;
-	size_t hid_get_feature_size;
-
 	struct ithc_registers __iomem *regs;
 	struct ithc_registers *prev_regs; // for debugging
-	struct ithc_device_config config;
 	struct ithc_dma_rx dma_rx[2];
 	struct ithc_dma_tx dma_tx;
+	struct ithc_hid hid;
+
+	bool use_quickspi;
+	bool have_config;
+	u16 vendor_id;
+	u16 product_id;
+	u32 product_rev;
+	u32 max_rx_size;
+	u32 max_tx_size;
+	u32 legacy_touch_cfg;
 };
 
 int ithc_reset(struct ithc *ithc);
-void ithc_set_active(struct ithc *ithc, unsigned int duration_us);
-int ithc_debug_init(struct ithc *ithc);
-void ithc_log_regs(struct ithc *ithc);
 
