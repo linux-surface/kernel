@@ -645,9 +645,20 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	/* Set up serdev device. */
 	serdev_device_set_drvdata(serdev, ctrl);
 	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
+
+	/* The following step can fail when it's called too early before the
+	 * underlying uart device is ready (in this case -ENXIO is returned).
+	 * Instead of simply giving up and losing everything, we can defer
+	 * the probing by returning -EPROBE_DEFER so that the kernel would be
+	 * able to retry later. */
 	status = serdev_device_open(serdev);
-	if (status)
+	if (status == -ENXIO)
+		status = -EPROBE_DEFER;
+	if (status) {
+		dev_err_probe(&serdev->dev, status,
+			      "failed to open serdev device\n");
 		goto err_devopen;
+	}
 
 	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
 	if (ACPI_FAILURE(astatus)) {
