@@ -623,8 +623,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	acpi_status astatus;
 	int status;
 
-	if (gpiod_count(&serdev->dev, NULL) < 0)
+	if (gpiod_count(&serdev->dev, NULL) < 0) {
+		dev_err(&serdev->dev, "no GPIO found\n");
 		return -ENODEV;
+	}
 
 	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
 	if (status)
@@ -637,8 +639,11 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 
 	/* Initialize controller. */
 	status = ssam_controller_init(ctrl, serdev);
-	if (status)
+	if (status) {
+		dev_err_probe(&serdev->dev, status,
+			      "failed to initialize ssam controller\n");
 		goto err_ctrl_init;
+	}
 
 	ssam_controller_lock(ctrl);
 
@@ -663,6 +668,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
 	if (ACPI_FAILURE(astatus)) {
 		status = -ENXIO;
+		dev_err(&serdev->dev, "failed to setup serdev\n");
 		goto err_devinit;
 	}
 
@@ -678,16 +684,22 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 	 * states.
 	 */
 	status = ssam_log_firmware_version(ctrl);
-	if (status)
+	if (status) {
+		dev_err(&serdev->dev, "failed to get firmware version\n");
 		goto err_initrq;
+	}
 
 	status = ssam_ctrl_notif_d0_entry(ctrl);
-	if (status)
+	if (status) {
+		dev_err(&serdev->dev, "failed to notify EC of entry of D0\n");
 		goto err_initrq;
+	}
 
 	status = ssam_ctrl_notif_display_on(ctrl);
-	if (status)
+	if (status) {
+		dev_err(&serdev->dev, "failed to notify EC of display on\n");
 		goto err_initrq;
+	}
 
 	status = sysfs_create_group(&serdev->dev.kobj, &ssam_sam_group);
 	if (status)
@@ -695,8 +707,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
 
 	/* Set up IRQ. */
 	status = ssam_irq_setup(ctrl);
-	if (status)
+	if (status) {
+		dev_err_probe(&serdev->dev, status, "failed to setup IRQ\n");
 		goto err_irq;
+	}
 
 	/* Finally, set main controller reference. */
 	status = ssam_try_set_controller(ctrl);
