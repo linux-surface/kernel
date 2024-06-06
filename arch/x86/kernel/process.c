@@ -114,7 +114,6 @@ void arch_release_task_struct(struct task_struct *tsk)
 void exit_thread(struct task_struct *tsk)
 {
 	struct thread_struct *t = &tsk->thread;
-	struct fpu *fpu = x86_task_fpu(tsk);
 
 	if (test_thread_flag(TIF_IO_BITMAP))
 		io_bitmap_exit(tsk);
@@ -122,7 +121,7 @@ void exit_thread(struct task_struct *tsk)
 	free_vm86(t);
 
 	shstk_free(tsk);
-	fpu__drop(fpu);
+	fpu__drop(tsk);
 }
 
 static int set_new_tls(struct task_struct *p, unsigned long tls)
