@@ -19,7 +19,7 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(__ssam_fan_rpm_get, __le16, {
 });
 
 // hwmon
-umode_t surface_fan_hwmon_is_visible(const void *drvdata,
+static umode_t surface_fan_hwmon_is_visible(const void *drvdata,
 				     enum hwmon_sensor_types type, u32 attr,
 				     int channel)
 {
