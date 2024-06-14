@@ -93,7 +93,7 @@ _Static_assert(sizeof(rdesc_assign_selection) == sizeof(fixed_rdesc_assign_selec
 _Static_assert(sizeof(rdesc_assign_selection) + OFFSET_ASSIGN_SELECTION < ORIGINAL_RDESC_SIZE,
 	       "Rdesc at given offset is too big");
 
-SEC("fmod_ret/hid_bpf_rdesc_fixup")
+SEC(HID_BPF_RDESC_FIXUP)
 int BPF_PROG(hid_fix_rdesc, struct hid_bpf_ctx *hctx)
 {
 	__u8 *data = hid_bpf_get_data(hctx, 0 /* offset */, 4096 /* size */);
@@ -113,6 +113,10 @@ int BPF_PROG(hid_fix_rdesc, struct hid_bpf_ctx *hctx)
 
 	return 0;
 }
+
+HID_BPF_OPS(xbox_elite_2) = {
+	.hid_rdesc_fixup = (void *)hid_fix_rdesc,
+};
 
 SEC("syscall")
 int probe(struct hid_bpf_probe_args *ctx)

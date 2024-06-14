@@ -91,7 +91,7 @@ static const __u8 fixed_rdesc[] = {
 
 #define U16(index) (data[index] | (data[index + 1] << 8))
 
-SEC("fmod_ret/hid_bpf_rdesc_fixup")
+SEC(HID_BPF_RDESC_FIXUP)
 int BPF_PROG(hid_fix_rdesc_xppen_artist24, struct hid_bpf_ctx *hctx)
 {
 	__u8 *data = hid_bpf_get_data(hctx, 0 /* offset */, 4096 /* size */);
@@ -152,13 +152,12 @@ static __u8 prev_state = 0;
  *     E: TipSwitch                     InRange
  *
  */
-SEC("fmod_ret/hid_bpf_device_event")
+SEC(HID_BPF_DEVICE_EVENT)
 int BPF_PROG(xppen_24_fix_eraser, struct hid_bpf_ctx *hctx)
 {
 	__u8 *data = hid_bpf_get_data(hctx, 0 /* offset */, 10 /* size */);
 	__u8 current_state, changed_state;
 	bool prev_tip;
-	__u16 tilt;
 
 	if (!data)
 		return 0; /* EPERM check */
@@ -208,6 +207,11 @@ int BPF_PROG(xppen_24_fix_eraser, struct hid_bpf_ctx *hctx)
 
 	return 0;
 }
+
+HID_BPF_OPS(xppen_artist_24) = {
+	.hid_rdesc_fixup = (void *)hid_fix_rdesc_xppen_artist24,
+	.hid_device_event = (void *)xppen_24_fix_eraser,
+};
 
 SEC("syscall")
 int probe(struct hid_bpf_probe_args *ctx)
