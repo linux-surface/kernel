@@ -1,0 +1,36 @@
+soc/arm
+
+soc/dt
+	renesas/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dts-for-v6.11-tag1
+	juno/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/juno-updates-6.11
+	zynqmp/dt
+		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc-for-6.11
+	socfpga/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_dts_updates_for_v6.11
+
+soc/drivers
+	firmware/scmi
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-6.11
+	firmware/ffa
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/ffa-updates-6.11
+	patch
+		soc: add missing MODULE_DESCRIPTION() macros
+	drivers/reset
+		git://git.pengutronix.de/pza/linux tags/reset-for-v6.11
+	firmware/optee
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-notif-wait-timeout-for-v6.11
+
+soc/defconfig
+
+soc/late
+
+arm/fixes
+	<no branch> (e21de658f8e808551c2f9702727442980bdc0ad7)
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-fixes-for-v6.10-rc5+
+	<no branch> (ab35896730a5e8fdf885a23fa2e27f286c5f94b2)
+		git://git.pengutronix.de/pza/linux tags/reset-fixes-for-v6.10
+	patch
+		drivers/soc/litex: drop obsolete dependency on COMPILE_TEST
+
