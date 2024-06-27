@@ -5,6 +5,7 @@
 
 #include <linux/bpf.h>
 #include <linux/mutex.h>
+#include <linux/srcu.h>
 #include <uapi/linux/hid.h>
 
 struct hid_device;
@@ -66,10 +67,13 @@ struct hid_ops {
 	int (*hid_hw_raw_request)(struct hid_device *hdev,
 				  unsigned char reportnum, __u8 *buf,
 				  size_t len, enum hid_report_type rtype,
-				  enum hid_class_request reqtype);
-	int (*hid_hw_output_report)(struct hid_device *hdev, __u8 *buf, size_t len);
+				  enum hid_class_request reqtype,
+				  __u64 source, bool from_bpf);
+	int (*hid_hw_output_report)(struct hid_device *hdev, __u8 *buf, size_t len,
+				    __u64 source, bool from_bpf);
 	int (*hid_input_report)(struct hid_device *hid, enum hid_report_type type,
-				u8 *data, u32 size, int interrupt);
+				u8 *data, u32 size, int interrupt, u64 source, bool from_bpf,
+				bool lock_already_taken);
 	struct module *owner;
 	const struct bus_type *bus_type;
 };
@@ -110,7 +114,8 @@ struct hid_bpf_ops {
 	 *
 	 * Context: Interrupt context.
 	 */
-	int (*hid_device_event)(struct hid_bpf_ctx *ctx, enum hid_report_type report_type);
+	int (*hid_device_event)(struct hid_bpf_ctx *ctx, enum hid_report_type report_type,
+				__u64 source);
 
 	/**
 	 * @hid_rdesc_fixup: called when the probe function parses the report descriptor
@@ -125,6 +130,49 @@ struct hid_bpf_ops {
 	 * error code to interrupt the processing of this device
 	 */
 	int (*hid_rdesc_fixup)(struct hid_bpf_ctx *ctx);
+
+	/**
+	 * @hid_hw_request: called whenever a hid_hw_raw_request() call is emitted
+	 * on the HID device
+	 *
+	 * It has the following arguments:
+	 *
+	 * ``ctx``: The HID-BPF context as &struct hid_bpf_ctx
+	 * ``reportnum``: the report number, as in hid_hw_raw_request()
+	 * ``rtype``: the report type (``HID_INPUT_REPORT``, ``HID_FEATURE_REPORT``,
+	 *            ``HID_OUTPUT_REPORT``)
+	 * ``reqtype``: the request
+	 * ``source``: a u64 referring to a uniq but identifiable source. If %0, the
+	 *             kernel itself emitted that call. For hidraw, ``source`` is set
+	 *             to the associated ``struct file *``.
+	 *
+	 * Return: %0 to keep processing the request by hid-core; any other value
+	 * stops hid-core from processing that event. A positive value should be
+	 * returned with the number of bytes returned in the incoming buffer; a
+	 * negative error code interrupts the processing of this call.
+	 */
+	int (*hid_hw_request)(struct hid_bpf_ctx *ctx, unsigned char reportnum,
+			       enum hid_report_type rtype, enum hid_class_request reqtype,
+			       __u64 source);
+
+	/**
+	 * @hid_hw_output_report: called whenever a hid_hw_output_report() call is emitted
+	 * on the HID device
+	 *
+	 * It has the following arguments:
+	 *
+	 * ``ctx``: The HID-BPF context as &struct hid_bpf_ctx
+	 * ``source``: a u64 referring to a uniq but identifiable source. If %0, the
+	 *             kernel itself emitted that call. For hidraw, ``source`` is set
+	 *             to the associated ``struct file *``.
+	 *
+	 * Return: %0 to keep processing the request by hid-core; any other value
+	 * stops hid-core from processing that event. A positive value should be
+	 * returned with the number of bytes written to the device; a negative error
+	 * code interrupts the processing of this call.
+	 */
+	int (*hid_hw_output_report)(struct hid_bpf_ctx *ctx, __u64 source);
+
 
 	/* private: do not show up in the docs */
 	struct hid_device *hdev;
@@ -142,23 +190,39 @@ struct hid_bpf {
 	struct hid_bpf_ops *rdesc_ops;
 	struct list_head prog_list;
 	struct mutex prog_list_lock;	/* protects prog_list update */
+	struct srcu_struct srcu;	/* protects prog_list read-only access */
 };
 
 #ifdef CONFIG_HID_BPF
 u8 *dispatch_hid_bpf_device_event(struct hid_device *hid, enum hid_report_type type, u8 *data,
-				  u32 *size, int interrupt);
+				  u32 *size, int interrupt, u64 source, bool from_bpf);
+int dispatch_hid_bpf_raw_requests(struct hid_device *hdev,
+				  unsigned char reportnum, __u8 *buf,
+				  u32 size, enum hid_report_type rtype,
+				  enum hid_class_request reqtype,
+				  __u64 source, bool from_bpf);
+int dispatch_hid_bpf_output_report(struct hid_device *hdev, __u8 *buf, u32 size,
+				   __u64 source, bool from_bpf);
 int hid_bpf_connect_device(struct hid_device *hdev);
 void hid_bpf_disconnect_device(struct hid_device *hdev);
 void hid_bpf_destroy_device(struct hid_device *hid);
-void hid_bpf_device_init(struct hid_device *hid);
+int hid_bpf_device_init(struct hid_device *hid);
 u8 *call_hid_bpf_rdesc_fixup(struct hid_device *hdev, u8 *rdesc, unsigned int *size);
 #else /* CONFIG_HID_BPF */
 static inline u8 *dispatch_hid_bpf_device_event(struct hid_device *hid, enum hid_report_type type,
-						u8 *data, u32 *size, int interrupt) { return data; }
+						u8 *data, u32 *size, int interrupt,
+						u64 source, bool from_bpf) { return data; }
+static inline int dispatch_hid_bpf_raw_requests(struct hid_device *hdev,
+						unsigned char reportnum, u8 *buf,
+						u32 size, enum hid_report_type rtype,
+						enum hid_class_request reqtype,
+						u64 source, bool from_bpf) { return 0; }
+static inline int dispatch_hid_bpf_output_report(struct hid_device *hdev, __u8 *buf, u32 size,
+						 __u64 source, bool from_bpf) { return 0; }
 static inline int hid_bpf_connect_device(struct hid_device *hdev) { return 0; }
 static inline void hid_bpf_disconnect_device(struct hid_device *hdev) {}
 static inline void hid_bpf_destroy_device(struct hid_device *hid) {}
-static inline void hid_bpf_device_init(struct hid_device *hid) {}
+static inline int hid_bpf_device_init(struct hid_device *hid) { return 0; }
 #define call_hid_bpf_rdesc_fixup(_hdev, _rdesc, _size)	\
 		((u8 *)kmemdup(_rdesc, *(_size), GFP_KERNEL))
 

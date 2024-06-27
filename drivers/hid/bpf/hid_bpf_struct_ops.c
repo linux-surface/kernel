@@ -44,6 +44,8 @@ static int hid_bpf_ops_check_member(const struct btf_type *t,
 
 	switch (moff) {
 	case offsetof(struct hid_bpf_ops, hid_rdesc_fixup):
+	case offsetof(struct hid_bpf_ops, hid_hw_request):
+	case offsetof(struct hid_bpf_ops, hid_hw_output_report):
 		break;
 	default:
 		if (prog->sleepable)
@@ -214,6 +216,7 @@ static int hid_bpf_reg(void *kdata)
 		list_add_rcu(&ops->list, &hdev->bpf.prog_list);
 	else
 		list_add_tail_rcu(&ops->list, &hdev->bpf.prog_list);
+	synchronize_srcu(&hdev->bpf.srcu);
 
 out_unlock:
 	mutex_unlock(&hdev->bpf.prog_list_lock);
@@ -244,6 +247,7 @@ static void hid_bpf_unreg(void *kdata)
 	mutex_lock(&hdev->bpf.prog_list_lock);
 
 	list_del_rcu(&ops->list);
+	synchronize_srcu(&hdev->bpf.srcu);
 
 	reconnect = hdev->bpf.rdesc_ops == ops;
 	if (reconnect)
@@ -257,7 +261,7 @@ static void hid_bpf_unreg(void *kdata)
 	hid_put_device(hdev);
 }
 
-static int __hid_bpf_device_event(struct hid_bpf_ctx *ctx, enum hid_report_type type)
+static int __hid_bpf_device_event(struct hid_bpf_ctx *ctx, enum hid_report_type type, __u64 source)
 {
 	return 0;
 }

@@ -24,7 +24,7 @@ EXPORT_SYMBOL(hid_ops);
 
 u8 *
 dispatch_hid_bpf_device_event(struct hid_device *hdev, enum hid_report_type type, u8 *data,
-			      u32 *size, int interrupt)
+			      u32 *size, int interrupt, u64 source, bool from_bpf)
 {
 	struct hid_bpf_ctx_kern ctx_kern = {
 		.ctx = {
@@ -33,6 +33,7 @@ dispatch_hid_bpf_device_event(struct hid_device *hdev, enum hid_report_type type
 			.size = *size,
 		},
 		.data = hdev->bpf.device_data,
+		.from_bpf = from_bpf,
 	};
 	struct hid_bpf_ops *e;
 	int ret;
@@ -50,18 +51,19 @@ dispatch_hid_bpf_device_event(struct hid_device *hdev, enum hid_report_type type
 	rcu_read_lock();
 	list_for_each_entry_rcu(e, &hdev->bpf.prog_list, list) {
 		if (e->hid_device_event) {
-			ret = e->hid_device_event(&ctx_kern.ctx, type);
+			ret = e->hid_device_event(&ctx_kern.ctx, type, source);
 			if (ret < 0) {
 				rcu_read_unlock();
 				return ERR_PTR(ret);
 			}
 
 			if (ret)
-				ctx_kern.ctx.retval = ret;
+				ctx_kern.ctx.size = ret;
 		}
 	}
 	rcu_read_unlock();
 
+	ret = ctx_kern.ctx.size;
 	if (ret) {
 		if (ret > ctx_kern.ctx.allocated_size)
 			return ERR_PTR(-EINVAL);
@@ -72,6 +74,79 @@ dispatch_hid_bpf_device_event(struct hid_device *hdev, enum hid_report_type type
 	return ctx_kern.data;
 }
 EXPORT_SYMBOL_GPL(dispatch_hid_bpf_device_event);
+
+int dispatch_hid_bpf_raw_requests(struct hid_device *hdev,
+				  unsigned char reportnum, u8 *buf,
+				  u32 size, enum hid_report_type rtype,
+				  enum hid_class_request reqtype,
+				  u64 source, bool from_bpf)
+{
+	struct hid_bpf_ctx_kern ctx_kern = {
+		.ctx = {
+			.hid = hdev,
+			.allocated_size = size,
+			.size = size,
+		},
+		.data = buf,
+		.from_bpf = from_bpf,
+	};
+	struct hid_bpf_ops *e;
+	int ret, idx;
+
+	if (rtype >= HID_REPORT_TYPES)
+		return -EINVAL;
+
+	idx = srcu_read_lock(&hdev->bpf.srcu);
+	list_for_each_entry_srcu(e, &hdev->bpf.prog_list, list,
+				 srcu_read_lock_held(&hdev->bpf.srcu)) {
+		if (!e->hid_hw_request)
+			continue;
+
+		ret = e->hid_hw_request(&ctx_kern.ctx, reportnum, rtype, reqtype, source);
+		if (ret)
+			goto out;
+	}
+	ret = 0;
+
+out:
+	srcu_read_unlock(&hdev->bpf.srcu, idx);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(dispatch_hid_bpf_raw_requests);
+
+int dispatch_hid_bpf_output_report(struct hid_device *hdev,
+				   __u8 *buf, u32 size, __u64 source,
+				   bool from_bpf)
+{
+	struct hid_bpf_ctx_kern ctx_kern = {
+		.ctx = {
+			.hid = hdev,
+			.allocated_size = size,
+			.size = size,
+		},
+		.data = buf,
+		.from_bpf = from_bpf,
+	};
+	struct hid_bpf_ops *e;
+	int ret, idx;
+
+	idx = srcu_read_lock(&hdev->bpf.srcu);
+	list_for_each_entry_srcu(e, &hdev->bpf.prog_list, list,
+				 srcu_read_lock_held(&hdev->bpf.srcu)) {
+		if (!e->hid_hw_output_report)
+			continue;
+
+		ret = e->hid_hw_output_report(&ctx_kern.ctx, source);
+		if (ret)
+			goto out;
+	}
+	ret = 0;
+
+out:
+	srcu_read_unlock(&hdev->bpf.srcu, idx);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(dispatch_hid_bpf_output_report);
 
 u8 *call_hid_bpf_rdesc_fixup(struct hid_device *hdev, u8 *rdesc, unsigned int *size)
 {
@@ -325,10 +400,16 @@ __bpf_kfunc int
 hid_bpf_hw_request(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz,
 		   enum hid_report_type rtype, enum hid_class_request reqtype)
 {
+	struct hid_bpf_ctx_kern *ctx_kern;
 	struct hid_device *hdev;
 	size_t size = buf__sz;
 	u8 *dma_data;
 	int ret;
+
+	ctx_kern = container_of(ctx, struct hid_bpf_ctx_kern, ctx);
+
+	if (ctx_kern->from_bpf)
+		return -EDEADLOCK;
 
 	/* check arguments */
 	ret = __hid_bpf_hw_check_params(ctx, buf, &size, rtype);
@@ -358,7 +439,9 @@ hid_bpf_hw_request(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz,
 					      dma_data,
 					      size,
 					      rtype,
-					      reqtype);
+					      reqtype,
+					      (__u64)ctx,
+					      true); /* prevent infinite recursions */
 
 	if (ret > 0)
 		memcpy(buf, dma_data, ret);
@@ -379,10 +462,15 @@ hid_bpf_hw_request(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz,
 __bpf_kfunc int
 hid_bpf_hw_output_report(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz)
 {
+	struct hid_bpf_ctx_kern *ctx_kern;
 	struct hid_device *hdev;
 	size_t size = buf__sz;
 	u8 *dma_data;
 	int ret;
+
+	ctx_kern = container_of(ctx, struct hid_bpf_ctx_kern, ctx);
+	if (ctx_kern->from_bpf)
+		return -EDEADLOCK;
 
 	/* check arguments */
 	ret = __hid_bpf_hw_check_params(ctx, buf, &size, HID_OUTPUT_REPORT);
@@ -395,12 +483,54 @@ hid_bpf_hw_output_report(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz)
 	if (!dma_data)
 		return -ENOMEM;
 
-	ret = hid_ops->hid_hw_output_report(hdev,
-						dma_data,
-						size);
+	ret = hid_ops->hid_hw_output_report(hdev, dma_data, size, (__u64)ctx, true);
 
 	kfree(dma_data);
 	return ret;
+}
+
+static int
+__hid_bpf_input_report(struct hid_bpf_ctx *ctx, enum hid_report_type type, u8 *buf,
+		       size_t size, bool lock_already_taken)
+{
+	struct hid_bpf_ctx_kern *ctx_kern;
+	int ret;
+
+	ctx_kern = container_of(ctx, struct hid_bpf_ctx_kern, ctx);
+	if (ctx_kern->from_bpf)
+		return -EDEADLOCK;
+
+	/* check arguments */
+	ret = __hid_bpf_hw_check_params(ctx, buf, &size, type);
+	if (ret)
+		return ret;
+
+	return hid_ops->hid_input_report(ctx->hid, type, buf, size, 0, (__u64)ctx, true,
+					 lock_already_taken);
+}
+
+/**
+ * hid_bpf_try_input_report - Inject a HID report in the kernel from a HID device
+ *
+ * @ctx: the HID-BPF context previously allocated in hid_bpf_allocate_context()
+ * @type: the type of the report (%HID_INPUT_REPORT, %HID_FEATURE_REPORT, %HID_OUTPUT_REPORT)
+ * @buf: a %PTR_TO_MEM buffer
+ * @buf__sz: the size of the data to transfer
+ *
+ * Returns %0 on success, a negative error code otherwise. This function will immediately
+ * fail if the device is not available, thus can be safely used in IRQ context.
+ */
+__bpf_kfunc int
+hid_bpf_try_input_report(struct hid_bpf_ctx *ctx, enum hid_report_type type, u8 *buf,
+			 const size_t buf__sz)
+{
+	struct hid_bpf_ctx_kern *ctx_kern;
+	bool from_hid_event_hook;
+
+	ctx_kern = container_of(ctx, struct hid_bpf_ctx_kern, ctx);
+	from_hid_event_hook = ctx_kern->data && ctx_kern->data == ctx->hid->bpf.device_data;
+
+	return __hid_bpf_input_report(ctx, type, buf, buf__sz, from_hid_event_hook);
 }
 
 /**
@@ -411,24 +541,26 @@ hid_bpf_hw_output_report(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz)
  * @buf: a %PTR_TO_MEM buffer
  * @buf__sz: the size of the data to transfer
  *
- * Returns %0 on success, a negative error code otherwise.
+ * Returns %0 on success, a negative error code otherwise. This function will wait for the
+ * device to be available before injecting the event, thus needs to be called in sleepable
+ * context.
  */
 __bpf_kfunc int
 hid_bpf_input_report(struct hid_bpf_ctx *ctx, enum hid_report_type type, u8 *buf,
 		     const size_t buf__sz)
 {
-	struct hid_device *hdev;
-	size_t size = buf__sz;
 	int ret;
 
-	/* check arguments */
-	ret = __hid_bpf_hw_check_params(ctx, buf, &size, type);
+	ret = down_interruptible(&ctx->hid->driver_input_lock);
 	if (ret)
 		return ret;
 
-	hdev = (struct hid_device *)ctx->hid; /* discard const */
+	/* check arguments */
+	ret = __hid_bpf_input_report(ctx, type, buf, buf__sz, true /* lock_already_taken */);
 
-	return hid_ops->hid_input_report(hdev, type, buf, size, 0);
+	up(&ctx->hid->driver_input_lock);
+
+	return ret;
 }
 __bpf_kfunc_end_defs();
 
@@ -443,6 +575,7 @@ BTF_ID_FLAGS(func, hid_bpf_release_context, KF_RELEASE | KF_SLEEPABLE)
 BTF_ID_FLAGS(func, hid_bpf_hw_request, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, hid_bpf_hw_output_report, KF_SLEEPABLE)
 BTF_ID_FLAGS(func, hid_bpf_input_report, KF_SLEEPABLE)
+BTF_ID_FLAGS(func, hid_bpf_try_input_report)
 BTF_KFUNCS_END(hid_bpf_kfunc_ids)
 
 static const struct btf_kfunc_id_set hid_bpf_kfunc_set = {
@@ -503,13 +636,17 @@ void hid_bpf_destroy_device(struct hid_device *hdev)
 	hdev->bpf.destroyed = true;
 
 	__hid_bpf_ops_destroy_device(hdev);
+
+	synchronize_srcu(&hdev->bpf.srcu);
+	cleanup_srcu_struct(&hdev->bpf.srcu);
 }
 EXPORT_SYMBOL_GPL(hid_bpf_destroy_device);
 
-void hid_bpf_device_init(struct hid_device *hdev)
+int hid_bpf_device_init(struct hid_device *hdev)
 {
 	INIT_LIST_HEAD(&hdev->bpf.prog_list);
 	mutex_init(&hdev->bpf.prog_list_lock);
+	return init_srcu_struct(&hdev->bpf.srcu);
 }
 EXPORT_SYMBOL_GPL(hid_bpf_device_init);
 
