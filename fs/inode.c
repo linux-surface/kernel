@@ -22,6 +22,9 @@
 #include <linux/iversion.h>
 #include <linux/rw_hint.h>
 #include <trace/events/writeback.h>
+#define CREATE_TRACE_POINTS
+#include <trace/events/timestamp.h>
+
 #include "internal.h"
 
 /*
@@ -2589,6 +2592,7 @@ EXPORT_SYMBOL(inode_nohighmem);
 
 struct timespec64 inode_set_ctime_to_ts(struct inode *inode, struct timespec64 ts)
 {
+	trace_inode_set_ctime_to_ts(inode, &ts);
 	set_normalized_timespec64(&ts, ts.tv_sec, ts.tv_nsec);
 	inode->i_ctime_sec = ts.tv_sec;
 	inode->i_ctime_nsec = ts.tv_nsec;
@@ -2688,13 +2692,16 @@ struct timespec64 inode_set_ctime_current(struct inode *inode)
 	cur = cns;
 
 	/* No need to cmpxchg if it's exactly the same */
-	if (cns == now_ts.tv_nsec && inode->i_ctime_sec == now_ts.tv_sec)
+	if (cns == now_ts.tv_nsec && inode->i_ctime_sec == now_ts.tv_sec) {
+		trace_ctime_xchg_skip(inode, &now_ts);
 		goto out;
+	}
 retry:
 	/* Try to swap the nsec value into place. */
 	if (try_cmpxchg(&inode->i_ctime_nsec, &cur, now_ts.tv_nsec)) {
 		/* If swap occurred, then we're (mostly) done */
 		inode->i_ctime_sec = now_ts.tv_sec;
+		trace_ctime_ns_xchg(inode, cns, now_ts.tv_nsec, cur);
 	} else {
 		/*
 		 * Was the change due to someone marking the old ctime QUERIED?
