@@ -1,4 +1,8 @@
 soc/arm
+	vexpress/soc
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/vexpress-updates-6.11
+	patch
+		MAINTAINERS: ARM: airoha: add entry to cover Airoha SoC
 
 soc/dt
 	renesas/dt
@@ -9,6 +13,22 @@ soc/dt
 		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc-for-6.11
 	socfpga/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_dts_updates_for_v6.11
+	patch
+		ARM: dts: armada-{370-xp,375,38x,39x}: Drop #size-cells from mpic node
+		dt-bindings: interrupt-controller: convert marvell,mpic binding to YAML
+		arm: dts: arm: Drop redundant fixed-factor clocks
+	sti/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/pchotard/sti tags/sti-dt-for-v6.11-round1
+	mediatek/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/mediatek/linux tags/mtk-dts64-for-v6.11
+	mediatek/dt32
+		https://git.kernel.org/pub/scm/linux/kernel/git/mediatek/linux tags/mtk-dts32-for-v6.11
+	renesas/dt-bindings
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dt-bindings-for-v6.11-tag1
+	rockchip/dt
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts64-1
+	rockchip/dt32
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts32-1
 
 soc/drivers
 	firmware/scmi
@@ -21,6 +41,8 @@ soc/drivers
 		git://git.pengutronix.de/pza/linux tags/reset-for-v6.11
 	firmware/optee
 		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-notif-wait-timeout-for-v6.11
+	mediatek/driver
+		https://git.kernel.org/pub/scm/linux/kernel/git/mediatek/linux tags/mtk-soc-for-v6.11
 
 soc/defconfig
 
@@ -33,4 +55,6 @@ arm/fixes
 		git://git.pengutronix.de/pza/linux tags/reset-fixes-for-v6.10
 	patch
 		drivers/soc/litex: drop obsolete dependency on COMPILE_TEST
+	<no branch> (e0556255a53d6d3d406a28362dffd972018a997c)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-fix-for-v6.11
 
