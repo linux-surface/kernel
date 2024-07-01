@@ -29,6 +29,17 @@ soc/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts64-1
 	rockchip/dt32
 		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts32-1
+	renesas/dt-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-dts-for-v6.11-tag2-v2
+	patch
+		ARM: dts: turris-omnia: Add MCU system-controller node
+		ARM: dts: turris-omnia: Add GPIO key node for front button
+	microchip/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/microchip-dt64-6.11
+	patch
+		arm/arm64: dts: arm: Use generic clock and regulator nodenames
+	<no branch> (1443b6ea806dfcdcee6c894784332c9c947ac319)
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm64-dt-for-v6.11
 
 soc/drivers
 	firmware/scmi
@@ -43,6 +54,15 @@ soc/drivers
 		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-notif-wait-timeout-for-v6.11
 	mediatek/driver
 		https://git.kernel.org/pub/scm/linux/kernel/git/mediatek/linux tags/mtk-soc-for-v6.11
+	patch
+		dt-bindings: firmware: add cznic,turris-omnia-mcu binding
+		platform: cznic: Add preliminary support for Turris Omnia MCU
+		platform: cznic: turris-omnia-mcu: Add support for MCU connected GPIOs
+		platform: cznic: turris-omnia-mcu: Add support for poweroff and wakeup
+		platform: cznic: turris-omnia-mcu: Add support for MCU watchdog
+		platform: cznic: turris-omnia-mcu: Add support for MCU provided TRNG
+	<no branch> (5375986e16207e573c0493009d25b0c01f44e01d)
+		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-drivers-for-v6.11
 
 soc/defconfig
 
@@ -57,4 +77,6 @@ arm/fixes
 		drivers/soc/litex: drop obsolete dependency on COMPILE_TEST
 	<no branch> (e0556255a53d6d3d406a28362dffd972018a997c)
 		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-fix-for-v6.11
+	<no branch> (8d7ec44aa5d1eb94a30319074762a1740440cdc8)
+		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.10-rockchip-dtsfixes1
 
