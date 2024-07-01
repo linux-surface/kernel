@@ -115,7 +115,7 @@ out:
 EXPORT_SYMBOL_GPL(dispatch_hid_bpf_raw_requests);
 
 int dispatch_hid_bpf_output_report(struct hid_device *hdev,
-				   __u8 *buf, u32 size, __u64 source,
+				   __u8 *buf, u32 size, u64 source,
 				   bool from_bpf)
 {
 	struct hid_bpf_ctx_kern ctx_kern = {
@@ -440,7 +440,7 @@ hid_bpf_hw_request(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz,
 					      size,
 					      rtype,
 					      reqtype,
-					      (__u64)ctx,
+					      (u64)(long)ctx,
 					      true); /* prevent infinite recursions */
 
 	if (ret > 0)
@@ -483,7 +483,7 @@ hid_bpf_hw_output_report(struct hid_bpf_ctx *ctx, __u8 *buf, size_t buf__sz)
 	if (!dma_data)
 		return -ENOMEM;
 
-	ret = hid_ops->hid_hw_output_report(hdev, dma_data, size, (__u64)ctx, true);
+	ret = hid_ops->hid_hw_output_report(hdev, dma_data, size, (u64)(long)ctx, true);
 
 	kfree(dma_data);
 	return ret;
@@ -505,7 +505,7 @@ __hid_bpf_input_report(struct hid_bpf_ctx *ctx, enum hid_report_type type, u8 *b
 	if (ret)
 		return ret;
 
-	return hid_ops->hid_input_report(ctx->hid, type, buf, size, 0, (__u64)ctx, true,
+	return hid_ops->hid_input_report(ctx->hid, type, buf, size, 0, (u64)(long)ctx, true,
 					 lock_already_taken);
 }
 
