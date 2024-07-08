@@ -40,6 +40,42 @@ soc/dt
 		arm/arm64: dts: arm: Use generic clock and regulator nodenames
 	<no branch> (1443b6ea806dfcdcee6c894784332c9c947ac319)
 		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-arm64-dt-for-v6.11
+	<no branch> (5e4bbe52207c3927dd2690e46bdbef6392d7bde4)
+		https://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.11-arm64-dt
+	samsung/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux tags/samsung-dt64-6.11
+	arm64/dt-cleanup
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt64-cleanup-6.11
+	arm/dt-cleanup
+		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-dt tags/dt-cleanup-6.11
+	imx/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-bindings-6.11
+	imx/dt32
+		https://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt-6.11
+	imx/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-dt64-6.11
+	sunxi/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-6.11
+	patch
+		ARM: dts: ixp4xx: nslu2: beeper uses PWM
+	qcom/arm32
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm32-for-6.11
+	stm32/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/atorgue/stm32 tags/stm32-dt-for-v6.11-1
+	k3/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-dt-for-v6.11
+	mvebu/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt-6.11-1
+	mvebu/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu tags/mvebu-dt64-6.11-1
+	qcom/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-6.11
+	riscv/dt
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-for-v6.11
+	rockchip/dt64
+		https://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts64-2
+	rockchips/dt32
+		https://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts32-2
 
 soc/drivers
 	firmware/scmi
@@ -61,22 +97,38 @@ soc/drivers
 		platform: cznic: turris-omnia-mcu: Add support for poweroff and wakeup
 		platform: cznic: turris-omnia-mcu: Add support for MCU watchdog
 		platform: cznic: turris-omnia-mcu: Add support for MCU provided TRNG
-	<no branch> (5375986e16207e573c0493009d25b0c01f44e01d)
+	amlogic/drivers
 		https://git.kernel.org/pub/scm/linux/kernel/git/amlogic/linux tags/amlogic-drivers-for-v6.11
+	tegra/soc
+		https://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.11-soc
 
 soc/defconfig
+	renesas/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-arm-defconfig-for-v6.11-tag1
+	tegra/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.11-arm64-defconfig
+	at91/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-defconfig-6.11
+	patch
+		ARM: multi_v7_defconfig: Add MCP23S08 pinctrl support
+	k3/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/ti/linux tags/ti-k3-config-for-v6.11
+	qcom/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-defconfig-for-6.11
+	riscv/defconfig
+		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-config-for-v6.11
 
 soc/late
 
 arm/fixes
-	<no branch> (e21de658f8e808551c2f9702727442980bdc0ad7)
-		https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux tags/riscv-dt-fixes-for-v6.10-rc5+
-	<no branch> (ab35896730a5e8fdf885a23fa2e27f286c5f94b2)
-		git://git.pengutronix.de/pza/linux tags/reset-fixes-for-v6.10
+	qcom/dt-fixes
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-fixes-for-6.10
+	<no branch> (e706474d8428f420bba11f2c49c3083fd1b31d88)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-defconfig-fixes-for-6.10
+	<no branch> (e227c11179dfb6970360c95a8d7b007eb3b223d6)
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-fixes-for-6.10
+	<no branch> (5b36166e599b5c1332a1147271d2130cece4bb24)
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-6.10
 	patch
-		drivers/soc/litex: drop obsolete dependency on COMPILE_TEST
-	<no branch> (e0556255a53d6d3d406a28362dffd972018a997c)
-		https://git.linaro.org/people/jens.wiklander/linux-tee tags/optee-fix-for-v6.11
-	<no branch> (8d7ec44aa5d1eb94a30319074762a1740440cdc8)
-		git://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.10-rockchip-dtsfixes1
+		MAINTAINERS: Move myself from SPRD Maintainer to Reviewer
 
