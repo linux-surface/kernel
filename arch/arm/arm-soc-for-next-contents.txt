@@ -3,6 +3,25 @@ soc/arm
 		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/vexpress-updates-6.11
 	patch
 		MAINTAINERS: ARM: airoha: add entry to cover Airoha SoC
+	tegra/soc-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-6.11-arm-core
+	patch
+		ARM: spitz: fix GPIO assignment for backlight
+		ARM: pxa: consolidate GPIO chip platform data
+		ARM: pxa/gumstix: convert vbus gpio to use software nodes
+		ARM: spitz: Simplify instantiating SPI controller
+		ARM: spitz: Use software nodes to describe SPI CS lines
+		ARM: spitz: Use software nodes to describe audio GPIOs
+		ARM: spitz: Use software nodes to describe LCD GPIOs
+		ARM: spitz: Use software nodes to describe MMC GPIOs
+		ARM: spitz: Use software nodes to describe LED GPIOs
+		ARM: spitz: Use software nodes for the ADS7846 touchscreen
+	imx/soc
+		https://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-soc-6.11
+	patch
+		MAINTAINERS: thead: add git tree
+		amazon: MAINTAINERS: change to odd fixes and Tsahee Zidenberg to CREDITS
+		ti: omap: MAINTAINERS: move Benoît Cousson to CREDITS
 
 soc/dt
 	renesas/dt
@@ -76,9 +95,9 @@ soc/dt
 		https://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts64-2
 	rockchips/dt32
 		https://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts32-2
-	<no branch> (d79d713d602e8b32cf935ddfdf61769cb74ba1dc)
+	rockchips/dt64-3
 		https://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts64-2
-	<no branch> (b1240a39511b9206293b82ac372c5114d6e15821)
+	sophgo/dt
 		https://github.com/sophgo/linux tags/riscv-sophgo-dt-for-v6.11
 
 soc/drivers
@@ -123,6 +142,10 @@ soc/drivers
 		https://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl tags/memory-controller-drv-6.11
 	patch
 		soc: samsung: exynos-pmu: add support for PMU_ALIVE non atomic registers
+		platform: cznic: turris-omnia-mcu: Depend on OF
+		platform: cznic: turris-omnia-mcu: Depend on WATCHDOG
+	zynqmp/soc2
+		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc2-for-6.11
 
 soc/defconfig
 	renesas/defconfig
