@@ -23,6 +23,7 @@ static test_params test_values[] = {
 {        0x1ffffffff,        0x1ffffffff,                0x4, 0xffffffff00000000 },
 { 0xffff000000000000, 0xffff000000000000, 0xffff000000000001, 0xfffeffffffffffff },
 { 0x3333333333333333, 0x3333333333333333, 0x5555555555555555, 0x1eb851eb851eb851 },
+{ 0x7fffffffffffffff,                0x2,                0x3, 0x5555555555555554 },
 { 0xffffffffffffffff,                0x2, 0x8000000000000000,                0x3 },
 { 0xffffffffffffffff,                0x2, 0xc000000000000000,                0x2 },
 { 0xffffffffffffffff, 0x4000000000000004, 0x8000000000000000, 0x8000000000000007 },
