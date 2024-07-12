@@ -99,6 +99,12 @@ soc/dt
 		https://git.kernel.org/pub/scm/linux/kernel/git/mmind/linux-rockchip tags/v6.11-rockchip-dts64-2
 	sophgo/dt
 		https://github.com/sophgo/linux tags/riscv-sophgo-dt-for-v6.11
+	qcom/dt32-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm32-for-6.11-2
+	qcom/dt64-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-6.11-2
+	sunxi/dt-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-dt-for-6.11-2
 
 soc/drivers
 	firmware/scmi
@@ -146,6 +152,10 @@ soc/drivers
 		platform: cznic: turris-omnia-mcu: Depend on WATCHDOG
 	zynqmp/soc2
 		https://github.com/Xilinx/linux-xlnx tags/zynqmp-soc2-for-6.11
+	qcom/drivers-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-drivers-for-6.11-2
+	sunxi/drivers-2
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-drivers-for-6.11-2
 
 soc/defconfig
 	renesas/defconfig
@@ -178,4 +188,6 @@ arm/fixes
 		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-fixes-for-6.10
 	patch
 		MAINTAINERS: Move myself from SPRD Maintainer to Reviewer
+		ARM: davinci: Convert comma to semicolon
+		MAINTAINERS: Add more maintainers for omaps
 
