@@ -2564,6 +2564,13 @@ int unpoison_memory(unsigned long pfn)
 		goto unlock_mutex;
 	}
 
+	if (PagePoisoned(p)) {
+		unpoison_pr_info("%#lx: page is uninitialized\n",
+				 pfn, &unpoison_rs);
+		ret = -EOPNOTSUPP;
+		goto unlock_mutex;
+	}
+
 	if (!PageHWPoison(p)) {
 		unpoison_pr_info("%#lx: page was already unpoisoned\n",
 				 pfn, &unpoison_rs);
