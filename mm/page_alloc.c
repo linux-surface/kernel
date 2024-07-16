@@ -287,7 +287,6 @@ EXPORT_SYMBOL(nr_online_nodes);
 
 static bool page_contains_unaccepted(struct page *page, unsigned int order);
 static void accept_page(struct page *page, unsigned int order);
-static bool try_to_accept_memory(struct zone *zone, unsigned int order);
 static inline bool has_unaccepted_memory(void);
 static bool __free_unaccepted(struct page *page);
 
@@ -6979,7 +6978,7 @@ static bool try_to_accept_memory_one(struct zone *zone)
 	return true;
 }
 
-static bool try_to_accept_memory(struct zone *zone, unsigned int order)
+bool try_to_accept_memory(struct zone *zone, unsigned int order)
 {
 	long to_accept;
 	int ret = false;
@@ -7036,11 +7035,6 @@ static bool page_contains_unaccepted(struct page *page, unsigned int order)
 
 static void accept_page(struct page *page, unsigned int order)
 {
-}
-
-static bool try_to_accept_memory(struct zone *zone, unsigned int order)
-{
-	return false;
 }
 
 static inline bool has_unaccepted_memory(void)

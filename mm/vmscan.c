@@ -5929,11 +5929,43 @@ static void shrink_node_memcgs(pg_data_t *pgdat, struct scan_control *sc)
 	} while ((memcg = mem_cgroup_iter(target_memcg, memcg, partial)));
 }
 
+#ifdef CONFIG_UNACCEPTED_MEMORY
+static bool node_try_to_accept_memory(pg_data_t *pgdat, struct scan_control *sc)
+{
+	bool progress = false;
+	struct zone *zone;
+	int z;
+
+	for (z = 0; z <= sc->reclaim_idx; z++) {
+		zone = pgdat->node_zones + z;
+		if (!managed_zone(zone))
+			continue;
+
+		if (try_to_accept_memory(zone, sc->order))
+			progress = true;
+	}
+
+	return progress;
+}
+#else
+static inline bool node_try_to_accept_memory(pg_data_t *pgdat,
+					     struct scan_control *sc)
+{
+	return false;
+}
+#endif /* CONFIG_UNACCEPTED_MEMORY */
+
 static void shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 {
 	unsigned long nr_reclaimed, nr_scanned, nr_node_reclaimed;
 	struct lruvec *target_lruvec;
 	bool reclaimable = false;
+
+	/* Try to accept memory before going for reclaim */
+	if (node_try_to_accept_memory(pgdat, sc)) {
+		if (!should_continue_reclaim(pgdat, 0, sc))
+			return;
+	}
 
 	if (lru_gen_enabled() && root_reclaim(sc)) {
 		lru_gen_shrink_node(pgdat, sc);
@@ -6145,6 +6177,10 @@ static void shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 		if (!cgroup_reclaim(sc)) {
 			if (!cpuset_zone_allowed(zone,
 						 GFP_KERNEL | __GFP_HARDWALL))
+				continue;
+
+			/* Try to accept memory before going for reclaim */
+			if (try_to_accept_memory(zone, sc->order))
 				continue;
 
 			/*

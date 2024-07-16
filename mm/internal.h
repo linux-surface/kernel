@@ -1431,4 +1431,13 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	unsigned long new_addr, unsigned long len,
 	bool need_rmap_locks, bool for_stack);
 
+#ifdef CONFIG_UNACCEPTED_MEMORY
+bool try_to_accept_memory(struct zone *zone, unsigned int order);
+#else
+static inline bool try_to_accept_memory(struct zone *zone, unsigned int order)
+{
+	return false;
+}
+#endif /* CONFIG_UNACCEPTED_MEMORY */
+
 #endif	/* __MM_INTERNAL_H */
