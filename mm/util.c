@@ -26,6 +26,8 @@
 
 #include <linux/uaccess.h>
 
+#include <kunit/visibility.h>
+
 #include "internal.h"
 #include "swap.h"
 
@@ -139,14 +141,14 @@ EXPORT_SYMBOL(kmemdup_noprof);
  * kmemdup_array - duplicate a given array.
  *
  * @src: array to duplicate.
- * @element_size: size of each element of array.
  * @count: number of elements to duplicate from array.
+ * @element_size: size of each element of array.
  * @gfp: GFP mask to use.
  *
  * Return: duplicated array of @src or %NULL in case of error,
  * result is physically contiguous. Use kfree() to free.
  */
-void *kmemdup_array(const void *src, size_t element_size, size_t count, gfp_t gfp)
+void *kmemdup_array(const void *src, size_t count, size_t element_size, gfp_t gfp)
 {
 	return kmemdup(src, size_mul(element_size, count), gfp);
 }
@@ -481,6 +483,9 @@ void arch_pick_mmap_layout(struct mm_struct *mm, struct rlimit *rlim_stack)
 	mm->mmap_base = TASK_UNMAPPED_BASE;
 	clear_bit(MMF_TOPDOWN, &mm->flags);
 }
+#endif
+#ifdef CONFIG_MMU
+EXPORT_SYMBOL_IF_KUNIT(arch_pick_mmap_layout);
 #endif
 
 /**

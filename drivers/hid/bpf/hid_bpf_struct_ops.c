@@ -177,7 +177,7 @@ static int hid_bpf_ops_init_member(const struct btf_type *t,
 	return 0;
 }
 
-static int hid_bpf_reg(void *kdata)
+static int hid_bpf_reg(void *kdata, struct bpf_link *link)
 {
 	struct hid_bpf_ops *ops = kdata;
 	struct hid_device *hdev;
@@ -232,7 +232,7 @@ out_unlock:
 	return err;
 }
 
-static void hid_bpf_unreg(void *kdata)
+static void hid_bpf_unreg(void *kdata, struct bpf_link *link)
 {
 	struct hid_bpf_ops *ops = kdata;
 	struct hid_device *hdev;
