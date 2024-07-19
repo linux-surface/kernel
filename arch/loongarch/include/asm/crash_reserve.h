@@ -7,6 +7,8 @@
 #define CRASH_ADDR_LOW_MAX		SZ_4G
 #define CRASH_ADDR_HIGH_MAX		memblock_end_of_DRAM()
 
+#define HAVE_ARCH_CRASHKERNEL_RESERVATION_HIGH
+
 extern phys_addr_t memblock_end_of_DRAM(void);
 
 #endif
