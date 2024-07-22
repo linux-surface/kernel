@@ -943,8 +943,14 @@ static unsigned int early_nbcon_pcpu_emergency_nesting __initdata;
 /**
  * nbcon_get_cpu_emergency_nesting - Get the per CPU emergency nesting pointer
  *
+ * Context:	For reading, any context. For writing, any context which could
+ *		not be migrated to another CPU.
  * Return:	Either a pointer to the per CPU emergency nesting counter of
  *		the current CPU or to the init data during early boot.
+ *
+ * Allowing migration enabled for reading relies on preemption being disabled
+ * while the current CPU is in the emergency state. See also
+ * nbcon_cpu_emergency_enter().
  */
 static __ref unsigned int *nbcon_get_cpu_emergency_nesting(void)
 {
@@ -956,7 +962,8 @@ static __ref unsigned int *nbcon_get_cpu_emergency_nesting(void)
 	if (!printk_percpu_data_ready())
 		return &early_nbcon_pcpu_emergency_nesting;
 
-	return this_cpu_ptr(&nbcon_pcpu_emergency_nesting);
+	/* Open code this_cpu_ptr() without checking migration. */
+	return per_cpu_ptr(&nbcon_pcpu_emergency_nesting, raw_smp_processor_id());
 }
 
 /**
