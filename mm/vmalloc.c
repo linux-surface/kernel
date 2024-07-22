@@ -4037,6 +4037,65 @@ void *vzalloc_node_noprof(unsigned long size, int node)
 }
 EXPORT_SYMBOL(vzalloc_node_noprof);
 
+/**
+ * vrealloc - reallocate virtually contiguous memory; contents remain unchanged
+ * @p: object to reallocate memory for
+ * @size: the size to reallocate
+ * @flags: the flags for the page level allocator
+ *
+ * The contents of the object pointed to are preserved up to the lesser of the
+ * new and old size (__GFP_ZERO flag is effectively ignored).
+ *
+ * If @p is %NULL, vrealloc() behaves exactly like vmalloc(). If @size is 0 and
+ * @p is not a %NULL pointer, the object pointed to is freed.
+ *
+ * Return: pointer to the allocated memory; %NULL if @size is zero or in case of
+ *         failure
+ */
+void *vrealloc_noprof(const void *p, size_t size, gfp_t flags)
+{
+	size_t old_size = 0;
+	void *n;
+
+	if (!size) {
+		vfree(p);
+		return NULL;
+	}
+
+	if (p) {
+		struct vm_struct *vm;
+
+		vm = find_vm_area(p);
+		if (unlikely(!vm)) {
+			WARN(1, "Trying to vrealloc() nonexistent vm area (%p)\n", p);
+			return NULL;
+		}
+
+		old_size = get_vm_area_size(vm);
+	}
+
+	if (size <= old_size) {
+		/*
+		 * TODO: Shrink the vm_area, i.e. unmap and free unused pages.
+		 * What would be a good heuristic for when to shrink the
+		 * vm_area?
+		 */
+		return (void *)p;
+	}
+
+	/* TODO: Grow the vm_area, i.e. allocate and map additional pages. */
+	n = __vmalloc_noprof(size, flags);
+	if (!n)
+		return NULL;
+
+	if (p) {
+		memcpy(n, p, old_size);
+		vfree(p);
+	}
+
+	return n;
+}
+
 #if defined(CONFIG_64BIT) && defined(CONFIG_ZONE_DMA32)
 #define GFP_VMALLOC32 (GFP_DMA32 | GFP_KERNEL)
 #elif defined(CONFIG_64BIT) && defined(CONFIG_ZONE_DMA)
