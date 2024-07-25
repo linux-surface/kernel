@@ -4049,6 +4049,9 @@ EXPORT_SYMBOL(vzalloc_node_noprof);
  * If @p is %NULL, vrealloc() behaves exactly like vmalloc(). If @size is 0 and
  * @p is not a %NULL pointer, the object pointed to is freed.
  *
+ * This function must not be called concurrently with itself or vfree() for the
+ * same memory allocation.
+ *
  * Return: pointer to the allocated memory; %NULL if @size is zero or in case of
  *         failure
  */
