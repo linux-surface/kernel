@@ -732,6 +732,9 @@ EXPORT_SYMBOL(kvfree_sensitive);
  * If @p is %NULL, kvrealloc() behaves exactly like kvmalloc(). If @size is 0
  * and @p is not a %NULL pointer, the object pointed to is freed.
  *
+ * This function must not be called concurrently with itself or kvfree() for the
+ * same memory allocation.
+ *
  * Return: pointer to the allocated memory or %NULL in case of error
  */
 void *kvrealloc_noprof(const void *p, size_t size, gfp_t flags)
