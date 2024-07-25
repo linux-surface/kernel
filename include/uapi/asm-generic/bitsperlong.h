@@ -28,4 +28,6 @@
 #define __BITS_PER_LONG_LONG 64
 #endif
 
+#define __BITS_PER_U128 128
+
 #endif /* _UAPI__ASM_GENERIC_BITS_PER_LONG */
