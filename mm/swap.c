@@ -220,7 +220,7 @@ static void folio_batch_move_lru(struct folio_batch *fbatch, move_fn_t move_fn)
 	folios_put(fbatch);
 }
 
-static void __folio_batch_add_and_move(struct folio_batch *fbatch,
+static void __folio_batch_add_and_move(struct folio_batch __percpu *fbatch,
 		struct folio *folio, move_fn_t move_fn,
 		bool on_lru, bool disable_irq)
 {
@@ -233,16 +233,14 @@ static void __folio_batch_add_and_move(struct folio_batch *fbatch,
 		return;
 	}
 
-	if (folio_batch_add(fbatch, folio) && !folio_test_large(folio) &&
-	    !lru_cache_disabled())
-		return;
-
 	if (disable_irq)
 		local_lock_irqsave(&cpu_fbatches.lock_irq, flags);
 	else
 		local_lock(&cpu_fbatches.lock);
 
-	folio_batch_move_lru(fbatch, move_fn);
+	if (!folio_batch_add(this_cpu_ptr(fbatch), folio) || folio_test_large(folio) ||
+	    lru_cache_disabled())
+		folio_batch_move_lru(this_cpu_ptr(fbatch), move_fn);
 
 	if (disable_irq)
 		local_unlock_irqrestore(&cpu_fbatches.lock_irq, flags);
@@ -252,7 +250,7 @@ static void __folio_batch_add_and_move(struct folio_batch *fbatch,
 
 #define folio_batch_add_and_move(folio, op, on_lru)						\
 	__folio_batch_add_and_move(								\
-		this_cpu_ptr(&cpu_fbatches.op),							\
+		&cpu_fbatches.op,								\
 		folio,										\
 		op,										\
 		on_lru,										\
