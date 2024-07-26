@@ -1248,16 +1248,14 @@ void __meminit __free_pages_core(struct page *page, unsigned int order,
 		 * map it first.
 		 */
 		debug_pagealloc_map_pages(page, nr_pages);
-		adjust_managed_page_count(page, nr_pages);
 	} else {
 		for (loop = 0; loop < nr_pages; loop++, p++) {
 			__ClearPageReserved(p);
 			set_page_count(p, 0);
 		}
 
-		/* memblock adjusts totalram_pages() manually. */
-		atomic_long_add(nr_pages, &page_zone(page)->managed_pages);
 	}
+	adjust_managed_page_count(page, nr_pages);
 
 	if (page_contains_unaccepted(page, order)) {
 		if (order == MAX_PAGE_ORDER && __free_unaccepted(page))

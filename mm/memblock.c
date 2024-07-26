@@ -1711,10 +1711,8 @@ void __init memblock_free_late(phys_addr_t base, phys_addr_t size)
 	cursor = PFN_UP(base);
 	end = PFN_DOWN(base + size);
 
-	for (; cursor < end; cursor++) {
+	for (; cursor < end; cursor++)
 		memblock_free_pages(pfn_to_page(cursor), cursor, 0);
-		totalram_pages_inc();
-	}
 }
 
 /*
@@ -2123,7 +2121,7 @@ static void __init __free_pages_memory(unsigned long start, unsigned long end)
 	}
 }
 
-static unsigned long __init __free_memory_core(phys_addr_t start,
+static void __init __free_memory_core(phys_addr_t start,
 				 phys_addr_t end)
 {
 	unsigned long start_pfn = PFN_UP(start);
@@ -2131,11 +2129,9 @@ static unsigned long __init __free_memory_core(phys_addr_t start,
 				      PFN_DOWN(end), max_low_pfn);
 
 	if (start_pfn >= end_pfn)
-		return 0;
+		return;
 
 	__free_pages_memory(start_pfn, end_pfn);
-
-	return end_pfn - start_pfn;
 }
 
 static void __init memmap_init_reserved_pages(void)
@@ -2177,9 +2173,8 @@ static void __init memmap_init_reserved_pages(void)
 	}
 }
 
-static unsigned long __init free_low_memory_core_early(void)
+static void __init free_low_memory_core_early(void)
 {
-	unsigned long count = 0;
 	phys_addr_t start, end;
 	u64 i;
 
@@ -2194,9 +2189,7 @@ static unsigned long __init free_low_memory_core_early(void)
 	 */
 	for_each_free_mem_range(i, NUMA_NO_NODE, MEMBLOCK_NONE, &start, &end,
 				NULL)
-		count += __free_memory_core(start, end);
-
-	return count;
+		__free_memory_core(start, end);
 }
 
 static int reset_managed_pages_done __initdata;
@@ -2227,13 +2220,10 @@ void __init reset_all_zones_managed_pages(void)
  */
 void __init memblock_free_all(void)
 {
-	unsigned long pages;
-
 	free_unused_memmap();
 	reset_all_zones_managed_pages();
 
-	pages = free_low_memory_core_early();
-	totalram_pages_add(pages);
+	free_low_memory_core_early();
 }
 
 /* Keep a table to reserve named memory */
