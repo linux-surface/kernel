@@ -23,15 +23,8 @@
 /*
  * buffered_read.c
  */
-void netfs_rreq_unlock_folios(struct netfs_io_request *rreq);
 int netfs_prefetch_for_write(struct file *file, struct folio *folio,
 			     size_t offset, size_t len);
-
-/*
- * io.c
- */
-void netfs_rreq_work(struct work_struct *work);
-int netfs_begin_read(struct netfs_io_request *rreq, bool sync);
 
 /*
  * main.c
@@ -89,6 +82,18 @@ static inline void netfs_see_request(struct netfs_io_request *rreq,
 {
 	trace_netfs_rreq_ref(rreq->debug_id, refcount_read(&rreq->ref), what);
 }
+
+/*
+ * read_collect.c
+ */
+void netfs_read_termination_worker(struct work_struct *work);
+void netfs_rreq_terminated(struct netfs_io_request *rreq, bool was_async);
+
+/*
+ * read_retry.c
+ */
+void netfs_retry_reads(struct netfs_io_request *rreq);
+void netfs_unlock_abandoned_read_pages(struct netfs_io_request *rreq);
 
 /*
  * stats.c

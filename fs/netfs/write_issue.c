@@ -159,10 +159,6 @@ static void netfs_prepare_write(struct netfs_io_request *wreq,
 
 	_enter("R=%x[%x]", wreq->debug_id, subreq->debug_index);
 
-	trace_netfs_sreq_ref(wreq->debug_id, subreq->debug_index,
-			     refcount_read(&subreq->ref),
-			     netfs_sreq_trace_new);
-
 	trace_netfs_sreq(subreq, netfs_sreq_trace_prepare);
 
 	stream->sreq_max_len	= UINT_MAX;
