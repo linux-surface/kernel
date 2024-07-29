@@ -256,7 +256,7 @@ struct smb_rqst {
 	unsigned int	rq_nvec;	/* number of kvecs in array */
 	size_t		rq_iter_size;	/* Amount of data in ->rq_iter */
 	struct iov_iter	rq_iter;	/* Data iterator */
-	struct xarray	rq_buffer;	/* Page buffer for encryption */
+	struct folio_queue *rq_buffer;	/* Buffer for encryption */
 };
 
 struct mid_q_entry;
