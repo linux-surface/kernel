@@ -184,13 +184,13 @@ static struct shrinker *zswap_shrinker;
  * page within zswap.
  *
  * swpentry - associated swap entry, the offset indexes into the red-black tree
+ * length - the length in bytes of the compressed page data.  Needed during
+ *          decompression. For a same value filled page length is 0, and both
+ *          pool and lru are invalid and must be ignored.
  * referenced - true if the entry recently entered the zswap pool. Unset by the
  *              dynamic shrinker. The entry is only reclaimed by the dynamic
  *              shrinker if referenced is unset. See comments in the shrinker
  *              section for context.
- * length - the length in bytes of the compressed page data.  Needed during
- *          decompression. For a same value filled page length is 0, and both
- *          pool and lru are invalid and must be ignored.
  * pool - the zswap_pool the entry's data is in
  * handle - zpool allocation handle that stores the compressed page data
  * value - value of the same-value filled pages which have same content
