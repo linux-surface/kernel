@@ -200,7 +200,8 @@ static __always_inline bool kasan_slab_pre_free(struct kmem_cache *s,
 	return false;
 }
 
-bool __kasan_slab_free(struct kmem_cache *s, void *object, bool init);
+bool __kasan_slab_free(struct kmem_cache *s, void *object, bool init,
+		       bool after_rcu_delay);
 /**
  * kasan_slab_free - Possibly handle slab object freeing.
  * @object: Object to free.
@@ -212,10 +213,11 @@ bool __kasan_slab_free(struct kmem_cache *s, void *object, bool init);
  * @Return true if KASAN took ownership of the object; false otherwise.
  */
 static __always_inline bool kasan_slab_free(struct kmem_cache *s,
-						void *object, bool init)
+						void *object, bool init,
+						bool after_rcu_delay)
 {
 	if (kasan_enabled())
-		return __kasan_slab_free(s, object, init);
+		return __kasan_slab_free(s, object, init, after_rcu_delay);
 	return false;
 }
 
@@ -411,7 +413,8 @@ static inline bool kasan_slab_pre_free(struct kmem_cache *s, void *object)
 	return false;
 }
 
-static inline bool kasan_slab_free(struct kmem_cache *s, void *object, bool init)
+static inline bool kasan_slab_free(struct kmem_cache *s, void *object,
+				   bool init, bool after_rcu_delay)
 {
 	return false;
 }
