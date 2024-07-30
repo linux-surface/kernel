@@ -753,7 +753,10 @@ void *kvrealloc_noprof(const void *p, size_t size, gfp_t flags)
 
 		if (p) {
 			/* We already know that `p` is not a vmalloc address. */
-			memcpy(n, p, ksize(p));
+			kasan_disable_current();
+			memcpy(n, kasan_reset_tag(p), ksize(p));
+			kasan_enable_current();
+
 			kfree(p);
 		}
 	}
