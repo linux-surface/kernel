@@ -77,7 +77,10 @@ static void v9fs_issue_read(struct netfs_io_subrequest *subreq)
 	 * cache won't be on server and is zeroes */
 	__set_bit(NETFS_SREQ_CLEAR_TAIL, &subreq->flags);
 
-	netfs_subreq_terminated(subreq, err ?: total, false);
+	if (!err)
+		subreq->transferred += total;
+
+	netfs_read_subreq_terminated(subreq, err, false);
 }
 
 /**
