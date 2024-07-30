@@ -4077,12 +4077,15 @@ void *vrealloc_noprof(const void *p, size_t size, gfp_t flags)
 		old_size = get_vm_area_size(vm);
 	}
 
+	/*
+	 * TODO: Shrink the vm_area, i.e. unmap and free unused pages. What
+	 * would be a good heuristic for when to shrink the vm_area?
+	 */
 	if (size <= old_size) {
-		/*
-		 * TODO: Shrink the vm_area, i.e. unmap and free unused pages.
-		 * What would be a good heuristic for when to shrink the
-		 * vm_area?
-		 */
+		/* Zero out spare memory. */
+		if (want_init_on_alloc(flags))
+			memset((void *)p + size, 0, old_size - size);
+
 		return (void *)p;
 	}
 
