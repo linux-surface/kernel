@@ -170,6 +170,7 @@ static int test_memcg_current_peak(const char *root)
 	char *memcg;
 	bool fd2_closed = false, fd3_closed = false, fd4_closed = false;
 	int peak_fd = -1, peak_fd2 = -1, peak_fd3 = -1, peak_fd4 = -1;
+	struct stat ss;
 
 	memcg = cg_name(root, "memcg_test");
 	if (!memcg)
@@ -200,8 +201,24 @@ static int test_memcg_current_peak(const char *root)
 	 */
 	peak_fd = cg_open(memcg, "memory.peak", O_RDWR | O_APPEND | O_CLOEXEC);
 
-	if (peak_fd == -1)
+	if (peak_fd == -1) {
+		if (errno == ENOENT)
+			ret = KSFT_SKIP;
 		goto cleanup;
+	}
+
+	/*
+	 * Before we try to use memory.peak's fd, try to figure out whether
+	 * this kernel supports writing to that file in the first place. (by
+	 * checking the writable bit on the file's st_mode)
+	 */
+	if (fstat(peak_fd, &ss))
+		goto cleanup;
+
+	if ((ss.st_mode & S_IWUSR) == 0) {
+		ret = KSFT_SKIP;
+		goto cleanup;
+	}
 
 	peak_fd2 = cg_open(memcg, "memory.peak", O_RDWR | O_APPEND | O_CLOEXEC);
 
@@ -920,6 +937,8 @@ static int test_memcg_swap_max_peak(const char *root)
 	int ret = KSFT_FAIL;
 	char *memcg;
 	long max, peak;
+	struct stat ss;
+	int swap_peak_fd = -1, mem_peak_fd = -1;
 
 	/* any non-empty string resets */
 	static const char reset_string[] = "foobarbaz";
@@ -939,13 +958,29 @@ static int test_memcg_swap_max_peak(const char *root)
 		goto cleanup;
 	}
 
-	int swap_peak_fd = cg_open(memcg, "memory.swap.peak",
-				   O_RDWR | O_APPEND | O_CLOEXEC);
+	swap_peak_fd = cg_open(memcg, "memory.swap.peak",
+			       O_RDWR | O_APPEND | O_CLOEXEC);
 
-	if (swap_peak_fd == -1)
+	if (swap_peak_fd == -1) {
+		if (errno == ENOENT)
+			ret = KSFT_SKIP;
+		goto cleanup;
+	}
+
+	/*
+	 * Before we try to use memory.swap.peak's fd, try to figure out
+	 * whether this kernel supports writing to that file in the first
+	 * place. (by checking the writable bit on the file's st_mode)
+	 */
+	if (fstat(swap_peak_fd, &ss))
 		goto cleanup;
 
-	int mem_peak_fd = cg_open(memcg, "memory.peak", O_RDWR | O_APPEND | O_CLOEXEC);
+	if ((ss.st_mode & S_IWUSR) == 0) {
+		ret = KSFT_SKIP;
+		goto cleanup;
+	}
+
+	mem_peak_fd = cg_open(memcg, "memory.peak", O_RDWR | O_APPEND | O_CLOEXEC);
 
 	if (mem_peak_fd == -1)
 		goto cleanup;
@@ -1081,9 +1116,9 @@ static int test_memcg_swap_max_peak(const char *root)
 	ret = KSFT_PASS;
 
 cleanup:
-	if (close(mem_peak_fd))
+	if (mem_peak_fd != -1 && close(mem_peak_fd))
 		ret = KSFT_FAIL;
-	if (close(swap_peak_fd))
+	if (swap_peak_fd != -1 && close(swap_peak_fd))
 		ret = KSFT_FAIL;
 	cg_destroy(memcg);
 	free(memcg);
