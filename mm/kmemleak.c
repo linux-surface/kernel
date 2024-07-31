@@ -1362,28 +1362,7 @@ static void update_refs(struct kmemleak_object *object)
 	}
 }
 
-/*
- * Memory scanning is a long process and it needs to be interruptible. This
- * function checks whether such interrupt condition occurred.
- */
-static int scan_should_stop(void)
-{
-	if (!kmemleak_enabled)
-		return 1;
-
-	/*
-	 * This function may be called from either process or kthread context,
-	 * hence the need to check for both stop conditions.
-	 */
-	if (current->mm)
-		return signal_pending(current);
-	else
-		return kthread_should_stop();
-
-	return 0;
-}
-
-static void scan_pointer(struct kmemleak_object *scanned,
+static void pointer_update_refs(struct kmemleak_object *scanned,
 			 unsigned long pointer, unsigned int objflags)
 {
 	struct kmemleak_object *object;
@@ -1442,6 +1421,27 @@ static void scan_pointer(struct kmemleak_object *scanned,
 }
 
 /*
+ * Memory scanning is a long process and it needs to be interruptible. This
+ * function checks whether such interrupt condition occurred.
+ */
+static int scan_should_stop(void)
+{
+	if (!kmemleak_enabled)
+		return 1;
+
+	/*
+	 * This function may be called from either process or kthread context,
+	 * hence the need to check for both stop conditions.
+	 */
+	if (current->mm)
+		return signal_pending(current);
+	else
+		return kthread_should_stop();
+
+	return 0;
+}
+
+/*
  * Scan a memory block (exclusive range) for valid pointers and add those
  * found to the gray list.
  */
@@ -1464,8 +1464,8 @@ static void scan_block(void *_start, void *_end,
 		pointer = *(unsigned long *)kasan_reset_tag((void *)ptr);
 		kasan_enable_current();
 
-		scan_pointer(scanned, pointer, 0);
-		scan_pointer(scanned, pointer, OBJECT_PERCPU);
+		pointer_update_refs(scanned, pointer, 0);
+		pointer_update_refs(scanned, pointer, OBJECT_PERCPU);
 	}
 	raw_spin_unlock_irqrestore(&kmemleak_lock, flags);
 }
