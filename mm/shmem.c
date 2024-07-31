@@ -1629,7 +1629,6 @@ unsigned long shmem_allowable_huge_orders(struct inode *inode,
 	unsigned long mask = READ_ONCE(huge_shmem_orders_always);
 	unsigned long within_size_orders = READ_ONCE(huge_shmem_orders_within_size);
 	unsigned long vm_flags = vma->vm_flags;
-	unsigned long orders = THP_ORDERS_ALL_FILE_DEFAULT;
 	loff_t i_size;
 	int order;
 
@@ -1674,7 +1673,7 @@ unsigned long shmem_allowable_huge_orders(struct inode *inode,
 	if (global_huge)
 		mask |= READ_ONCE(huge_shmem_orders_inherit);
 
-	return orders & mask;
+	return THP_ORDERS_ALL_FILE_DEFAULT & mask;
 }
 
 static unsigned long shmem_suitable_orders(struct inode *inode, struct vm_fault *vmf,
