@@ -283,7 +283,23 @@ out:
 	return ret;
 }
 
-void vduse_domain_remove_user_bounce_pages(struct vduse_iova_domain *domain)
+struct page **vduse_domain_alloc_pages_to_remove_bounce(struct vduse_iova_domain *domain)
+{
+	struct page **pages;
+	unsigned long count, i;
+
+	if (!domain->user_bounce_pages)
+		return NULL;
+
+	count = domain->bounce_size >> PAGE_SHIFT;
+	pages = kmalloc_array(count, sizeof(*pages), GFP_KERNEL | __GFP_NOFAIL);
+	for (i = 0; i < count; i++)
+		pages[i] = alloc_page(GFP_KERNEL | __GFP_NOFAIL);
+
+	return pages;
+}
+
+void vduse_domain_remove_user_bounce_pages(struct vduse_iova_domain *domain, struct page **pages)
 {
 	struct vduse_bounce_map *map;
 	unsigned long i, count;
@@ -294,15 +310,16 @@ void vduse_domain_remove_user_bounce_pages(struct vduse_iova_domain *domain)
 
 	count = domain->bounce_size >> PAGE_SHIFT;
 	for (i = 0; i < count; i++) {
-		struct page *page = NULL;
+		struct page *page = pages[i];
 
 		map = &domain->bounce_maps[i];
-		if (WARN_ON(!map->bounce_page))
+		if (WARN_ON(!map->bounce_page)) {
+			put_page(page);
 			continue;
+		}
 
 		/* Copy user page to kernel page if it's in use */
 		if (map->orig_phys != INVALID_PHYS_ADDR) {
-			page = alloc_page(GFP_ATOMIC | __GFP_NOFAIL);
 			memcpy_from_page(page_address(page),
 					 map->bounce_page, 0, PAGE_SIZE);
 		}
@@ -310,6 +327,7 @@ void vduse_domain_remove_user_bounce_pages(struct vduse_iova_domain *domain)
 		map->bounce_page = page;
 	}
 	domain->user_bounce_pages = false;
+	kfree(pages);
 out:
 	write_unlock(&domain->bounce_lock);
 }
@@ -543,10 +561,13 @@ static int vduse_domain_mmap(struct file *file, struct vm_area_struct *vma)
 static int vduse_domain_release(struct inode *inode, struct file *file)
 {
 	struct vduse_iova_domain *domain = file->private_data;
+	struct page **pages;
+
+	pages = vduse_domain_alloc_pages_to_remove_bounce(domain);
 
 	spin_lock(&domain->iotlb_lock);
 	vduse_iotlb_del_range(domain, 0, ULLONG_MAX);
-	vduse_domain_remove_user_bounce_pages(domain);
+	vduse_domain_remove_user_bounce_pages(domain, pages);
 	vduse_domain_free_kernel_bounce_pages(domain);
 	spin_unlock(&domain->iotlb_lock);
 	put_iova_domain(&domain->stream_iovad);

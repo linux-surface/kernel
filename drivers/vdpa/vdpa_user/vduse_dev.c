@@ -1030,6 +1030,7 @@ unlock:
 static int vduse_dev_dereg_umem(struct vduse_dev *dev,
 				u64 iova, u64 size)
 {
+	struct page **pages;
 	int ret;
 
 	mutex_lock(&dev->mem_lock);
@@ -1044,7 +1045,8 @@ static int vduse_dev_dereg_umem(struct vduse_dev *dev,
 	if (dev->umem->iova != iova || size != dev->domain->bounce_size)
 		goto unlock;
 
-	vduse_domain_remove_user_bounce_pages(dev->domain);
+	pages = vduse_domain_alloc_pages_to_remove_bounce(dev->domain);
+	vduse_domain_remove_user_bounce_pages(dev->domain, pages);
 	unpin_user_pages_dirty_lock(dev->umem->pages,
 				    dev->umem->npages, true);
 	atomic64_sub(dev->umem->npages, &dev->umem->mm->pinned_vm);
