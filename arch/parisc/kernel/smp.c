@@ -31,6 +31,7 @@
 #include <linux/cpu.h>
 #include <linux/kgdb.h>
 #include <linux/sched/hotplug.h>
+#include <linux/clockchips.h>
 
 #include <linux/atomic.h>
 #include <asm/current.h>
@@ -66,6 +67,7 @@ static DEFINE_PER_CPU(spinlock_t, ipi_lock);
 enum ipi_message_type {
 	IPI_NOP=0,
 	IPI_RESCHEDULE=1,
+	IPI_TIMER,
 	IPI_CALL_FUNC,
 	IPI_CPU_START,
 	IPI_CPU_STOP,
@@ -152,6 +154,11 @@ ipi_interrupt(int irq, void *dev_id)
 				scheduler_ipi();
 				break;
 
+#ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
+			case IPI_TIMER:
+				tick_receive_broadcast();
+				break;
+#endif
 			case IPI_CALL_FUNC:
 				smp_debug(100, KERN_DEBUG "CPU%d IPI_CALL_FUNC\n", this_cpu);
 				inc_irq_stat(irq_call_count);
@@ -236,6 +243,13 @@ send_IPI_allbutself(enum ipi_message_type op)
 	preempt_enable();
 }
 
+#ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
+void tick_broadcast(const struct cpumask *mask)
+{
+	send_IPI_mask(mask, IPI_TIMER);
+}
+#endif
+
 #ifdef CONFIG_KGDB
 void kgdb_roundup_cpus(void)
 {
@@ -297,7 +311,7 @@ smp_cpu_init(int cpunum)
 	enter_lazy_tlb(&init_mm, current);
 
 	init_IRQ();   /* make sure no IRQs are enabled or pending */
-	start_cpu_itimer();
+	parisc_clockevent_init();
 }
 
 
