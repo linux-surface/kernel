@@ -450,7 +450,10 @@ static void __free_cluster(struct swap_info_struct *si, struct swap_cluster_info
 	lockdep_assert_held(&si->lock);
 	lockdep_assert_held(&ci->lock);
 
-	list_move_tail(&ci->list, &si->free_clusters);
+	if (ci->flags)
+		list_move_tail(&ci->list, &si->free_clusters);
+	else
+		list_add_tail(&ci->list, &si->free_clusters);
 	ci->flags = CLUSTER_FLAG_FREE;
 	ci->order = 0;
 }
@@ -474,7 +477,6 @@ static void swap_do_scheduled_discard(struct swap_info_struct *si)
 				SWAPFILE_CLUSTER);
 
 		spin_lock(&si->lock);
-
 		spin_lock(&ci->lock);
 		__free_cluster(si, ci);
 		memset(si->swap_map + idx * SWAPFILE_CLUSTER,
@@ -666,7 +668,7 @@ static void cluster_alloc_range(struct swap_info_struct *si, struct swap_cluster
 		if (ci->flags & CLUSTER_FLAG_FRAG)
 			si->frag_cluster_nr[ci->order]--;
 		list_move_tail(&ci->list, &si->full_clusters);
-		ci->flags = 0;
+		ci->flags = CLUSTER_FLAG_FULL;
 	}
 }
 
