@@ -74,7 +74,10 @@ void vduse_domain_reset_bounce_map(struct vduse_iova_domain *domain);
 int vduse_domain_add_user_bounce_pages(struct vduse_iova_domain *domain,
 				       struct page **pages, int count);
 
-void vduse_domain_remove_user_bounce_pages(struct vduse_iova_domain *domain);
+void vduse_domain_remove_user_bounce_pages(struct vduse_iova_domain *domain,
+					   struct page **pages);
+
+struct page **vduse_domain_alloc_pages_to_remove_bounce(struct vduse_iova_domain *domain);
 
 void vduse_domain_destroy(struct vduse_iova_domain *domain);
 

@@ -8,12 +8,17 @@
 #define __MM_INTERNAL_H
 
 #include <linux/fs.h>
+#include <linux/khugepaged.h>
 #include <linux/mm.h>
+#include <linux/mm_inline.h>
 #include <linux/pagemap.h>
 #include <linux/rmap.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
 #include <linux/tracepoint-defs.h>
+
+/* Internal core VMA manipulation functions. */
+#include "vma.h"
 
 struct folio_batch;
 
@@ -778,37 +783,6 @@ static inline bool free_area_empty(struct free_area *area, int migratetype)
 	return list_empty(&area->free_list[migratetype]);
 }
 
-/*
- * These three helpers classifies VMAs for virtual memory accounting.
- */
-
-/*
- * Executable code area - executable, not writable, not stack
- */
-static inline bool is_exec_mapping(vm_flags_t flags)
-{
-	return (flags & (VM_EXEC | VM_WRITE | VM_STACK)) == VM_EXEC;
-}
-
-/*
- * Stack area (including shadow stacks)
- *
- * VM_GROWSUP / VM_GROWSDOWN VMAs are always private anonymous:
- * do_mmap() forbids all other combinations.
- */
-static inline bool is_stack_mapping(vm_flags_t flags)
-{
-	return ((flags & VM_STACK) == VM_STACK) || (flags & VM_SHADOW_STACK);
-}
-
-/*
- * Data area - private, writable, not stack
- */
-static inline bool is_data_mapping(vm_flags_t flags)
-{
-	return (flags & (VM_WRITE | VM_SHARED | VM_STACK)) == VM_WRITE;
-}
-
 /* mm/util.c */
 struct anon_vma *folio_anon_vma(struct folio *folio);
 
@@ -1237,13 +1211,6 @@ void touch_pud(struct vm_area_struct *vma, unsigned long addr,
 void touch_pmd(struct vm_area_struct *vma, unsigned long addr,
 	       pmd_t *pmd, bool write);
 
-/*
- * mm/mmap.c
- */
-struct vm_area_struct *vma_merge_extend(struct vma_iterator *vmi,
-					struct vm_area_struct *vma,
-					unsigned long delta);
-
 enum {
 	/* mark page accessed */
 	FOLL_TOUCH = 1 << 16,
@@ -1370,117 +1337,6 @@ static inline bool pte_needs_soft_dirty_wp(struct vm_area_struct *vma, pte_t pte
 	return vma_soft_dirty_enabled(vma) && !pte_soft_dirty(pte);
 }
 
-static inline void vma_iter_config(struct vma_iterator *vmi,
-		unsigned long index, unsigned long last)
-{
-	__mas_set_range(&vmi->mas, index, last - 1);
-}
-
-static inline void vma_iter_reset(struct vma_iterator *vmi)
-{
-	mas_reset(&vmi->mas);
-}
-
-static inline
-struct vm_area_struct *vma_iter_prev_range_limit(struct vma_iterator *vmi, unsigned long min)
-{
-	return mas_prev_range(&vmi->mas, min);
-}
-
-static inline
-struct vm_area_struct *vma_iter_next_range_limit(struct vma_iterator *vmi, unsigned long max)
-{
-	return mas_next_range(&vmi->mas, max);
-}
-
-static inline int vma_iter_area_lowest(struct vma_iterator *vmi, unsigned long min,
-				       unsigned long max, unsigned long size)
-{
-	return mas_empty_area(&vmi->mas, min, max - 1, size);
-}
-
-static inline int vma_iter_area_highest(struct vma_iterator *vmi, unsigned long min,
-					unsigned long max, unsigned long size)
-{
-	return mas_empty_area_rev(&vmi->mas, min, max - 1, size);
-}
-
-/*
- * VMA Iterator functions shared between nommu and mmap
- */
-static inline int vma_iter_prealloc(struct vma_iterator *vmi,
-		struct vm_area_struct *vma)
-{
-	return mas_preallocate(&vmi->mas, vma, GFP_KERNEL);
-}
-
-static inline void vma_iter_clear(struct vma_iterator *vmi)
-{
-	mas_store_prealloc(&vmi->mas, NULL);
-}
-
-static inline struct vm_area_struct *vma_iter_load(struct vma_iterator *vmi)
-{
-	return mas_walk(&vmi->mas);
-}
-
-/* Store a VMA with preallocated memory */
-static inline void vma_iter_store(struct vma_iterator *vmi,
-				  struct vm_area_struct *vma)
-{
-
-#if defined(CONFIG_DEBUG_VM_MAPLE_TREE)
-	if (MAS_WARN_ON(&vmi->mas, vmi->mas.status != ma_start &&
-			vmi->mas.index > vma->vm_start)) {
-		pr_warn("%lx > %lx\n store vma %lx-%lx\n into slot %lx-%lx\n",
-			vmi->mas.index, vma->vm_start, vma->vm_start,
-			vma->vm_end, vmi->mas.index, vmi->mas.last);
-	}
-	if (MAS_WARN_ON(&vmi->mas, vmi->mas.status != ma_start &&
-			vmi->mas.last <  vma->vm_start)) {
-		pr_warn("%lx < %lx\nstore vma %lx-%lx\ninto slot %lx-%lx\n",
-		       vmi->mas.last, vma->vm_start, vma->vm_start, vma->vm_end,
-		       vmi->mas.index, vmi->mas.last);
-	}
-#endif
-
-	if (vmi->mas.status != ma_start &&
-	    ((vmi->mas.index > vma->vm_start) || (vmi->mas.last < vma->vm_start)))
-		vma_iter_invalidate(vmi);
-
-	__mas_set_range(&vmi->mas, vma->vm_start, vma->vm_end - 1);
-	mas_store_prealloc(&vmi->mas, vma);
-}
-
-static inline int vma_iter_store_gfp(struct vma_iterator *vmi,
-			struct vm_area_struct *vma, gfp_t gfp)
-{
-	if (vmi->mas.status != ma_start &&
-	    ((vmi->mas.index > vma->vm_start) || (vmi->mas.last < vma->vm_start)))
-		vma_iter_invalidate(vmi);
-
-	__mas_set_range(&vmi->mas, vma->vm_start, vma->vm_end - 1);
-	mas_store_gfp(&vmi->mas, vma, gfp);
-	if (unlikely(mas_is_err(&vmi->mas)))
-		return -ENOMEM;
-
-	return 0;
-}
-
-/*
- * VMA lock generalization
- */
-struct vma_prepare {
-	struct vm_area_struct *vma;
-	struct vm_area_struct *adj_next;
-	struct file *file;
-	struct address_space *mapping;
-	struct anon_vma *anon_vma;
-	struct vm_area_struct *insert;
-	struct vm_area_struct *remove;
-	struct vm_area_struct *remove2;
-};
-
 void __meminit __init_single_page(struct page *page, unsigned long pfn,
 				unsigned long zone, int nid);
 
@@ -1569,13 +1425,19 @@ static inline void shrinker_debugfs_remove(struct dentry *debugfs_entry,
 void workingset_update_node(struct xa_node *node);
 extern struct list_lru shadow_nodes;
 
-struct unlink_vma_file_batch {
-	int count;
-	struct vm_area_struct *vmas[8];
-};
+/* mremap.c */
+unsigned long move_page_tables(struct vm_area_struct *vma,
+	unsigned long old_addr, struct vm_area_struct *new_vma,
+	unsigned long new_addr, unsigned long len,
+	bool need_rmap_locks, bool for_stack);
 
-void unlink_file_vma_batch_init(struct unlink_vma_file_batch *);
-void unlink_file_vma_batch_add(struct unlink_vma_file_batch *, struct vm_area_struct *);
-void unlink_file_vma_batch_final(struct unlink_vma_file_batch *);
+#ifdef CONFIG_UNACCEPTED_MEMORY
+bool try_to_accept_memory(struct zone *zone, unsigned int order);
+#else
+static inline bool try_to_accept_memory(struct zone *zone, unsigned int order)
+{
+	return false;
+}
+#endif /* CONFIG_UNACCEPTED_MEMORY */
 
 #endif	/* __MM_INTERNAL_H */

@@ -114,10 +114,10 @@ static void hugetlb_cgroup_init(struct hugetlb_cgroup *h_cgroup,
 		}
 		page_counter_init(hugetlb_cgroup_counter_from_cgroup(h_cgroup,
 								     idx),
-				  fault_parent);
+				  fault_parent, false);
 		page_counter_init(
 			hugetlb_cgroup_counter_from_cgroup_rsvd(h_cgroup, idx),
-			rsvd_parent);
+			rsvd_parent, false);
 
 		limit = round_down(PAGE_COUNTER_MAX,
 				   pages_per_huge_page(&hstates[idx]));
@@ -583,6 +583,13 @@ static int hugetlb_cgroup_read_u64_max(struct seq_file *seq, void *v)
 		else
 			seq_printf(seq, "%llu\n", val * PAGE_SIZE);
 		break;
+	case RES_RSVD_MAX_USAGE:
+		counter = &h_cg->rsvd_hugepage[idx];
+		fallthrough;
+	case RES_MAX_USAGE:
+		val = (u64)counter->watermark;
+		seq_printf(seq, "%llu\n", val * PAGE_SIZE);
+		break;
 	default:
 		BUG();
 	}
@@ -736,6 +743,18 @@ static struct cftype hugetlb_dfl_tmpl[] = {
 	{
 		.name = "rsvd.current",
 		.private = RES_RSVD_USAGE,
+		.seq_show = hugetlb_cgroup_read_u64_max,
+		.flags = CFTYPE_NOT_ON_ROOT,
+	},
+	{
+		.name = "peak",
+		.private = RES_MAX_USAGE,
+		.seq_show = hugetlb_cgroup_read_u64_max,
+		.flags = CFTYPE_NOT_ON_ROOT,
+	},
+	{
+		.name = "rsvd.peak",
+		.private = RES_RSVD_MAX_USAGE,
 		.seq_show = hugetlb_cgroup_read_u64_max,
 		.flags = CFTYPE_NOT_ON_ROOT,
 	},
