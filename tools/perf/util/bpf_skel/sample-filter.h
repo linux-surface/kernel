@@ -2,6 +2,7 @@
 #define PERF_UTIL_BPF_SKEL_SAMPLE_FILTER_H
 
 #define MAX_FILTERS  64
+#define MAX_PIDS     (16 * 1024)
 
 /* supported filter operations */
 enum perf_bpf_filter_op {
@@ -14,6 +15,7 @@ enum perf_bpf_filter_op {
 	PBF_OP_AND,
 	PBF_OP_GROUP_BEGIN,
 	PBF_OP_GROUP_END,
+	PBF_OP_DONE,
 };
 
 enum perf_bpf_filter_term {
