@@ -416,7 +416,10 @@ static bool pt_event_valid(struct perf_event *event)
 static void pt_config_start(struct perf_event *event)
 {
 	struct pt *pt = this_cpu_ptr(&pt_ctx);
-	u64 ctl = event->hw.config;
+	u64 ctl = event->hw.aux_config;
+
+	if (READ_ONCE(event->hw.aux_paused))
+		return;
 
 	ctl |= RTIT_CTL_TRACEEN;
 	if (READ_ONCE(pt->vmx_on))
@@ -424,7 +427,7 @@ static void pt_config_start(struct perf_event *event)
 	else
 		wrmsrl(MSR_IA32_RTIT_CTL, ctl);
 
-	WRITE_ONCE(event->hw.config, ctl);
+	WRITE_ONCE(event->hw.aux_config, ctl);
 }
 
 /* Address ranges and their corresponding msr configuration registers */
@@ -503,7 +506,7 @@ static void pt_config(struct perf_event *event)
 	u64 reg;
 
 	/* First round: clear STATUS, in particular the PSB byte counter. */
-	if (!event->hw.config) {
+	if (!event->hw.aux_config) {
 		perf_event_itrace_started(event);
 		wrmsrl(MSR_IA32_RTIT_STATUS, 0);
 	}
@@ -533,14 +536,28 @@ static void pt_config(struct perf_event *event)
 
 	reg |= (event->attr.config & PT_CONFIG_MASK);
 
-	event->hw.config = reg;
+	event->hw.aux_config = reg;
+
+	/*
+	 * Allow resume before starting so as not to overwrite a value set by a
+	 * PMI.
+	 */
+	barrier();
+	WRITE_ONCE(pt->resume_allowed, 1);
+	barrier();
 	pt_config_start(event);
+	barrier();
+	/*
+	 * Allow pause after starting so its pt_config_stop() doesn't race with
+	 * pt_config_start().
+	 */
+	WRITE_ONCE(pt->pause_allowed, 1);
 }
 
 static void pt_config_stop(struct perf_event *event)
 {
 	struct pt *pt = this_cpu_ptr(&pt_ctx);
-	u64 ctl = READ_ONCE(event->hw.config);
+	u64 ctl = READ_ONCE(event->hw.aux_config);
 
 	/* may be already stopped by a PMI */
 	if (!(ctl & RTIT_CTL_TRACEEN))
@@ -550,7 +567,7 @@ static void pt_config_stop(struct perf_event *event)
 	if (!READ_ONCE(pt->vmx_on))
 		wrmsrl(MSR_IA32_RTIT_CTL, ctl);
 
-	WRITE_ONCE(event->hw.config, ctl);
+	WRITE_ONCE(event->hw.aux_config, ctl);
 
 	/*
 	 * A wrmsr that disables trace generation serializes other PT
@@ -1511,6 +1528,7 @@ void intel_pt_interrupt(void)
 		buf = perf_aux_output_begin(&pt->handle, event);
 		if (!buf) {
 			event->hw.state = PERF_HES_STOPPED;
+			WRITE_ONCE(pt->resume_allowed, 0);
 			return;
 		}
 
@@ -1519,6 +1537,7 @@ void intel_pt_interrupt(void)
 		ret = pt_buffer_reset_markers(buf, &pt->handle);
 		if (ret) {
 			perf_aux_output_end(&pt->handle, 0);
+			WRITE_ONCE(pt->resume_allowed, 0);
 			return;
 		}
 
@@ -1557,7 +1576,7 @@ void intel_pt_handle_vmx(int on)
 
 	/* Turn PTs back on */
 	if (!on && event)
-		wrmsrl(MSR_IA32_RTIT_CTL, event->hw.config);
+		wrmsrl(MSR_IA32_RTIT_CTL, event->hw.aux_config);
 
 	local_irq_restore(flags);
 }
@@ -1572,6 +1591,26 @@ static void pt_event_start(struct perf_event *event, int mode)
 	struct hw_perf_event *hwc = &event->hw;
 	struct pt *pt = this_cpu_ptr(&pt_ctx);
 	struct pt_buffer *buf;
+
+	if (mode & PERF_EF_RESUME) {
+		if (READ_ONCE(pt->resume_allowed)) {
+			u64 status;
+
+			/*
+			 * Only if the trace is not active and the error and
+			 * stopped bits are clear, is it safe to start, but a
+			 * PMI might have just cleared these, so resume_allowed
+			 * must be checked again also.
+			 */
+			rdmsrl(MSR_IA32_RTIT_STATUS, status);
+			if (!(status & (RTIT_STATUS_TRIGGEREN |
+					RTIT_STATUS_ERROR |
+					RTIT_STATUS_STOPPED)) &&
+			   READ_ONCE(pt->resume_allowed))
+				pt_config_start(event);
+		}
+		return;
+	}
 
 	buf = perf_aux_output_begin(&pt->handle, event);
 	if (!buf)
@@ -1601,11 +1640,27 @@ static void pt_event_stop(struct perf_event *event, int mode)
 {
 	struct pt *pt = this_cpu_ptr(&pt_ctx);
 
+	if (mode & PERF_EF_PAUSE) {
+		if (READ_ONCE(pt->pause_allowed))
+			pt_config_stop(event);
+		return;
+	}
+
 	/*
 	 * Protect against the PMI racing with disabling wrmsr,
 	 * see comment in intel_pt_interrupt().
 	 */
 	WRITE_ONCE(pt->handle_nmi, 0);
+	barrier();
+
+	/*
+	 * Prevent a resume from attempting to restart tracing, or a pause
+	 * during a subsequent start. Do this after clearing handle_nmi so that
+	 * pt_event_snapshot_aux() will not re-allow them.
+	 */
+	WRITE_ONCE(pt->pause_allowed, 0);
+	WRITE_ONCE(pt->resume_allowed, 0);
+	barrier();
 
 	pt_config_stop(event);
 
@@ -1656,12 +1711,15 @@ static long pt_event_snapshot_aux(struct perf_event *event,
 	if (WARN_ON_ONCE(!buf->snapshot))
 		return 0;
 
+	/* Prevent pause/resume from attempting to start/stop tracing */
+	WRITE_ONCE(pt->pause_allowed, 0);
+	WRITE_ONCE(pt->resume_allowed, 0);
+	barrier();
 	/*
-	 * Here, handle_nmi tells us if the tracing is on
+	 * There is no PT interrupt in this mode, so stop the trace and it will
+	 * remain stopped while the buffer is copied.
 	 */
-	if (READ_ONCE(pt->handle_nmi))
-		pt_config_stop(event);
-
+	pt_config_stop(event);
 	pt_read_offset(buf);
 	pt_update_head(pt);
 
@@ -1673,12 +1731,16 @@ static long pt_event_snapshot_aux(struct perf_event *event,
 	ret = perf_output_copy_aux(&pt->handle, handle, from, to);
 
 	/*
-	 * If the tracing was on when we turned up, restart it.
-	 * Compiler barrier not needed as we couldn't have been
-	 * preempted by anything that touches pt->handle_nmi.
+	 * Here, handle_nmi tells us if the tracing was on.
+	 * If the tracing was on, restart it.
 	 */
-	if (pt->handle_nmi)
+	if (READ_ONCE(pt->handle_nmi)) {
+		WRITE_ONCE(pt->resume_allowed, 1);
+		barrier();
 		pt_config_start(event);
+		barrier();
+		WRITE_ONCE(pt->pause_allowed, 1);
+	}
 
 	return ret;
 }
@@ -1794,7 +1856,9 @@ static __init int pt_init(void)
 	if (!intel_pt_validate_hw_cap(PT_CAP_topa_multiple_entries))
 		pt_pmu.pmu.capabilities = PERF_PMU_CAP_AUX_NO_SG;
 
-	pt_pmu.pmu.capabilities	|= PERF_PMU_CAP_EXCLUSIVE | PERF_PMU_CAP_ITRACE;
+	pt_pmu.pmu.capabilities		|= PERF_PMU_CAP_EXCLUSIVE |
+					   PERF_PMU_CAP_ITRACE |
+					   PERF_PMU_CAP_AUX_PAUSE;
 	pt_pmu.pmu.attr_groups		 = pt_attr_groups;
 	pt_pmu.pmu.task_ctx_nr		 = perf_sw_context;
 	pt_pmu.pmu.event_init		 = pt_event_init;
