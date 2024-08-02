@@ -2182,6 +2182,44 @@ static void __reg_deduce_mixed_bounds(struct bpf_reg_state *reg)
 		reg->smin_value = max_t(s64, reg->smin_value, new_smin);
 		reg->smax_value = min_t(s64, reg->smax_value, new_smax);
 	}
+
+	/* Here we would like to handle a special case after sign extending load,
+	 * when upper bits for a 64-bit range are all 1s or all 0s.
+	 *
+	 * Upper bits are all 1s when register is in a range:
+	 *   [0xffff_ffff_0000_0000, 0xffff_ffff_ffff_ffff]
+	 * Upper bits are all 0s when register is in a range:
+	 *   [0x0000_0000_0000_0000, 0x0000_0000_ffff_ffff]
+	 * Together this forms are continuous range:
+	 *   [0xffff_ffff_0000_0000, 0x0000_0000_ffff_ffff]
+	 *
+	 * Now, suppose that register range is in fact tighter:
+	 *   [0xffff_ffff_8000_0000, 0x0000_0000_ffff_ffff] (R)
+	 * Also suppose that it's 32-bit range is positive,
+	 * meaning that lower 32-bits of the full 64-bit register
+	 * are in the range:
+	 *   [0x0000_0000, 0x7fff_ffff] (W)
+	 *
+	 * If this happens, then any value in a range:
+	 *   [0xffff_ffff_0000_0000, 0xffff_ffff_7fff_ffff]
+	 * is smaller than a lowest bound of the range (R):
+	 *   0xffff_ffff_8000_0000
+	 * which means that upper bits of the full 64-bit register
+	 * can't be all 1s, when lower bits are in range (W).
+	 *
+	 * Note that:
+	 *  - 0xffff_ffff_8000_0000 == (s64)S32_MIN
+	 *  - 0x0000_0000_7fff_ffff == (s64)S32_MAX
+	 * These relations are used in the conditions below.
+	 */
+	if (reg->s32_min_value >= 0 && reg->smin_value >= S32_MIN && reg->smax_value <= S32_MAX) {
+		reg->smin_value = reg->s32_min_value;
+		reg->smax_value = reg->s32_max_value;
+		reg->umin_value = reg->s32_min_value;
+		reg->umax_value = reg->s32_max_value;
+		reg->var_off = tnum_intersect(reg->var_off,
+					      tnum_range(reg->smin_value, reg->smax_value));
+	}
 }
 
 static void __reg_deduce_bounds(struct bpf_reg_state *reg)
@@ -2332,6 +2370,25 @@ static void mark_reg_unknown(struct bpf_verifier_env *env,
 		return;
 	}
 	__mark_reg_unknown(env, regs + regno);
+}
+
+static int __mark_reg_s32_range(struct bpf_verifier_env *env,
+				struct bpf_reg_state *regs,
+				u32 regno,
+				s32 s32_min,
+				s32 s32_max)
+{
+	struct bpf_reg_state *reg = regs + regno;
+
+	reg->s32_min_value = max_t(s32, reg->s32_min_value, s32_min);
+	reg->s32_max_value = min_t(s32, reg->s32_max_value, s32_max);
+
+	reg->smin_value = max_t(s64, reg->smin_value, s32_min);
+	reg->smax_value = min_t(s64, reg->smax_value, s32_max);
+
+	reg_bounds_sync(reg);
+
+	return reg_bounds_sanity_check(env, reg, "s32_range");
 }
 
 static void __mark_reg_not_init(const struct bpf_verifier_env *env,
@@ -3335,9 +3392,87 @@ static bool is_jmp_point(struct bpf_verifier_env *env, int insn_idx)
 	return env->insn_aux_data[insn_idx].jmp_point;
 }
 
+#define LR_FRAMENO_BITS	3
+#define LR_SPI_BITS	6
+#define LR_ENTRY_BITS	(LR_SPI_BITS + LR_FRAMENO_BITS + 1)
+#define LR_SIZE_BITS	4
+#define LR_FRAMENO_MASK	((1ull << LR_FRAMENO_BITS) - 1)
+#define LR_SPI_MASK	((1ull << LR_SPI_BITS)     - 1)
+#define LR_SIZE_MASK	((1ull << LR_SIZE_BITS)    - 1)
+#define LR_SPI_OFF	LR_FRAMENO_BITS
+#define LR_IS_REG_OFF	(LR_SPI_BITS + LR_FRAMENO_BITS)
+#define LINKED_REGS_MAX	6
+
+struct linked_reg {
+	u8 frameno;
+	union {
+		u8 spi;
+		u8 regno;
+	};
+	bool is_reg;
+};
+
+struct linked_regs {
+	int cnt;
+	struct linked_reg entries[LINKED_REGS_MAX];
+};
+
+static struct linked_reg *linked_regs_push(struct linked_regs *s)
+{
+	if (s->cnt < LINKED_REGS_MAX)
+		return &s->entries[s->cnt++];
+
+	return NULL;
+}
+
+/* Use u64 as a vector of 6 10-bit values, use first 4-bits to track
+ * number of elements currently in stack.
+ * Pack one history entry for linked registers as 10 bits in the following format:
+ * - 3-bits frameno
+ * - 6-bits spi_or_reg
+ * - 1-bit  is_reg
+ */
+static u64 linked_regs_pack(struct linked_regs *s)
+{
+	u64 val = 0;
+	int i;
+
+	for (i = 0; i < s->cnt; ++i) {
+		struct linked_reg *e = &s->entries[i];
+		u64 tmp = 0;
+
+		tmp |= e->frameno;
+		tmp |= e->spi << LR_SPI_OFF;
+		tmp |= (e->is_reg ? 1 : 0) << LR_IS_REG_OFF;
+
+		val <<= LR_ENTRY_BITS;
+		val |= tmp;
+	}
+	val <<= LR_SIZE_BITS;
+	val |= s->cnt;
+	return val;
+}
+
+static void linked_regs_unpack(u64 val, struct linked_regs *s)
+{
+	int i;
+
+	s->cnt = val & LR_SIZE_MASK;
+	val >>= LR_SIZE_BITS;
+
+	for (i = 0; i < s->cnt; ++i) {
+		struct linked_reg *e = &s->entries[i];
+
+		e->frameno =  val & LR_FRAMENO_MASK;
+		e->spi     = (val >> LR_SPI_OFF) & LR_SPI_MASK;
+		e->is_reg  = (val >> LR_IS_REG_OFF) & 0x1;
+		val >>= LR_ENTRY_BITS;
+	}
+}
+
 /* for any branch, call, exit record the history of jmps in the given state */
 static int push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_state *cur,
-			    int insn_flags)
+			    int insn_flags, u64 linked_regs)
 {
 	u32 cnt = cur->jmp_history_cnt;
 	struct bpf_jmp_history_entry *p;
@@ -3353,6 +3488,10 @@ static int push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_st
 			  "verifier insn history bug: insn_idx %d cur flags %x new flags %x\n",
 			  env->insn_idx, env->cur_hist_ent->flags, insn_flags);
 		env->cur_hist_ent->flags |= insn_flags;
+		WARN_ONCE(env->cur_hist_ent->linked_regs != 0,
+			  "verifier insn history bug: insn_idx %d linked_regs != 0: %#llx\n",
+			  env->insn_idx, env->cur_hist_ent->linked_regs);
+		env->cur_hist_ent->linked_regs = linked_regs;
 		return 0;
 	}
 
@@ -3367,6 +3506,7 @@ static int push_jmp_history(struct bpf_verifier_env *env, struct bpf_verifier_st
 	p->idx = env->insn_idx;
 	p->prev_idx = env->prev_insn_idx;
 	p->flags = insn_flags;
+	p->linked_regs = linked_regs;
 	cur->jmp_history_cnt = cnt;
 	env->cur_hist_ent = p;
 
@@ -3532,6 +3672,11 @@ static inline bool bt_is_reg_set(struct backtrack_state *bt, u32 reg)
 	return bt->reg_masks[bt->frame] & (1 << reg);
 }
 
+static inline bool bt_is_frame_reg_set(struct backtrack_state *bt, u32 frame, u32 reg)
+{
+	return bt->reg_masks[frame] & (1 << reg);
+}
+
 static inline bool bt_is_frame_slot_set(struct backtrack_state *bt, u32 frame, u32 slot)
 {
 	return bt->stack_masks[frame] & (1ull << slot);
@@ -3576,6 +3721,42 @@ static void fmt_stack_mask(char *buf, ssize_t buf_sz, u64 stack_mask)
 	}
 }
 
+/* If any register R in hist->linked_regs is marked as precise in bt,
+ * do bt_set_frame_{reg,slot}(bt, R) for all registers in hist->linked_regs.
+ */
+static void bt_sync_linked_regs(struct backtrack_state *bt, struct bpf_jmp_history_entry *hist)
+{
+	struct linked_regs linked_regs;
+	bool some_precise = false;
+	int i;
+
+	if (!hist || hist->linked_regs == 0)
+		return;
+
+	linked_regs_unpack(hist->linked_regs, &linked_regs);
+	for (i = 0; i < linked_regs.cnt; ++i) {
+		struct linked_reg *e = &linked_regs.entries[i];
+
+		if ((e->is_reg && bt_is_frame_reg_set(bt, e->frameno, e->regno)) ||
+		    (!e->is_reg && bt_is_frame_slot_set(bt, e->frameno, e->spi))) {
+			some_precise = true;
+			break;
+		}
+	}
+
+	if (!some_precise)
+		return;
+
+	for (i = 0; i < linked_regs.cnt; ++i) {
+		struct linked_reg *e = &linked_regs.entries[i];
+
+		if (e->is_reg)
+			bt_set_frame_reg(bt, e->frameno, e->regno);
+		else
+			bt_set_frame_slot(bt, e->frameno, e->spi);
+	}
+}
+
 static bool calls_callback(struct bpf_verifier_env *env, int insn_idx);
 
 /* For given verifier state backtrack_insn() is called from the last insn to
@@ -3614,6 +3795,12 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 		verbose(env, "%d: ", idx);
 		print_bpf_insn(&cbs, insn, env->allow_ptr_leaks);
 	}
+
+	/* If there is a history record that some registers gained range at this insn,
+	 * propagate precision marks to those registers, so that bt_is_reg_set()
+	 * accounts for these registers.
+	 */
+	bt_sync_linked_regs(bt, hist);
 
 	if (class == BPF_ALU || class == BPF_ALU64) {
 		if (!bt_is_reg_set(bt, dreg))
@@ -3844,7 +4031,8 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 			 */
 			bt_set_reg(bt, dreg);
 			bt_set_reg(bt, sreg);
-			 /* else dreg <cond> K
+		} else if (BPF_SRC(insn->code) == BPF_K) {
+			 /* dreg <cond> K
 			  * Only dreg still needs precision before
 			  * this insn, so for the K-based conditional
 			  * there is nothing new to be marked.
@@ -3862,6 +4050,10 @@ static int backtrack_insn(struct bpf_verifier_env *env, int idx, int subseq_idx,
 			/* to be analyzed */
 			return -ENOTSUPP;
 	}
+	/* Propagate precision marks to linked registers, to account for
+	 * registers marked as precise in this function.
+	 */
+	bt_sync_linked_regs(bt, hist);
 	return 0;
 }
 
@@ -3987,96 +4179,6 @@ static void mark_all_scalars_imprecise(struct bpf_verifier_env *env, struct bpf_
 			reg->precise = false;
 		}
 	}
-}
-
-static bool idset_contains(struct bpf_idset *s, u32 id)
-{
-	u32 i;
-
-	for (i = 0; i < s->count; ++i)
-		if (s->ids[i] == (id & ~BPF_ADD_CONST))
-			return true;
-
-	return false;
-}
-
-static int idset_push(struct bpf_idset *s, u32 id)
-{
-	if (WARN_ON_ONCE(s->count >= ARRAY_SIZE(s->ids)))
-		return -EFAULT;
-	s->ids[s->count++] = id & ~BPF_ADD_CONST;
-	return 0;
-}
-
-static void idset_reset(struct bpf_idset *s)
-{
-	s->count = 0;
-}
-
-/* Collect a set of IDs for all registers currently marked as precise in env->bt.
- * Mark all registers with these IDs as precise.
- */
-static int mark_precise_scalar_ids(struct bpf_verifier_env *env, struct bpf_verifier_state *st)
-{
-	struct bpf_idset *precise_ids = &env->idset_scratch;
-	struct backtrack_state *bt = &env->bt;
-	struct bpf_func_state *func;
-	struct bpf_reg_state *reg;
-	DECLARE_BITMAP(mask, 64);
-	int i, fr;
-
-	idset_reset(precise_ids);
-
-	for (fr = bt->frame; fr >= 0; fr--) {
-		func = st->frame[fr];
-
-		bitmap_from_u64(mask, bt_frame_reg_mask(bt, fr));
-		for_each_set_bit(i, mask, 32) {
-			reg = &func->regs[i];
-			if (!reg->id || reg->type != SCALAR_VALUE)
-				continue;
-			if (idset_push(precise_ids, reg->id))
-				return -EFAULT;
-		}
-
-		bitmap_from_u64(mask, bt_frame_stack_mask(bt, fr));
-		for_each_set_bit(i, mask, 64) {
-			if (i >= func->allocated_stack / BPF_REG_SIZE)
-				break;
-			if (!is_spilled_scalar_reg(&func->stack[i]))
-				continue;
-			reg = &func->stack[i].spilled_ptr;
-			if (!reg->id)
-				continue;
-			if (idset_push(precise_ids, reg->id))
-				return -EFAULT;
-		}
-	}
-
-	for (fr = 0; fr <= st->curframe; ++fr) {
-		func = st->frame[fr];
-
-		for (i = BPF_REG_0; i < BPF_REG_10; ++i) {
-			reg = &func->regs[i];
-			if (!reg->id)
-				continue;
-			if (!idset_contains(precise_ids, reg->id))
-				continue;
-			bt_set_frame_reg(bt, fr, i);
-		}
-		for (i = 0; i < func->allocated_stack / BPF_REG_SIZE; ++i) {
-			if (!is_spilled_scalar_reg(&func->stack[i]))
-				continue;
-			reg = &func->stack[i].spilled_ptr;
-			if (!reg->id)
-				continue;
-			if (!idset_contains(precise_ids, reg->id))
-				continue;
-			bt_set_frame_slot(bt, fr, i);
-		}
-	}
-
-	return 0;
 }
 
 /*
@@ -4210,31 +4312,6 @@ static int __mark_chain_precision(struct bpf_verifier_env *env, int regno)
 			verbose(env, "mark_precise: frame%d: last_idx %d first_idx %d subseq_idx %d \n",
 				bt->frame, last_idx, first_idx, subseq_idx);
 		}
-
-		/* If some register with scalar ID is marked as precise,
-		 * make sure that all registers sharing this ID are also precise.
-		 * This is needed to estimate effect of find_equal_scalars().
-		 * Do this at the last instruction of each state,
-		 * bpf_reg_state::id fields are valid for these instructions.
-		 *
-		 * Allows to track precision in situation like below:
-		 *
-		 *     r2 = unknown value
-		 *     ...
-		 *   --- state #0 ---
-		 *     ...
-		 *     r1 = r2                 // r1 and r2 now share the same ID
-		 *     ...
-		 *   --- state #1 {r1.id = A, r2.id = A} ---
-		 *     ...
-		 *     if (r2 > 10) goto exit; // find_equal_scalars() assigns range to r1
-		 *     ...
-		 *   --- state #2 {r1.id = A, r2.id = A} ---
-		 *     r3 = r10
-		 *     r3 += r1                // need to mark both r1 and r2
-		 */
-		if (mark_precise_scalar_ids(env, st))
-			return -EFAULT;
 
 		if (last_idx < 0) {
 			/* we are at the entry into subprog, which
@@ -4456,7 +4533,7 @@ static void assign_scalar_id_before_mov(struct bpf_verifier_env *env,
 
 	if (!src_reg->id && !tnum_is_const(src_reg->var_off))
 		/* Ensure that src_reg has a valid ID that will be copied to
-		 * dst_reg and then will be used by find_equal_scalars() to
+		 * dst_reg and then will be used by sync_linked_regs() to
 		 * propagate min/max range.
 		 */
 		src_reg->id = ++env->id_gen;
@@ -4500,6 +4577,31 @@ static bool is_bpf_st_mem(struct bpf_insn *insn)
 static int get_reg_width(struct bpf_reg_state *reg)
 {
 	return fls64(reg->umax_value);
+}
+
+/* See comment for mark_nocsr_pattern_for_call() */
+static void check_nocsr_stack_contract(struct bpf_verifier_env *env, struct bpf_func_state *state,
+				       int insn_idx, int off)
+{
+	struct bpf_subprog_info *subprog = &env->subprog_info[state->subprogno];
+	struct bpf_insn_aux_data *aux = env->insn_aux_data;
+	int i;
+
+	if (subprog->nocsr_stack_off <= off || aux[insn_idx].nocsr_pattern)
+		return;
+	/* access to the region [max_stack_depth .. nocsr_stack_off)
+	 * from something that is not a part of the nocsr pattern,
+	 * disable nocsr rewrites for current subprogram by setting
+	 * nocsr_stack_off to a value smaller than any possible offset.
+	 */
+	subprog->nocsr_stack_off = S16_MIN;
+	/* reset nocsr aux flags within subprogram,
+	 * happens at most once per subprogram
+	 */
+	for (i = subprog->start; i < (subprog + 1)->start; ++i) {
+		aux[i].nocsr_spills_num = 0;
+		aux[i].nocsr_pattern = 0;
+	}
 }
 
 /* check_stack_{read,write}_fixed_off functions track spill/fill of registers,
@@ -4550,6 +4652,7 @@ static int check_stack_write_fixed_off(struct bpf_verifier_env *env,
 	if (err)
 		return err;
 
+	check_nocsr_stack_contract(env, state, insn_idx, off);
 	mark_stack_slot_scratched(env, spi);
 	if (reg && !(off % BPF_REG_SIZE) && reg->type == SCALAR_VALUE && env->bpf_capable) {
 		bool reg_value_fits;
@@ -4625,7 +4728,7 @@ static int check_stack_write_fixed_off(struct bpf_verifier_env *env,
 	}
 
 	if (insn_flags)
-		return push_jmp_history(env, env->cur_state, insn_flags);
+		return push_jmp_history(env, env->cur_state, insn_flags, 0);
 	return 0;
 }
 
@@ -4684,6 +4787,7 @@ static int check_stack_write_var_off(struct bpf_verifier_env *env,
 			return err;
 	}
 
+	check_nocsr_stack_contract(env, state, insn_idx, min_off);
 	/* Variable offset writes destroy any spilled pointers in range. */
 	for (i = min_off; i < max_off; i++) {
 		u8 new_type, *stype;
@@ -4822,6 +4926,7 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 	reg = &reg_state->stack[spi].spilled_ptr;
 
 	mark_stack_slot_scratched(env, spi);
+	check_nocsr_stack_contract(env, state, env->insn_idx, off);
 
 	if (is_spilled_reg(&reg_state->stack[spi])) {
 		u8 spill_size = 1;
@@ -4930,7 +5035,7 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 		insn_flags = 0; /* we are not restoring spilled register */
 	}
 	if (insn_flags)
-		return push_jmp_history(env, env->cur_state, insn_flags);
+		return push_jmp_history(env, env->cur_state, insn_flags, 0);
 	return 0;
 }
 
@@ -4982,6 +5087,7 @@ static int check_stack_read_var_off(struct bpf_verifier_env *env,
 	min_off = reg->smin_value + off;
 	max_off = reg->smax_value + off;
 	mark_reg_stack_read(env, ptr_state, min_off, max_off + size, dst_regno);
+	check_nocsr_stack_contract(env, ptr_state, env->insn_idx, min_off);
 	return 0;
 }
 
@@ -5587,11 +5693,13 @@ static int check_packet_access(struct bpf_verifier_env *env, u32 regno, int off,
 /* check access to 'struct bpf_context' fields.  Supports fixed offsets only */
 static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off, int size,
 			    enum bpf_access_type t, enum bpf_reg_type *reg_type,
-			    struct btf **btf, u32 *btf_id)
+			    struct btf **btf, u32 *btf_id, bool *is_retval, bool is_ldsx)
 {
 	struct bpf_insn_access_aux info = {
 		.reg_type = *reg_type,
 		.log = &env->log,
+		.is_retval = false,
+		.is_ldsx = is_ldsx,
 	};
 
 	if (env->ops->is_valid_access &&
@@ -5604,6 +5712,7 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off,
 		 * type of narrower access.
 		 */
 		*reg_type = info.reg_type;
+		*is_retval = info.is_retval;
 
 		if (base_type(*reg_type) == PTR_TO_BTF_ID) {
 			*btf = info.btf;
@@ -6692,10 +6801,20 @@ static int check_stack_slot_within_bounds(struct bpf_verifier_env *env,
                                           struct bpf_func_state *state,
                                           enum bpf_access_type t)
 {
-	int min_valid_off;
+	struct bpf_insn_aux_data *aux = &env->insn_aux_data[env->insn_idx];
+	int min_valid_off, max_bpf_stack;
+
+	/* If accessing instruction is a spill/fill from nocsr pattern,
+	 * add room for all caller saved registers below MAX_BPF_STACK.
+	 * In case if nocsr rewrite won't happen maximal stack depth
+	 * would be checked by check_max_stack_depth_subprog().
+	 */
+	max_bpf_stack = MAX_BPF_STACK;
+	if (aux->nocsr_pattern)
+		max_bpf_stack += CALLER_SAVED_REGS * BPF_REG_SIZE;
 
 	if (t == BPF_WRITE || env->allow_uninit_stack)
-		min_valid_off = -MAX_BPF_STACK;
+		min_valid_off = -max_bpf_stack;
 	else
 		min_valid_off = -state->allocated_stack;
 
@@ -6770,6 +6889,17 @@ static int check_stack_access_within_bounds(
 	 * size is -min_off, not -min_off+1.
 	 */
 	return grow_stack_state(env, state, -min_off /* size */);
+}
+
+static bool get_func_retval_range(struct bpf_prog *prog,
+				  struct bpf_retval_range *range)
+{
+	if (prog->type == BPF_PROG_TYPE_LSM &&
+		prog->expected_attach_type == BPF_LSM_MAC &&
+		!bpf_lsm_get_retval_range(prog, range)) {
+		return true;
+	}
+	return false;
 }
 
 /* check whether memory at (regno + off) is accessible for t = (read | write)
@@ -6876,6 +7006,8 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		if (!err && value_regno >= 0 && (t == BPF_READ || rdonly_mem))
 			mark_reg_unknown(env, regs, value_regno);
 	} else if (reg->type == PTR_TO_CTX) {
+		bool is_retval = false;
+		struct bpf_retval_range range;
 		enum bpf_reg_type reg_type = SCALAR_VALUE;
 		struct btf *btf = NULL;
 		u32 btf_id = 0;
@@ -6891,7 +7023,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 			return err;
 
 		err = check_ctx_access(env, insn_idx, off, size, t, &reg_type, &btf,
-				       &btf_id);
+				       &btf_id, &is_retval, is_ldsx);
 		if (err)
 			verbose_linfo(env, insn_idx, "; ");
 		if (!err && t == BPF_READ && value_regno >= 0) {
@@ -6900,7 +7032,14 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 			 * case, we know the offset is zero.
 			 */
 			if (reg_type == SCALAR_VALUE) {
-				mark_reg_unknown(env, regs, value_regno);
+				if (is_retval && get_func_retval_range(env->prog, &range)) {
+					err = __mark_reg_s32_range(env, regs, value_regno,
+								   range.minval, range.maxval);
+					if (err)
+						return err;
+				} else {
+					mark_reg_unknown(env, regs, value_regno);
+				}
 			} else {
 				mark_reg_known_zero(env, regs,
 						    value_regno);
@@ -9923,9 +10062,13 @@ static bool in_rbtree_lock_required_cb(struct bpf_verifier_env *env)
 	return is_rbtree_lock_required_kfunc(kfunc_btf_id);
 }
 
-static bool retval_range_within(struct bpf_retval_range range, const struct bpf_reg_state *reg)
+static bool retval_range_within(struct bpf_retval_range range, const struct bpf_reg_state *reg,
+				bool return_32bit)
 {
-	return range.minval <= reg->smin_value && reg->smax_value <= range.maxval;
+	if (return_32bit)
+		return range.minval <= reg->s32_min_value && reg->s32_max_value <= range.maxval;
+	else
+		return range.minval <= reg->smin_value && reg->smax_value <= range.maxval;
 }
 
 static int prepare_func_exit(struct bpf_verifier_env *env, int *insn_idx)
@@ -9962,8 +10105,8 @@ static int prepare_func_exit(struct bpf_verifier_env *env, int *insn_idx)
 		if (err)
 			return err;
 
-		/* enforce R0 return value range */
-		if (!retval_range_within(callee->callback_ret_range, r0)) {
+		/* enforce R0 return value range, and bpf_callback_t returns 64bit */
+		if (!retval_range_within(callee->callback_ret_range, r0, false)) {
 			verbose_invalid_scalar(env, r0, callee->callback_ret_range,
 					       "At callback return", "R0");
 			return -EINVAL;
@@ -10265,6 +10408,19 @@ static void update_loop_inline_state(struct bpf_verifier_env *env, u32 subprogno
 				 state->callback_subprogno == subprogno);
 }
 
+static int get_helper_proto(struct bpf_verifier_env *env, int func_id,
+			    const struct bpf_func_proto **ptr)
+{
+	if (func_id < 0 || func_id >= __BPF_FUNC_MAX_ID)
+		return -ERANGE;
+
+	if (!env->ops->get_func_proto)
+		return -EINVAL;
+
+	*ptr = env->ops->get_func_proto(func_id, env->prog);
+	return *ptr ? 0 : -EINVAL;
+}
+
 static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 			     int *insn_idx_p)
 {
@@ -10281,18 +10437,16 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
 
 	/* find function prototype */
 	func_id = insn->imm;
-	if (func_id < 0 || func_id >= __BPF_FUNC_MAX_ID) {
-		verbose(env, "invalid func %s#%d\n", func_id_name(func_id),
-			func_id);
+	err = get_helper_proto(env, insn->imm, &fn);
+	if (err == -ERANGE) {
+		verbose(env, "invalid func %s#%d\n", func_id_name(func_id), func_id);
 		return -EINVAL;
 	}
 
-	if (env->ops->get_func_proto)
-		fn = env->ops->get_func_proto(func_id, env->prog);
-	if (!fn) {
+	if (err) {
 		verbose(env, "program of this type cannot use helper %s#%d\n",
 			func_id_name(func_id), func_id);
-		return -EINVAL;
+		return err;
 	}
 
 	/* eBPF programs must be GPL compatible to use GPL-ed functions */
@@ -14099,7 +14253,7 @@ static int adjust_reg_min_max_vals(struct bpf_verifier_env *env,
 		u64 val = reg_const_value(src_reg, alu32);
 
 		if ((dst_reg->id & BPF_ADD_CONST) ||
-		    /* prevent overflow in find_equal_scalars() later */
+		    /* prevent overflow in sync_linked_regs() later */
 		    val > (u32)S32_MAX) {
 			/*
 			 * If the register already went through rX += val
@@ -14114,7 +14268,7 @@ static int adjust_reg_min_max_vals(struct bpf_verifier_env *env,
 	} else {
 		/*
 		 * Make sure ID is cleared otherwise dst_reg min/max could be
-		 * incorrectly propagated into other registers by find_equal_scalars()
+		 * incorrectly propagated into other registers by sync_linked_regs()
 		 */
 		dst_reg->id = 0;
 	}
@@ -14264,7 +14418,7 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 						copy_register_state(dst_reg, src_reg);
 						/* Make sure ID is cleared if src_reg is not in u32
 						 * range otherwise dst_reg min/max could be incorrectly
-						 * propagated into src_reg by find_equal_scalars()
+						 * propagated into src_reg by sync_linked_regs()
 						 */
 						if (!is_src_reg_u32)
 							dst_reg->id = 0;
@@ -15087,14 +15241,66 @@ static bool try_match_pkt_pointers(const struct bpf_insn *insn,
 	return true;
 }
 
-static void find_equal_scalars(struct bpf_verifier_state *vstate,
-			       struct bpf_reg_state *known_reg)
+static void __collect_linked_regs(struct linked_regs *reg_set, struct bpf_reg_state *reg,
+				  u32 id, u32 frameno, u32 spi_or_reg, bool is_reg)
+{
+	struct linked_reg *e;
+
+	if (reg->type != SCALAR_VALUE || (reg->id & ~BPF_ADD_CONST) != id)
+		return;
+
+	e = linked_regs_push(reg_set);
+	if (e) {
+		e->frameno = frameno;
+		e->is_reg = is_reg;
+		e->regno = spi_or_reg;
+	} else {
+		reg->id = 0;
+	}
+}
+
+/* For all R being scalar registers or spilled scalar registers
+ * in verifier state, save R in linked_regs if R->id == id.
+ * If there are too many Rs sharing same id, reset id for leftover Rs.
+ */
+static void collect_linked_regs(struct bpf_verifier_state *vstate, u32 id,
+				struct linked_regs *linked_regs)
+{
+	struct bpf_func_state *func;
+	struct bpf_reg_state *reg;
+	int i, j;
+
+	id = id & ~BPF_ADD_CONST;
+	for (i = vstate->curframe; i >= 0; i--) {
+		func = vstate->frame[i];
+		for (j = 0; j < BPF_REG_FP; j++) {
+			reg = &func->regs[j];
+			__collect_linked_regs(linked_regs, reg, id, i, j, true);
+		}
+		for (j = 0; j < func->allocated_stack / BPF_REG_SIZE; j++) {
+			if (!is_spilled_reg(&func->stack[j]))
+				continue;
+			reg = &func->stack[j].spilled_ptr;
+			__collect_linked_regs(linked_regs, reg, id, i, j, false);
+		}
+	}
+}
+
+/* For all R in linked_regs, copy known_reg range into R
+ * if R->id == known_reg->id.
+ */
+static void sync_linked_regs(struct bpf_verifier_state *vstate, struct bpf_reg_state *known_reg,
+			     struct linked_regs *linked_regs)
 {
 	struct bpf_reg_state fake_reg;
-	struct bpf_func_state *state;
 	struct bpf_reg_state *reg;
+	struct linked_reg *e;
+	int i;
 
-	bpf_for_each_reg_in_vstate(vstate, state, reg, ({
+	for (i = 0; i < linked_regs->cnt; ++i) {
+		e = &linked_regs->entries[i];
+		reg = e->is_reg ? &vstate->frame[e->frameno]->regs[e->regno]
+				: &vstate->frame[e->frameno]->stack[e->spi].spilled_ptr;
 		if (reg->type != SCALAR_VALUE || reg == known_reg)
 			continue;
 		if ((reg->id & ~BPF_ADD_CONST) != (known_reg->id & ~BPF_ADD_CONST))
@@ -15112,7 +15318,7 @@ static void find_equal_scalars(struct bpf_verifier_state *vstate,
 			copy_register_state(reg, known_reg);
 			/*
 			 * Must preserve off, id and add_const flag,
-			 * otherwise another find_equal_scalars() will be incorrect.
+			 * otherwise another sync_linked_regs() will be incorrect.
 			 */
 			reg->off = saved_off;
 
@@ -15120,7 +15326,7 @@ static void find_equal_scalars(struct bpf_verifier_state *vstate,
 			scalar_min_max_add(reg, &fake_reg);
 			reg->var_off = tnum_add(reg->var_off, fake_reg.var_off);
 		}
-	}));
+	}
 }
 
 static int check_cond_jmp_op(struct bpf_verifier_env *env,
@@ -15131,6 +15337,7 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 	struct bpf_reg_state *regs = this_branch->frame[this_branch->curframe]->regs;
 	struct bpf_reg_state *dst_reg, *other_branch_regs, *src_reg = NULL;
 	struct bpf_reg_state *eq_branch_regs;
+	struct linked_regs linked_regs = {};
 	u8 opcode = BPF_OP(insn->code);
 	bool is_jmp32;
 	int pred = -1;
@@ -15245,6 +15452,21 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 		return 0;
 	}
 
+	/* Push scalar registers sharing same ID to jump history,
+	 * do this before creating 'other_branch', so that both
+	 * 'this_branch' and 'other_branch' share this history
+	 * if parent state is created.
+	 */
+	if (BPF_SRC(insn->code) == BPF_X && src_reg->type == SCALAR_VALUE && src_reg->id)
+		collect_linked_regs(this_branch, src_reg->id, &linked_regs);
+	if (dst_reg->type == SCALAR_VALUE && dst_reg->id)
+		collect_linked_regs(this_branch, dst_reg->id, &linked_regs);
+	if (linked_regs.cnt > 1) {
+		err = push_jmp_history(env, this_branch, 0, linked_regs_pack(&linked_regs));
+		if (err)
+			return err;
+	}
+
 	other_branch = push_stack(env, *insn_idx + insn->off + 1, *insn_idx,
 				  false);
 	if (!other_branch)
@@ -15275,13 +15497,13 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 	if (BPF_SRC(insn->code) == BPF_X &&
 	    src_reg->type == SCALAR_VALUE && src_reg->id &&
 	    !WARN_ON_ONCE(src_reg->id != other_branch_regs[insn->src_reg].id)) {
-		find_equal_scalars(this_branch, src_reg);
-		find_equal_scalars(other_branch, &other_branch_regs[insn->src_reg]);
+		sync_linked_regs(this_branch, src_reg, &linked_regs);
+		sync_linked_regs(other_branch, &other_branch_regs[insn->src_reg], &linked_regs);
 	}
 	if (dst_reg->type == SCALAR_VALUE && dst_reg->id &&
 	    !WARN_ON_ONCE(dst_reg->id != other_branch_regs[insn->dst_reg].id)) {
-		find_equal_scalars(this_branch, dst_reg);
-		find_equal_scalars(other_branch, &other_branch_regs[insn->dst_reg]);
+		sync_linked_regs(this_branch, dst_reg, &linked_regs);
+		sync_linked_regs(other_branch, &other_branch_regs[insn->dst_reg], &linked_regs);
 	}
 
 	/* if one pointer register is compared to another pointer
@@ -15569,6 +15791,7 @@ static int check_return_code(struct bpf_verifier_env *env, int regno, const char
 	int err;
 	struct bpf_func_state *frame = env->cur_state->frame[0];
 	const bool is_subprog = frame->subprogno;
+	bool return_32bit = false;
 
 	/* LSM and struct_ops func-ptr's return type could be "void" */
 	if (!is_subprog || frame->in_exception_callback_fn) {
@@ -15674,12 +15897,14 @@ static int check_return_code(struct bpf_verifier_env *env, int regno, const char
 
 	case BPF_PROG_TYPE_LSM:
 		if (env->prog->expected_attach_type != BPF_LSM_CGROUP) {
-			/* Regular BPF_PROG_TYPE_LSM programs can return
-			 * any value.
-			 */
-			return 0;
-		}
-		if (!env->prog->aux->attach_func_proto->type) {
+			/* no range found, any return value is allowed */
+			if (!get_func_retval_range(env->prog, &range))
+				return 0;
+			/* no restricted range, any return value is allowed */
+			if (range.minval == S32_MIN && range.maxval == S32_MAX)
+				return 0;
+			return_32bit = true;
+		} else if (!env->prog->aux->attach_func_proto->type) {
 			/* Make sure programs that attach to void
 			 * hooks don't try to modify return value.
 			 */
@@ -15709,7 +15934,7 @@ enforce_retval:
 	if (err)
 		return err;
 
-	if (!retval_range_within(range, reg)) {
+	if (!retval_range_within(range, reg, return_32bit)) {
 		verbose_invalid_scalar(env, reg, range, exit_ctx, reg_name);
 		if (!is_subprog &&
 		    prog->expected_attach_type == BPF_LSM_CGROUP &&
@@ -15873,6 +16098,239 @@ static int visit_func_call_insn(int t, struct bpf_insn *insns,
 		ret = push_insn(t, t + insns[t].imm + 1, BRANCH, env);
 	}
 	return ret;
+}
+
+/* Bitmask with 1s for all caller saved registers */
+#define ALL_CALLER_SAVED_REGS ((1u << CALLER_SAVED_REGS) - 1)
+
+/* Return a bitmask specifying which caller saved registers are
+ * clobbered by a call to a helper *as if* this helper follows
+ * no_caller_saved_registers contract:
+ * - includes R0 if function is non-void;
+ * - includes R1-R5 if corresponding parameter has is described
+ *   in the function prototype.
+ */
+static u32 helper_nocsr_clobber_mask(const struct bpf_func_proto *fn)
+{
+	u8 mask;
+	int i;
+
+	mask = 0;
+	if (fn->ret_type != RET_VOID)
+		mask |= BIT(BPF_REG_0);
+	for (i = 0; i < ARRAY_SIZE(fn->arg_type); ++i)
+		if (fn->arg_type[i] != ARG_DONTCARE)
+			mask |= BIT(BPF_REG_1 + i);
+	return mask;
+}
+
+/* True if do_misc_fixups() replaces calls to helper number 'imm',
+ * replacement patch is presumed to follow no_caller_saved_registers contract
+ * (see mark_nocsr_pattern_for_call() below).
+ */
+static bool verifier_inlines_helper_call(struct bpf_verifier_env *env, s32 imm)
+{
+	switch (imm) {
+#ifdef CONFIG_X86_64
+	case BPF_FUNC_get_smp_processor_id:
+		return env->prog->jit_requested && bpf_jit_supports_percpu_insn();
+#endif
+	default:
+		return false;
+	}
+}
+
+/* GCC and LLVM define a no_caller_saved_registers function attribute.
+ * This attribute means that function scratches only some of
+ * the caller saved registers defined by ABI.
+ * For BPF the set of such registers could be defined as follows:
+ * - R0 is scratched only if function is non-void;
+ * - R1-R5 are scratched only if corresponding parameter type is defined
+ *   in the function prototype.
+ *
+ * The contract between kernel and clang allows to simultaneously use
+ * such functions and maintain backwards compatibility with old
+ * kernels that don't understand no_caller_saved_registers calls
+ * (nocsr for short):
+ *
+ * - for nocsr calls clang allocates registers as-if relevant r0-r5
+ *   registers are not scratched by the call;
+ *
+ * - as a post-processing step, clang visits each nocsr call and adds
+ *   spill/fill for every live r0-r5;
+ *
+ * - stack offsets used for the spill/fill are allocated as lowest
+ *   stack offsets in whole function and are not used for any other
+ *   purposes;
+ *
+ * - when kernel loads a program, it looks for such patterns
+ *   (nocsr function surrounded by spills/fills) and checks if
+ *   spill/fill stack offsets are used exclusively in nocsr patterns;
+ *
+ * - if so, and if verifier or current JIT inlines the call to the
+ *   nocsr function (e.g. a helper call), kernel removes unnecessary
+ *   spill/fill pairs;
+ *
+ * - when old kernel loads a program, presence of spill/fill pairs
+ *   keeps BPF program valid, albeit slightly less efficient.
+ *
+ * For example:
+ *
+ *   r1 = 1;
+ *   r2 = 2;
+ *   *(u64 *)(r10 - 8)  = r1;            r1 = 1;
+ *   *(u64 *)(r10 - 16) = r2;            r2 = 2;
+ *   call %[to_be_inlined]         -->   call %[to_be_inlined]
+ *   r2 = *(u64 *)(r10 - 16);            r0 = r1;
+ *   r1 = *(u64 *)(r10 - 8);             r0 += r2;
+ *   r0 = r1;                            exit;
+ *   r0 += r2;
+ *   exit;
+ *
+ * The purpose of mark_nocsr_pattern_for_call is to:
+ * - look for such patterns;
+ * - mark spill and fill instructions in env->insn_aux_data[*].nocsr_pattern;
+ * - mark set env->insn_aux_data[*].nocsr_spills_num for call instruction;
+ * - update env->subprog_info[*]->nocsr_stack_off to find an offset
+ *   at which nocsr spill/fill stack slots start;
+ * - update env->subprog_info[*]->keep_nocsr_stack.
+ *
+ * The .nocsr_pattern and .nocsr_stack_off are used by
+ * check_nocsr_stack_contract() to check if every stack access to
+ * nocsr spill/fill stack slot originates from spill/fill
+ * instructions, members of nocsr patterns.
+ *
+ * If such condition holds true for a subprogram, nocsr patterns could
+ * be rewritten by remove_nocsr_spills_fills().
+ * Otherwise nocsr patterns are not changed in the subprogram
+ * (code, presumably, generated by an older clang version).
+ *
+ * For example, it is *not* safe to remove spill/fill below:
+ *
+ *   r1 = 1;
+ *   *(u64 *)(r10 - 8)  = r1;            r1 = 1;
+ *   call %[to_be_inlined]         -->   call %[to_be_inlined]
+ *   r1 = *(u64 *)(r10 - 8);             r0 = *(u64 *)(r10 - 8);  <---- wrong !!!
+ *   r0 = *(u64 *)(r10 - 8);             r0 += r1;
+ *   r0 += r1;                           exit;
+ *   exit;
+ */
+static void mark_nocsr_pattern_for_call(struct bpf_verifier_env *env,
+					struct bpf_subprog_info *subprog,
+					int insn_idx, s16 lowest_off)
+{
+	struct bpf_insn *insns = env->prog->insnsi, *stx, *ldx;
+	struct bpf_insn *call = &env->prog->insnsi[insn_idx];
+	const struct bpf_func_proto *fn;
+	u32 clobbered_regs_mask = ALL_CALLER_SAVED_REGS;
+	u32 expected_regs_mask;
+	bool can_be_inlined = false;
+	s16 off;
+	int i;
+
+	if (bpf_helper_call(call)) {
+		if (get_helper_proto(env, call->imm, &fn) < 0)
+			/* error would be reported later */
+			return;
+		clobbered_regs_mask = helper_nocsr_clobber_mask(fn);
+		can_be_inlined = fn->allow_nocsr &&
+				 (verifier_inlines_helper_call(env, call->imm) ||
+				  bpf_jit_inlines_helper_call(call->imm));
+	}
+
+	if (clobbered_regs_mask == ALL_CALLER_SAVED_REGS)
+		return;
+
+	/* e.g. if helper call clobbers r{0,1}, expect r{2,3,4,5} in the pattern */
+	expected_regs_mask = ~clobbered_regs_mask & ALL_CALLER_SAVED_REGS;
+
+	/* match pairs of form:
+	 *
+	 * *(u64 *)(r10 - Y) = rX   (where Y % 8 == 0)
+	 * ...
+	 * call %[to_be_inlined]
+	 * ...
+	 * rX = *(u64 *)(r10 - Y)
+	 */
+	for (i = 1, off = lowest_off; i <= ARRAY_SIZE(caller_saved); ++i, off += BPF_REG_SIZE) {
+		if (insn_idx - i < 0 || insn_idx + i >= env->prog->len)
+			break;
+		stx = &insns[insn_idx - i];
+		ldx = &insns[insn_idx + i];
+		/* must be a stack spill/fill pair */
+		if (stx->code != (BPF_STX | BPF_MEM | BPF_DW) ||
+		    ldx->code != (BPF_LDX | BPF_MEM | BPF_DW) ||
+		    stx->dst_reg != BPF_REG_10 ||
+		    ldx->src_reg != BPF_REG_10)
+			break;
+		/* must be a spill/fill for the same reg */
+		if (stx->src_reg != ldx->dst_reg)
+			break;
+		/* must be one of the previously unseen registers */
+		if ((BIT(stx->src_reg) & expected_regs_mask) == 0)
+			break;
+		/* must be a spill/fill for the same expected offset,
+		 * no need to check offset alignment, BPF_DW stack access
+		 * is always 8-byte aligned.
+		 */
+		if (stx->off != off || ldx->off != off)
+			break;
+		expected_regs_mask &= ~BIT(stx->src_reg);
+		env->insn_aux_data[insn_idx - i].nocsr_pattern = 1;
+		env->insn_aux_data[insn_idx + i].nocsr_pattern = 1;
+	}
+	if (i == 1)
+		return;
+
+	/* Conditionally set 'nocsr_spills_num' to allow forward
+	 * compatibility when more helper functions are marked as
+	 * nocsr at compile time than current kernel supports, e.g:
+	 *
+	 *   1: *(u64 *)(r10 - 8) = r1
+	 *   2: call A                  ;; assume A is nocsr for current kernel
+	 *   3: r1 = *(u64 *)(r10 - 8)
+	 *   4: *(u64 *)(r10 - 8) = r1
+	 *   5: call B                  ;; assume B is not nocsr for current kernel
+	 *   6: r1 = *(u64 *)(r10 - 8)
+	 *
+	 * There is no need to block nocsr rewrite for such program.
+	 * Set 'nocsr_pattern' for both calls to keep check_nocsr_stack_contract() happy,
+	 * don't set 'nocsr_spills_num' for call B so that remove_nocsr_spills_fills()
+	 * does not remove spill/fill pair {4,6}.
+	 */
+	if (can_be_inlined)
+		env->insn_aux_data[insn_idx].nocsr_spills_num = i - 1;
+	else
+		subprog->keep_nocsr_stack = 1;
+	subprog->nocsr_stack_off = min(subprog->nocsr_stack_off, off);
+}
+
+static int mark_nocsr_patterns(struct bpf_verifier_env *env)
+{
+	struct bpf_subprog_info *subprog = env->subprog_info;
+	struct bpf_insn *insn;
+	s16 lowest_off;
+	int s, i;
+
+	for (s = 0; s < env->subprog_cnt; ++s, ++subprog) {
+		/* find lowest stack spill offset used in this subprog */
+		lowest_off = 0;
+		for (i = subprog->start; i < (subprog + 1)->start; ++i) {
+			insn = env->prog->insnsi + i;
+			if (insn->code != (BPF_STX | BPF_MEM | BPF_DW) ||
+			    insn->dst_reg != BPF_REG_10)
+				continue;
+			lowest_off = min(lowest_off, insn->off);
+		}
+		/* use this offset to find nocsr patterns */
+		for (i = subprog->start; i < (subprog + 1)->start; ++i) {
+			insn = env->prog->insnsi + i;
+			if (insn->code != (BPF_JMP | BPF_CALL))
+				continue;
+			mark_nocsr_pattern_for_call(env, subprog, i, lowest_off);
+		}
+	}
+	return 0;
 }
 
 /* Visits the instruction at index t and returns one of the following:
@@ -16770,7 +17228,7 @@ static bool regsafe(struct bpf_verifier_env *env, struct bpf_reg_state *rold,
 		 *
 		 * First verification path is [1-6]:
 		 * - at (4) same bpf_reg_state::id (b) would be assigned to r6 and r7;
-		 * - at (5) r6 would be marked <= X, find_equal_scalars() would also mark
+		 * - at (5) r6 would be marked <= X, sync_linked_regs() would also mark
 		 *   r7 <= X, because r6 and r7 share same id.
 		 * Next verification path is [1-4, 6].
 		 *
@@ -17563,7 +18021,7 @@ hit:
 			 * the current state.
 			 */
 			if (is_jmp_point(env, env->insn_idx))
-				err = err ? : push_jmp_history(env, cur, 0);
+				err = err ? : push_jmp_history(env, cur, 0, 0);
 			err = err ? : propagate_precision(env, &sl->state);
 			if (err)
 				return err;
@@ -17831,7 +18289,7 @@ static int do_check(struct bpf_verifier_env *env)
 		}
 
 		if (is_jmp_point(env, env->insn_idx)) {
-			err = push_jmp_history(env, state, 0);
+			err = push_jmp_history(env, state, 0, 0);
 			if (err)
 				return err;
 		}
@@ -19023,9 +19481,11 @@ static int opt_remove_dead_code(struct bpf_verifier_env *env)
 	return 0;
 }
 
+static const struct bpf_insn NOP = BPF_JMP_IMM(BPF_JA, 0, 0, 0);
+
 static int opt_remove_nops(struct bpf_verifier_env *env)
 {
-	const struct bpf_insn ja = BPF_JMP_IMM(BPF_JA, 0, 0, 0);
+	const struct bpf_insn ja = NOP;
 	struct bpf_insn *insn = env->prog->insnsi;
 	int insn_cnt = env->prog->len;
 	int i, err;
@@ -20381,7 +20841,7 @@ patch_map_ops_generic:
 #if defined(CONFIG_X86_64) && !defined(CONFIG_UML)
 		/* Implement bpf_get_smp_processor_id() inline. */
 		if (insn->imm == BPF_FUNC_get_smp_processor_id &&
-		    prog->jit_requested && bpf_jit_supports_percpu_insn()) {
+		    verifier_inlines_helper_call(env, insn->imm)) {
 			/* BPF_FUNC_get_smp_processor_id inlining is an
 			 * optimization, so if pcpu_hot.cpu_number is ever
 			 * changed in some incompatible and hard to support
@@ -20771,6 +21231,40 @@ static int optimize_bpf_loop(struct bpf_verifier_env *env)
 	return 0;
 }
 
+/* Remove unnecessary spill/fill pairs, members of nocsr pattern,
+ * adjust subprograms stack depth when possible.
+ */
+static int remove_nocsr_spills_fills(struct bpf_verifier_env *env)
+{
+	struct bpf_subprog_info *subprog = env->subprog_info;
+	struct bpf_insn_aux_data *aux = env->insn_aux_data;
+	struct bpf_insn *insn = env->prog->insnsi;
+	int insn_cnt = env->prog->len;
+	u32 spills_num;
+	bool modified = false;
+	int i, j;
+
+	for (i = 0; i < insn_cnt; i++, insn++) {
+		if (aux[i].nocsr_spills_num > 0) {
+			spills_num = aux[i].nocsr_spills_num;
+			/* NOPs would be removed by opt_remove_nops() */
+			for (j = 1; j <= spills_num; ++j) {
+				*(insn - j) = NOP;
+				*(insn + j) = NOP;
+			}
+			modified = true;
+		}
+		if ((subprog + 1)->start == i + 1) {
+			if (modified && !subprog->keep_nocsr_stack)
+				subprog->stack_depth = -subprog->nocsr_stack_off;
+			subprog++;
+			modified = false;
+		}
+	}
+
+	return 0;
+}
+
 static void free_states(struct bpf_verifier_env *env)
 {
 	struct bpf_verifier_state_list *sl, *sln;
@@ -21044,6 +21538,7 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
 	u32 btf_id, member_idx;
 	struct btf *btf;
 	const char *mname;
+	int err;
 
 	if (!prog->gpl_compatible) {
 		verbose(env, "struct ops programs must have a GPL compatible license\n");
@@ -21091,8 +21586,15 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
 		return -EINVAL;
 	}
 
+	err = bpf_struct_ops_supported(st_ops, __btf_member_bit_offset(t, member) / 8);
+	if (err) {
+		verbose(env, "attach to unsupported member %s of struct %s\n",
+			mname, st_ops->name);
+		return err;
+	}
+
 	if (st_ops->check_member) {
-		int err = st_ops->check_member(t, member, prog);
+		err = st_ops->check_member(t, member, prog);
 
 		if (err) {
 			verbose(env, "attach to unsupported member %s of struct %s\n",
@@ -21677,6 +22179,10 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 	if (ret < 0)
 		goto skip_full_check;
 
+	ret = mark_nocsr_patterns(env);
+	if (ret < 0)
+		goto skip_full_check;
+
 	ret = do_check_main(env);
 	ret = ret ?: do_check_subprogs(env);
 
@@ -21685,6 +22191,12 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr, __u3
 
 skip_full_check:
 	kvfree(env->explored_states);
+
+	/* might decrease stack depth, keep it before passes that
+	 * allocate additional slots.
+	 */
+	if (ret == 0)
+		ret = remove_nocsr_spills_fills(env);
 
 	if (ret == 0)
 		ret = check_max_stack_depth(env);
