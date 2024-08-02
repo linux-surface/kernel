@@ -55,7 +55,7 @@ struct aux_payload;
 struct set_config_cmd_payload;
 struct dmub_notification;
 
-#define DC_VER "3.2.291"
+#define DC_VER "3.2.293"
 
 #define MAX_SURFACES 3
 #define MAX_PLANES 6
@@ -466,6 +466,7 @@ struct dc_config {
 	bool use_assr_psp_message;
 	bool support_edp0_on_dp1;
 	unsigned int enable_fpo_flicker_detection;
+	bool disable_hbr_audio_dp2;
 };
 
 enum visual_confirm {
@@ -1055,6 +1056,7 @@ struct dc_debug_options {
 	unsigned int force_sharpness;
 	unsigned int force_lls;
 	bool notify_dpia_hr_bw;
+	bool enable_ips_visual_confirm;
 };
 
 
@@ -1291,7 +1293,7 @@ struct dc_plane_state {
 
 	struct dc_gamma gamma_correction;
 	struct dc_transfer_func in_transfer_func;
-	struct dc_bias_and_scale *bias_and_scale;
+	struct dc_bias_and_scale bias_and_scale;
 	struct dc_csc_transform input_csc_color_matrix;
 	struct fixed31_32 coeff_reduction_factor;
 	struct fixed31_32 hdr_mult;
@@ -1585,6 +1587,12 @@ bool dc_acquire_release_mpc_3dlut(
 bool dc_resource_is_dsc_encoding_supported(const struct dc *dc);
 void get_audio_check(struct audio_info *aud_modes,
 	struct audio_check *aud_chk);
+
+bool fast_nonaddr_updates_exist(struct dc_fast_update *fast_update, int surface_count);
+void populate_fast_updates(struct dc_fast_update *fast_update,
+		struct dc_surface_update *srf_updates,
+		int surface_count,
+		struct dc_stream_update *stream_update);
 /*
  * Set up streams and links associated to drive sinks
  * The streams parameter is an absolute set of all active streams.

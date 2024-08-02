@@ -222,7 +222,7 @@ void dcn401_init_hw(struct dc *dc)
 	uint32_t backlight = MAX_BACKLIGHT_LEVEL;
 	uint32_t user_level = MAX_BACKLIGHT_LEVEL;
 
-	if (dc->clk_mgr && dc->clk_mgr->funcs->init_clocks) {
+	if (dc->clk_mgr && dc->clk_mgr->funcs && dc->clk_mgr->funcs->init_clocks) {
 		dc->clk_mgr->funcs->init_clocks(dc->clk_mgr);
 
 		// mark dcmode limits present if any clock has distinct AC and DC values from SMU
@@ -354,10 +354,10 @@ void dcn401_init_hw(struct dc *dc)
 				if (edp_link->link_enc->funcs->is_dig_enabled &&
 						edp_link->link_enc->funcs->is_dig_enabled(edp_link->link_enc) &&
 						dc->hwss.edp_backlight_control &&
-						dc->hwss.power_down &&
+						hws->funcs.power_down &&
 						dc->hwss.edp_power_control) {
 					dc->hwss.edp_backlight_control(edp_link, false);
-					dc->hwss.power_down(dc);
+					hws->funcs.power_down(dc);
 					dc->hwss.edp_power_control(edp_link, false);
 				}
 			}
@@ -367,8 +367,8 @@ void dcn401_init_hw(struct dc *dc)
 
 				if (link->link_enc->funcs->is_dig_enabled &&
 						link->link_enc->funcs->is_dig_enabled(link->link_enc) &&
-						dc->hwss.power_down) {
-					dc->hwss.power_down(dc);
+						hws->funcs.power_down) {
+					hws->funcs.power_down(dc);
 					break;
 				}
 
@@ -413,11 +413,8 @@ void dcn401_init_hw(struct dc *dc)
 	if (!dcb->funcs->is_accelerated_mode(dcb) && dc->res_pool->hubbub->funcs->init_watermarks)
 		dc->res_pool->hubbub->funcs->init_watermarks(dc->res_pool->hubbub);
 
-	if (dc->clk_mgr->funcs->notify_wm_ranges)
+	if (dc->clk_mgr && dc->clk_mgr->funcs && dc->clk_mgr->funcs->notify_wm_ranges)
 		dc->clk_mgr->funcs->notify_wm_ranges(dc->clk_mgr);
-
-	if (dc->clk_mgr->funcs->set_hard_max_memclk && !dc->clk_mgr->dc_mode_softmax_enabled)
-		dc->clk_mgr->funcs->set_hard_max_memclk(dc->clk_mgr);
 
 	if (dc->res_pool->hubbub->funcs->force_pstate_change_control)
 		dc->res_pool->hubbub->funcs->force_pstate_change_control(
@@ -438,7 +435,9 @@ void dcn401_init_hw(struct dc *dc)
 		dc->debug.fams2_config.bits.enable &= dc->ctx->dmub_srv->dmub->feature_caps.fw_assisted_mclk_switch_ver == 2;
 		if (!dc->debug.fams2_config.bits.enable && dc->res_pool->funcs->update_bw_bounding_box) {
 			/* update bounding box if FAMS2 disabled */
-			dc->res_pool->funcs->update_bw_bounding_box(dc, dc->clk_mgr->bw_params);
+			if (dc->clk_mgr)
+				dc->res_pool->funcs->update_bw_bounding_box(dc,
+									    dc->clk_mgr->bw_params);
 		}
 	}
 }
@@ -498,6 +497,7 @@ void dcn401_populate_mcm_luts(struct dc *dc,
 	enum MCM_LUT_XABLE lut3d_xable = MCM_LUT_DISABLE;
 	enum MCM_LUT_XABLE lut1d_xable = MCM_LUT_DISABLE;
 	bool is_17x17x17 = true;
+	bool rval;
 
 	dcn401_get_mcm_lut_xable_from_pipe_ctx(dc, pipe_ctx, &shaper_xable, &lut3d_xable, &lut1d_xable);
 
@@ -507,11 +507,10 @@ void dcn401_populate_mcm_luts(struct dc *dc,
 		if (mcm_luts.lut1d_func->type == TF_TYPE_HWPWL)
 			m_lut_params.pwl = &mcm_luts.lut1d_func->pwl;
 		else if (mcm_luts.lut1d_func->type == TF_TYPE_DISTRIBUTED_POINTS) {
-			cm_helper_translate_curve_to_hw_format(
-					dc->ctx,
+			rval = cm3_helper_translate_curve_to_hw_format(
 					mcm_luts.lut1d_func,
 					&dpp_base->regamma_params, false);
-			m_lut_params.pwl = &dpp_base->regamma_params;
+			m_lut_params.pwl = rval ? &dpp_base->regamma_params : NULL;
 		}
 		if (m_lut_params.pwl) {
 			if (mpc->funcs->populate_lut)
@@ -528,11 +527,10 @@ void dcn401_populate_mcm_luts(struct dc *dc,
 			m_lut_params.pwl = &mcm_luts.shaper->pwl;
 		else if (mcm_luts.shaper->type == TF_TYPE_DISTRIBUTED_POINTS) {
 			ASSERT(false);
-			cm_helper_translate_curve_to_hw_format(
-					dc->ctx,
+			rval = cm3_helper_translate_curve_to_hw_format(
 					mcm_luts.shaper,
 					&dpp_base->regamma_params, true);
-			m_lut_params.pwl = &dpp_base->regamma_params;
+			m_lut_params.pwl = rval ? &dpp_base->regamma_params : NULL;
 		}
 		if (m_lut_params.pwl) {
 			if (mpc->funcs->populate_lut)
@@ -670,6 +668,7 @@ bool dcn401_set_mcm_luts(struct pipe_ctx *pipe_ctx,
 	struct mpc *mpc = pipe_ctx->stream_res.opp->ctx->dc->res_pool->mpc;
 	bool result = true;
 	const struct pwl_params *lut_params = NULL;
+	bool rval;
 
 	mpc->funcs->set_movable_cm_location(mpc, MPCC_MOVABLE_CM_LOCATION_BEFORE, mpcc_id);
 	pipe_ctx->plane_state->mcm_location = MPCC_MOVABLE_CM_LOCATION_BEFORE;
@@ -678,10 +677,9 @@ bool dcn401_set_mcm_luts(struct pipe_ctx *pipe_ctx,
 		if (plane_state->blend_tf.type == TF_TYPE_HWPWL)
 			lut_params = &plane_state->blend_tf.pwl;
 		else if (plane_state->blend_tf.type == TF_TYPE_DISTRIBUTED_POINTS) {
-			cm_helper_translate_curve_to_hw_format(plane_state->ctx,
-					&plane_state->blend_tf,
+			rval = cm3_helper_translate_curve_to_hw_format(&plane_state->blend_tf,
 					&dpp_base->regamma_params, false);
-			lut_params = &dpp_base->regamma_params;
+			lut_params = rval ? &dpp_base->regamma_params : NULL;
 		}
 		result = mpc->funcs->program_1dlut(mpc, lut_params, mpcc_id);
 		lut_params = NULL;
@@ -694,10 +692,9 @@ bool dcn401_set_mcm_luts(struct pipe_ctx *pipe_ctx,
 		else if (plane_state->in_shaper_func.type == TF_TYPE_DISTRIBUTED_POINTS) {
 			// TODO: dpp_base replace
 			ASSERT(false);
-			cm_helper_translate_curve_to_hw_format(plane_state->ctx,
-					&plane_state->in_shaper_func,
+			rval = cm3_helper_translate_curve_to_hw_format(&plane_state->in_shaper_func,
 					&dpp_base->shaper_params, true);
-			lut_params = &dpp_base->shaper_params;
+			lut_params = rval ? &dpp_base->shaper_params : NULL;
 		}
 
 		result = mpc->funcs->program_shaper(mpc, lut_params, mpcc_id);
@@ -871,6 +868,7 @@ enum dc_status dcn401_enable_stream_timing(
 			pipe_ctx->pipe_dlg_param.vstartup_start,
 			pipe_ctx->pipe_dlg_param.vupdate_offset,
 			pipe_ctx->pipe_dlg_param.vupdate_width,
+			pipe_ctx->pipe_dlg_param.pstate_keepout,
 			pipe_ctx->stream->signal,
 			true);
 
@@ -1115,10 +1113,10 @@ void dcn401_set_cursor_position(struct pipe_ctx *pipe_ctx)
 		.mirror = pipe_ctx->plane_state->horizontal_mirror,
 		.stream = pipe_ctx->stream
 	};
+	struct rect odm_slice_src = { 0 };
 	bool odm_combine_on = (pipe_ctx->next_odm_pipe != NULL) ||
 		(pipe_ctx->prev_odm_pipe != NULL);
 	int prev_odm_width = 0;
-	int prev_odm_offset = 0;
 	struct pipe_ctx *prev_odm_pipe = NULL;
 	bool mpc_combine_on = false;
 	int  bottom_pipe_x_pos = 0;
@@ -1183,12 +1181,12 @@ void dcn401_set_cursor_position(struct pipe_ctx *pipe_ctx)
 		prev_odm_pipe = pipe_ctx->prev_odm_pipe;
 
 		while (prev_odm_pipe != NULL) {
-			prev_odm_width += prev_odm_pipe->plane_res.scl_data.recout.width;
-			prev_odm_offset += prev_odm_pipe->plane_res.scl_data.recout.x;
+			odm_slice_src = resource_get_odm_slice_src_rect(prev_odm_pipe);
+			prev_odm_width += odm_slice_src.width;
 			prev_odm_pipe = prev_odm_pipe->prev_odm_pipe;
 		}
 
-		x_pos -= (prev_odm_width + prev_odm_offset);
+		x_pos -= (prev_odm_width);
 	}
 
 	/* If the position is negative then we need to add to the hotspot
@@ -1530,7 +1528,7 @@ void dcn401_fams2_update_config(struct dc *dc, struct dc_state *context, bool en
 	if (!dc->ctx || !dc->ctx->dmub_srv || !dc->debug.fams2_config.bits.enable)
 		return;
 
-	fams2_required = context->bw_ctx.bw.dcn.fams2_stream_count > 0;
+	fams2_required = context->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable;
 
 	dc_dmub_srv_fams2_update_config(dc, context, enable && fams2_required);
 }
@@ -1542,7 +1540,6 @@ static void update_dsc_for_odm_change(struct dc *dc, struct dc_state *context,
 	struct pipe_ctx *old_pipe;
 	struct pipe_ctx *new_pipe;
 	struct pipe_ctx *old_opp_heads[MAX_PIPES];
-	struct dccg *dccg = dc->res_pool->dccg;
 	struct pipe_ctx *old_otg_master;
 	int old_opp_head_count = 0;
 
@@ -1568,12 +1565,9 @@ static void update_dsc_for_odm_change(struct dc *dc, struct dc_state *context,
 		for (i = 0; i < old_opp_head_count; i++) {
 			old_pipe = old_opp_heads[i];
 			new_pipe = &context->res_ctx.pipe_ctx[old_pipe->pipe_idx];
-			if (old_pipe->stream_res.dsc && !new_pipe->stream_res.dsc) {
-				dccg->funcs->set_dto_dscclk(dccg,
-						old_pipe->stream_res.dsc->inst, false);
+			if (old_pipe->stream_res.dsc && !new_pipe->stream_res.dsc)
 				old_pipe->stream_res.dsc->funcs->dsc_disconnect(
 						old_pipe->stream_res.dsc);
-			}
 		}
 	}
 }
@@ -1659,7 +1653,7 @@ void dcn401_hardware_release(struct dc *dc)
 	 */
 	if (dc->current_state) {
 		if ((!dc->clk_mgr->clks.p_state_change_support ||
-				dc->current_state->bw_ctx.bw.dcn.fams2_stream_count > 0) &&
+				dc->current_state->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable) &&
 				dc->res_pool->hubbub->funcs->force_pstate_change_control)
 			dc->res_pool->hubbub->funcs->force_pstate_change_control(
 					dc->res_pool->hubbub, true, true);

@@ -2,10 +2,9 @@
 //
 // Copyright 2024 Advanced Micro Devices, Inc.
 
-#include "os_types.h"
-#include "dc_hw_types.h"
+#include "os_types.h"   // swap
 #ifndef ASSERT
-#define ASSERT(_bool) (void *)0
+#define ASSERT(_bool) ((void *)0)
 #endif
 #include "include/fixed31_32.h"	// fixed31_32 and related functions
 #ifndef __DC_SPL_TYPES_H__
@@ -118,6 +117,13 @@ enum spl_color_space {
 	SPL_COLOR_SPACE_APPCTRL,
 	SPL_COLOR_SPACE_CUSTOMPOINTS,
 	SPL_COLOR_SPACE_YCBCR709_BLACK,
+};
+
+enum chroma_cositing {
+	CHROMA_COSITING_NONE,
+	CHROMA_COSITING_LEFT,
+	CHROMA_COSITING_TOPLEFT,
+	CHROMA_COSITING_COUNT
 };
 
 // Scratch space for calculating scaler params
