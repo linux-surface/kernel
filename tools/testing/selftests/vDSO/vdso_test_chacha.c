@@ -3,13 +3,13 @@
  * Copyright (C) 2022-2024 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
  */
 
-#include <sodium/crypto_stream_chacha20.h>
 #include <sys/random.h>
 #include <string.h>
 #include <stdint.h>
 #include "../kselftest.h"
 
 extern void __arch_chacha20_blocks_nostack(uint8_t *dst_bytes, const uint8_t *key, uint32_t *counter, size_t nblocks);
+extern int crypto_stream_chacha20(uint8_t *dst_bytes, uint64_t dst_len, const uint8_t *nonce, const uint8_t *key);
 
 int main(int argc, char *argv[])
 {
