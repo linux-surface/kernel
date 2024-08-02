@@ -28,7 +28,9 @@
 #include <linux/xattr.h>
 #include <linux/msg.h>
 #include <linux/overflow.h>
+#include <linux/perf_event.h>
 #include <net/flow.h>
+#include <net/sock.h>
 
 /* How many LSMs were built into the kernel? */
 #define LSM_COUNT (__end_lsm_info - __start_lsm_info)
@@ -218,6 +220,7 @@ static void __init lsm_set_blob_sizes(struct lsm_blob_sizes *needed)
 
 	lsm_set_blob_size(&needed->lbs_cred, &blob_sizes.lbs_cred);
 	lsm_set_blob_size(&needed->lbs_file, &blob_sizes.lbs_file);
+	lsm_set_blob_size(&needed->lbs_ib, &blob_sizes.lbs_ib);
 	/*
 	 * The inode blob gets an rcu_head in addition to
 	 * what the modules might need.
@@ -226,9 +229,13 @@ static void __init lsm_set_blob_sizes(struct lsm_blob_sizes *needed)
 		blob_sizes.lbs_inode = sizeof(struct rcu_head);
 	lsm_set_blob_size(&needed->lbs_inode, &blob_sizes.lbs_inode);
 	lsm_set_blob_size(&needed->lbs_ipc, &blob_sizes.lbs_ipc);
+	lsm_set_blob_size(&needed->lbs_key, &blob_sizes.lbs_key);
 	lsm_set_blob_size(&needed->lbs_msg_msg, &blob_sizes.lbs_msg_msg);
+	lsm_set_blob_size(&needed->lbs_perf_event, &blob_sizes.lbs_perf_event);
+	lsm_set_blob_size(&needed->lbs_sock, &blob_sizes.lbs_sock);
 	lsm_set_blob_size(&needed->lbs_superblock, &blob_sizes.lbs_superblock);
 	lsm_set_blob_size(&needed->lbs_task, &blob_sizes.lbs_task);
+	lsm_set_blob_size(&needed->lbs_tun_dev, &blob_sizes.lbs_tun_dev);
 	lsm_set_blob_size(&needed->lbs_xattr_count,
 			  &blob_sizes.lbs_xattr_count);
 }
@@ -398,11 +405,18 @@ static void __init ordered_lsm_init(void)
 
 	init_debug("cred blob size       = %d\n", blob_sizes.lbs_cred);
 	init_debug("file blob size       = %d\n", blob_sizes.lbs_file);
+	init_debug("ib blob size         = %d\n", blob_sizes.lbs_ib);
 	init_debug("inode blob size      = %d\n", blob_sizes.lbs_inode);
 	init_debug("ipc blob size        = %d\n", blob_sizes.lbs_ipc);
+#ifdef CONFIG_KEYS
+	init_debug("key blob size        = %d\n", blob_sizes.lbs_key);
+#endif /* CONFIG_KEYS */
 	init_debug("msg_msg blob size    = %d\n", blob_sizes.lbs_msg_msg);
+	init_debug("sock blob size       = %d\n", blob_sizes.lbs_sock);
 	init_debug("superblock blob size = %d\n", blob_sizes.lbs_superblock);
+	init_debug("perf event blob size = %d\n", blob_sizes.lbs_perf_event);
 	init_debug("task blob size       = %d\n", blob_sizes.lbs_task);
+	init_debug("tun device blob size = %d\n", blob_sizes.lbs_tun_dev);
 	init_debug("xattr slots          = %d\n", blob_sizes.lbs_xattr_count);
 
 	/*
@@ -596,6 +610,29 @@ int unregister_blocking_lsm_notifier(struct notifier_block *nb)
 EXPORT_SYMBOL(unregister_blocking_lsm_notifier);
 
 /**
+ * lsm_blob_alloc - allocate a composite blob
+ * @dest: the destination for the blob
+ * @size: the size of the blob
+ * @gfp: allocation type
+ *
+ * Allocate a blob for all the modules
+ *
+ * Returns 0, or -ENOMEM if memory can't be allocated.
+ */
+static int lsm_blob_alloc(void **dest, size_t size, gfp_t gfp)
+{
+	if (size == 0) {
+		*dest = NULL;
+		return 0;
+	}
+
+	*dest = kzalloc(size, gfp);
+	if (*dest == NULL)
+		return -ENOMEM;
+	return 0;
+}
+
+/**
  * lsm_cred_alloc - allocate a composite cred blob
  * @cred: the cred that needs a blob
  * @gfp: allocation type
@@ -606,15 +643,7 @@ EXPORT_SYMBOL(unregister_blocking_lsm_notifier);
  */
 static int lsm_cred_alloc(struct cred *cred, gfp_t gfp)
 {
-	if (blob_sizes.lbs_cred == 0) {
-		cred->security = NULL;
-		return 0;
-	}
-
-	cred->security = kzalloc(blob_sizes.lbs_cred, gfp);
-	if (cred->security == NULL)
-		return -ENOMEM;
-	return 0;
+	return lsm_blob_alloc(&cred->security, blob_sizes.lbs_cred, gfp);
 }
 
 /**
@@ -683,15 +712,7 @@ int lsm_inode_alloc(struct inode *inode)
  */
 static int lsm_task_alloc(struct task_struct *task)
 {
-	if (blob_sizes.lbs_task == 0) {
-		task->security = NULL;
-		return 0;
-	}
-
-	task->security = kzalloc(blob_sizes.lbs_task, GFP_KERNEL);
-	if (task->security == NULL)
-		return -ENOMEM;
-	return 0;
+	return lsm_blob_alloc(&task->security, blob_sizes.lbs_task, GFP_KERNEL);
 }
 
 /**
@@ -704,16 +725,23 @@ static int lsm_task_alloc(struct task_struct *task)
  */
 static int lsm_ipc_alloc(struct kern_ipc_perm *kip)
 {
-	if (blob_sizes.lbs_ipc == 0) {
-		kip->security = NULL;
-		return 0;
-	}
-
-	kip->security = kzalloc(blob_sizes.lbs_ipc, GFP_KERNEL);
-	if (kip->security == NULL)
-		return -ENOMEM;
-	return 0;
+	return lsm_blob_alloc(&kip->security, blob_sizes.lbs_ipc, GFP_KERNEL);
 }
+
+#ifdef CONFIG_KEYS
+/**
+ * lsm_key_alloc - allocate a composite key blob
+ * @key: the key that needs a blob
+ *
+ * Allocate the key blob for all the modules
+ *
+ * Returns 0, or -ENOMEM if memory can't be allocated.
+ */
+static int lsm_key_alloc(struct key *key)
+{
+	return lsm_blob_alloc(&key->security, blob_sizes.lbs_key, GFP_KERNEL);
+}
+#endif /* CONFIG_KEYS */
 
 /**
  * lsm_msg_msg_alloc - allocate a composite msg_msg blob
@@ -725,15 +753,8 @@ static int lsm_ipc_alloc(struct kern_ipc_perm *kip)
  */
 static int lsm_msg_msg_alloc(struct msg_msg *mp)
 {
-	if (blob_sizes.lbs_msg_msg == 0) {
-		mp->security = NULL;
-		return 0;
-	}
-
-	mp->security = kzalloc(blob_sizes.lbs_msg_msg, GFP_KERNEL);
-	if (mp->security == NULL)
-		return -ENOMEM;
-	return 0;
+	return lsm_blob_alloc(&mp->security, blob_sizes.lbs_msg_msg,
+			      GFP_KERNEL);
 }
 
 /**
@@ -760,15 +781,8 @@ static void __init lsm_early_task(struct task_struct *task)
  */
 static int lsm_superblock_alloc(struct super_block *sb)
 {
-	if (blob_sizes.lbs_superblock == 0) {
-		sb->s_security = NULL;
-		return 0;
-	}
-
-	sb->s_security = kzalloc(blob_sizes.lbs_superblock, GFP_KERNEL);
-	if (sb->s_security == NULL)
-		return -ENOMEM;
-	return 0;
+	return lsm_blob_alloc(&sb->s_security, blob_sizes.lbs_superblock,
+			      GFP_KERNEL);
 }
 
 /**
@@ -1115,15 +1129,14 @@ int security_vm_enough_memory_mm(struct mm_struct *mm, long pages)
 	int rc;
 
 	/*
-	 * The module will respond with a positive value if
-	 * it thinks the __vm_enough_memory() call should be
-	 * made with the cap_sys_admin set. If all of the modules
-	 * agree that it should be set it will. If any module
-	 * thinks it should not be set it won't.
+	 * The module will respond with 0 if it thinks the __vm_enough_memory()
+	 * call should be made with the cap_sys_admin set. If all of the modules
+	 * agree that it should be set it will. If any module thinks it should
+	 * not be set it won't.
 	 */
 	hlist_for_each_entry(hp, &security_hook_heads.vm_enough_memory, list) {
 		rc = hp->hook.vm_enough_memory(mm, pages);
-		if (rc <= 0) {
+		if (rc < 0) {
 			cap_sys_admin = 0;
 			break;
 		}
@@ -2661,19 +2674,14 @@ EXPORT_SYMBOL(security_inode_copy_up);
  * lower layer to the union/overlay layer.   The caller is responsible for
  * reading and writing the xattrs, this hook is merely a filter.
  *
- * Return: Returns 0 to accept the xattr, 1 to discard the xattr, -EOPNOTSUPP
- *         if the security module does not know about attribute, or a negative
- *         error code to abort the copy up.
+ * Return: Returns 0 to accept the xattr, -ECANCELED to discard the xattr,
+ *         -EOPNOTSUPP if the security module does not know about attribute,
+ *         or a negative error code to abort the copy up.
  */
 int security_inode_copy_up_xattr(struct dentry *src, const char *name)
 {
 	int rc;
 
-	/*
-	 * The implementation can return 0 (accept the xattr), 1 (discard the
-	 * xattr), -EOPNOTSUPP if it does not know anything about the xattr or
-	 * any other error code in case of an error.
-	 */
 	rc = call_int_hook(inode_copy_up_xattr, src, name);
 	if (rc != LSM_RET_DEFAULT(inode_copy_up_xattr))
 		return rc;
@@ -4674,6 +4682,20 @@ int security_socket_getpeersec_dgram(struct socket *sock,
 EXPORT_SYMBOL(security_socket_getpeersec_dgram);
 
 /**
+ * lsm_sock_alloc - allocate a composite sock blob
+ * @sock: the sock that needs a blob
+ * @gfp: allocation mode
+ *
+ * Allocate the sock blob for all the modules
+ *
+ * Returns 0, or -ENOMEM if memory can't be allocated.
+ */
+static int lsm_sock_alloc(struct sock *sock, gfp_t gfp)
+{
+	return lsm_blob_alloc(&sock->sk_security, blob_sizes.lbs_sock, gfp);
+}
+
+/**
  * security_sk_alloc() - Allocate and initialize a sock's LSM blob
  * @sk: sock
  * @family: protocol family
@@ -4686,7 +4708,14 @@ EXPORT_SYMBOL(security_socket_getpeersec_dgram);
  */
 int security_sk_alloc(struct sock *sk, int family, gfp_t priority)
 {
-	return call_int_hook(sk_alloc_security, sk, family, priority);
+	int rc = lsm_sock_alloc(sk, priority);
+
+	if (unlikely(rc))
+		return rc;
+	rc = call_int_hook(sk_alloc_security, sk, family, priority);
+	if (unlikely(rc))
+		security_sk_free(sk);
+	return rc;
 }
 
 /**
@@ -4698,6 +4727,8 @@ int security_sk_alloc(struct sock *sk, int family, gfp_t priority)
 void security_sk_free(struct sock *sk)
 {
 	call_void_hook(sk_free_security, sk);
+	kfree(sk->sk_security);
+	sk->sk_security = NULL;
 }
 
 /**
@@ -4845,7 +4876,18 @@ EXPORT_SYMBOL(security_secmark_refcount_dec);
  */
 int security_tun_dev_alloc_security(void **security)
 {
-	return call_int_hook(tun_dev_alloc_security, security);
+	int rc;
+
+	rc = lsm_blob_alloc(security, blob_sizes.lbs_tun_dev, GFP_KERNEL);
+	if (rc)
+		return rc;
+
+	rc = call_int_hook(tun_dev_alloc_security, *security);
+	if (rc) {
+		kfree(*security);
+		*security = NULL;
+	}
+	return rc;
 }
 EXPORT_SYMBOL(security_tun_dev_alloc_security);
 
@@ -4857,7 +4899,7 @@ EXPORT_SYMBOL(security_tun_dev_alloc_security);
  */
 void security_tun_dev_free_security(void *security)
 {
-	call_void_hook(tun_dev_free_security, security);
+	kfree(security);
 }
 EXPORT_SYMBOL(security_tun_dev_free_security);
 
@@ -5053,7 +5095,18 @@ EXPORT_SYMBOL(security_ib_endport_manage_subnet);
  */
 int security_ib_alloc_security(void **sec)
 {
-	return call_int_hook(ib_alloc_security, sec);
+	int rc;
+
+	rc = lsm_blob_alloc(sec, blob_sizes.lbs_ib, GFP_KERNEL);
+	if (rc)
+		return rc;
+
+	rc = call_int_hook(ib_alloc_security, *sec);
+	if (rc) {
+		kfree(*sec);
+		*sec = NULL;
+	}
+	return rc;
 }
 EXPORT_SYMBOL(security_ib_alloc_security);
 
@@ -5065,7 +5118,7 @@ EXPORT_SYMBOL(security_ib_alloc_security);
  */
 void security_ib_free_security(void *sec)
 {
-	call_void_hook(ib_free_security, sec);
+	kfree(sec);
 }
 EXPORT_SYMBOL(security_ib_free_security);
 #endif	/* CONFIG_SECURITY_INFINIBAND */
@@ -5282,7 +5335,14 @@ EXPORT_SYMBOL(security_skb_classify_flow);
 int security_key_alloc(struct key *key, const struct cred *cred,
 		       unsigned long flags)
 {
-	return call_int_hook(key_alloc, key, cred, flags);
+	int rc = lsm_key_alloc(key);
+
+	if (unlikely(rc))
+		return rc;
+	rc = call_int_hook(key_alloc, key, cred, flags);
+	if (unlikely(rc))
+		security_key_free(key);
+	return rc;
 }
 
 /**
@@ -5293,7 +5353,8 @@ int security_key_alloc(struct key *key, const struct cred *cred,
  */
 void security_key_free(struct key *key)
 {
-	call_void_hook(key_free, key);
+	kfree(key->security);
+	key->security = NULL;
 }
 
 /**
@@ -5621,7 +5682,19 @@ int security_perf_event_open(struct perf_event_attr *attr, int type)
  */
 int security_perf_event_alloc(struct perf_event *event)
 {
-	return call_int_hook(perf_event_alloc, event);
+	int rc;
+
+	rc = lsm_blob_alloc(&event->security, blob_sizes.lbs_perf_event,
+			    GFP_KERNEL);
+	if (rc)
+		return rc;
+
+	rc = call_int_hook(perf_event_alloc, event);
+	if (rc) {
+		kfree(event->security);
+		event->security = NULL;
+	}
+	return rc;
 }
 
 /**
@@ -5632,7 +5705,8 @@ int security_perf_event_alloc(struct perf_event *event)
  */
 void security_perf_event_free(struct perf_event *event)
 {
-	call_void_hook(perf_event_free, event);
+	kfree(event->security);
+	event->security = NULL;
 }
 
 /**
