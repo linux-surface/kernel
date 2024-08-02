@@ -1954,6 +1954,8 @@ restart:
 				if (lost_locks)
 					pr_warn("NFS: %s: lost %d locks\n",
 						clp->cl_hostname, lost_locks);
+				nfs4_free_state_owners(&freeme);
+
 				set_bit(ops->owner_flag_bit, &sp->so_flags);
 				nfs4_put_state_owner(sp);
 				status = nfs4_recovery_handle_error(clp, status);

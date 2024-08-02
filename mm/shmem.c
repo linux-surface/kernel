@@ -2883,7 +2883,7 @@ static const struct inode_operations shmem_short_symlink_operations;
 static int
 shmem_write_begin(struct file *file, struct address_space *mapping,
 			loff_t pos, unsigned len,
-			struct page **pagep, void **fsdata)
+			struct folio **foliop, void **fsdata)
 {
 	struct inode *inode = mapping->host;
 	struct shmem_inode_info *info = SHMEM_I(inode);
@@ -2904,23 +2904,21 @@ shmem_write_begin(struct file *file, struct address_space *mapping,
 	if (ret)
 		return ret;
 
-	*pagep = folio_file_page(folio, index);
-	if (PageHWPoison(*pagep)) {
+	if (folio_test_has_hwpoisoned(folio)) {
 		folio_unlock(folio);
 		folio_put(folio);
-		*pagep = NULL;
 		return -EIO;
 	}
 
+	*foliop = folio;
 	return 0;
 }
 
 static int
 shmem_write_end(struct file *file, struct address_space *mapping,
 			loff_t pos, unsigned len, unsigned copied,
-			struct page *page, void *fsdata)
+			struct folio *folio, void *fsdata)
 {
-	struct folio *folio = page_folio(page);
 	struct inode *inode = mapping->host;
 
 	if (pos + copied > inode->i_size)
@@ -4809,7 +4807,7 @@ static struct file_system_type shmem_fs_type = {
 	.parameters	= shmem_fs_parameters,
 #endif
 	.kill_sb	= kill_litter_super,
-	.fs_flags	= FS_USERNS_MOUNT | FS_ALLOW_IDMAP,
+	.fs_flags	= FS_USERNS_MOUNT | FS_ALLOW_IDMAP | FS_MGTIME,
 };
 
 void __init shmem_init(void)

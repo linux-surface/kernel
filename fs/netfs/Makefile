@@ -5,12 +5,13 @@ netfs-y := \
 	buffered_write.o \
 	direct_read.o \
 	direct_write.o \
-	io.o \
 	iterator.o \
 	locking.o \
 	main.o \
 	misc.o \
 	objects.o \
+	read_collect.o \
+	read_retry.o \
 	write_collect.o \
 	write_issue.o
 
