@@ -10,7 +10,7 @@
 #include <asm/trace/fpu.h>
 
 extern void save_fpregs_to_fpstate(struct fpu *fpu);
-extern void fpu__drop(struct fpu *fpu);
+extern void fpu__drop(struct task_struct *tsk);
 extern int  fpu_clone(struct task_struct *dst, unsigned long clone_flags, bool minimal,
 		      unsigned long shstk_addr);
 extern void fpu_flush_thread(void);
@@ -41,7 +41,7 @@ static inline void switch_fpu_prepare(struct task_struct *old, int cpu)
 {
 	if (cpu_feature_enabled(X86_FEATURE_FPU) &&
 	    !(old->flags & (PF_KTHREAD | PF_USER_WORKER))) {
-		struct fpu *old_fpu = &old->thread.fpu;
+		struct fpu *old_fpu = x86_task_fpu(old);
 
 		save_fpregs_to_fpstate(old_fpu);
 		/*
