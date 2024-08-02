@@ -545,6 +545,8 @@ static void __free_old_xmit(struct send_queue *sq, struct netdev_queue *txq,
 	unsigned int len;
 	void *ptr;
 
+	memset(stats, 0, sizeof(*stats));
+
 	while ((ptr = virtqueue_get_buf(sq->vq, &len)) != NULL) {
 		if (!is_xdp_frame(ptr)) {
 			struct sk_buff *skb = ptr_to_skb(ptr);
@@ -1002,7 +1004,7 @@ static void virtnet_rq_unmap_free_buf(struct virtqueue *vq, void *buf)
 static void free_old_xmit(struct send_queue *sq, struct netdev_queue *txq,
 			  bool in_napi)
 {
-	struct virtnet_sq_free_stats stats = {0};
+	struct virtnet_sq_free_stats stats;
 
 	__free_old_xmit(sq, txq, in_napi, &stats);
 
@@ -1484,7 +1486,7 @@ static int virtnet_xdp_xmit(struct net_device *dev,
 			    int n, struct xdp_frame **frames, u32 flags)
 {
 	struct virtnet_info *vi = netdev_priv(dev);
-	struct virtnet_sq_free_stats stats = {0};
+	struct virtnet_sq_free_stats stats;
 	struct receive_queue *rq = vi->rq;
 	struct bpf_prog *xdp_prog;
 	struct send_queue *sq;
