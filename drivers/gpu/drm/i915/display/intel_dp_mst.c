@@ -43,6 +43,7 @@
 #include "intel_dp_hdcp.h"
 #include "intel_dp_mst.h"
 #include "intel_dp_tunnel.h"
+#include "intel_dp_link_training.h"
 #include "intel_dpio_phy.h"
 #include "intel_hdcp.h"
 #include "intel_hotplug.h"
@@ -1113,6 +1114,33 @@ static void intel_mst_pre_pll_enable_dp(struct intel_atomic_state *state,
 					     to_intel_crtc(pipe_config->uapi.crtc));
 }
 
+static bool intel_mst_probed_link_params_valid(struct intel_dp *intel_dp,
+					       int link_rate, int lane_count)
+{
+	return intel_dp->link.mst_probed_rate == link_rate &&
+		intel_dp->link.mst_probed_lane_count == lane_count;
+}
+
+static void intel_mst_set_probed_link_params(struct intel_dp *intel_dp,
+					     int link_rate, int lane_count)
+{
+	intel_dp->link.mst_probed_rate = link_rate;
+	intel_dp->link.mst_probed_lane_count = lane_count;
+}
+
+static void intel_mst_reprobe_topology(struct intel_dp *intel_dp,
+				       const struct intel_crtc_state *crtc_state)
+{
+	if (intel_mst_probed_link_params_valid(intel_dp,
+					       crtc_state->port_clock, crtc_state->lane_count))
+		return;
+
+	drm_dp_mst_topology_queue_probe(&intel_dp->mst_mgr);
+
+	intel_mst_set_probed_link_params(intel_dp,
+					 crtc_state->port_clock, crtc_state->lane_count);
+}
+
 static void intel_mst_pre_enable_dp(struct intel_atomic_state *state,
 				    struct intel_encoder *encoder,
 				    const struct intel_crtc_state *pipe_config,
@@ -1149,17 +1177,19 @@ static void intel_mst_pre_enable_dp(struct intel_atomic_state *state,
 
 	intel_dp_sink_enable_decompression(state, connector, pipe_config);
 
-	if (first_mst_stream)
+	if (first_mst_stream) {
 		dig_port->base.pre_enable(state, &dig_port->base,
 						pipe_config, NULL);
+
+		intel_mst_reprobe_topology(intel_dp, pipe_config);
+	}
 
 	intel_dp->active_mst_links++;
 
 	ret = drm_dp_add_payload_part1(&intel_dp->mst_mgr, mst_state,
 				       drm_atomic_get_mst_payload_state(mst_state, connector->port));
 	if (ret < 0)
-		drm_dbg_kms(&dev_priv->drm, "Failed to create MST payload for %s: %d\n",
-			    connector->base.name, ret);
+		intel_dp_queue_modeset_retry_for_link(state, &dig_port->base, pipe_config);
 
 	/*
 	 * Before Gen 12 this is not done as part of
@@ -1223,6 +1253,7 @@ static void intel_mst_enable_dp(struct intel_atomic_state *state,
 	enum transcoder trans = pipe_config->cpu_transcoder;
 	bool first_mst_stream = intel_dp->active_mst_links == 1;
 	struct intel_crtc *pipe_crtc;
+	int ret;
 
 	drm_WARN_ON(&dev_priv->drm, pipe_config->has_pch_encoder);
 
@@ -1254,8 +1285,11 @@ static void intel_mst_enable_dp(struct intel_atomic_state *state,
 	if (first_mst_stream)
 		intel_ddi_wait_for_fec_status(encoder, pipe_config, true);
 
-	drm_dp_add_payload_part2(&intel_dp->mst_mgr,
-				 drm_atomic_get_mst_payload_state(mst_state, connector->port));
+	ret = drm_dp_add_payload_part2(&intel_dp->mst_mgr,
+				       drm_atomic_get_mst_payload_state(mst_state,
+									connector->port));
+	if (ret < 0)
+		intel_dp_queue_modeset_retry_for_link(state, &dig_port->base, pipe_config);
 
 	if (DISPLAY_VER(dev_priv) >= 12)
 		intel_de_rmw(dev_priv, hsw_chicken_trans_reg(dev_priv, trans),
@@ -1997,4 +2031,34 @@ bool intel_dp_mst_crtc_needs_modeset(struct intel_atomic_state *state,
 	}
 
 	return false;
+}
+
+/**
+ * intel_dp_mst_prepare_probe - Prepare an MST link for topology probing
+ * @intel_dp: DP port object
+ *
+ * Prepare an MST link for topology probing, programming the target
+ * link parameters to DPCD. This step is a requirement of the enumaration
+ * of path resources during probing.
+ */
+void intel_dp_mst_prepare_probe(struct intel_dp *intel_dp)
+{
+	int link_rate = intel_dp_max_link_rate(intel_dp);
+	int lane_count = intel_dp_max_lane_count(intel_dp);
+	u8 rate_select;
+	u8 link_bw;
+
+	if (intel_dp->link_trained)
+		return;
+
+	if (intel_mst_probed_link_params_valid(intel_dp, link_rate, lane_count))
+		return;
+
+	intel_dp_compute_rate(intel_dp, link_rate, &link_bw, &rate_select);
+
+	intel_dp_link_training_set_mode(intel_dp, link_rate, false);
+	intel_dp_link_training_set_bw(intel_dp, link_bw, rate_select, lane_count,
+				      drm_dp_enhanced_frame_cap(intel_dp->dpcd));
+
+	intel_mst_set_probed_link_params(intel_dp, link_rate, lane_count);
 }
