@@ -40,6 +40,7 @@
 #include <linux/mutex.h>
 #include <linux/property.h>
 #include <linux/slab.h>
+#include <linux/stringify.h>
 #include <linux/types.h>
 
 #include <linux/iio/backend.h>
@@ -111,6 +112,9 @@ static DEFINE_MUTEX(iio_back_lock);
 	__ret = iio_backend_check_op(__back, op);		\
 	if (!__ret)						\
 		__back->ops->op(__back, ##args);		\
+	else							\
+		dev_dbg(__back->dev, "Op(%s) not implemented\n",\
+			__stringify(op));			\
 }
 
 /**
@@ -451,7 +455,6 @@ EXPORT_SYMBOL_NS_GPL(iio_backend_ext_info_set, IIO_BACKEND);
 
 /**
  * iio_backend_extend_chan_spec - Extend an IIO channel
- * @indio_dev: IIO device
  * @back: Backend device
  * @chan: IIO channel
  *
@@ -461,8 +464,7 @@ EXPORT_SYMBOL_NS_GPL(iio_backend_ext_info_set, IIO_BACKEND);
  * RETURNS:
  * 0 on success, negative error number on failure.
  */
-int iio_backend_extend_chan_spec(struct iio_dev *indio_dev,
-				 struct iio_backend *back,
+int iio_backend_extend_chan_spec(struct iio_backend *back,
 				 struct iio_chan_spec *chan)
 {
 	const struct iio_chan_spec_ext_info *frontend_ext_info = chan->ext_info;
