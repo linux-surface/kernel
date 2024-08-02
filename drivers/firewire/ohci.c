@@ -264,7 +264,6 @@ static inline struct fw_ohci *fw_ohci(struct fw_card *card)
 #define OHCI1394_REGISTER_SIZE		0x800
 #define OHCI1394_PCI_HCI_Control	0x40
 #define SELF_ID_BUF_SIZE		0x800
-#define OHCI_TCODE_PHY_PACKET		0x0e
 #define OHCI_VERSION_1_1		0x010010
 
 static char ohci_driver_name[] = KBUILD_MODNAME;
@@ -532,20 +531,28 @@ static const char *evts[] = {
 	[0x1e] = "ack_type_error",	[0x1f] = "-reserved-",
 	[0x20] = "pending/cancelled",
 };
-static const char *tcodes[] = {
-	[0x0] = "QW req",		[0x1] = "BW req",
-	[0x2] = "W resp",		[0x3] = "-reserved-",
-	[0x4] = "QR req",		[0x5] = "BR req",
-	[0x6] = "QR resp",		[0x7] = "BR resp",
-	[0x8] = "cycle start",		[0x9] = "Lk req",
-	[0xa] = "async stream packet",	[0xb] = "Lk resp",
-	[0xc] = "-reserved-",		[0xd] = "-reserved-",
-	[0xe] = "link internal",	[0xf] = "-reserved-",
-};
 
 static void log_ar_at_event(struct fw_ohci *ohci,
 			    char dir, int speed, u32 *header, int evt)
 {
+	static const char *const tcodes[] = {
+		[TCODE_WRITE_QUADLET_REQUEST]	= "QW req",
+		[TCODE_WRITE_BLOCK_REQUEST]	= "BW req",
+		[TCODE_WRITE_RESPONSE]		= "W resp",
+		[0x3]				= "-reserved-",
+		[TCODE_READ_QUADLET_REQUEST]	= "QR req",
+		[TCODE_READ_BLOCK_REQUEST]	= "BR req",
+		[TCODE_READ_QUADLET_RESPONSE]	= "QR resp",
+		[TCODE_READ_BLOCK_RESPONSE]	= "BR resp",
+		[TCODE_CYCLE_START]		= "cycle start",
+		[TCODE_LOCK_REQUEST]		= "Lk req",
+		[TCODE_STREAM_DATA]		= "async stream packet",
+		[TCODE_LOCK_RESPONSE]		= "Lk resp",
+		[0xc]				= "-reserved-",
+		[0xd]				= "-reserved-",
+		[TCODE_LINK_INTERNAL]		= "link internal",
+		[0xf]				= "-reserved-",
+	};
 	int tcode = async_header_get_tcode(header);
 	char specific[12];
 
@@ -586,7 +593,7 @@ static void log_ar_at_event(struct fw_ohci *ohci,
 		ohci_notice(ohci, "A%c %s, %s\n",
 			    dir, evts[evt], tcodes[tcode]);
 		break;
-	case 0xe:
+	case TCODE_LINK_INTERNAL:
 		ohci_notice(ohci, "A%c %s, PHY %08x %08x\n",
 			    dir, evts[evt], header[1], header[2]);
 		break;
@@ -939,7 +946,7 @@ static __le32 *handle_ar_packet(struct ar_context *ctx, __le32 *buffer)
 
 	case TCODE_WRITE_RESPONSE:
 	case TCODE_READ_QUADLET_REQUEST:
-	case OHCI_TCODE_PHY_PACKET:
+	case TCODE_LINK_INTERNAL:
 		p.header_length = 12;
 		p.payload_length = 0;
 		break;
@@ -967,7 +974,7 @@ static __le32 *handle_ar_packet(struct ar_context *ctx, __le32 *buffer)
 	 * Several controllers, notably from NEC and VIA, forget to
 	 * write ack_complete status at PHY packet reception.
 	 */
-	if (evt == OHCI1394_evt_no_status && tcode == OHCI1394_phy_tcode)
+	if (evt == OHCI1394_evt_no_status && tcode == TCODE_LINK_INTERNAL)
 		p.ack = ACK_COMPLETE;
 
 	/*
@@ -1435,7 +1442,7 @@ static int at_context_queue_packet(struct context *ctx,
 		break;
 
 	case TCODE_LINK_INTERNAL:
-		header[0] = cpu_to_le32((OHCI1394_phy_tcode << 4) |
+		header[0] = cpu_to_le32((TCODE_LINK_INTERNAL << 4) |
 					(packet->speed << 16));
 		header[1] = cpu_to_le32(packet->header[1]);
 		header[2] = cpu_to_le32(packet->header[2]);
