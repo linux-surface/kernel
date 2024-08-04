@@ -14,6 +14,8 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/poll.h>
+#include <linux/timer.h>
+#include <linux/vmalloc.h>
 
 #define DEVNAME "ithc"
 #define DEVFULLNAME "Intel Touch Host Controller"
@@ -46,8 +48,10 @@
 #define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT1  0x7a58
 #define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT2  0x7a59
 // Meteor Lake
-#define PCI_DEVICE_ID_INTEL_THC_MTL_PORT1    0x7e48
-#define PCI_DEVICE_ID_INTEL_THC_MTL_PORT2    0x7e4a
+#define PCI_DEVICE_ID_INTEL_THC_MTL_S_PORT1  0x7f59
+#define PCI_DEVICE_ID_INTEL_THC_MTL_S_PORT2  0x7f5b
+#define PCI_DEVICE_ID_INTEL_THC_MTL_MP_PORT1 0x7e49
+#define PCI_DEVICE_ID_INTEL_THC_MTL_MP_PORT2 0x7e4b
 
 struct ithc;
 
@@ -63,6 +67,7 @@ struct ithc {
 	struct pci_dev *pci;
 	int irq;
 	struct task_struct *poll_thread;
+	struct timer_list idle_timer;
 
 	struct ithc_registers __iomem *regs;
 	struct ithc_registers *prev_regs; // for debugging
