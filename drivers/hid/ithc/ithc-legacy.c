@@ -82,8 +82,10 @@ int ithc_legacy_init(struct ithc *ithc)
 	// Setting the following bit seems to make reading the config more reliable.
 	bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_31);
 
-	// Setting this bit may be necessary on some ADL devices.
+	// Setting this bit may be necessary on ADL devices.
 	switch (ithc->pci->device) {
+	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1:
+	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2:
 	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1:
 	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2:
 	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1:
