@@ -22,6 +22,7 @@
 
 	aliases {
 		serial0 = &uart13;
+		serial1 = &uart15;
 	};
 
 	backlight: backlight {
@@ -830,6 +831,35 @@
 		};
 	};
 
+	uart15_state: uart15-state {
+		cts {
+			pins = "gpio27";
+			function = "qup15";
+			bias-pull-down;
+		};
+
+		rts-tx {
+			pins = "gpio28", "gpio29";
+			function = "qup15";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		rx {
+			pins = "gpio30";
+			function = "qup15";
+			bias-pull-up;
+		};
+	};
+
+	ssam_state: ssam-state {
+		wake-int {
+			pins = "gpio180";
+			function = "gpio";
+			bias-disable;
+		};
+	};
+
 	panel_vdd_en_default_state: panel-vdd-en-default-state {
 		pins = "gpio130";
 		function = "gpio";
@@ -1166,6 +1196,25 @@
 		vddch0-supply = <&vreg_l11c_3p3>;
 
 		max-speed = <3200000>;
+	};
+};
+
+&uart15 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart15_state>;
+
+	embedded-controller {
+		compatible = "microsoft,surface-sam";
+
+		interrupts-extended = <&tlmm 180 IRQ_TYPE_EDGE_RISING>;
+		// Note: 133 is used in ACPI as an alternative for some boards.
+
+		pinctrl-0 = <&ssam_state>;
+		pinctrl-names = "default";
+
+		current-speed = <4000000>;
 	};
 };
 
