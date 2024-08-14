@@ -479,6 +479,7 @@ static int mshw0011_install_space_handler(struct i2c_client *client)
 	}
 
 	acpi_dev_clear_dependencies(adev);
+
 	return 0;
 }
 

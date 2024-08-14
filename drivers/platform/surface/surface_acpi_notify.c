@@ -816,6 +816,7 @@ static int san_probe(struct platform_device *pdev)
 		goto err_install_dev;
 
 	acpi_dev_clear_dependencies(san);
+
 	return 0;
 
 err_install_dev:
