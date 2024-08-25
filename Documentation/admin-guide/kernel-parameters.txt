@@ -3243,6 +3243,11 @@
 			to extract confidential information from the kernel
 			are also disabled.
 
+	lockdown_hibernate	[HIBERNATION]
+			Enable hibernation even if lockdown is enabled. Enable this only if
+			your swap is encrypted and secured properly, as an attacker can
+			modify the kernel offline during hibernation.
+
 	locktorture.acq_writer_lim= [KNL]
 			Set the time limit in jiffies for a lock
 			acquisition.  Acquisitions exceeding this limit
