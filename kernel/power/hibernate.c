@@ -38,6 +38,7 @@
 #include "power.h"
 
 
+static int lockdown_hibernate;
 static int nocompress;
 static int noresume;
 static int nohibernate;
@@ -98,7 +99,7 @@ bool hibernation_in_progress(void)
 bool hibernation_available(void)
 {
 	return nohibernate == 0 &&
-		!security_locked_down(LOCKDOWN_HIBERNATION) &&
+		(lockdown_hibernate || !security_locked_down(LOCKDOWN_HIBERNATION)) &&
 		!secretmem_active() && !cxl_mem_active();
 }
 
@@ -1457,6 +1458,12 @@ static int __init nohibernate_setup(char *str)
 	return 1;
 }
 
+static int __init lockdown_hibernate_setup(char *str)
+{
+	lockdown_hibernate = 1;
+	return 1;
+}
+
 static const char * const comp_alg_enabled[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
 	COMPRESSION_ALGO_LZO,
@@ -1514,3 +1521,4 @@ __setup("hibernate=", hibernate_setup);
 __setup("resumewait", resumewait_setup);
 __setup("resumedelay=", resumedelay_setup);
 __setup("nohibernate", nohibernate_setup);
+__setup("lockdown_hibernate", lockdown_hibernate_setup);
