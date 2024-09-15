@@ -643,7 +643,7 @@ static int acpi_gsb_i2c_write_raw_bytes(struct i2c_client *client,
 		u8 *data, u8 data_len)
 {
 	struct i2c_msg msgs[1];
-	int ret = AE_OK;
+	int ret;
 
 	msgs[0].addr = client->addr;
 	msgs[0].flags = client->flags;
@@ -651,7 +651,6 @@ static int acpi_gsb_i2c_write_raw_bytes(struct i2c_client *client,
 	msgs[0].buf = data;
 
 	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-
 	if (ret < 0) {
 		dev_err(&client->adapter->dev, "i2c write failed: %d\n", ret);
 		return ret;
