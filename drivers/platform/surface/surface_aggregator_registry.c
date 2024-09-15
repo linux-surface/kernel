@@ -446,7 +446,7 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
 	{ "MSHW0350", (unsigned long)ssam_node_group_sl5 },
 
 	/* Surface Laptop 6 */
-	{ "MSHW0530", (unsigned long)ssam_node_group_sl5 },
+	{ "MSHW0530", (unsigned long)ssam_node_group_sl6 },
 
 	/* Surface Laptop Go 1 */
 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
