@@ -1065,8 +1065,8 @@ static const struct adreno_info a6xx_gpus[] = {
 		.family = ADRENO_6XX_GEN2,
 		.revn = 680,
 		.fw = {
-			[ADRENO_FW_SQE] = "a630_sqe.fw",
-			[ADRENO_FW_GMU] = "a640_gmu.bin",
+			[ADRENO_FW_SQE] = "a680_sqe.fw",
+			[ADRENO_FW_GMU] = "a680_gmu.bin",
 		},
 		.gmem = SZ_2M,
 		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT |
