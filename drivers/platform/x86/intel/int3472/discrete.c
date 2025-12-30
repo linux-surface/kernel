@@ -205,6 +205,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
 		*con_id = "dvdd";
 		*gpio_flags = GPIO_ACTIVE_HIGH;
 		break;
+	case 0x08:  /* Surface Pro 9 - additional power rail */
+		*con_id = "pwr1";
+		*gpio_flags = GPIO_ACTIVE_HIGH;
+		break;
+	case 0x10:  /* Surface Pro 9 - secondary power rail */
+		*con_id = "pwr2";
+		*gpio_flags = GPIO_ACTIVE_HIGH;
+		break;
 	default:
 		*con_id = "unknown";
 		*gpio_flags = GPIO_ACTIVE_HIGH;
@@ -307,6 +315,8 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 	case INT3472_GPIO_TYPE_PRIVACY_LED:
 	case INT3472_GPIO_TYPE_POWER_ENABLE:
 	case INT3472_GPIO_TYPE_HANDSHAKE:
+	case 0x08:  /* Surface Pro 9 power rails */
+	case 0x10:
 		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
 		if (IS_ERR(gpio)) {
 			ret = PTR_ERR(gpio);
@@ -345,6 +355,19 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 				err_msg = "Failed to map handshake to sensor\n";
 
 			break;
+		case 0x08:  /* Surface Pro 9 - treat as power*/
+		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
+		    dev_info(int3472->dev, "  con_id=%s, flags=0x%x\n", con_id, gpio_flags);
+		    ret = skl_int3472_register_regulator(int3472, gpio,
+			 GPIO_REGULATOR_ENABLE_TIME,
+			 con_id, NULL);
+		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
+		    if (ret) {
+			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
+		    }
+		    break;
+		case 0x10:
+		    break;
 		default: /* Never reached */
 			ret = -EINVAL;
 			break;
