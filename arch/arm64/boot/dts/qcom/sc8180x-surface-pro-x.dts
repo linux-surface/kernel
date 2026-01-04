@@ -301,6 +301,19 @@
 };
 
 
+&cpu4_opp_table {
+	opp-3072000000 {
+		opp-hz = /bits/ 64 <3072000000>;
+		opp-peak-kBps = <8368000 51609600>;
+	};
+
+	opp-3148800000 {
+		opp-hz = /bits/ 64 <3148800000>;
+		opp-peak-kBps = <8368000 51609600>;
+	};
+};
+
+
 &apps_rsc {
 	pmc8180-a-rpmh-regulators {
 		compatible = "qcom,pmc8180-rpmh-regulators";
