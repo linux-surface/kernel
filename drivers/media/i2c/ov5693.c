@@ -169,6 +169,7 @@ struct ov5693_device {
 		struct v4l2_ctrl *hblank;
 		struct v4l2_ctrl *vblank;
 		struct v4l2_ctrl *test_pattern;
+		struct v4l2_ctrl *rotation;
 	} ctrls;
 };
 
@@ -349,6 +350,11 @@ static const u8 ov5693_test_pattern_bits[] = {
 	OV5693_TEST_PATTERN_ENABLE | OV5693_TEST_PATTERN_BARS,
 	OV5693_TEST_PATTERN_ENABLE | OV5693_TEST_PATTERN_BARS |
 	OV5693_TEST_PATTERN_ROLLING,
+};
+
+enum ov5693_model_id {
+    OV5693_INT33BE = 0,
+    OV5693_OVTI,
 };
 
 /* V4L2 Controls Functions */
@@ -1127,6 +1133,9 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 						OV5693_DIGITAL_GAIN_STEP,
 						OV5693_DIGITAL_GAIN_DEF);
 
+	/* Rotation */
+	ctrls->rotation = v4l2_ctrl_new_std(&ctrls->handler, ops,
+					V4L2_CID_CAMERA_SENSOR_ROTATION, 0, 270, 90, 180);
 	/* Flip */
 	ctrls->hflip = v4l2_ctrl_new_std(&ctrls->handler, ops,
 					 V4L2_CID_HFLIP, 0, 1, 1, 0);
@@ -1268,6 +1277,7 @@ out_free_bus_cfg:
 static int ov5693_probe(struct i2c_client *client)
 {
 	struct ov5693_device *ov5693;
+	uintptr_t variant;
 	u32 xvclk_rate;
 	int ret = 0;
 
@@ -1320,6 +1330,16 @@ static int ov5693_probe(struct i2c_client *client)
 	ret = ov5693_init_controls(ov5693);
 	if (ret)
 		return ret;
+
+	variant = (uintptr_t)device_get_match_data(ov5693->dev);
+	switch (variant) {
+		case OV5693_OVTI:
+			dev_info(ov5693->dev, "Applying specific OVTI5693 initialization\n");
+			v4l2_ctrl_s_ctrl(ov5693->ctrls.rotation, 180);
+			break;
+		default:
+			break;
+	}
 
 	ret = media_entity_pads_init(&ov5693->sd.entity, 1, &ov5693->pad);
 	if (ret)
@@ -1395,8 +1415,8 @@ static const struct dev_pm_ops ov5693_pm_ops = {
 };
 
 static const struct acpi_device_id ov5693_acpi_match[] = {
-	{"INT33BE"},
-	{"OVTI5693"},
+	{"INT33BE", OV5693_INT33BE},
+	{"OVTI5693", OV5693_OVTI},
 	{},
 };
 MODULE_DEVICE_TABLE(acpi, ov5693_acpi_match);
