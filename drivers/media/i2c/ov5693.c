@@ -1135,7 +1135,7 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 
 	/* Rotation */
 	ctrls->rotation = v4l2_ctrl_new_std(&ctrls->handler, ops,
-					V4L2_CID_CAMERA_SENSOR_ROTATION, 0, 270, 90, 180);
+					V4L2_CID_CAMERA_SENSOR_ROTATION, 0, 270, 90, 0);
 	/* Flip */
 	ctrls->hflip = v4l2_ctrl_new_std(&ctrls->handler, ops,
 					 V4L2_CID_HFLIP, 0, 1, 1, 0);
