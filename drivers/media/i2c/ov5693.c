@@ -132,7 +132,7 @@ static const char * const ov5693_supply_names[] = {
 
 #define OV5693_NUM_SUPPLIES	ARRAY_SIZE(ov5693_supply_names)
 
-static int sensor_default_rotation;
+static int sensor_default_rotation = -1;
 
 struct ov5693_device {
 	struct device *dev;
@@ -1129,9 +1129,13 @@ static int ov5693_init_controls(struct ov5693_device *ov5693)
 						OV5693_DIGITAL_GAIN_MAX,
 						OV5693_DIGITAL_GAIN_STEP,
 						OV5693_DIGITAL_GAIN_DEF);
-	/* Rotation */
-	ctrls->rotation = v4l2_ctrl_new_std(&ctrls->handler, ops,
-					V4L2_CID_CAMERA_SENSOR_ROTATION, 0, 270, 90, sensor_default_rotation);
+
+	/* Set rotation if explicitly set via param */
+	if (!(sensor_default_rotation % 90) && sensor_default_rotation <= 270) {
+		ctrls->rotation = v4l2_ctrl_new_std(&ctrls->handler, ops,
+						V4L2_CID_CAMERA_SENSOR_ROTATION, 0, 270, 90, sensor_default_rotation);
+	}
+
 	/* Flip */
 	ctrls->hflip = v4l2_ctrl_new_std(&ctrls->handler, ops,
 					 V4L2_CID_HFLIP, 0, 1, 1, 0);
