@@ -409,8 +409,6 @@ static void cache_shared_cpu_map_remove(unsigned int cpu)
 				}
 			}
 		}
-		if (of_have_populated_dt())
-			of_node_put(this_leaf->fw_token);
 	}
 
 	/* cpu is no longer populated in the shared map */
