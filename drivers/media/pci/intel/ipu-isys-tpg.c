@@ -3,7 +3,6 @@
 
 #include <linux/device.h>
 #include <linux/module.h>
-#include <linux/crlmodule.h>
 
 #include <media/media-entity.h>
 #include <media/v4l2-device.h>
@@ -16,6 +15,10 @@
 #include "ipu-isys-tpg.h"
 #include "ipu-isys-video.h"
 #include "ipu-platform-isys-csi2-reg.h"
+
+#define V4L2_CID_CRLMODULE_BASE (V4L2_CID_USER_BASE + 0x2050)
+#define V4L2_CID_FRAME_LENGTH_LINES (V4L2_CID_CRLMODULE_BASE + 1)
+#define V4L2_CID_LINE_LENGTH_PIXELS (V4L2_CID_CRLMODULE_BASE + 2)
 
 static const u32 tpg_supported_codes_pad[] = {
 	MEDIA_BUS_FMT_SBGGR8_1X8,
