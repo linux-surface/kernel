@@ -142,10 +142,11 @@ static int ipu_psys_get_userpages(struct ipu_dma_buf_attach *attach)
 	int npages, array_size;
 	struct page **pages;
 	struct sg_table *sgt;
-	int nr = 0;
 	int ret = -ENOMEM;
+	int nr = 0;
+	u32 flags;
 
-	start = (unsigned long)attach->userptr;
+	start = attach->userptr;
 	end = PAGE_ALIGN(start + attach->len);
 	npages = (end - (start & PAGE_MASK)) >> PAGE_SHIFT;
 	array_size = npages * sizeof(struct page *);
@@ -154,54 +155,28 @@ static int ipu_psys_get_userpages(struct ipu_dma_buf_attach *attach)
 	if (!sgt)
 		return -ENOMEM;
 
-	if (array_size <= PAGE_SIZE)
-		pages = kzalloc(array_size, GFP_KERNEL);
-	else
-		pages = vzalloc(array_size);
+	WARN_ON_ONCE(attach->npages);
+
+	pages = kvzalloc(array_size, GFP_KERNEL);
 	if (!pages)
 		goto free_sgt;
 
-	down_read(&current->mm->mmap_lock);
-	vma = find_vma(current->mm, start);
-	if (!vma) {
+	mmap_read_lock(current->mm);
+	vma = vma_lookup(current->mm, start);
+	if (unlikely(!vma)) {
 		ret = -EFAULT;
 		goto error_up_read;
 	}
+	mmap_read_unlock(current->mm);
 
-	if (vma->vm_end < start + attach->len) {
-		dev_err(attach->dev,
-			"vma at %lu is too small for %llu bytes\n",
-			start, attach->len);
-		ret = -EFAULT;
-		goto error_up_read;
-	}
+	flags = FOLL_WRITE | FOLL_FORCE | FOLL_LONGTERM;
+	nr = pin_user_pages_fast(start & PAGE_MASK, npages,
+				 flags, pages);
+	if (nr < npages)
+		goto error;
 
-	/*
-	 * For buffers from Gralloc, VM_PFNMAP is expected,
-	 * but VM_IO is set. Possibly bug in Gralloc.
-	 */
-	attach->vma_is_io = vma->vm_flags & (VM_IO | VM_PFNMAP);
-
-	if (attach->vma_is_io) {
-		unsigned long io_start = start;
-
-		for (nr = 0; nr < npages; nr++, io_start += PAGE_SIZE) {
-			unsigned long pfn;
-
-			ret = follow_pfn(vma, io_start, &pfn);
-			if (ret)
-				goto error_up_read;
-			pages[nr] = pfn_to_page(pfn);
-		}
-	} else {
-		nr = get_user_pages(
-				   start & PAGE_MASK, npages,
-				   FOLL_WRITE,
-				   pages);
-		if (nr < npages)
-			goto error_up_read;
-	}
-	up_read(&current->mm->mmap_lock);
+	attach->pages = pages;
+	attach->npages = npages;
 
 	ret = sg_alloc_table_from_pages(sgt, pages, npages,
 					start & ~PAGE_MASK, attach->len,
@@ -210,26 +185,19 @@ static int ipu_psys_get_userpages(struct ipu_dma_buf_attach *attach)
 		goto error;
 
 	attach->sgt = sgt;
-	attach->pages = pages;
-	attach->npages = npages;
 
 	return 0;
 
 error_up_read:
-	up_read(&current->mm->mmap_lock);
+	mmap_read_unlock(current->mm);
 error:
-	if (!attach->vma_is_io)
-		while (nr > 0)
-			put_page(pages[--nr]);
-
-	if (array_size <= PAGE_SIZE)
-		kfree(pages);
-	else
-		vfree(pages);
+	if (nr)
+		unpin_user_pages(pages, nr);
+	kvfree(pages);
 free_sgt:
 	kfree(sgt);
 
-	dev_err(attach->dev, "failed to get userpages:%d\n", ret);
+	pr_err("failed to get userpages:%d\n", ret);
 
 	return ret;
 }
@@ -239,24 +207,14 @@ static void ipu_psys_put_userpages(struct ipu_dma_buf_attach *attach)
 	if (!attach || !attach->userptr || !attach->sgt)
 		return;
 
-	if (!attach->vma_is_io) {
-		int i = attach->npages;
-
-		while (--i >= 0) {
-			set_page_dirty_lock(attach->pages[i]);
-			put_page(attach->pages[i]);
-		}
-	}
-
-	if (is_vmalloc_addr(attach->pages))
-		vfree(attach->pages);
-	else
-		kfree(attach->pages);
+	unpin_user_pages(attach->pages, attach->npages);
+	kvfree(attach->pages);
 
 	sg_free_table(attach->sgt);
 	kfree(attach->sgt);
 	attach->sgt = NULL;
 }
+
 static int ipu_dma_buf_attach(struct dma_buf *dbuf,
 			      struct dma_buf_attachment *attach)
 {
