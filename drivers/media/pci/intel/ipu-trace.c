@@ -727,7 +727,7 @@ static const struct file_operations ipu_traceconf_fops = {
 	.release = traceconf_release,
 	.read = traceconf_read,
 	.write = traceconf_write,
-	.llseek = no_llseek,
+	.llseek = noop_llseek,
 };
 
 static int gettrace_open(struct inode *inode, struct file *file)
@@ -794,7 +794,7 @@ static const struct file_operations ipu_gettrace_fops = {
 	.release = gettrace_release,
 	.read = gettrace_read,
 	.write = gettrace_write,
-	.llseek = no_llseek,
+	.llseek = noop_llseek,
 };
 
 int ipu_trace_init(struct ipu_device *isp, void __iomem *base,
