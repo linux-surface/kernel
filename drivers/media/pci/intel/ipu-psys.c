@@ -1401,7 +1401,7 @@ static int ipu_psys_probe(struct ipu_bus_device *adev)
 	}
 
 	/* Add the hw stepping information to caps */
-	strlcpy(caps.dev_model, IPU_MEDIA_DEV_MODEL_NAME,
+	strscpy(caps.dev_model, IPU_MEDIA_DEV_MODEL_NAME,
 		sizeof(caps.dev_model));
 
 	pm_runtime_allow(&adev->dev);
