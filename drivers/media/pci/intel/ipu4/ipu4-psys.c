@@ -374,7 +374,7 @@ void ipu_psys_kcmd_complete(struct ipu_psys *psys,
 
 	switch (kcmd->state) {
 	case KCMD_STATE_RUNNING:
-		if (try_to_del_timer_sync(&kcmd->watchdog) < 0) {
+		if (timer_delete_sync_try(&kcmd->watchdog) < 0) {
 			dev_err(&psys->adev->dev,
 				"could not cancel kcmd timer\n");
 			return;
