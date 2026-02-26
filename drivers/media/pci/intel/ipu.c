@@ -12,6 +12,9 @@
 #include <linux/pm_runtime.h>
 #include <linux/timer.h>
 #include <linux/sched.h>
+#include <linux/vmalloc.h>
+
+#include <media/ipu-bridge.h>
 
 #include "ipu.h"
 #include "ipu-buttress.h"
@@ -34,6 +37,15 @@ static struct ipu_bus_device *ipu_mmu_init(struct pci_dev *pdev,
 					   const struct ipu_hw_variants *hw,
 					   unsigned int nr, int mmid)
 {
+	struct device *dev = &pdev->dev;
+
+	int ret;
+	ret = ipu_bridge_init(dev, ipu_bridge_parse_ssdb);
+	if (ret) {
+		dev_err_probe(dev, ret, "IPU6 bridge init failed\n");
+		return ERR_PTR(ret);
+	}
+
 	struct ipu_mmu_pdata *pdata =
 	    devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 	unsigned int i;
@@ -725,6 +737,7 @@ static void __exit ipu_exit(void)
 module_init(ipu_init);
 module_exit(ipu_exit);
 
+MODULE_IMPORT_NS(INTEL_IPU_BRIDGE);
 MODULE_AUTHOR("Sakari Ailus <sakari.ailus@linux.intel.com>");
 MODULE_AUTHOR("Jouni Högander <jouni.hogander@intel.com>");
 MODULE_AUTHOR("Antti Laakso <antti.laakso@intel.com>");

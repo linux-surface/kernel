@@ -9,11 +9,6 @@
 
 #define IPU_ISYS_MAX_CSI2_LANES		4
 
-struct ipu_isys_csi2_config {
-	unsigned int nlanes;
-	unsigned int port;
-};
-
 struct ipu_isys_subdev_i2c_info {
 	struct i2c_board_info board_info;
 	int i2c_adapter_id;

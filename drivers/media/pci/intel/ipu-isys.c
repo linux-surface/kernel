@@ -13,6 +13,7 @@
 #include <linux/sched.h>
 #include <linux/version.h>
 
+#include <media/ipu-bridge.h>
 #include <media/ipu-isys.h>
 #include <media/v4l2-mc.h>
 #include <media/v4l2-subdev.h>
@@ -394,6 +395,118 @@ static struct media_device_ops isys_mdev_ops = {
 	.req_queue = ipu_isys_req_queue,
 };
 
+/* The .bound() notifier callback when a match is found */
+static int isys_notifier_bound(struct v4l2_async_notifier *notifier,
+			       struct v4l2_subdev *sd,
+			       struct v4l2_async_subdev *asd)
+{
+	struct ipu_isys *isys =
+		container_of(notifier, struct ipu_isys, notifier);
+	struct sensor_async_sd *s_asd =
+		container_of(asd, struct sensor_async_sd, asd);
+	int ret;
+
+	if (s_asd->csi2.port >= isys->pdata->ipdata->csi2.nports) {
+		dev_err(&isys->adev->dev, "invalid csi2 port %u\n",
+			s_asd->csi2.port);
+		return -EINVAL;
+	}
+
+	ret = ipu_bridge_instantiate_vcm(sd->dev);
+	if (ret) {
+		dev_err(&isys->adev->dev, "instantiate vcm failed\n");
+		return ret;
+	}
+
+	dev_dbg(&isys->adev->dev, "bind %s nlanes is %d port is %d\n",
+		sd->name, s_asd->csi2.nlanes, s_asd->csi2.port);
+	ret = isys_complete_ext_device_registration(isys, sd, &s_asd->csi2);
+	if (ret)
+		return ret;
+
+	return v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
+}
+
+static int isys_notifier_complete(struct v4l2_async_notifier *notifier)
+{
+	struct ipu_isys *isys =
+		container_of(notifier, struct ipu_isys, notifier);
+
+	return v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
+}
+
+static const struct v4l2_async_notifier_operations isys_async_ops = {
+	.bound = isys_notifier_bound,
+	.complete = isys_notifier_complete,
+};
+
+#define ISYS_MAX_PORTS 8
+static int isys_notifier_init(struct ipu_isys *isys)
+{
+	struct ipu_device *isp = isys->adev->isp;
+	struct device *dev = &isp->pdev->dev;
+	unsigned int i;
+	int ret;
+
+	v4l2_async_nf_init(&isys->notifier);
+
+	for (i = 0; i < ISYS_MAX_PORTS; i++) {
+		struct v4l2_fwnode_endpoint vep = {
+			.bus_type = V4L2_MBUS_CSI2_DPHY
+		};
+		struct sensor_async_sd *s_asd;
+		struct fwnode_handle *ep;
+
+		ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(dev), i, 0,
+						FWNODE_GRAPH_ENDPOINT_NEXT);
+		if (!ep)
+			continue;
+
+		ret = v4l2_fwnode_endpoint_parse(ep, &vep);
+		if (ret) {
+			dev_err(dev, "fwnode endpoint parse failed: %d\n", ret);
+			goto err_parse;
+		}
+
+		s_asd = v4l2_async_nf_add_fwnode_remote(&isys->notifier, ep,
+							struct sensor_async_sd);
+		if (IS_ERR(s_asd)) {
+			ret = PTR_ERR(s_asd);
+			dev_err(dev, "add remove fwnode failed: %d\n", ret);
+			goto err_parse;
+		}
+
+		s_asd->csi2.port = vep.base.port;
+		s_asd->csi2.nlanes = vep.bus.mipi_csi2.num_data_lanes;
+
+		dev_dbg(dev, "remote endpoint port %d with %d lanes added\n",
+			s_asd->csi2.port, s_asd->csi2.nlanes);
+
+		fwnode_handle_put(ep);
+
+		continue;
+
+err_parse:
+		fwnode_handle_put(ep);
+		return ret;
+	}
+
+	isys->notifier.ops = &isys_async_ops;
+	ret = v4l2_async_nf_register(&isys->v4l2_dev, &isys->notifier);
+	if (ret) {
+		dev_err(dev, "failed to register async notifier : %d\n", ret);
+		v4l2_async_nf_cleanup(&isys->notifier);
+	}
+
+	return ret;
+}
+
+static void isys_notifier_cleanup(struct ipu_isys *isys)
+{
+	v4l2_async_nf_unregister(&isys->notifier);
+	v4l2_async_nf_cleanup(&isys->notifier);
+}
+
 static int isys_register_devices(struct ipu_isys *isys)
 {
 	int rval;
@@ -430,6 +543,10 @@ static int isys_register_devices(struct ipu_isys *isys)
 	isys_register_ext_subdevs(isys);
 
 	rval = v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
+	if (rval)
+		goto out_isys_unregister_subdevices;
+
+	rval = isys_notifier_init(isys);
 	if (rval)
 		goto out_isys_unregister_subdevices;
 
@@ -572,6 +689,7 @@ static void isys_remove(struct ipu_bus_device *adev)
 
 	ipu_trace_uninit(&adev->dev);
 	isys_unregister_devices(isys);
+	isys_notifier_cleanup(isys);
 	cpu_latency_qos_remove_request(&isys->pm_qos);
 
 	if (!isp->secure_mode) {
@@ -1144,3 +1262,4 @@ MODULE_AUTHOR("Yu Xia <yu.y.xia@intel.com>");
 MODULE_AUTHOR("Jerry Hu <jerry.w.hu@intel.com>");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Intel ipu input system driver");
+MODULE_IMPORT_NS(INTEL_IPU_BRIDGE);

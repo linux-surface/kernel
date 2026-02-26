@@ -59,6 +59,16 @@
 
 struct task_struct;
 
+struct ipu_isys_csi2_config {
+	unsigned int nlanes;
+	unsigned int port;
+};
+
+struct sensor_async_sd {
+	struct v4l2_async_subdev asd;
+	struct ipu_isys_csi2_config csi2;
+};
+
 /*
  * struct ipu_isys
  *
@@ -145,6 +155,7 @@ struct ipu_isys {
 	spinlock_t listlock;	/* Protect framebuflist */
 	struct list_head framebuflist;
 	struct list_head framebuflist_fw;
+	struct v4l2_async_notifier notifier;
 };
 
 struct isys_fw_msgs {
