@@ -398,7 +398,7 @@ static struct media_device_ops isys_mdev_ops = {
 /* The .bound() notifier callback when a match is found */
 static int isys_notifier_bound(struct v4l2_async_notifier *notifier,
 			       struct v4l2_subdev *sd,
-			       struct v4l2_async_subdev *asd)
+			       struct v4l2_async_connection *asd)
 {
 	struct ipu_isys *isys =
 		container_of(notifier, struct ipu_isys, notifier);
