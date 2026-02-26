@@ -35,6 +35,38 @@
 #define ISYS_PM_QOS_VALUE	300
 
 /*
+ * Convert firmware/ACPI CSI-2 port number to isys->csi2[] array index.
+ *
+ * On IPU4P, the physical CSI-2 receivers are numbered starting at firmware
+ * port 3, then 6-9 (see ipu_isys_csi2_init remapping).  The isys->csi2[]
+ * array is compact (indices 0..nports-1), so ACPI port numbers cannot be
+ * used directly as array indices.
+ *
+ * Returns the array index, or -EINVAL if the port is not valid.
+ */
+static int ipu_isys_csi2_fw_port_to_index(unsigned int fw_port,
+					   unsigned int nports)
+{
+	int index;
+
+#ifdef CONFIG_VIDEO_INTEL_IPU4P
+	/* Inverse of: src = index ? (index + 5) : (index + 3) */
+	if (fw_port == 3)
+		index = 0;
+	else if (fw_port >= 6)
+		index = fw_port - 5;
+	else
+		return -EINVAL;
+#else
+	index = fw_port;
+#endif
+	if (index < 0 || index >= nports)
+		return -EINVAL;
+
+	return index;
+}
+
+/*
  * The param was passed from module to indicate if port
  * could be optimized.
  */
@@ -88,7 +120,16 @@ isys_complete_ext_device_registration(struct ipu_isys *isys,
 				      struct ipu_isys_csi2_config *csi2)
 {
 	unsigned int i;
-	int rval;
+	int rval, idx;
+
+	idx = ipu_isys_csi2_fw_port_to_index(csi2->port,
+					      isys->pdata->ipdata->csi2.nports);
+	if (idx < 0) {
+		dev_err(&isys->adev->dev,
+			"invalid csi2 fw port %u (no array mapping)\n",
+			csi2->port);
+		return -EINVAL;
+	}
 
 	v4l2_set_subdev_hostdata(sd, csi2);
 
@@ -105,14 +146,14 @@ isys_complete_ext_device_registration(struct ipu_isys *isys,
 	}
 
 	rval = media_create_pad_link(&sd->entity, i,
-				     &isys->csi2[csi2->port].asd.sd.entity,
+				     &isys->csi2[idx].asd.sd.entity,
 				     0, 0);
 	if (rval) {
 		dev_warn(&isys->adev->dev, "can't create link\n");
 		goto skip_unregister_subdev;
 	}
 
-	isys->csi2[csi2->port].nlanes = csi2->nlanes;
+	isys->csi2[idx].nlanes = csi2->nlanes;
 	return 0;
 
 skip_unregister_subdev:
@@ -150,12 +191,16 @@ static int isys_register_ext_subdev(struct ipu_isys *isys,
 		 bus);
 
 	if (sd_info->csi2) {
+		int idx;
+
 		dev_info(&isys->adev->dev, "sensor device on CSI port: %d\n",
 			 sd_info->csi2->port);
-		if (sd_info->csi2->port >= isys->pdata->ipdata->csi2.nports ||
-		    !isys->csi2[sd_info->csi2->port].isys) {
-			dev_warn(&isys->adev->dev, "invalid csi2 port %u\n",
-				 sd_info->csi2->port);
+		idx = ipu_isys_csi2_fw_port_to_index(
+			sd_info->csi2->port,
+			isys->pdata->ipdata->csi2.nports);
+		if (idx < 0 || !isys->csi2[idx].isys) {
+			dev_warn(&isys->adev->dev, "isys_register_ext_subdev, %s: invalid csi2 port %u\n",
+				 sd_info->acpiname, sd_info->csi2->port);
 			rval = -EINVAL;
 			goto skip_put_adapter;
 		}
@@ -245,18 +290,27 @@ static int isys_register_subdevices(struct ipu_isys *isys)
 		bitmap_zero(csi2_enable, 32);
 		for (sd_info = spdata->subdevs; *sd_info; sd_info++) {
 			if ((*sd_info)->csi2) {
-				i = (*sd_info)->csi2->port;
-				if (i >= csi2->nports) {
+				int idx;
+
+				idx = ipu_isys_csi2_fw_port_to_index(
+					(*sd_info)->csi2->port,
+					csi2->nports);
+				if (idx < 0) {
 					dev_warn(&isys->adev->dev,
-						 "invalid csi2 port %u\n", i);
+						 "invalid csi2 port %u\n",
+						 (*sd_info)->csi2->port);
 					continue;
 				}
-				bitmap_set(csi2_enable, i, 1);
+				bitmap_set(csi2_enable, idx, 1);
 			}
 		}
 	} else {
 		bitmap_fill(csi2_enable, 32);
 	}
+
+	dev_info(&isys->adev->dev,
+		 "registering subdevices: %u CSI-2 ports, %u TPGs\n",
+		 csi2->nports, tpg->ntpgs);
 
 	isys->csi2 = devm_kcalloc(&isys->adev->dev, csi2->nports,
 				  sizeof(*isys->csi2), GFP_KERNEL);
@@ -269,11 +323,16 @@ static int isys_register_subdevices(struct ipu_isys *isys)
 		if (!test_bit(i, csi2_enable))
 			continue;
 
+		dev_info(&isys->adev->dev,
+			 "initializing CSI-2 port %u\n", i);
 		rval = ipu_isys_csi2_init(&isys->csi2[i], isys,
 					  isys->pdata->base +
 					  csi2->offsets[i], i);
-		if (rval)
+		if (rval) {
+			dev_err(&isys->adev->dev,
+				"CSI-2 port %u init failed: %d\n", i, rval);
 			goto fail;
+		}
 
 		isys->isr_csi2_bits |= IPU_ISYS_UNISPART_IRQ_CSI2(i);
 	}
@@ -408,9 +467,11 @@ static int isys_notifier_bound(struct v4l2_async_notifier *notifier,
 		container_of(asd, struct sensor_async_sd, asd);
 	int ret;
 
-	if (s_asd->csi2.port >= isys->pdata->ipdata->csi2.nports) {
-		dev_err(&isys->adev->dev, "invalid csi2 port %u\n",
-			s_asd->csi2.port);
+	ret = ipu_isys_csi2_fw_port_to_index(s_asd->csi2.port,
+					     isys->pdata->ipdata->csi2.nports);
+	if (ret < 0) {
+		dev_err(&isys->adev->dev, "invalid csi2 fw port %u\n",
+			s_asd->csi2.port, isys->pdata->ipdata->csi2.nports);
 		return -EINVAL;
 	}
 
@@ -468,6 +529,17 @@ static int isys_notifier_init(struct ipu_isys *isys)
 		if (ret) {
 			dev_err(dev, "fwnode endpoint parse failed: %d\n", ret);
 			goto err_parse;
+		}
+
+		/* Skip endpoints whose port has no physical CSI receiver */
+		if (ipu_isys_csi2_fw_port_to_index(
+			    vep.base.port,
+			    isys->pdata->ipdata->csi2.nports) < 0) {
+			dev_info(dev,
+				 "skipping endpoint at fw port %u (no receiver)\n",
+				 vep.base.port);
+			fwnode_handle_put(ep);
+			continue;
 		}
 
 		s_asd = v4l2_async_nf_add_fwnode_remote(&isys->notifier, ep,
