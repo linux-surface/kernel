@@ -413,10 +413,7 @@ static int ipu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	isys_base = isp->base + isys_ipdata.hw_variant.offset;
 	psys_base = isp->base + psys_ipdata.hw_variant.offset;
 
-	rval = pci_set_dma_mask(pdev, DMA_BIT_MASK(dma_mask));
-	if (!rval)
-		rval = pci_set_consistent_dma_mask(pdev,
-						   DMA_BIT_MASK(dma_mask));
+	rval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(dma_mask));
 	if (rval) {
 		dev_err(&pdev->dev, "Failed to set DMA mask (%d)\n", rval);
 		trace_printk("E|TMWK\n");
