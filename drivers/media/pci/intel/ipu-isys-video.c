@@ -341,6 +341,33 @@ static int video_release(struct file *file)
 	return ret;
 }
 
+const struct ipu_isys_pixelformat *
+ipu_isys_get_isys_format(u32 pixelformat, u32 type)
+{
+	const struct ipu_isys_pixelformat *default_pfmt = NULL;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(ipu_isys_pfmts); i++) {
+		const struct ipu_isys_pixelformat *pfmt = &ipu_isys_pfmts[i];
+
+		if (type && ((!pfmt->is_meta &&
+			      type != V4L2_BUF_TYPE_VIDEO_CAPTURE) ||
+			     (pfmt->is_meta &&
+			      type != V4L2_BUF_TYPE_META_CAPTURE)))
+			continue;
+
+		if (!default_pfmt)
+			default_pfmt = pfmt;
+
+		if (pfmt->pixelformat != pixelformat)
+			continue;
+
+		return pfmt;
+	}
+
+	return default_pfmt;
+}
+
 static struct media_pad *other_pad(struct media_pad *pad)
 {
 	struct media_link *link;
@@ -718,84 +745,65 @@ static int vidioc_s_input(struct file *file, void *fh, unsigned int input)
 	return input == 0 ? 0 : -EINVAL;
 }
 
-/*
- * Return true if an entity directly connected to an Iunit entity is
- * an image source for the ISP. This can be any external directly
- * connected entity or any of the test pattern generators in the
- * Iunit.
- */
-static bool is_external(struct ipu_isys_video *av, struct media_entity *entity)
-{
-	struct v4l2_subdev *sd;
-	unsigned int i;
-
-	/* All video nodes are ours. */
-	if (!is_media_entity_v4l2_subdev(entity))
-		return false;
-
-	sd = media_entity_to_v4l2_subdev(entity);
-	if (strncmp(sd->name, IPU_ISYS_ENTITY_PREFIX,
-		strlen(IPU_ISYS_ENTITY_PREFIX)) != 0)
-		return true;
-
-	for (i = 0; i < av->isys->pdata->ipdata->tpg.ntpgs &&
-	     av->isys->tpg[i].isys; i++)
-		if (entity == &av->isys->tpg[i].asd.sd.entity)
-			return true;
-
-	return false;
-}
-
 static int link_validate(struct media_link *link)
 {
 	struct ipu_isys_video *av =
-	    container_of(link->sink, struct ipu_isys_video, pad);
-	/* All sub-devices connected to a video node are ours. */
-	struct ipu_isys_pipeline *ip =
-		to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
-	struct v4l2_subdev_route r[IPU_ISYS_MAX_STREAMS];
-	struct v4l2_subdev_routing routing = {
-		.routes = r,
-		.num_routes = IPU_ISYS_MAX_STREAMS,
-	};
-	int i, rval, active = 0;
-	struct v4l2_subdev *sd;
+		container_of(link->sink, struct ipu_isys_video, pad);
+	struct device *dev = &av->isys->adev->dev;
+	struct v4l2_subdev_state *s_state;
+	struct v4l2_subdev *s_sd;
+	struct v4l2_mbus_framefmt *s_fmt;
+	struct media_pad *s_pad;
+	u32 s_stream, code;
+	int ret = -EPIPE;
 
 	if (!link->source->entity)
-		return -EINVAL;
-	sd = media_entity_to_v4l2_subdev(link->source->entity);
-	if (is_external(av, link->source->entity)) {
-		ip->external = media_pad_remote_pad_first(av->vdev.entity.pads);
-		ip->source = to_ipu_isys_subdev(sd)->source;
+		return ret;
+
+	s_sd = media_entity_to_v4l2_subdev(link->source->entity);
+
+	dev_dbg(dev, "validating link \"%s\":%u -> \"%s\"\n",
+		link->source->entity->name, link->source->index,
+		link->sink->entity->name);
+
+	s_pad = media_pad_remote_pad_first(&av->pad);
+	s_stream = ipu_isys_get_src_stream_by_src_pad(s_sd, s_pad->index);
+
+	s_state = v4l2_subdev_get_unlocked_active_state(s_sd);
+	if (s_state) {
+		v4l2_subdev_lock_state(s_state);
+		s_fmt = v4l2_subdev_state_get_format(s_state, s_pad->index,
+						     s_stream);
+		v4l2_subdev_unlock_state(s_state);
+	} else {
+		s_fmt = NULL;
 	}
 
-	rval = v4l2_subdev_call(sd, pad, get_routing, &routing);
-	if (rval)
-		goto err_subdev;
+	if (!s_fmt) {
+		/*
+		 * The subdev has no V4L2 active state (IPU4 manages formats
+		 * internally), or the state accessor returned NULL for a
+		 * stream-aware subdev without routing. Fall back to the
+		 * subdev's internal active format.
+		 */
+		struct ipu_isys_subdev *asd = to_ipu_isys_subdev(s_sd);
 
-	for (i = 0; i < routing.num_routes; i++) {
-		if (!(r[i].flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE))
-			continue;
-
-		if (r[i].source_pad == link->source->index)
-			ip->stream_id = r[i].sink_stream;
-
-		active++;
+		dev_dbg(dev, "using internal format for pad %u stream %u\n",
+			s_pad->index, s_stream);
+		s_fmt = &asd->ffmt[s_pad->index][s_stream];
 	}
 
-	if (ip->external) {
-		struct v4l2_mbus_frame_desc desc = {
-			.num_entries = V4L2_FRAME_DESC_ENTRY_MAX,
-		};
+	code = ipu_isys_get_isys_format(ipu_isys_get_format(av), 0)->code;
 
-		sd = media_entity_to_v4l2_subdev(ip->external->entity);
-		rval = ipu_isys_subdev_get_frame_desc(sd, &desc);
-		if (!rval && ip->stream_id < desc.num_entries)
-			ip->vc = desc.entry[ip->stream_id].bus.csi2.vc;
+	if (s_fmt->width != ipu_isys_get_frame_width(av) ||
+	    s_fmt->height != ipu_isys_get_frame_height(av) ||
+	    s_fmt->code != code) {
+		dev_dbg(dev, "format mismatch %dx%d,%x != %dx%d,%x\n",
+			s_fmt->width, s_fmt->height, s_fmt->code,
+			ipu_isys_get_frame_width(av),
+			ipu_isys_get_frame_height(av), code);
+		return ret;
 	}
-
-err_subdev:
-	ip->nr_queues++;
 
 	return 0;
 }
