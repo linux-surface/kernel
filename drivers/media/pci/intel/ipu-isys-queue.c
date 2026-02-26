@@ -1415,5 +1415,8 @@ int ipu_isys_queue_init(struct ipu_isys_queue *aq)
 
 void ipu_isys_queue_cleanup(struct ipu_isys_queue *aq)
 {
+	if (!aq->vbq.ops)
+		return;
+
 	vb2_queue_release(&aq->vbq);
 }

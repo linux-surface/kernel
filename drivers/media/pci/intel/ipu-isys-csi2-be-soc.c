@@ -236,6 +236,9 @@ void ipu_isys_csi2_be_soc_cleanup(struct ipu_isys_csi2_be_soc *csi2_be_soc)
 {
 	int i;
 
+	if (!csi2_be_soc->asd.sd.v4l2_dev)
+		return;
+
 	v4l2_device_unregister_subdev(&csi2_be_soc->asd.sd);
 	ipu_isys_subdev_cleanup(&csi2_be_soc->asd);
 	for (i = 0; i < NR_OF_CSI2_BE_SOC_STREAMS; i++)

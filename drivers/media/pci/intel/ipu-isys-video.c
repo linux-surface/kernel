@@ -2279,6 +2279,9 @@ out_mutex_destroy:
 
 void ipu_isys_video_cleanup(struct ipu_isys_video *av)
 {
+	if (!av->aq.vbq.ops)
+		return;
+
 	video_unregister_device(&av->vdev);
 	media_entity_cleanup(&av->vdev.entity);
 	mutex_destroy(&av->mutex);

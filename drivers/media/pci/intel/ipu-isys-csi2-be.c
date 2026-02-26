@@ -206,6 +206,9 @@ static void csi2_be_set_ffmt(struct v4l2_subdev *sd,
 
 void ipu_isys_csi2_be_cleanup(struct ipu_isys_csi2_be *csi2_be)
 {
+	if (!csi2_be->asd.sd.v4l2_dev)
+		return;
+
 	v4l2_device_unregister_subdev(&csi2_be->asd.sd);
 	ipu_isys_subdev_cleanup(&csi2_be->asd);
 	ipu_isys_video_cleanup(&csi2_be->av);

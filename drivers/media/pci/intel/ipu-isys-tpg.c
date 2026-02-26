@@ -251,6 +251,9 @@ static struct media_entity_operations tpg_entity_ops = {
 
 void ipu_isys_tpg_cleanup(struct ipu_isys_tpg *tpg)
 {
+	if (!tpg->asd.sd.v4l2_dev)
+		return;
+
 	v4l2_device_unregister_subdev(&tpg->asd.sd);
 	ipu_isys_subdev_cleanup(&tpg->asd);
 	ipu_isys_video_cleanup(&tpg->av);

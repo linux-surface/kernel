@@ -231,6 +231,9 @@ static struct media_entity_operations isa_entity_ops = {
 
 void ipu_isys_isa_cleanup(struct ipu_isys_isa *isa)
 {
+	if (!isa->asd.sd.v4l2_dev)
+		return;
+
 	v4l2_device_unregister_subdev(&isa->asd.sd);
 	ipu_isys_subdev_cleanup(&isa->asd);
 	ipu_isys_video_cleanup(&isa->av_scaled);
