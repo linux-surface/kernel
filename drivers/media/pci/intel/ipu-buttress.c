@@ -604,7 +604,7 @@ bool ipu_buttress_get_secure_mode(struct ipu_device *isp)
 	return val & (1 << BUTTRESS_SECURITY_CTL_FW_SECURE_MODE_SHIFT);
 }
 
-bool ipu_buttress_auth_done(struct ipu_device *isp)
+bool ipu4_buttress_auth_done(struct ipu_device *isp)
 {
 	u32 val;
 
@@ -616,7 +616,7 @@ bool ipu_buttress_auth_done(struct ipu_device *isp)
 	return (val & BUTTRESS_SECURITY_CTL_FW_SETUP_MASK) ==
 	    BUTTRESS_SECURITY_CTL_AUTH_DONE;
 }
-EXPORT_SYMBOL(ipu_buttress_auth_done);
+EXPORT_SYMBOL(ipu4_buttress_auth_done);
 
 static void ipu_buttress_set_psys_ratio(struct ipu_device *isp,
 					unsigned int psys_divisor,
@@ -815,7 +815,7 @@ int ipu_buttress_authenticate(struct ipu_device *isp)
 		goto iunit_power_off;
 	}
 
-	if (ipu_buttress_auth_done(isp)) {
+	if (ipu4_buttress_auth_done(isp)) {
 		rval = 0;
 		goto iunit_power_off;
 	}
@@ -942,7 +942,7 @@ static int ipu_buttress_send_tsc_request(struct ipu_device *isp)
 	return ret;
 }
 
-int ipu_buttress_start_tsc_sync(struct ipu_device *isp)
+int ipu4_buttress_start_tsc_sync(struct ipu_device *isp)
 {
 	unsigned int i;
 
@@ -969,7 +969,7 @@ int ipu_buttress_start_tsc_sync(struct ipu_device *isp)
 
 	return -ETIMEDOUT;
 }
-EXPORT_SYMBOL(ipu_buttress_start_tsc_sync);
+EXPORT_SYMBOL(ipu4_buttress_start_tsc_sync);
 
 struct clk_ipu_sensor {
 	struct ipu_device *isp;
@@ -1368,7 +1368,7 @@ static void ipu_buttress_clk_exit(struct ipu_device *isp)
 		clk_unregister(b->pll_sensor[i]);
 }
 
-int ipu_buttress_tsc_read(struct ipu_device *isp, u64 *val)
+int ipu4_buttress_tsc_read(struct ipu_device *isp, u64 *val)
 {
 	struct ipu_buttress *b = &isp->buttress;
 	u32 tsc_hi, tsc_lo_1, tsc_lo_2, tsc_lo_3, tsc_chk = 0;
@@ -1415,7 +1415,7 @@ int ipu_buttress_tsc_read(struct ipu_device *isp, u64 *val)
 
 	return -EINVAL;
 }
-EXPORT_SYMBOL_GPL(ipu_buttress_tsc_read);
+EXPORT_SYMBOL_GPL(ipu4_buttress_tsc_read);
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -1472,19 +1472,19 @@ static const struct file_operations ipu_buttress_reg_fops = {
 	.write = ipu_buttress_reg_write,
 };
 
-static int ipu_buttress_start_tsc_sync_set(void *data, u64 val)
+static int ipu4_buttress_start_tsc_sync_set(void *data, u64 val)
 {
 	struct ipu_device *isp = data;
 
-	return ipu_buttress_start_tsc_sync(isp);
+	return ipu4_buttress_start_tsc_sync(isp);
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(ipu_buttress_start_tsc_sync_fops, NULL,
-			ipu_buttress_start_tsc_sync_set, "%llu\n");
+DEFINE_SIMPLE_ATTRIBUTE(ipu4_buttress_start_tsc_sync_fops, NULL,
+			ipu4_buttress_start_tsc_sync_set, "%llu\n");
 
 static int ipu_buttress_tsc_get(void *data, u64 *val)
 {
-	return ipu_buttress_tsc_read(data, val);
+	return ipu4_buttress_tsc_read(data, val);
 }
 DEFINE_SIMPLE_ATTRIBUTE(ipu_buttress_tsc_fops, ipu_buttress_tsc_get,
 			NULL, "%llu\n");
@@ -1555,7 +1555,7 @@ int ipu_buttress_debugfs_init(struct ipu_device *isp)
 	}
 
 	file = debugfs_create_file("start_tsc_sync", 0200, dir, isp,
-				   &ipu_buttress_start_tsc_sync_fops);
+				   &ipu4_buttress_start_tsc_sync_fops);
 	if (!file)
 		goto err;
 	file = debugfs_create_file("tsc", 0400, dir, isp,
@@ -1585,7 +1585,7 @@ err:
 
 #endif /* CONFIG_DEBUG_FS */
 
-u64 ipu_buttress_tsc_ticks_to_ns(u64 ticks)
+u64 ipu4_buttress_tsc_ticks_to_ns(u64 ticks)
 {
 	u64 ns = ticks * 10000;
 	/*
@@ -1599,7 +1599,7 @@ u64 ipu_buttress_tsc_ticks_to_ns(u64 ticks)
 
 	return ns;
 }
-EXPORT_SYMBOL_GPL(ipu_buttress_tsc_ticks_to_ns);
+EXPORT_SYMBOL_GPL(ipu4_buttress_tsc_ticks_to_ns);
 
 static ssize_t
 ipu_buttress_psys_fused_min_freq_get(struct device *dev,

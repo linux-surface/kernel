@@ -270,7 +270,7 @@ static int update_timer_base(struct ipu_isys *isys)
 				"Failed to read Tunit timer.\n");
 			return rval;
 		}
-		rval = ipu_buttress_tsc_read(isys->adev->isp,
+		rval = ipu4_buttress_tsc_read(isys->adev->isp,
 					     &isys->tsc_timer_base);
 		if (rval) {
 			dev_err(&isys->adev->dev,

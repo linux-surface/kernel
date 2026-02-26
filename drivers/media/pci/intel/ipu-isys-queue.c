@@ -1024,13 +1024,13 @@ static u64 get_sof_ns_delta(struct ipu_isys_video *av,
 	struct ipu_device *isp = adev->isp;
 	u64 delta, tsc_now;
 
-	if (!ipu_buttress_tsc_read(isp, &tsc_now))
+	if (!ipu4_buttress_tsc_read(isp, &tsc_now))
 		delta = tsc_now -
 		    ((u64) info->timestamp[1] << 32 | info->timestamp[0]);
 	else
 		delta = 0;
 
-	return ipu_buttress_tsc_ticks_to_ns(delta);
+	return ipu4_buttress_tsc_ticks_to_ns(delta);
 }
 
 void

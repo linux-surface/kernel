@@ -649,7 +649,7 @@ static int isys_runtime_pm_resume(struct device *dev)
 
 	cpu_latency_qos_update_request(&isys->pm_qos, ISYS_PM_QOS_VALUE);
 
-	ret = ipu_buttress_start_tsc_sync(isp);
+	ret = ipu4_buttress_start_tsc_sync(isp);
 	if (ret)
 		return ret;
 

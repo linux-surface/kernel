@@ -857,7 +857,7 @@ static int psys_runtime_pm_resume(struct device *dev)
 		return 0;
 	}
 
-	if (!ipu_buttress_auth_done(adev->isp)) {
+	if (!ipu4_buttress_auth_done(adev->isp)) {
 		dev_err(dev, "%s: not yet authenticated, skipping\n", __func__);
 		return 0;
 	}
