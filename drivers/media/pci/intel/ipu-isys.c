@@ -767,11 +767,9 @@ static int alloc_fw_msg_buffers(struct ipu_isys *isys, int amount)
 	unsigned long flags;
 
 	for (i = 0; i < amount; i++) {
-		addr = dma_alloc_attrs(&isys->adev->dev,
+		addr = dma_alloc_coherent(&isys->adev->dev,
 				       sizeof(struct isys_fw_msgs),
-				       &dma_addr, GFP_KERNEL,
-				       0
-		    );
+				       &dma_addr, GFP_KERNEL);
 		if (!addr)
 			break;
 		addr->dma_addr = dma_addr;

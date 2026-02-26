@@ -207,10 +207,8 @@ void *ipu_cpd_create_pkg_dir(struct ipu_bus_device *adev,
 	met_sz = met_ent->len;
 
 	*pkg_dir_size = PKG_DIR_SIZE + man_sz + met_sz;
-	pkg_dir = dma_alloc_attrs(&adev->dev, *pkg_dir_size, dma_addr,
-				  GFP_KERNEL,
-				  0
-	    );
+	pkg_dir = dma_alloc_coherent(&adev->dev, *pkg_dir_size, dma_addr,
+				  GFP_KERNEL);
 	if (!pkg_dir)
 		return pkg_dir;
 

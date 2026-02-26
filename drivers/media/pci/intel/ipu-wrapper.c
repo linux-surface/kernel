@@ -238,10 +238,8 @@ u64 shared_memory_alloc(unsigned int mmid, size_t bytes)
 	/*alloc using ipu dma driver */
 	buf->bytes = PAGE_ALIGN(bytes);
 
-	buf->addr = dma_alloc_attrs(mine->dev, buf->bytes, &buf->iova,
-				    GFP_KERNEL,
-				    0
-	    );
+	buf->addr = dma_alloc_coherent(mine->dev, buf->bytes, &buf->iova,
+				    GFP_KERNEL);
 	if (!buf->addr) {
 		kfree(buf);
 		return 0;

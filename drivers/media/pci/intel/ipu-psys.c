@@ -94,9 +94,8 @@ struct ipu_psys_pg *__get_pg_buf(struct ipu_psys *psys, size_t pg_size)
 	if (!kpg)
 		return NULL;
 
-	kpg->pg = dma_alloc_attrs(&psys->adev->dev, pg_size,
-				  &kpg->pg_dma_addr, GFP_KERNEL,
-				  0);
+	kpg->pg = dma_alloc_coherent(&psys->adev->dev, pg_size,
+				  &kpg->pg_dma_addr, GFP_KERNEL);
 	if (!kpg->pg) {
 		kfree(kpg);
 		return NULL;
@@ -1357,10 +1356,10 @@ static int ipu_psys_probe(struct ipu_bus_device *adev)
 		kpg = kzalloc(sizeof(*kpg), GFP_KERNEL);
 		if (!kpg)
 			goto out_free_pgs;
-		kpg->pg = dma_alloc_attrs(&adev->dev,
+		kpg->pg = dma_alloc_coherent(&adev->dev,
 					  IPU_PSYS_PG_MAX_SIZE,
 					  &kpg->pg_dma_addr,
-					  GFP_KERNEL, 0);
+					  GFP_KERNEL);
 		if (!kpg->pg) {
 			kfree(kpg);
 			goto out_free_pgs;

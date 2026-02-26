@@ -195,10 +195,10 @@ static void __ipu_trace_restore(struct device *dev)
 
 	if (!sys->memory.memory_buffer) {
 		sys->memory.memory_buffer =
-		    dma_alloc_attrs(dev, MEMORY_RING_BUFFER_SIZE +
+		    dma_alloc_coherent(dev, MEMORY_RING_BUFFER_SIZE +
 				    MEMORY_RING_BUFFER_GUARD,
 				    &sys->memory.dma_handle,
-				    GFP_KERNEL, 0);
+				    GFP_KERNEL);
 	}
 
 	if (!sys->memory.memory_buffer) {
