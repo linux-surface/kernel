@@ -240,13 +240,7 @@ void ipu_isys_isa_cleanup(struct ipu_isys_isa *isa)
 }
 
 static void isa_set_ffmt(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-			 struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-			 struct v4l2_subdev_pad_config *cfg,
-#else
 	     struct v4l2_subdev_state *cfg,
-#endif
 			 struct v4l2_subdev_format *fmt)
 {
 	struct v4l2_mbus_framefmt *ffmt =
@@ -403,41 +397,22 @@ static int isa_config_buf_init(struct vb2_buffer *vb)
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
 	struct ipu_isys_isa_buffer *isa_buf =
 	    vb2_buffer_to_ipu_isys_isa_buffer(vb);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	struct dma_attrs attrs;
-#else
 	unsigned long attrs;
-#endif
 	int rval;
 
 	rval = isa_3a_buf_init(vb);
 	if (rval)
 		return rval;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	init_dma_attrs(&attrs);
-	dma_set_attr(DMA_ATTR_NON_CONSISTENT, &attrs);
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-	attrs = DMA_ATTR_NON_CONSISTENT;
-#endif
-
 	isa_buf->pgl.common_pg =
 	    dma_alloc_attrs(&av->isys->adev->dev, PGL_SIZE << 1,
 			    &isa_buf->pgl.iova, GFP_KERNEL | __GFP_ZERO,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			    &attrs
-#else
 			    attrs
-#endif
 	    );
 
 	dev_dbg(&av->isys->adev->dev,
 		"buf_init: index %u, cpu addr %p, dma addr %pad\n",
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
-		vb->v4l2_buf.index,
-#else
 		vb->index,
-#endif
 		isa_buf->pgl.common_pg, &isa_buf->pgl.iova);
 
 	if (!isa_buf->pgl.common_pg) {
@@ -454,37 +429,18 @@ static void isa_config_buf_cleanup(struct vb2_buffer *vb)
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
 	struct ipu_isys_isa_buffer *isa_buf =
 	    vb2_buffer_to_ipu_isys_isa_buffer(vb);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	struct dma_attrs attrs;
-#else
 	unsigned long attrs;
-#endif
 
 	dev_dbg(&av->isys->adev->dev,
 		"buf_cleanup: index %u, cpu addr %p, dma addr %pad\n",
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
-		vb->v4l2_buf.index,
-#else
 		vb->index,
-#endif
 		isa_buf->pgl.pg, &isa_buf->pgl.iova);
 	if (!isa_buf->pgl.pg)
 		return;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	init_dma_attrs(&attrs);
-	dma_set_attr(DMA_ATTR_NON_CONSISTENT, &attrs);
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-	attrs = DMA_ATTR_NON_CONSISTENT;
-#endif
-
 	dma_free_attrs(&av->isys->adev->dev, PGL_SIZE << 1,
 		       isa_buf->pgl.common_pg, isa_buf->pgl.iova,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-		       &attrs
-#else
 		       attrs
-#endif
 	    );
 
 	isa_3a_buf_cleanup(vb);
@@ -720,11 +676,7 @@ static int isa_terminal_buf_prepare(struct vb2_buffer *vb)
 
 	for (i = 0; i < ISA_CFG_BUF_PLANES; i++) {
 		vb2_set_plane_payload(vb, i, av->mpix.plane_fmt[i].sizeimage);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
-		vb->v4l2_planes[i].data_offset = 0;
-#else
 		vb->planes[i].data_offset = 0;
-#endif
 	}
 
 	return isa_import_pg(vb);
@@ -880,11 +832,7 @@ isa_config_fill_frame_buff_set_pin(struct vb2_buffer *vb,
 	    vb2_buffer_to_ipu_isys_isa_buffer(vb);
 
 	set->process_group_light.addr = isa_buf->pgl.iova;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
-	set->process_group_light.param_buf_id = vb->v4l2_buf.index + 1;
-#else
 	set->process_group_light.param_buf_id = vb->index + 1;
-#endif
 }
 
 static void isa_ctrl_init(struct v4l2_subdev *sd)

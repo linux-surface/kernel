@@ -601,16 +601,10 @@ static const struct ipu_isys_pixelformat *
 csi2_try_fmt(struct ipu_isys_video *av,
 	     struct v4l2_pix_format_mplane *mpix)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
-	struct v4l2_subdev *sd =
-	    media_entity_to_v4l2_subdev(av->vdev.entity.links[0].source->
-					entity);
-#else
 	struct media_link *link = list_first_entry(&av->vdev.entity.links,
 						   struct media_link, list);
 	struct v4l2_subdev *sd =
 	    media_entity_to_v4l2_subdev(link->source->entity);
-#endif
 	struct ipu_isys_csi2 *csi2;
 
 	if (!sd)

@@ -148,13 +148,7 @@ u32 ipu_isys_subdev_code_to_uncompressed(u32 sink_code)
 }
 
 struct v4l2_mbus_framefmt *__ipu_isys_get_ffmt(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-					       struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-					       struct v4l2_subdev_pad_config *cfg,
-#else
 			   struct v4l2_subdev_state *cfg,
-#endif
 					       unsigned int pad,
 					       unsigned int stream,
 					       unsigned int which)
@@ -165,20 +159,12 @@ struct v4l2_mbus_framefmt *__ipu_isys_get_ffmt(struct v4l2_subdev *sd,
 		return &asd->ffmt[pad][stream];
 	else
 		return v4l2_subdev_get_try_format(
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
 							 sd,
-#endif
 							 cfg, pad);
 }
 
 struct v4l2_rect *__ipu_isys_get_selection(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-					   struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-					   struct v4l2_subdev_pad_config *cfg,
-#else
 		       struct v4l2_subdev_state *cfg,
-#endif
 					   unsigned int target,
 					   unsigned int pad, unsigned int which)
 {
@@ -195,15 +181,11 @@ struct v4l2_rect *__ipu_isys_get_selection(struct v4l2_subdev *sd,
 		switch (target) {
 		case V4L2_SEL_TGT_CROP:
 			return v4l2_subdev_get_try_crop(
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
 							       sd,
-#endif
 							       cfg, pad);
 		case V4L2_SEL_TGT_COMPOSE:
 			return v4l2_subdev_get_try_compose(
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
 								  sd,
-#endif
 								  cfg, pad);
 		}
 	}
@@ -227,13 +209,7 @@ static int target_valid(struct v4l2_subdev *sd, unsigned int target,
 }
 
 int ipu_isys_subdev_fmt_propagate(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-				   struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-				   struct v4l2_subdev_pad_config *cfg,
-#else
 		    struct v4l2_subdev_state *cfg,
-#endif
 				   struct v4l2_mbus_framefmt *ffmt,
 				   struct v4l2_rect *r,
 				   enum isys_subdev_prop_tgt tgt,
@@ -403,13 +379,7 @@ out_subdev_fmt_propagate:
 }
 
 int ipu_isys_subdev_set_ffmt_default(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-				      struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-					  struct v4l2_subdev_pad_config *cfg,
-#else
 		      struct v4l2_subdev_state *cfg,
-#endif
 				      struct v4l2_subdev_format *fmt)
 {
 	struct v4l2_mbus_framefmt *ffmt =
@@ -439,13 +409,7 @@ int ipu_isys_subdev_set_ffmt_default(struct v4l2_subdev *sd,
 }
 
 int __ipu_isys_subdev_set_ffmt(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-			       struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-				   struct v4l2_subdev_pad_config *cfg,
-#else
 		   struct v4l2_subdev_state *cfg,
-#endif
 			       struct v4l2_subdev_format *fmt)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
@@ -479,13 +443,7 @@ int __ipu_isys_subdev_set_ffmt(struct v4l2_subdev *sd,
 }
 
 int ipu_isys_subdev_set_ffmt(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-			     struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-			     struct v4l2_subdev_pad_config *cfg,
-#else
 		 struct v4l2_subdev_state *cfg,
-#endif
 			     struct v4l2_subdev_format *fmt)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
@@ -502,13 +460,7 @@ int ipu_isys_subdev_set_ffmt(struct v4l2_subdev *sd,
 }
 
 int ipu_isys_subdev_get_ffmt(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-			     struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-			     struct v4l2_subdev_pad_config *cfg,
-#else
 		 struct v4l2_subdev_state *cfg,
-#endif
 			     struct v4l2_subdev_format *fmt)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
@@ -583,11 +535,7 @@ int ipu_isys_subdev_set_routing(struct v4l2_subdev *sd,
 	int i, j, ret = 0;
 
 	WARN_ON(!mutex_is_locked(&sd->entity.
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
-				 parent
-#else
 				 graph_obj.mdev
-#endif
 				 ->graph_mutex));
 
 	for (i = 0; i < min(route->num_routes, asd->nstreams); ++i) {
@@ -692,13 +640,7 @@ int ipu_isys_subdev_get_routing(struct v4l2_subdev *sd,
 }
 
 int ipu_isys_subdev_set_sel(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-			    struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-			    struct v4l2_subdev_pad_config *cfg,
-#else
 		struct v4l2_subdev_state *cfg,
-#endif
 			    struct v4l2_subdev_selection *sel)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
@@ -753,13 +695,7 @@ int ipu_isys_subdev_set_sel(struct v4l2_subdev *sd,
 }
 
 int ipu_isys_subdev_get_sel(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-			    struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-			    struct v4l2_subdev_pad_config *cfg,
-#else
 		struct v4l2_subdev_state *cfg,
-#endif
 			    struct v4l2_subdev_selection *sel)
 {
 	if (!target_valid(sd, sel->target, sel->pad))
@@ -772,13 +708,7 @@ int ipu_isys_subdev_get_sel(struct v4l2_subdev *sd,
 }
 
 int ipu_isys_subdev_enum_mbus_code(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-				   struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-			   struct v4l2_subdev_pad_config *cfg,
-#else
 		   struct v4l2_subdev_state *cfg,
-#endif
 				   struct v4l2_subdev_mbus_code_enum *code)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
@@ -924,33 +854,15 @@ int ipu_isys_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	for (i = 0; i < asd->sd.entity.num_pads; i++) {
 		struct v4l2_mbus_framefmt *try_fmt =
 			v4l2_subdev_get_try_format(
-#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 14, 0)
 			sd, fh->state,
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
-			sd, fh->pad,
-#else
-			fh,
-#endif
 			i);
 		struct v4l2_rect *try_crop =
 			v4l2_subdev_get_try_crop(
-#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 14, 0)
 			sd, fh->state,
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
-			sd, fh->pad,
-#else
-			fh,
-#endif
 			i);
 		struct v4l2_rect *try_compose =
 			v4l2_subdev_get_try_compose(
-#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 14, 0)
 			sd, fh->state,
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
-			sd, fh->pad,
-#else
-			fh,
-#endif
 			i);
 
 		*try_fmt = asd->ffmt[i][0];

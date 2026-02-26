@@ -150,15 +150,9 @@ static struct media_entity_operations csi2_be_entity_ops = {
 	.link_validate = v4l2_subdev_link_validate,
 };
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-static void csi2_be_set_ffmt(struct v4l2_subdev *sd,
-			     struct v4l2_subdev_fh *cfg,
-			     struct v4l2_subdev_format *fmt)
-#else
 static void csi2_be_set_ffmt(struct v4l2_subdev *sd,
 			     struct v4l2_subdev_state *state,
 			     struct v4l2_subdev_format *fmt)
-#endif
 {
 	struct ipu_isys_csi2 *csi2 = to_ipu_isys_csi2(sd);
 	struct v4l2_mbus_framefmt *ffmt =

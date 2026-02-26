@@ -20,11 +20,7 @@
 
 /* Begin of things adapted from arch/arm/mm/dma-mapping.c */
 static void __dma_clear_buffer(struct page *page, size_t size,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			       struct dma_attrs *attrs
-#else
 			       unsigned long attrs
-#endif
 				)
 {
 	/*
@@ -36,11 +32,7 @@ static void __dma_clear_buffer(struct page *page, size_t size,
 			void *ptr = kmap_atomic(page);
 
 			memset(ptr, 0, PAGE_SIZE);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			if (!dma_get_attr(DMA_ATTR_SKIP_CPU_SYNC, attrs))
-#else
 			if ((attrs & DMA_ATTR_SKIP_CPU_SYNC) == 0)
-#endif
 				clflush_cache_range(ptr, PAGE_SIZE);
 			kunmap_atomic(ptr);
 			page++;
@@ -50,22 +42,14 @@ static void __dma_clear_buffer(struct page *page, size_t size,
 		void *ptr = page_address(page);
 
 		memset(ptr, 0, size);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-		if (!dma_get_attr(DMA_ATTR_SKIP_CPU_SYNC, attrs))
-#else
 		if ((attrs & DMA_ATTR_SKIP_CPU_SYNC) == 0)
-#endif
 			clflush_cache_range(ptr, size);
 	}
 }
 
 static struct page **__dma_alloc_buffer(struct device *dev, size_t size,
 					  gfp_t gfp,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-					  struct dma_attrs *attrs
-#else
 					  unsigned long attrs
-#endif
 					)
 {
 	struct page **pages;
@@ -117,11 +101,7 @@ error:
 
 static int __dma_free_buffer(struct device *dev, struct page **pages,
 			       size_t size,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			       struct dma_attrs *attrs
-#else
 			       unsigned long attrs
-#endif
 				)
 {
 	int count = size >> PAGE_SHIFT;
@@ -170,11 +150,7 @@ static void ipu_dma_sync_sg_for_cpu(struct device *dev,
 
 static void *ipu_dma_alloc(struct device *dev, size_t size,
 			   dma_addr_t *dma_handle, gfp_t gfp,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			   struct dma_attrs *attrs
-#else
 			   unsigned long attrs
-#endif
 			)
 {
 	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
@@ -234,11 +210,7 @@ out_free_iova:
 
 static void ipu_dma_free(struct device *dev, size_t size, void *vaddr,
 			 dma_addr_t dma_handle,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			 struct dma_attrs *attrs
-#else
 			 unsigned long attrs
-#endif
 			)
 {
 	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
@@ -275,11 +247,7 @@ static void ipu_dma_free(struct device *dev, size_t size, void *vaddr,
 
 static int ipu_dma_mmap(struct device *dev, struct vm_area_struct *vma,
 			void *addr, dma_addr_t iova, size_t size,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			struct dma_attrs *attrs
-#else
 			unsigned long attrs
-#endif
 			)
 {
 	struct vm_struct *area = find_vm_area(addr);
@@ -305,11 +273,7 @@ static int ipu_dma_mmap(struct device *dev, struct vm_area_struct *vma,
 static void ipu_dma_unmap_sg(struct device *dev,
 			     struct scatterlist *sglist,
 			     int nents, enum dma_data_direction dir,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			     struct dma_attrs *attrs
-#else
 			     unsigned long attrs
-#endif
 			)
 {
 	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
@@ -323,11 +287,7 @@ static void ipu_dma_unmap_sg(struct device *dev,
 	if (WARN_ON(!iova))
 		return;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	if (!dma_get_attr(DMA_ATTR_SKIP_CPU_SYNC, attrs))
-#else
 	if ((attrs & DMA_ATTR_SKIP_CPU_SYNC) == 0)
-#endif
 		ipu_dma_sync_sg_for_cpu(dev, sglist, nents, DMA_BIDIRECTIONAL);
 
 	ipu_mmu_unmap(mmu->dmap->mmu_info, iova->pfn_lo << PAGE_SHIFT,
@@ -340,11 +300,7 @@ static void ipu_dma_unmap_sg(struct device *dev,
 
 static int ipu_dma_map_sg(struct device *dev, struct scatterlist *sglist,
 			  int nents, enum dma_data_direction dir,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			  struct dma_attrs *attrs
-#else
 			  unsigned long attrs
-#endif
 			)
 {
 	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
@@ -389,11 +345,7 @@ static int ipu_dma_map_sg(struct device *dev, struct scatterlist *sglist,
 		iova_addr += PAGE_ALIGN(sg->length) >> PAGE_SHIFT;
 	}
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	if (!dma_get_attr(DMA_ATTR_SKIP_CPU_SYNC, attrs))
-#else
 	if ((attrs & DMA_ATTR_SKIP_CPU_SYNC) == 0)
-#endif
 		ipu_dma_sync_sg_for_cpu(dev, sglist, nents, DMA_BIDIRECTIONAL);
 
 	mmu->tlb_invalidate(mmu);
@@ -411,11 +363,7 @@ out_fail:
  */
 static int ipu_dma_get_sgtable(struct device *dev, struct sg_table *sgt,
 			       void *cpu_addr, dma_addr_t handle, size_t size,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			       struct dma_attrs *attrs
-#else
 			       unsigned long attrs
-#endif
 				)
 {
 	struct vm_struct *area = find_vm_area(cpu_addr);

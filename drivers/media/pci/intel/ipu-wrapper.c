@@ -37,11 +37,7 @@ struct my_css_memory_buffer_item {
 	dma_addr_t iova;
 	unsigned long *addr;
 	size_t bytes;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-	struct dma_attrs attrs;
-#else
 	unsigned long attrs;
-#endif
 };
 
 static struct wrapper_base *get_mem_sub_system(int mmid)
@@ -244,11 +240,7 @@ u64 shared_memory_alloc(unsigned int mmid, size_t bytes)
 
 	buf->addr = dma_alloc_attrs(mine->dev, buf->bytes, &buf->iova,
 				    GFP_KERNEL,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-				    NULL
-#else
 				    0
-#endif
 	    );
 	if (!buf->addr) {
 		kfree(buf);
@@ -293,11 +285,7 @@ void shared_memory_free(unsigned int mmid, u64 addr)
 		list_del(&buf->list);
 		spin_unlock_irqrestore(&mine->lock, flags);
 		dma_free_attrs(mine->dev, buf->bytes, buf->addr, buf->iova,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
-			       &buf->attrs
-#else
 			       buf->attrs
-#endif
 		    );
 		kfree(buf);
 		return;

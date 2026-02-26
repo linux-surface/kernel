@@ -187,14 +187,9 @@ static struct ipu_dma_mapping *alloc_dma_mapping(struct device *dev)
 		kfree(dmap);
 		return NULL;
 	}
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
-	init_iova_domain(&dmap->iovad, dma_get_mask(dev) >> PAGE_SHIFT);
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
-	init_iova_domain(&dmap->iovad, SZ_4K, 1,
-			 dma_get_mask(dev) >> PAGE_SHIFT);
-#else
+
 	init_iova_domain(&dmap->iovad, SZ_4K, 1);
-#endif
+
 	dmap->mmu_info->dmap = dmap;
 
 	kref_init(&dmap->ref);
@@ -327,11 +322,7 @@ struct ipu_bus_device *ipu_bus_add_device(struct pci_dev *pdev,
 	adev->dev.parent = parent;
 	adev->dev.bus = &ipu_bus;
 	adev->dev.release = ipu_bus_release;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 16)
 	adev->dev.dma_ops = &ipu_dma_ops;
-#else
-	adev->dev.archdata.dma_ops = &ipu_dma_ops;
-#endif
 	adev->dma_mask = DMA_BIT_MASK(isp->secure_mode ?
 				      IPU_MMU_ADDRESS_BITS :
 				      IPU_MMU_ADDRESS_BITS_NON_SECURE);

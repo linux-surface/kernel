@@ -152,13 +152,7 @@ static struct media_entity_operations csi2_be_soc_entity_ops = {
 };
 
 static void csi2_be_soc_set_ffmt(struct v4l2_subdev *sd,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)
-				 struct v4l2_subdev_fh *cfg,
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
-				 struct v4l2_subdev_pad_config *cfg,
-#else
 		 struct v4l2_subdev_state *cfg,
-#endif
 				 struct v4l2_subdev_format *fmt)
 {
 	struct v4l2_mbus_framefmt *ffmt =

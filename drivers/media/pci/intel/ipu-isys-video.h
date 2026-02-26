@@ -90,13 +90,7 @@ struct ipu_isys_pipeline {
 	unsigned int short_packet_trace_index;
 	unsigned int vc;
 	unsigned int stream_id;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
 	struct media_graph graph;
-#else
-	struct media_entity_graph graph;
-#endif
-#endif
 	struct media_entity_enum entity_enum;
 };
 
