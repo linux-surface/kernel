@@ -913,6 +913,11 @@ int ipu_isys_subdev_init(struct ipu_isys_subdev *asd,
 			return -ENOMEM;
 	}
 
+	for (i = 0; i < num_sink; i++)
+		asd->pad[i].flags = MEDIA_PAD_FL_SINK;
+	for (i = num_sink; i < num_pads; i++)
+		asd->pad[i].flags = MEDIA_PAD_FL_SOURCE;
+
 	rval = media_entity_pads_init(&asd->sd.entity, num_pads, asd->pad);
 	if (rval)
 		goto out_mutex_destroy;
