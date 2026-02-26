@@ -99,6 +99,7 @@ int ipu_isys_csi2_get_link_freq(struct ipu_isys_csi2 *csi2, s64 *link_freq)
 	struct v4l2_subdev *ext_sd =
 		media_entity_to_v4l2_subdev(pipe->external->entity);
 	struct device *dev = &csi2->isys->adev->dev;
+	struct media_pad *src_pad;
 	unsigned int bpp, lanes;
 	s64 ret;
 
@@ -107,10 +108,18 @@ int ipu_isys_csi2_get_link_freq(struct ipu_isys_csi2 *csi2, s64 *link_freq)
 		return -ENODEV;
 	}
 
+	src_pad = media_entity_remote_source_pad_unique(&csi2->asd.sd.entity);
+	if (IS_ERR(src_pad)) {
+		dev_err(&csi2->isys->adev->dev,
+			"can't get source pad of %s (%pe)\n",
+			csi2->asd.sd.name, src_pad);
+		return PTR_ERR(src_pad);
+	}
+
 	bpp = ipu_isys_mbus_code_to_bpp((*csi2->asd.ffmt)->code);
 	lanes = csi2->nlanes;
 
-	ret = v4l2_get_link_freq(ext_sd->ctrl_handler, bpp, lanes * 2);
+	ret = v4l2_get_link_freq(src_pad, bpp, lanes * 2);
 	if (ret < 0) {
 		dev_err(dev, "can't get link frequency (%lld)\n", ret);
 		return ret;
