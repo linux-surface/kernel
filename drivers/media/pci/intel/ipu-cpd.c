@@ -232,10 +232,8 @@ void *ipu_cpd_create_pkg_dir(struct ipu_bus_device *adev,
 	if (ret) {
 		dev_err(&isp->pdev->dev,
 			"Unable to parse module data section!\n");
-		dma_free_attrs(&isp->psys->dev, *pkg_dir_size, pkg_dir,
-			       *dma_addr,
-			       0
-		    );
+		dma_free_coherent(&isp->psys->dev, *pkg_dir_size, pkg_dir,
+			       *dma_addr);
 		return NULL;
 	}
 
@@ -258,7 +256,7 @@ void ipu_cpd_free_pkg_dir(struct ipu_bus_device *adev,
 			  u64 *pkg_dir,
 			  dma_addr_t dma_addr, unsigned int pkg_dir_size)
 {
-	dma_free_attrs(&adev->dev, pkg_dir_size, pkg_dir, dma_addr, 0);
+	dma_free_coherent(&adev->dev, pkg_dir_size, pkg_dir, dma_addr);
 }
 EXPORT_SYMBOL_GPL(ipu_cpd_free_pkg_dir);
 

@@ -674,16 +674,14 @@ static void isys_remove(struct ipu_bus_device *adev)
 		debugfs_remove_recursive(isys->debugfsdir);
 
 	list_for_each_entry_safe(fwmsg, safe, &isys->framebuflist, head) {
-		dma_free_attrs(&adev->dev, sizeof(struct isys_fw_msgs),
-			       fwmsg, fwmsg->dma_addr,
-			       0
+		dma_free_coherent(&adev->dev, sizeof(struct isys_fw_msgs),
+			       fwmsg, fwmsg->dma_addr
 		    );
 	}
 
 	list_for_each_entry_safe(fwmsg, safe, &isys->framebuflist_fw, head) {
-		dma_free_attrs(&adev->dev, sizeof(struct isys_fw_msgs),
-			       fwmsg, fwmsg->dma_addr,
-			       0
+		dma_free_coherent(&adev->dev, sizeof(struct isys_fw_msgs),
+			       fwmsg, fwmsg->dma_addr
 		    );
 	}
 
@@ -786,10 +784,9 @@ static int alloc_fw_msg_buffers(struct ipu_isys *isys, int amount)
 					struct isys_fw_msgs, head);
 		list_del(&addr->head);
 		spin_unlock_irqrestore(&isys->listlock, flags);
-		dma_free_attrs(&isys->adev->dev,
+		dma_free_coherent(&isys->adev->dev,
 			       sizeof(struct isys_fw_msgs),
-			       addr, addr->dma_addr,
-			       0
+			       addr, addr->dma_addr
 		    );
 		spin_lock_irqsave(&isys->listlock, flags);
 	}

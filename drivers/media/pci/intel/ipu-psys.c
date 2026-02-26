@@ -1428,8 +1428,8 @@ out_release_fw_com:
 	ipu_fw_com_release(psys->fwcom, 1);
 out_free_pgs:
 	list_for_each_entry_safe(kpg, kpg0, &psys->pgs, list) {
-		dma_free_attrs(&adev->dev, kpg->size, kpg->pg,
-			       kpg->pg_dma_addr, 0);
+		dma_free_coherent(&adev->dev, kpg->size, kpg->pg,
+			       kpg->pg_dma_addr);
 		kfree(kpg);
 	}
 
@@ -1480,8 +1480,8 @@ static void ipu_psys_remove(struct ipu_bus_device *adev)
 	mutex_lock(&ipu_psys_mutex);
 
 	list_for_each_entry_safe(kpg, kpg0, &psys->pgs, list) {
-		dma_free_attrs(&adev->dev, kpg->size, kpg->pg,
-			       kpg->pg_dma_addr, 0);
+		dma_free_coherent(&adev->dev, kpg->size, kpg->pg,
+			       kpg->pg_dma_addr);
 		kfree(kpg);
 	}
 
