@@ -503,32 +503,25 @@ static const struct v4l2_async_notifier_operations isys_async_ops = {
 	.complete = isys_notifier_complete,
 };
 
-#define ISYS_MAX_PORTS 8
 static int isys_notifier_init(struct ipu_isys *isys)
 {
 	struct ipu_device *isp = isys->adev->isp;
 	struct device *dev = &isp->pdev->dev;
-	unsigned int i;
+	struct fwnode_handle *ep;
 	int ret;
 
 	v4l2_async_nf_init(&isys->notifier, &isys->v4l2_dev);
 
-	for (i = 0; i < ISYS_MAX_PORTS; i++) {
+	fwnode_graph_for_each_endpoint(dev_fwnode(dev), ep) {
 		struct v4l2_fwnode_endpoint vep = {
 			.bus_type = V4L2_MBUS_CSI2_DPHY
 		};
 		struct sensor_async_sd *s_asd;
-		struct fwnode_handle *ep;
-
-		ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(dev), i, 0,
-						FWNODE_GRAPH_ENDPOINT_NEXT);
-		if (!ep)
-			continue;
 
 		ret = v4l2_fwnode_endpoint_parse(ep, &vep);
 		if (ret) {
 			dev_err(dev, "fwnode endpoint parse failed: %d\n", ret);
-			goto err_parse;
+			return ret;
 		}
 
 		/* Skip endpoints whose port has no physical CSI receiver */
@@ -538,7 +531,6 @@ static int isys_notifier_init(struct ipu_isys *isys)
 			dev_info(dev,
 				 "skipping endpoint at fw port %u (no receiver)\n",
 				 vep.base.port);
-			fwnode_handle_put(ep);
 			continue;
 		}
 
@@ -547,7 +539,7 @@ static int isys_notifier_init(struct ipu_isys *isys)
 		if (IS_ERR(s_asd)) {
 			ret = PTR_ERR(s_asd);
 			dev_err(dev, "add remove fwnode failed: %d\n", ret);
-			goto err_parse;
+			return ret;
 		}
 
 		s_asd->csi2.port = vep.base.port;
@@ -555,14 +547,6 @@ static int isys_notifier_init(struct ipu_isys *isys)
 
 		dev_dbg(dev, "remote endpoint port %d with %d lanes added\n",
 			s_asd->csi2.port, s_asd->csi2.nlanes);
-
-		fwnode_handle_put(ep);
-
-		continue;
-
-err_parse:
-		fwnode_handle_put(ep);
-		return ret;
 	}
 
 	isys->notifier.ops = &isys_async_ops;
