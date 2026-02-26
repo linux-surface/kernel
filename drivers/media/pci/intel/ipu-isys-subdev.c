@@ -496,7 +496,9 @@ bool ipu_isys_subdev_has_route(struct media_entity *entity,
 }
 
 int ipu_isys_subdev_set_routing(struct v4l2_subdev *sd,
-				struct v4l2_subdev_routing *route)
+			   struct v4l2_subdev_state *state,
+			   enum v4l2_subdev_format_whence which,
+			   struct v4l2_subdev_krouting *route)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
 	int i, j, ret = 0;

@@ -165,7 +165,9 @@ void ipu_isys_subdev_cleanup(struct ipu_isys_subdev *asd);
 int ipu_isys_subdev_get_frame_desc(struct v4l2_subdev *sd,
 				   struct v4l2_mbus_frame_desc *desc);
 int ipu_isys_subdev_set_routing(struct v4l2_subdev *sd,
-				struct v4l2_subdev_routing *route);
+			   struct v4l2_subdev_state *state,
+			   enum v4l2_subdev_format_whence which,
+			   struct v4l2_subdev_krouting *route);
 int ipu_isys_subdev_get_routing(struct v4l2_subdev *sd,
 				struct v4l2_subdev_routing *route);
 bool ipu_isys_subdev_has_route(struct media_entity *entity,
