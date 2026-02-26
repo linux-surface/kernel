@@ -1336,9 +1336,11 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_PIX_FMT_YVU410:	descr = "Planar YVU 4:1:0"; break;
 	case V4L2_PIX_FMT_YVU420:	descr = "Planar YVU 4:2:0"; break;
 	case V4L2_PIX_FMT_YUYV:		descr = "YUYV 4:2:2"; break;
+	case V4L2_PIX_FMT_YUYV420_V32:	descr = "YUYV 4:2:2 Vector"; break;
 	case V4L2_PIX_FMT_YYUV:		descr = "YYUV 4:2:2"; break;
 	case V4L2_PIX_FMT_YVYU:		descr = "YVYU 4:2:2"; break;
 	case V4L2_PIX_FMT_UYVY:		descr = "UYVY 4:2:2"; break;
+	case V4L2_PIX_FMT_UYVY_V32:	descr = "UYVY 4:2:2 Vector"; break;
 	case V4L2_PIX_FMT_VYUY:		descr = "VYUY 4:2:2"; break;
 	case V4L2_PIX_FMT_YUV422P:	descr = "Planar YUV 4:2:2"; break;
 	case V4L2_PIX_FMT_YUV411P:	descr = "Planar YUV 4:1:1"; break;
@@ -1391,6 +1393,14 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_PIX_FMT_SGBRG8:	descr = "8-bit Bayer GBGB/RGRG"; break;
 	case V4L2_PIX_FMT_SGRBG8:	descr = "8-bit Bayer GRGR/BGBG"; break;
 	case V4L2_PIX_FMT_SRGGB8:	descr = "8-bit Bayer RGRG/GBGB"; break;
+	case V4L2_PIX_FMT_SBGGR8V32: descr = "8-bit Bayer BGBG/GRGR Vector"; break;
+	case V4L2_PIX_FMT_SGBRG8V32: descr = "8-bit Bayer GBGB/RGRG Vector"; break;
+	case V4L2_PIX_FMT_SGRBG8V32: descr = "8-bit Bayer GRGR/BGBG Vector"; break;
+	case V4L2_PIX_FMT_SRGGB8V32: descr = "8-bit Bayer RGRG/GBGB Vector"; break;
+	// case V4L2_PIX_FMT_SBGGR8_16V32: descr = "8-bit Bayer BGBG/GRGR Vector"; break;
+	// case V4L2_PIX_FMT_SGBRG8_16V32: descr = "8-bit Bayer GBGB/RGRG Vector"; break;
+	// case V4L2_PIX_FMT_SGRBG8_16V32: descr = "8-bit Bayer GRGR/BGBG Vector"; break;
+	// case V4L2_PIX_FMT_SRGGB8_16V32: descr = "8-bit Bayer RGRG/GBGB Vector"; break;
 	case V4L2_PIX_FMT_SBGGR10:	descr = "10-bit Bayer BGBG/GRGR"; break;
 	case V4L2_PIX_FMT_SGBRG10:	descr = "10-bit Bayer GBGB/RGRG"; break;
 	case V4L2_PIX_FMT_SGRBG10:	descr = "10-bit Bayer GRGR/BGBG"; break;
@@ -1399,6 +1409,10 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_PIX_FMT_SGBRG10P:	descr = "10-bit Bayer GBGB/RGRG Packed"; break;
 	case V4L2_PIX_FMT_SGRBG10P:	descr = "10-bit Bayer GRGR/BGBG Packed"; break;
 	case V4L2_PIX_FMT_SRGGB10P:	descr = "10-bit Bayer RGRG/GBGB Packed"; break;
+	case V4L2_PIX_FMT_SBGGR10V32: descr = "10-bit Bayer BGBG/GRGR Vector"; break;
+	case V4L2_PIX_FMT_SGBRG10V32: descr = "10-bit Bayer GBGB/RGRG Vector"; break;
+	case V4L2_PIX_FMT_SGRBG10V32: descr = "10-bit Bayer GRGR/BGBG Vector"; break;
+	case V4L2_PIX_FMT_SRGGB10V32: descr = "10-bit Bayer RGRG/GBGB Vector"; break;
 	case V4L2_PIX_FMT_IPU3_SBGGR10: descr = "10-bit bayer BGGR IPU3 Packed"; break;
 	case V4L2_PIX_FMT_IPU3_SGBRG10: descr = "10-bit bayer GBRG IPU3 Packed"; break;
 	case V4L2_PIX_FMT_IPU3_SGRBG10: descr = "10-bit bayer GRBG IPU3 Packed"; break;
@@ -1421,6 +1435,10 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_PIX_FMT_SGRBG12P:	descr = "12-bit Bayer GRGR/BGBG Packed"; break;
 	case V4L2_PIX_FMT_SRGGB12P:	descr = "12-bit Bayer RGRG/GBGB Packed"; break;
 	case V4L2_PIX_FMT_RAW_CRU12:	descr = "12-bit Raw CRU Packed"; break;
+	case V4L2_PIX_FMT_SBGGR12V32: descr = "12-bit Bayer BGBG/GRGR Vector"; break;
+	case V4L2_PIX_FMT_SGBRG12V32: descr = "12-bit Bayer GBGB/RGRG Vector"; break;
+	case V4L2_PIX_FMT_SGRBG12V32: descr = "12-bit Bayer GRGR/BGBG Vector"; break;
+	case V4L2_PIX_FMT_SRGGB12V32: descr = "12-bit Bayer RGRG/GBGB Vector"; break;
 	case V4L2_PIX_FMT_SBGGR14:	descr = "14-bit Bayer BGBG/GRGR"; break;
 	case V4L2_PIX_FMT_SGBRG14:	descr = "14-bit Bayer GBGB/RGRG"; break;
 	case V4L2_PIX_FMT_SGRBG14:	descr = "14-bit Bayer GRGR/BGBG"; break;
@@ -1430,6 +1448,10 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_PIX_FMT_SGRBG14P:	descr = "14-bit Bayer GRGR/BGBG Packed"; break;
 	case V4L2_PIX_FMT_SRGGB14P:	descr = "14-bit Bayer RGRG/GBGB Packed"; break;
 	case V4L2_PIX_FMT_RAW_CRU14:	descr = "14-bit Raw CRU Packed"; break;
+	case V4L2_PIX_FMT_SBGGR14V32: descr = "14-bit Bayer RGRG/GBGB Vector"; break;
+	case V4L2_PIX_FMT_SGBRG14V32: descr = "14-bit Bayer RGRG/GBGB Vector"; break;
+	case V4L2_PIX_FMT_SGRBG14V32: descr = "14-bit Bayer RGRG/GBGB Vector"; break;
+	case V4L2_PIX_FMT_SRGGB14V32: descr = "14-bit Bayer RGRG/GBGB Vector"; break;
 	case V4L2_PIX_FMT_SBGGR16:	descr = "16-bit Bayer BGBG/GRGR"; break;
 	case V4L2_PIX_FMT_SGBRG16:	descr = "16-bit Bayer GBGB/RGRG"; break;
 	case V4L2_PIX_FMT_SGRBG16:	descr = "16-bit Bayer GRGR/BGBG"; break;
@@ -1486,6 +1508,8 @@ static void v4l_fill_fmtdesc(struct v4l2_fmtdesc *fmt)
 	case V4L2_META_FMT_GENERIC_CSI2_16:	descr = "8-bit Generic Meta, 16b CSI-2"; break;
 	case V4L2_META_FMT_GENERIC_CSI2_20:	descr = "8-bit Generic Meta, 20b CSI-2"; break;
 	case V4L2_META_FMT_GENERIC_CSI2_24:	descr = "8-bit Generic Meta, 24b CSI-2"; break;
+	case V4L2_FMT_IPU_ISA_CFG:	descr = "IPU4 fourcc = ip4c)"; break;
+	case V4L2_FMT_IPU_ISYS_META:	descr = "IPU4 fourcc = ip4m)"; break;
 
 	default:
 		/* Compressed formats */
