@@ -215,11 +215,13 @@ static void isys_unregister_subdevices(struct ipu_isys *isys)
 
 	ipu_isys_isa_cleanup(&isys->isa);
 
-	for (i = 0; i < tpg->ntpgs; i++)
-		ipu_isys_tpg_cleanup(&isys->tpg[i]);
+	if (isys->tpg)
+		for (i = 0; i < tpg->ntpgs; i++)
+			ipu_isys_tpg_cleanup(&isys->tpg[i]);
 
-	for (i = 0; i < csi2->nports; i++)
-		ipu_isys_csi2_cleanup(&isys->csi2[i]);
+	if (isys->csi2)
+		for (i = 0; i < csi2->nports; i++)
+			ipu_isys_csi2_cleanup(&isys->csi2[i]);
 }
 
 static int isys_register_subdevices(struct ipu_isys *isys)
