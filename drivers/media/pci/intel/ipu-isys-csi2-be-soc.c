@@ -46,6 +46,38 @@ static const u32 csi2_be_soc_supported_codes_pad[] = {
 	0,
 };
 
+/*
+ * Raw bayer format pixel order MUST BE MAINTAINED in groups of four codes.
+ * Otherwise pixel order calculation below WILL BREAK!
+ */
+static const u32 csi2_be_soc_supported_raw_bayer_codes_pad[] = {
+	MEDIA_BUS_FMT_SBGGR12_1X12,
+	MEDIA_BUS_FMT_SGBRG12_1X12,
+	MEDIA_BUS_FMT_SGRBG12_1X12,
+	MEDIA_BUS_FMT_SRGGB12_1X12,
+	MEDIA_BUS_FMT_SBGGR10_1X10,
+	MEDIA_BUS_FMT_SGBRG10_1X10,
+	MEDIA_BUS_FMT_SGRBG10_1X10,
+	MEDIA_BUS_FMT_SRGGB10_1X10,
+	MEDIA_BUS_FMT_SBGGR8_1X8,
+	MEDIA_BUS_FMT_SGBRG8_1X8,
+	MEDIA_BUS_FMT_SGRBG8_1X8,
+	MEDIA_BUS_FMT_SRGGB8_1X8,
+	MEDIA_BUS_FMT_Y8_1X8,
+	0,
+};
+
+static int get_supported_code_index(u32 code)
+{
+	int i;
+
+	for (i = 0; csi2_be_soc_supported_raw_bayer_codes_pad[i]; i++) {
+		if (csi2_be_soc_supported_raw_bayer_codes_pad[i] == code)
+			return i;
+	}
+	return -EINVAL;
+}
+
 static const u32 *csi2_be_soc_supported_codes[NR_OF_CSI2_BE_SOC_PADS];
 
 static struct v4l2_subdev_internal_ops csi2_be_soc_sd_internal_ops = {
@@ -148,73 +180,55 @@ static struct v4l2_subdev_ops csi2_be_soc_sd_ops = {
 
 static struct media_entity_operations csi2_be_soc_entity_ops = {
 	.link_validate = v4l2_subdev_link_validate,
-	.has_route = ipu_isys_subdev_has_route,
 };
 
 static void csi2_be_soc_set_ffmt(struct v4l2_subdev *sd,
-		 struct v4l2_subdev_state *cfg,
+				 struct v4l2_subdev_state *state,
 				 struct v4l2_subdev_format *fmt)
 {
 	struct v4l2_mbus_framefmt *ffmt =
-		__ipu_isys_get_ffmt(sd, cfg, fmt->pad,
+		__ipu_isys_get_ffmt(sd, state, fmt->pad,
 				    fmt->stream,
 				    fmt->which);
-
-#if !defined(CONFIG_VIDEO_INTEL_IPU4) && !defined(CONFIG_VIDEO_INTEL_IPU4P)
-			struct ipu_isys_csi2_be_soc *csi2_be_soc =
-						to_ipu_isys_csi2_be_soc(sd);
-#endif
 
 	if (sd->entity.pads[fmt->pad].flags & MEDIA_PAD_FL_SINK) {
 		if (fmt->format.field != V4L2_FIELD_ALTERNATE)
 			fmt->format.field = V4L2_FIELD_NONE;
 		*ffmt = fmt->format;
 
-		ipu_isys_subdev_fmt_propagate(sd, cfg, &fmt->format,
+		ipu_isys_subdev_fmt_propagate(sd, state, &fmt->format,
 					      NULL,
 					      IPU_ISYS_SUBDEV_PROP_TGT_SINK_FMT,
 					      fmt->pad, fmt->which);
 	} else if (sd->entity.pads[fmt->pad].flags & MEDIA_PAD_FL_SOURCE) {
 		struct v4l2_mbus_framefmt *sink_ffmt;
-		struct v4l2_rect *r;
+		struct v4l2_rect *r = __ipu_isys_get_selection(sd, state,
+			V4L2_SEL_TGT_CROP, fmt->pad, fmt->which);
 		struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
-		unsigned int sink_pad = 0;
-		int i;
+		u32 code;
+		int idx;
 
-		for (i = 0; i < asd->nsinks; i++)
-			if (media_entity_has_route(&sd->entity, fmt->pad, i))
-				break;
-		if (i != asd->nsinks)
-			sink_pad = i;
-		sink_ffmt = __ipu_isys_get_ffmt(sd, cfg, sink_pad,
-						fmt->stream,
-						fmt->which);
-		r = __ipu_isys_get_selection(sd, cfg, V4L2_SEL_TGT_CROP,
-					     fmt->pad, fmt->which);
+		sink_ffmt = __ipu_isys_get_ffmt(sd, state, 0, 0, fmt->which);
+		code = sink_ffmt->code;
+		idx = get_supported_code_index(code);
 
+		if (asd->valid_tgts[fmt->pad].crop && idx >= 0) {
+			int crop_info = 0;
+
+			/* Only croping odd line at top side. */
+			if (r->top & 1)
+				crop_info |= CSI2_BE_CROP_VER;
+
+			code = csi2_be_soc_supported_raw_bayer_codes_pad
+				[((idx & CSI2_BE_CROP_MASK) ^ crop_info)
+				+ (idx & ~CSI2_BE_CROP_MASK)];
+
+		}
+		ffmt->code = code;
 		ffmt->width = r->width;
 		ffmt->height = r->height;
-		ffmt->code = sink_ffmt->code;
 		ffmt->field = sink_ffmt->field;
 
-#if !defined(CONFIG_VIDEO_INTEL_IPU4) && !defined(CONFIG_VIDEO_INTEL_IPU4P)
-		/*
-		 * For new IPU special case, format changing in BE-SOC,
-		 * from YUV422 to I420, which is used to adapt multiple
-		 * YUV sensors and provide I420 to BB for partial processing.
-		 * Use original source pad format from user space.
-		 * And change pin type to RAW_DUAL_SOC for this special case
-		 */
-		if (fmt->format.code == MEDIA_BUS_FMT_UYVY8_2X8 &&
-			(sink_ffmt->code == MEDIA_BUS_FMT_YUYV8_1X16 ||
-			sink_ffmt->code == MEDIA_BUS_FMT_UYVY8_1X16)) {
-			ffmt->code = fmt->format.code;
-
-			for (i = 0; i < NR_OF_CSI2_BE_SOC_SOURCE_PADS; i++)
-				csi2_be_soc->av[i].aq.css_pin_type =
-					IPU_FW_ISYS_PIN_TYPE_RAW_DUAL_SOC;
-		}
-#endif
 	}
 }
 
