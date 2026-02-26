@@ -435,16 +435,19 @@ int ipu_isys_vidioc_querycap(struct file *file, void *fh,
 int ipu_isys_vidioc_enum_fmt(struct file *file, void *fh,
 			     struct v4l2_fmtdesc *f)
 {
-	unsigned int i, num_found;
+	struct ipu_isys_video *av = video_drvdata(file);
+	const struct ipu_isys_pixelformat *pfmt;
+	unsigned int num_found;
 
-	for (i = 0, num_found = 0; i < ARRAY_SIZE(ipu_isys_pfmts); i++) {
-		if ((ipu_isys_pfmts[i].is_meta &&
+	for (pfmt = av->pfmts, num_found = 0; pfmt->bpp; pfmt++) {
+		if ((pfmt->is_meta &&
 		     f->type != V4L2_BUF_TYPE_META_CAPTURE) ||
-		    (!ipu_isys_pfmts[i].is_meta &&
+		    (!pfmt->is_meta &&
+		     f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE &&
 		     f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE))
 			continue;
 
-		if (f->mbus_code && f->mbus_code != ipu_isys_pfmts[i].code)
+		if (f->mbus_code && f->mbus_code != pfmt->code)
 			continue;
 
 		if (num_found < f->index) {
@@ -453,7 +456,7 @@ int ipu_isys_vidioc_enum_fmt(struct file *file, void *fh,
 		}
 
 		f->flags = 0;
-		f->pixelformat = ipu_isys_pfmts[i].pixelformat;
+		f->pixelformat = pfmt->pixelformat;
 
 		return 0;
 	}
@@ -464,13 +467,14 @@ int ipu_isys_vidioc_enum_fmt(struct file *file, void *fh,
 static int ipu_isys_vidioc_enum_framesizes(struct file *file, void *fh,
 					    struct v4l2_frmsizeenum *fsize)
 {
-	unsigned int i;
+	struct ipu_isys_video *av = video_drvdata(file);
+	const struct ipu_isys_pixelformat *pfmt;
 
 	if (fsize->index > 0)
 		return -EINVAL;
 
-	for (i = 0; i < ARRAY_SIZE(ipu_isys_pfmts); i++) {
-		if (fsize->pixel_format != ipu_isys_pfmts[i].pixelformat)
+	for (pfmt = av->pfmts; pfmt->bpp; pfmt++) {
+		if (fsize->pixel_format != pfmt->pixelformat)
 			continue;
 
 		fsize->type = V4L2_FRMSIZE_TYPE_STEPWISE;
@@ -2286,4 +2290,74 @@ void ipu_isys_video_cleanup(struct ipu_isys_video *av)
 	media_entity_cleanup(&av->vdev.entity);
 	mutex_destroy(&av->mutex);
 	ipu_isys_queue_cleanup(&av->aq);
+}
+
+u32 ipu_isys_get_format(struct ipu_isys_video *av)
+{
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return av->pix_fmt.pixelformat;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		return av->mpix.pixelformat;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_META_CAPTURE)
+		return av->meta_fmt.dataformat;
+
+	return 0;
+}
+
+u32 ipu_isys_get_data_size(struct ipu_isys_video *av)
+{
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return av->pix_fmt.sizeimage;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		return av->mpix.plane_fmt[0].sizeimage;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_META_CAPTURE)
+		return av->meta_fmt.buffersize;
+
+	return 0;
+}
+
+u32 ipu_isys_get_bytes_per_line(struct ipu_isys_video *av)
+{
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return av->pix_fmt.bytesperline;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		return av->mpix.plane_fmt[0].bytesperline;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_META_CAPTURE)
+		return av->meta_fmt.bytesperline;
+
+	return 0;
+}
+
+u32 ipu_isys_get_frame_width(struct ipu_isys_video *av)
+{
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return av->pix_fmt.width;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		return av->mpix.width;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_META_CAPTURE)
+		return av->meta_fmt.width;
+
+	return 0;
+}
+
+u32 ipu_isys_get_frame_height(struct ipu_isys_video *av)
+{
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return av->pix_fmt.height;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
+		return av->mpix.height;
+
+	if (av->aq.vbq.type == V4L2_BUF_TYPE_META_CAPTURE)
+		return av->meta_fmt.height;
+
+	return 0;
 }

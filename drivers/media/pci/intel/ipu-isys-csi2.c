@@ -674,7 +674,7 @@ int ipu_isys_csi2_init(struct ipu_isys_csi2 *csi2,
 				    NR_OF_CSI2_STREAMS,
 				    NR_OF_CSI2_SOURCE_PADS,
 				    NR_OF_CSI2_SINK_PADS,
-				    V4L2_SUBDEV_FL_HAS_SUBSTREAMS);
+				    0);
 	if (rval)
 		goto fail;
 

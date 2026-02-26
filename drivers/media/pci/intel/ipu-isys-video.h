@@ -209,4 +209,10 @@ void ipu_isys_video_add_capture_done(struct ipu_isys_pipeline *ip,
 				      (struct ipu_isys_pipeline *ip,
 				       struct ipu_fw_isys_resp_info_abi *resp));
 
+u32 ipu_isys_get_format(struct ipu_isys_video *av);
+u32 ipu_isys_get_data_size(struct ipu_isys_video *av);
+u32 ipu_isys_get_bytes_per_line(struct ipu_isys_video *av);
+u32 ipu_isys_get_frame_width(struct ipu_isys_video *av);
+u32 ipu_isys_get_frame_height(struct ipu_isys_video *av);
+
 #endif /* IPU_ISYS_VIDEO_H */
