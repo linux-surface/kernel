@@ -1898,11 +1898,14 @@ int ipu_isys_video_prepare_streaming(struct ipu_isys_video *av,
 	if (rval)
 		goto out_pipeline_stop;
 
-	/* Gather all entities in the graph. */
+	/* Gather all entities in the graph and count video queues. */
 	mutex_lock(&mdev->graph_mutex);
 	media_graph_walk_start(&graph, &av->vdev.entity);
-	while ((entity = media_graph_walk_next(&graph)))
+	while ((entity = media_graph_walk_next(&graph))) {
 		media_entity_enum_set(&ip->entity_enum, entity);
+		if (is_media_entity_v4l2_video_device(entity))
+			ip->nr_queues++;
+	}
 
 	mutex_unlock(&mdev->graph_mutex);
 
