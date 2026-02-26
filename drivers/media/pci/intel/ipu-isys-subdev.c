@@ -825,9 +825,12 @@ int ipu_isys_subdev_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 		struct v4l2_rect *try_compose =
 			v4l2_subdev_state_get_compose(fh->state, i);
 
-		*try_fmt = asd->ffmt[i][0];
-		*try_crop = asd->crop[i];
-		*try_compose = asd->compose[i];
+		if (try_fmt)
+			*try_fmt = asd->ffmt[i][0];
+		if (try_crop)
+			*try_crop = asd->crop[i];
+		if (try_compose)
+			*try_compose = asd->compose[i];
 	}
 
 	mutex_unlock(&asd->mutex);
