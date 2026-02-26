@@ -793,7 +793,20 @@ static int link_validate(struct media_link *link)
 		s_fmt = &asd->ffmt[s_pad->index][s_stream];
 	}
 
-	code = ipu_isys_get_isys_format(ipu_isys_get_format(av), 0)->code;
+	{
+		const struct ipu_isys_pixelformat *pfmt;
+		u32 pixfmt = ipu_isys_get_format(av);
+
+		code = 0;
+		for (pfmt = av->pfmts; pfmt->bpp; pfmt++) {
+			if (pfmt->pixelformat == pixfmt) {
+				code = pfmt->code;
+				break;
+			}
+		}
+		if (!code)
+			code = ipu_isys_get_isys_format(pixfmt, 0)->code;
+	}
 
 	if (s_fmt->width != ipu_isys_get_frame_width(av) ||
 	    s_fmt->height != ipu_isys_get_frame_height(av) ||
