@@ -92,7 +92,7 @@ static struct v4l2_subdev_internal_ops csi2_sd_internal_ops = {
 
 int ipu_isys_csi2_get_link_freq(struct ipu_isys_csi2 *csi2, __s64 *link_freq)
 {
-	struct ipu_isys_pipeline *pipe = container_of(csi2->asd.sd.entity.pipe,
+	struct ipu_isys_pipeline *pipe = container_of(media_entity_pipeline(&csi2->asd.sd.entity),
 						      struct ipu_isys_pipeline,
 						      pipe);
 	struct v4l2_subdev *ext_sd =
@@ -159,7 +159,7 @@ static void csi2_meta_prepare_firmware_stream_cfg_default(
 			struct ipu_fw_isys_stream_cfg_data_abi *cfg)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct ipu_isys_queue *aq = &av->aq;
 	struct ipu_fw_isys_output_pin_info_abi *pin_info;
 	struct v4l2_mbus_frame_desc_entry entry;
@@ -297,7 +297,7 @@ ipu_isys_csi2_calc_timing(struct ipu_isys_csi2 *csi2,
 static int set_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct ipu_isys_csi2 *csi2 = to_ipu_isys_csi2(sd);
-	struct ipu_isys_pipeline *ip = container_of(sd->entity.pipe,
+	struct ipu_isys_pipeline *ip = container_of(media_entity_pipeline(&sd->entity),
 						    struct ipu_isys_pipeline,
 						    pipe);
 	struct ipu_isys_csi2_config *cfg;
@@ -373,6 +373,7 @@ static void csi2_capture_done(struct ipu_isys_pipeline *ip,
 
 static int csi2_link_validate(struct media_link *link)
 {
+	struct media_pipeline *media_pipe;
 	struct ipu_isys_csi2 *csi2;
 	struct ipu_isys_pipeline *ip;
 	struct v4l2_subdev_route r[IPU_ISYS_MAX_STREAMS];
@@ -384,17 +385,15 @@ static int csi2_link_validate(struct media_link *link)
 	int i;
 	int rval;
 
-	if (!link->sink->entity ||
-	    !link->sink->entity->pipe || !link->source->entity)
+	media_pipe = media_entity_pipeline(link->sink->entity);
+	if (!media_pipe)
 		return -EINVAL;
 	csi2 =
 	    to_ipu_isys_csi2(media_entity_to_v4l2_subdev(link->sink->entity));
-	ip = to_ipu_isys_pipeline(link->sink->entity->pipe);
+	ip = to_ipu_isys_pipeline(media_pipe);
 	csi2->receiver_errors = 0;
 	ip->csi2 = csi2;
-	ipu_isys_video_add_capture_done(to_ipu_isys_pipeline
-					(link->sink->entity->pipe),
-					csi2_capture_done);
+	ipu_isys_video_add_capture_done(ip, csi2_capture_done);
 
 	rval = v4l2_subdev_link_validate(link);
 	if (rval)
@@ -492,7 +491,7 @@ static int __subdev_link_validate(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_format *source_fmt,
 				  struct v4l2_subdev_format *sink_fmt)
 {
-	struct ipu_isys_pipeline *ip = container_of(sd->entity.pipe,
+	struct ipu_isys_pipeline *ip = container_of(media_entity_pipeline(&sd->entity),
 						    struct ipu_isys_pipeline,
 						    pipe);
 

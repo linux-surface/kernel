@@ -218,7 +218,7 @@ static int isa_link_validate(struct media_link *link)
 	if (is_media_entity_v4l2_subdev(link->source->entity))
 		return v4l2_subdev_link_validate(link);
 
-	pipe = link->sink->entity->pipe;
+	pipe = media_entity_pipeline(link->sink->entity);
 	ip = to_ipu_isys_pipeline(pipe);
 	ip->nr_queues++;
 
@@ -350,7 +350,7 @@ static void isa_capture_done(struct ipu_isys_pipeline *ip,
 
 	aq = &isa->av_3a.aq;
 
-	if (isa->av_3a.vdev.entity.pipe != isa->av_config.vdev.entity.pipe) {
+	if (media_entity_pipeline(&isa->av_3a.vdev.entity) != media_entity_pipeline(&isa->av_config.vdev.entity)) {
 		dev_dbg(&ip->isys->adev->dev, "3a disabled\n");
 		return;
 	}
@@ -493,7 +493,7 @@ isa_prepare_firmware_stream_cfg_param(struct ipu_isys_video *av,
 {
 	struct ipu_isys_isa *isa = &av->isys->isa;
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 
 	cfg->isa_cfg.cfg.blc = !!(isa->isa_en->val & V4L2_IPU_ISA_EN_BLC);
 	cfg->isa_cfg.cfg.lsc = !!(isa->isa_en->val & V4L2_IPU_ISA_EN_LSC);

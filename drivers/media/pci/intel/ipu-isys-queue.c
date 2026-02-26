@@ -642,7 +642,7 @@ static void __buf_queue(struct vb2_buffer *vb, bool force)
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
 	struct ipu_isys_buffer *ib = vb2_buffer_to_ipu_isys_buffer(vb);
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct ipu_isys_buffer_list bl;
 
 	struct ipu_fw_isys_frame_buff_set_abi *buf = NULL;
@@ -887,7 +887,7 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
 
 	mutex_lock(&av->isys->stream_mutex);
 
-	first = !av->vdev.entity.pipe;
+	first = !media_entity_pipeline(&av->vdev.entity);
 
 	if (first) {
 		rval = ipu_isys_video_prepare_streaming(av, 1);
@@ -905,7 +905,7 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
 		goto out_unprepare_streaming;
 	}
 
-	ip = to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	ip = to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	pipe_av = container_of(ip, struct ipu_isys_video, ip);
 	mutex_unlock(&av->mutex);
 
@@ -962,7 +962,7 @@ static void stop_streaming(struct vb2_queue *q)
 	struct ipu_isys_queue *aq = vb2_queue_to_ipu_isys_queue(q);
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct ipu_isys_video *pipe_av =
 	    container_of(ip, struct ipu_isys_video, ip);
 
@@ -1042,7 +1042,7 @@ ipu_isys_buf_calc_sequence_time(struct ipu_isys_buffer *ib,
 	struct ipu_isys_queue *aq = vb2_queue_to_ipu_isys_queue(vb->vb2_queue);
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	u64 ns;
 	u32 sequence;
 
@@ -1299,18 +1299,18 @@ void ipu_isys_req_queue(struct media_request *req)
 			av->vdev.name, vb->
 			index);
 		if (!pipe) {
-			if (!av->vdev.entity.pipe) {
+			if (!media_entity_pipeline(&av->vdev.entity)) {
 				no_pipe = true;
 				continue;
 			}
 
-			pipe = av->vdev.entity.pipe;
+			pipe = media_entity_pipeline(&av->vdev.entity);
 			dev_dbg(&isys->adev->dev, "%s: pipe %p\n",
 				av->vdev.name, pipe);
 			continue;
 		}
 
-		if (av->vdev.entity.pipe != pipe) {
+		if (media_entity_pipeline(&av->vdev.entity) != pipe) {
 			dev_dbg(&isys->adev->dev,
 				"%s: request includes buffers in multiple pipelines\n",
 				req->debug_str);

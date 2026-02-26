@@ -663,7 +663,7 @@ static int link_validate(struct media_link *link)
 	    container_of(link->sink, struct ipu_isys_video, pad);
 	/* All sub-devices connected to a video node are ours. */
 	struct ipu_isys_pipeline *ip =
-		to_ipu_isys_pipeline(av->vdev.entity.pipe);
+		to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct v4l2_subdev_route r[IPU_ISYS_MAX_STREAMS];
 	struct v4l2_subdev_routing routing = {
 		.routes = r,
@@ -732,7 +732,7 @@ static void put_stream_opened(struct ipu_isys_video *av)
 static int get_stream_handle(struct ipu_isys_video *av)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	unsigned int stream_handle;
 	unsigned long flags;
 
@@ -754,7 +754,7 @@ static int get_stream_handle(struct ipu_isys_video *av)
 static void put_stream_handle(struct ipu_isys_video *av)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	unsigned long flags;
 
 	spin_lock_irqsave(&av->isys->lock, flags);
@@ -912,7 +912,7 @@ void ipu_isys_prepare_firmware_stream_cfg_default(
 			struct ipu_fw_isys_stream_cfg_data_abi *cfg)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct ipu_isys_queue *aq = &av->aq;
 	struct ipu_fw_isys_output_pin_info_abi *pin_info;
 #if !defined(CONFIG_VIDEO_INTEL_IPU4) && !defined(CONFIG_VIDEO_INTEL_IPU4P)
@@ -1052,7 +1052,7 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 				 struct ipu_isys_buffer_list *bl)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct device *dev = &av->isys->adev->dev;
 	struct v4l2_subdev_selection sel_fmt = {
 		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
@@ -1292,7 +1292,7 @@ out_put_stream_handle:
 static void stop_streaming_firmware(struct ipu_isys_video *av)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct device *dev = &av->isys->adev->dev;
 	int rval, tout;
 	enum ipu_fw_isys_send_type send_type =
@@ -1325,7 +1325,7 @@ static void stop_streaming_firmware(struct ipu_isys_video *av)
 static void close_streaming_firmware(struct ipu_isys_video *av)
 {
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct device *dev = &av->isys->adev->dev;
 	int rval, tout;
 
@@ -1392,7 +1392,7 @@ int ipu_isys_video_prepare_streaming(struct ipu_isys_video *av,
 	dev_dbg(dev, "prepare stream: %d\n", state);
 
 	if (!state) {
-		ip = to_ipu_isys_pipeline(av->vdev.entity.pipe);
+		ip = to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 
 		if (ip->interlaced && isys->short_packet_source ==
 		    IPU_ISYS_SHORT_PACKET_FROM_RECEIVER)
@@ -1516,7 +1516,7 @@ int ipu_isys_video_set_streaming(struct ipu_isys_video *av,
 
 	struct media_entity *entity, *entity2;
 	struct ipu_isys_pipeline *ip =
-	    to_ipu_isys_pipeline(av->vdev.entity.pipe);
+	    to_ipu_isys_pipeline(media_entity_pipeline(&av->vdev.entity));
 	struct v4l2_subdev *sd, *esd;
 	int rval = 0;
 
