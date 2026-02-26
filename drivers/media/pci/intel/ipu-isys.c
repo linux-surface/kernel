@@ -492,7 +492,7 @@ err_parse:
 	}
 
 	isys->notifier.ops = &isys_async_ops;
-	ret = v4l2_async_nf_register(&isys->v4l2_dev, &isys->notifier);
+	ret = v4l2_async_nf_register(&isys->notifier);
 	if (ret) {
 		dev_err(dev, "failed to register async notifier : %d\n", ret);
 		v4l2_async_nf_cleanup(&isys->notifier);
