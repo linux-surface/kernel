@@ -1257,4 +1257,4 @@ MODULE_AUTHOR("Yu Xia <yu.y.xia@intel.com>");
 MODULE_AUTHOR("Jerry Hu <jerry.w.hu@intel.com>");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Intel ipu input system driver");
-MODULE_IMPORT_NS(INTEL_IPU_BRIDGE);
+MODULE_IMPORT_NS("INTEL_IPU_BRIDGE");
