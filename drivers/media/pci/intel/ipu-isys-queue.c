@@ -760,7 +760,7 @@ int ipu_isys_link_fmt_validate(struct ipu_isys_queue *aq)
 {
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
 	struct v4l2_subdev_format fmt = { 0 };
-	struct media_pad *pad = media_entity_remote_pad(av->vdev.entity.pads);
+	struct media_pad *pad = media_pad_remote_pad_first(av->vdev.entity.pads);
 	struct v4l2_subdev *sd;
 	int rval;
 

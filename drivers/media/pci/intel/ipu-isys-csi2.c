@@ -403,7 +403,7 @@ static int csi2_link_validate(struct media_link *link)
 	if (!v4l2_ctrl_g_ctrl(csi2->store_csi2_header)) {
 		for (i = 0; i < NR_OF_CSI2_SOURCE_PADS; i++) {
 			struct media_pad *remote_pad =
-			    media_entity_remote_pad(&csi2->asd.
+			    media_pad_remote_pad_first(&csi2->asd.
 						    pad[CSI2_PAD_SOURCE(i)]);
 
 			if (remote_pad &&
@@ -447,7 +447,7 @@ static int get_metadata_fmt(struct v4l2_subdev *sd,
 			    struct v4l2_subdev_format *fmt)
 {
 	struct media_pad *pad =
-	    media_entity_remote_pad(&sd->entity.pads[CSI2_PAD_SINK]);
+	    media_pad_remote_pad_first(&sd->entity.pads[CSI2_PAD_SINK]);
 	struct v4l2_mbus_frame_desc_entry entry;
 	int rval;
 
@@ -549,7 +549,7 @@ static void csi2_set_ffmt(struct v4l2_subdev *sd,
 			__ipu_isys_get_ffmt(sd, state, fmt->pad,
 					    fmt->stream,
 					    fmt->which);
-		struct media_pad *pad = media_entity_remote_pad(
+		struct media_pad *pad = media_pad_remote_pad_first(
 			&sd->entity.pads[CSI2_PAD_SINK]);
 		struct v4l2_mbus_frame_desc_entry entry;
 		int rval;
