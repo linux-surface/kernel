@@ -461,6 +461,32 @@ int ipu_isys_vidioc_enum_fmt(struct file *file, void *fh,
 	return -EINVAL;
 }
 
+static int ipu_isys_vidioc_enum_framesizes(struct file *file, void *fh,
+					    struct v4l2_frmsizeenum *fsize)
+{
+	unsigned int i;
+
+	if (fsize->index > 0)
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(ipu_isys_pfmts); i++) {
+		if (fsize->pixel_format != ipu_isys_pfmts[i].pixelformat)
+			continue;
+
+		fsize->type = V4L2_FRMSIZE_TYPE_STEPWISE;
+		fsize->stepwise.min_width = IPU_ISYS_MIN_WIDTH;
+		fsize->stepwise.max_width = IPU_ISYS_MAX_WIDTH;
+		fsize->stepwise.min_height = IPU_ISYS_MIN_HEIGHT;
+		fsize->stepwise.max_height = IPU_ISYS_MAX_HEIGHT;
+		fsize->stepwise.step_width = 2;
+		fsize->stepwise.step_height = 2;
+
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static int vidioc_g_fmt_vid_cap_mplane(struct file *file, void *fh,
 				       struct v4l2_format *fmt)
 {
@@ -2101,6 +2127,7 @@ static const struct v4l2_ioctl_ops ioctl_ops_splane = {
 static const struct v4l2_ioctl_ops ioctl_ops_mplane = {
 	.vidioc_querycap = ipu_isys_vidioc_querycap,
 	.vidioc_enum_fmt_vid_cap = ipu_isys_vidioc_enum_fmt,
+	.vidioc_enum_framesizes = ipu_isys_vidioc_enum_framesizes,
 	.vidioc_g_fmt_vid_cap_mplane = vidioc_g_fmt_vid_cap_mplane,
 	.vidioc_s_fmt_vid_cap_mplane = vidioc_s_fmt_vid_cap_mplane,
 	.vidioc_try_fmt_vid_cap_mplane = vidioc_try_fmt_vid_cap_mplane,
