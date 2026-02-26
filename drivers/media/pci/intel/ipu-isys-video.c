@@ -441,7 +441,7 @@ int ipu_isys_vidioc_enum_fmt(struct file *file, void *fh,
 		if ((ipu_isys_pfmts[i].is_meta &&
 		     f->type != V4L2_BUF_TYPE_META_CAPTURE) ||
 		    (!ipu_isys_pfmts[i].is_meta &&
-		     f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE))
+		     f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE))
 			continue;
 
 		if (f->mbus_code && f->mbus_code != ipu_isys_pfmts[i].code)
