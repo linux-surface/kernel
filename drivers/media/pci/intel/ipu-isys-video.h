@@ -16,6 +16,8 @@
 #define IPU_ISYS_OUTPUT_PINS 11
 #define IPU_NUM_CAPTURE_DONE 2
 #define IPU_ISYS_MAX_PARALLEL_SOF 2
+#define NR_OF_CSI2_BE_SOC_STREAMS	8
+#define CSI2_BE_SOC_SOURCE_PADS_NUM NR_OF_CSI2_BE_SOC_STREAMS
 
 struct ipu_isys;
 struct ipu_isys_csi2_be_soc;
@@ -41,10 +43,31 @@ struct output_pin_data {
 	struct ipu_isys_queue *aq;
 };
 
+/*
+ * struct ipu_isys_sub_stream_vc
+ */
+struct ipu_isys_sub_stream_vc {
+	unsigned int substream;	/* sub stream id */
+	int vc;	/* VC number */
+	u32 width;
+	u32 height;
+	unsigned int dt;
+	unsigned int code;
+};
+
+#define SUB_STREAM_CODE(value) ((value) & 0xFFFF)
+#define SUB_STREAM_H(value) (((value) >> 16) & 0xFFFF)
+#define SUB_STREAM_W(value) (((value) >> 32) & 0xFFFF)
+#define SUB_STREAM_DT(value) (((value) >> 48) & 0xFF)
+#define SUB_STREAM_VC_ID(value) ((value) >> 56 & 0xFF)
+#define SUB_STREAM_SET_VALUE(vc_id, stream_state) \
+	((((vc_id) << 8) & 0xFF00) | (stream_state))
+
 struct ipu_isys_pipeline {
 	struct media_pipeline pipe;
 	struct media_pad *external;
 	atomic_t sequence;
+	int last_sequence;
 	unsigned int seq_index;
 	struct sequence_info seq[IPU_ISYS_MAX_PARALLEL_SOF];
 	int source;	/* SSI stream source */
@@ -59,6 +82,7 @@ struct ipu_isys_pipeline {
 	 * Number of capture queues, write access serialised using struct
 	 * ipu_isys.stream_mutex
 	 */
+	/* If it supports vc, this is number of links for the same vc. */
 	int nr_queues;
 	int nr_streaming;	/* Number of capture queues streaming */
 	int streaming;	/* Has streaming been really started? */
@@ -92,6 +116,7 @@ struct ipu_isys_pipeline {
 	unsigned int stream_id;
 	struct media_graph graph;
 	struct media_entity_enum entity_enum;
+	struct ipu_isys_sub_stream_vc asv[CSI2_BE_SOC_SOURCE_PADS_NUM];
 };
 
 #define to_ipu_isys_pipeline(__pipe)				\

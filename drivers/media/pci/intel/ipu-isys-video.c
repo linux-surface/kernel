@@ -907,6 +907,142 @@ static void csi_short_packet_prepare_firmware_stream_cfg(
 #endif
 }
 
+#define MEDIA_ENTITY_MAX_PADS		512
+
+static bool is_support_vc(struct media_pad *source_pad,
+			  struct ipu_isys_pipeline *ip)
+{
+	struct media_pad *remote_pad = source_pad;
+	struct media_pad *extern_pad = NULL;
+	struct v4l2_subdev *sd = NULL;
+	struct v4l2_query_ext_ctrl qm_ctrl = {
+		.id = V4L2_CID_IPU_QUERY_SUB_STREAM, };
+	int i;
+
+	while ((remote_pad =
+		media_pad_remote_pad_first(&remote_pad->entity->pads[0])
+		)) {
+		/* Non-subdev nodes can be safely ignored here. */
+		if (!is_media_entity_v4l2_subdev(remote_pad->entity))
+			continue;
+
+		/* Don't start truly external devices quite yet. */
+		if (strncmp(remote_pad->entity->name,
+		    IPU_ISYS_CSI2_ENTITY_PREFIX,
+		    strlen(IPU_ISYS_CSI2_ENTITY_PREFIX)) != 0)
+			continue;
+
+		dev_dbg(remote_pad->entity->graph_obj.mdev->dev,
+			"It finds CSI2 %s\n", remote_pad->entity->name);
+		extern_pad =
+			media_pad_remote_pad_first(&remote_pad->entity->pads[0]);
+		if (!extern_pad) {
+			dev_dbg(remote_pad->entity->graph_obj.mdev->dev,
+				"extern_pad is null\n");
+			return false;
+		}
+		sd = media_entity_to_v4l2_subdev(extern_pad->entity);
+		break;
+	}
+
+	if (!sd) {
+		dev_dbg(source_pad->entity->graph_obj.mdev->dev,
+			"It doesn't find extern entity\n");
+		return false;
+	}
+
+	if (v4l2_query_ext_ctrl(sd->ctrl_handler, &qm_ctrl)) {
+		dev_dbg(source_pad->entity->graph_obj.mdev->dev,
+			"%s, No vc\n", __func__);
+		for (i = 0; i < CSI2_BE_SOC_SOURCE_PADS_NUM; i++)
+			ip->asv[i].vc = 0;
+
+		return false;
+	}
+
+	return true;
+}
+
+static int ipu_isys_query_sensor_info(struct media_pad *source_pad,
+				      struct ipu_isys_pipeline *ip)
+{
+	int i;
+	int ret = -ENOLINK;
+	bool flag = false;
+	unsigned int pad_id = source_pad->index;
+	struct media_pad *remote_pad = source_pad;
+	struct media_pad *extern_pad = NULL;
+	struct v4l2_subdev *sd = NULL;
+	struct v4l2_querymenu qm = {.id = V4L2_CID_IPU_QUERY_SUB_STREAM, };
+
+	while ((remote_pad =
+		media_pad_remote_pad_first(&remote_pad->entity->pads[0])
+		)) {
+		/* Non-subdev nodes can be safely ignored here. */
+		if (!is_media_entity_v4l2_subdev(remote_pad->entity))
+			continue;
+
+		/* Don't start truly external devices quite yet. */
+		if (strncmp(remote_pad->entity->name,
+		    IPU_ISYS_CSI2_ENTITY_PREFIX,
+		    strlen(IPU_ISYS_CSI2_ENTITY_PREFIX)) != 0)
+			continue;
+
+		dev_dbg(remote_pad->entity->graph_obj.mdev->dev,
+			"It finds CSI2 %s\n", remote_pad->entity->name);
+		extern_pad =
+			media_pad_remote_pad_first(&remote_pad->entity->pads[0]);
+		if (!extern_pad) {
+			dev_dbg(remote_pad->entity->graph_obj.mdev->dev,
+				"extern_pad is null\n");
+			return -ENOLINK;
+		}
+		sd = media_entity_to_v4l2_subdev(extern_pad->entity);
+		break;
+	}
+
+	if (!sd) {
+		dev_dbg(source_pad->entity->graph_obj.mdev->dev,
+			"It doesn't find extern entity\n");
+		return -ENOLINK;
+	}
+
+	/* Get the sub stream info and set the current pipe's vc id */
+	for (i = 0; i < CSI2_BE_SOC_SOURCE_PADS_NUM; i++) {
+		/*
+		 * index is sub stream id. sub stream id is
+		 * equalto BE SOC source pad id - sink pad count
+		 */
+		qm.index = i;
+		ret = v4l2_querymenu(sd->ctrl_handler, &qm);
+		if (ret)
+			continue;
+
+		/* get sub stream info by sub stream id */
+		ip->asv[qm.index].substream = qm.index;
+		ip->asv[qm.index].code = SUB_STREAM_CODE(qm.value);
+		ip->asv[qm.index].height = SUB_STREAM_H(qm.value);
+		ip->asv[qm.index].width = SUB_STREAM_W(qm.value);
+		ip->asv[qm.index].dt = SUB_STREAM_DT(qm.value);
+		ip->asv[qm.index].vc = SUB_STREAM_VC_ID(qm.value);
+		if (ip->asv[qm.index].substream ==
+			(pad_id - NR_OF_CSI2_BE_SOC_SINK_PADS)) {
+			ip->vc = ip->asv[qm.index].vc;
+			flag = true;
+			pr_info("The current entity vc:id:%d\n", ip->vc);
+		}
+		dev_dbg(source_pad->entity->graph_obj.mdev->dev,
+			"dentity vc:%d, dt:%x, substream:%d\n",
+			ip->vc, ip->asv[qm.index].dt,
+			ip->asv[qm.index].substream);
+	}
+
+	if (flag)
+		return 0;
+
+	return ret;
+}
+
 void ipu_isys_prepare_firmware_stream_cfg_default(
 			struct ipu_isys_video *av,
 			struct ipu_fw_isys_stream_cfg_data_abi *cfg)
@@ -1001,6 +1137,214 @@ void ipu_isys_prepare_firmware_stream_cfg_default(
 		pin_info->snoopable = true;
 	}
 #endif
+}
+
+static void media_pipeline_stop_for_vc(struct ipu_isys_video *av)
+{
+	struct media_pipeline *pipe = av->pad.pipe;
+	struct media_entity *entity = &av->vdev.entity;
+	struct media_device *mdev = entity->graph_obj.mdev;
+	struct media_graph graph;
+	int ret;
+
+	/*
+	 * If the following check fails, the driver has performed an
+	 * unbalanced call to media_pipeline_stop()
+	 */
+	if (WARN_ON(!pipe))
+		return;
+
+	if (--pipe->start_count)
+		return;
+
+	ret = media_graph_walk_init(&graph, mdev);
+	if (ret)
+		return;
+
+	media_graph_walk_start(&graph, entity);
+	while ((entity = media_graph_walk_next(&graph)))
+		entity->pads[0].pipe = NULL;
+
+	media_graph_walk_cleanup(&graph);
+}
+
+static int media_pipeline_walk_by_vc(struct ipu_isys_video *av,
+				     struct media_pipeline *pipe)
+{
+	int ret = -ENOLINK;
+	int i;
+	int entity_vc = INVALID_VC_ID;
+	u32 n;
+	struct media_entity *entity = &av->vdev.entity;
+	struct media_device *mdev = entity->graph_obj.mdev;
+	struct media_graph graph;
+	struct media_entity *entity_err = entity;
+	struct media_link *link;
+	struct ipu_isys_pipeline *ip = to_ipu_isys_pipeline(pipe);
+	struct media_pad *source_pad = media_pad_remote_pad_first(&av->pad);
+	unsigned int pad_id;
+	bool is_vc = false;
+
+	if (!source_pad) {
+		dev_err(entity->graph_obj.mdev->dev, "no remote pad found\n");
+		return ret;
+	}
+
+	if (pipe->start_count) {
+		pipe->start_count++;
+		return 0;
+	}
+
+	is_vc = is_support_vc(source_pad, ip);
+	if (is_vc) {
+		ret = ipu_isys_query_sensor_info(source_pad, ip);
+		if (ret) {
+			dev_err(entity->graph_obj.mdev->dev,
+				"query sensor info failed\n");
+			return ret;
+		}
+	}
+
+	ret = media_graph_walk_init(&graph, mdev);
+	if (ret)
+		return ret;
+
+	media_graph_walk_start(&graph, entity);
+	while ((entity = media_graph_walk_next(&graph))) {
+		DECLARE_BITMAP(active, MEDIA_ENTITY_MAX_PADS);
+		DECLARE_BITMAP(has_no_links, MEDIA_ENTITY_MAX_PADS);
+
+		dev_dbg(entity->graph_obj.mdev->dev, "entity name:%s\n",
+			entity->name);
+
+		if (entity->pads[0].pipe && entity->pads[0].pipe == pipe) {
+			dev_dbg(entity->graph_obj.mdev->dev,
+			       "Pipe active for %s. when start for %s\n",
+			       entity->name, entity_err->name);
+		}
+		/*
+		 * If entity's pipe is not null and it is video device, it has
+		 * be enabled.
+		 */
+		if (entity->pads[0].pipe &&
+		    is_media_entity_v4l2_video_device(entity))
+			continue;
+
+		/*
+		 * If it is video device and its vc id is not equal to curren
+		 * video device's vc id, it should continue.
+		 */
+		if (is_vc && is_media_entity_v4l2_video_device(entity)) {
+			source_pad =
+				media_pad_remote_pad_first(entity->pads);
+
+			if (!source_pad) {
+				dev_warn(entity->graph_obj.mdev->dev,
+					 "no remote pad found\n");
+				continue;
+			}
+			pad_id = source_pad->index;
+			for (i = 0; i < CSI2_BE_SOC_SOURCE_PADS_NUM; i++) {
+				if (ip->asv[i].substream ==
+				(pad_id - NR_OF_CSI2_BE_SOC_SINK_PADS)) {
+					entity_vc = ip->asv[i].vc;
+					break;
+				}
+			}
+
+			if (entity_vc != ip->vc)
+				continue;
+		}
+
+		entity->pads[0].pipe = pipe;
+
+		if (!entity->ops || !entity->ops->link_validate)
+			continue;
+
+		bitmap_zero(active, entity->num_pads);
+		bitmap_fill(has_no_links, entity->num_pads);
+
+		list_for_each_entry(link, &entity->links, list) {
+			struct media_pad *pad = link->sink->entity == entity
+						? link->sink : link->source;
+
+			/* Mark that a pad is connected by a link. */
+			bitmap_clear(has_no_links, pad->index, 1);
+
+			/*
+			 * Pads that either do not need to connect or
+			 * are connected through an enabled link are
+			 * fine.
+			 */
+			if (!(pad->flags & MEDIA_PAD_FL_MUST_CONNECT) ||
+			    link->flags & MEDIA_LNK_FL_ENABLED)
+				bitmap_set(active, pad->index, 1);
+
+			/*
+			 * Link validation will only take place for
+			 * sink ends of the link that are enabled.
+			 */
+			if (link->sink != pad ||
+			    !(link->flags & MEDIA_LNK_FL_ENABLED))
+				continue;
+
+			ret = entity->ops->link_validate(link);
+			if (ret < 0 && ret != -ENOIOCTLCMD) {
+				dev_dbg(entity->graph_obj.mdev->dev,
+					"link failed for %s:%u->%s:%u,ret:%d\n",
+					link->source->entity->name,
+					link->source->index,
+					entity->name, link->sink->index, ret);
+				goto error;
+			}
+		}
+
+		/* Either no links or validated links are fine. */
+		bitmap_or(active, active, has_no_links, entity->num_pads);
+
+		if (!bitmap_full(active, entity->num_pads)) {
+			ret = -ENOLINK;
+			n = (u32)find_first_zero_bit(active, entity->num_pads);
+			dev_dbg(entity->graph_obj.mdev->dev,
+				"%s:%u must be connected by an enabled link\n",
+				entity->name, n);
+			goto error;
+		}
+	}
+
+	media_graph_walk_cleanup(&graph);
+	pipe->start_count++;
+
+	return 0;
+
+error:
+	/*
+	 * Link validation on graph failed. We revert what we did and
+	 * return the error.
+	 */
+	media_graph_walk_start(&graph, entity_err);
+	while ((entity_err = media_graph_walk_next(&graph))) {
+		entity_err->pads[0].pipe = NULL;
+		if (entity_err == entity)
+			break;
+	}
+
+	media_graph_walk_cleanup(&graph);
+
+	return ret;
+}
+
+static int media_pipeline_start_by_vc(struct ipu_isys_video *av,
+				      struct media_pipeline *pipe)
+{
+	struct media_device *mdev = av->vdev.entity.graph_obj.mdev;
+	int ret;
+
+	mutex_lock(&mdev->graph_mutex);
+	ret = media_pipeline_walk_by_vc(av, pipe);
+	mutex_unlock(&mdev->graph_mutex);
+
+	return ret;
 }
 
 static unsigned int ipu_isys_get_compression_scheme(u32 code)
@@ -1397,7 +1741,8 @@ int ipu_isys_video_prepare_streaming(struct ipu_isys_video *av,
 		if (ip->interlaced && isys->short_packet_source ==
 		    IPU_ISYS_SHORT_PACKET_FROM_RECEIVER)
 			short_packet_queue_destroy(ip);
-		media_pipeline_stop(&av->vdev.entity);
+		media_pipeline_stop_for_vc(av);
+		av->vdev.entity.pads[0].pipe = NULL;
 		media_entity_enum_cleanup(&ip->entity_enum);
 		return 0;
 	}
@@ -1427,7 +1772,7 @@ int ipu_isys_video_prepare_streaming(struct ipu_isys_video *av,
 	if (rval)
 		return rval;
 
-	rval = media_pipeline_start(&av->vdev.entity, &ip->pipe);
+	rval = media_pipeline_start_by_vc(av, &ip->pipe);
 	if (rval < 0) {
 		dev_dbg(dev, "pipeline start failed\n");
 		goto out_enum_cleanup;
@@ -1468,7 +1813,7 @@ int ipu_isys_video_prepare_streaming(struct ipu_isys_video *av,
 	return 0;
 
 out_pipeline_stop:
-	media_pipeline_stop(&av->vdev.entity);
+	media_pipeline_stop(av->vdev.entity.pads);
 
 out_enum_cleanup:
 	media_entity_enum_cleanup(&ip->entity_enum);

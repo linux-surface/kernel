@@ -8,6 +8,8 @@
 
 #define IPU_ISYS_ENTITY_PREFIX		"Intel IPU4"
 
+#define IPU_ISYS_CSI2_ENTITY_PREFIX	"Intel IPU4 CSI-2"
+
 /*
  * FW support max 8 streams
  */
