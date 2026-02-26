@@ -770,11 +770,11 @@ static int link_validate(struct media_link *link)
 		goto err_subdev;
 
 	for (i = 0; i < routing.num_routes; i++) {
-		if (!(routing.routes[i].flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE))
+		if (!(r[i].flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE))
 			continue;
 
-		if (routing.routes[i].source_pad == link->source->index)
-			ip->stream_id = routing.routes[i].sink_stream;
+		if (r[i].source_pad == link->source->index)
+			ip->stream_id = r[i].sink_stream;
 
 		active++;
 	}

@@ -566,35 +566,38 @@ int ipu_isys_subdev_get_routing(struct v4l2_subdev *sd,
 				struct v4l2_subdev_routing *route)
 {
 	struct ipu_isys_subdev *asd = to_ipu_isys_subdev(sd);
+	struct v4l2_subdev_route *routes = (struct v4l2_subdev_route *)(uintptr_t)route->routes;
 	int i, j;
 
 	for (i = 0, j = 0; i < min(asd->nstreams, route->num_routes); ++i) {
-		route->routes[j].sink_pad = asd->route[i].sink;
+		routes[j].sink_pad = asd->route[i].sink;
+
 		if (sd->entity.pads[asd->route[i].sink].flags &
 		    MEDIA_PAD_FL_MULTIPLEX) {
 			int source_pad = asd->route[i].source - asd->nsinks;
 
-			route->routes[j].sink_stream =
+			routes[j].sink_stream =
 			    asd->stream[asd->route[i].sink].
 			    stream_id[source_pad];
 		} else {
-			route->routes[j].sink_stream =
+			routes[j].sink_stream =
 			    asd->stream[asd->route[i].sink].stream_id[0];
 		}
 
-		route->routes[j].source_pad = asd->route[i].source;
+		routes[j].source_pad = asd->route[i].source;
+
 		if (sd->entity.pads[asd->route[i].source].flags &
 		    MEDIA_PAD_FL_MULTIPLEX) {
-			route->routes[j].source_stream =
+			routes[j].source_stream =
 			    asd->stream[asd->route[i].source].stream_id[asd->
 									route
 									[i].
 									sink];
 		} else {
-			route->routes[j].source_stream =
+			routes[j].source_stream =
 			    asd->stream[asd->route[i].source].stream_id[0];
 		}
-		route->routes[j++].flags = asd->route[i].flags;
+		routes[j++].flags = asd->route[i].flags;
 	}
 
 	route->num_routes = j;

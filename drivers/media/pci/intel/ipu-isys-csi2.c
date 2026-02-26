@@ -424,7 +424,8 @@ static int csi2_link_validate(struct media_link *link)
 	}
 
 	for (i = 0; i < routing.num_routes; i++) {
-		if (routing.routes[i].flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE)
+		struct v4l2_subdev_route *route = &r[i];
+		if (route->flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE)
 			active++;
 	}
 
