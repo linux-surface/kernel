@@ -197,7 +197,7 @@ static int ipu_psys_get_userpages(struct ipu_dma_buf_attach *attach)
 		nr = get_user_pages(
 				   start & PAGE_MASK, npages,
 				   FOLL_WRITE,
-				   pages, NULL);
+				   pages);
 		if (nr < npages)
 			goto error_up_read;
 	}
