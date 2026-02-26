@@ -18,6 +18,41 @@
 #include "ipu-bus.h"
 #include "ipu-mmu.h"
 
+struct ipu_dma_vma {
+	struct list_head list;
+	dma_addr_t iova;
+	size_t size;
+	void *vaddr;
+	struct page **pages;
+};
+
+
+static struct ipu_dma_vma *ipu_dma_find_vma_by_iova(struct ipu_mmu *mmu,
+						     dma_addr_t iova)
+{
+	struct ipu_dma_vma *info;
+
+	list_for_each_entry(info, &mmu->vma_list, list) {
+		if (iova >= info->iova && iova < info->iova + info->size)
+			return info;
+	}
+
+	return NULL;
+}
+
+static struct ipu_dma_vma *ipu_dma_find_vma_by_vaddr(struct ipu_mmu *mmu,
+						      void *vaddr)
+{
+	struct ipu_dma_vma *info;
+
+	list_for_each_entry(info, &mmu->vma_list, list) {
+		if (info->vaddr == vaddr)
+			return info;
+	}
+
+	return NULL;
+}
+
 /* Begin of things adapted from arch/arm/mm/dma-mapping.c */
 static void __dma_clear_buffer(struct page *page, size_t size,
 			       unsigned long attrs
@@ -156,6 +191,7 @@ static void *ipu_dma_alloc(struct device *dev, size_t size,
 	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
 	struct ipu_mmu *mmu = dev_get_drvdata(aiommu);
 	struct page **pages;
+	struct ipu_dma_vma *info;
 	struct iova *iova;
 	int i;
 	int rval;
@@ -187,12 +223,27 @@ static void *ipu_dma_alloc(struct device *dev, size_t size,
 	if (!addr)
 		goto out_unmap;
 
+	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		goto out_vunmap;
+
 
 	*dma_handle = iova->pfn_lo << PAGE_SHIFT;
+	info->iova = *dma_handle;
+	info->size = size;
+	info->vaddr = addr;
+	info->pages = pages;
+
+	mutex_lock(&mmu->vma_lock);
+	list_add(&info->list, &mmu->vma_list);
+	mutex_unlock(&mmu->vma_lock);
 
 	mmu->tlb_invalidate(mmu);
 
 	return addr;
+
+out_vunmap:
+	vunmap(addr);
 
 out_unmap:
 	for (i--; i >= 0; i--) {
@@ -215,25 +266,39 @@ static void ipu_dma_free(struct device *dev, size_t size, void *vaddr,
 {
 	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
 	struct ipu_mmu *mmu = dev_get_drvdata(aiommu);
-	struct vm_struct *area = find_vm_area(vaddr);
+	struct ipu_dma_vma *info;
 	struct page **pages;
 	struct iova *iova = find_iova(&mmu->dmap->iovad,
 				      dma_handle >> PAGE_SHIFT);
 
-	if (WARN_ON(!area))
-		return;
-
-	if (WARN_ON(!area->pages))
-		return;
+	/* dma_map_ops provides vaddr, but we use iova-keyed tracking. */
+	(void)vaddr;
 
 	if (WARN_ON(!iova))
 		return;
 
+	mutex_lock(&mmu->vma_lock);
+	info = ipu_dma_find_vma_by_iova(mmu, dma_handle);
+	if (WARN_ON(!info)) {
+		mutex_unlock(&mmu->vma_lock);
+		return;
+	}
+
+	if (WARN_ON(!info->pages)) {
+		mutex_unlock(&mmu->vma_lock);
+		return;
+	}
+
+	list_del(&info->list);
+	mutex_unlock(&mmu->vma_lock);
+
 	size = PAGE_ALIGN(size);
+	if (WARN_ON(size > info->size))
+		size = info->size;
 
-	pages = area->pages;
+	pages = info->pages;
 
-	vunmap(vaddr);
+	vunmap(info->vaddr);
 
 	ipu_mmu_unmap(mmu->dmap->mmu_info, iova->pfn_lo << PAGE_SHIFT,
 		    (iova->pfn_hi - iova->pfn_lo + 1) << PAGE_SHIFT);
@@ -241,6 +306,8 @@ static void ipu_dma_free(struct device *dev, size_t size, void *vaddr,
 	__dma_free_buffer(dev, pages, size, attrs);
 
 	__free_iova(&mmu->dmap->iovad, iova);
+
+	kfree(info);
 
 	mmu->tlb_invalidate(mmu);
 }
@@ -250,24 +317,39 @@ static int ipu_dma_mmap(struct device *dev, struct vm_area_struct *vma,
 			unsigned long attrs
 			)
 {
-	struct vm_struct *area = find_vm_area(addr);
+	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
+	struct ipu_mmu *mmu = dev_get_drvdata(aiommu);
+	struct ipu_dma_vma *info;
 	size_t count = PAGE_ALIGN(size) >> PAGE_SHIFT;
 	size_t i;
 
-	if (!area || !area->pages)
+	mutex_lock(&mmu->vma_lock);
+	info = ipu_dma_find_vma_by_iova(mmu, iova);
+	if (!info || !info->pages) {
+		mutex_unlock(&mmu->vma_lock);
 		return -EFAULT;
+	}
 
 	if (vma->vm_start & ~PAGE_MASK)
-		return -EINVAL;
+		goto out_unlock_einval;
 
-	if (size > area->size)
-		return -EFAULT;
+	if (size > info->size)
+		goto out_unlock_efault;
 
 	for (i = 0; i < count; i++)
 		vm_insert_page(vma, vma->vm_start + (i << PAGE_SHIFT),
-			       area->pages[i]);
+			       info->pages[i]);
+
+	mutex_unlock(&mmu->vma_lock);
 
 	return 0;
+
+out_unlock_einval:
+	mutex_unlock(&mmu->vma_lock);
+	return -EINVAL;
+out_unlock_efault:
+	mutex_unlock(&mmu->vma_lock);
+	return -EFAULT;
 }
 
 static void ipu_dma_unmap_sg(struct device *dev,
@@ -366,17 +448,27 @@ static int ipu_dma_get_sgtable(struct device *dev, struct sg_table *sgt,
 			       unsigned long attrs
 				)
 {
-	struct vm_struct *area = find_vm_area(cpu_addr);
+	struct device *aiommu = to_ipu_bus_device(dev)->iommu;
+	struct ipu_mmu *mmu = dev_get_drvdata(aiommu);
+	struct ipu_dma_vma *info;
 	int n_pages;
 	int ret = 0;
 
-	if (WARN_ON(!area || !area->pages))
+	mutex_lock(&mmu->vma_lock);
+	info = ipu_dma_find_vma_by_iova(mmu, handle);
+	if (!info)
+		info = ipu_dma_find_vma_by_vaddr(mmu, cpu_addr);
+
+	if (WARN_ON(!info || !info->pages)) {
+		mutex_unlock(&mmu->vma_lock);
 		return -ENOMEM;
+	}
 
 	n_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
 
-	ret = sg_alloc_table_from_pages(sgt, area->pages, n_pages, 0, size,
+	ret = sg_alloc_table_from_pages(sgt, info->pages, n_pages, 0, size,
 					GFP_KERNEL);
+	mutex_unlock(&mmu->vma_lock);
 	if (ret)
 		dev_dbg(dev, "IPU get sgt table fail\n");
 

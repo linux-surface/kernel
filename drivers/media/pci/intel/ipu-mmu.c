@@ -773,6 +773,8 @@ static int ipu_mmu_probe(struct ipu_bus_device *adev)
 	mmu->set_mapping = set_mapping;
 	mmu->dev = &adev->dev;
 	mmu->ready = false;
+	INIT_LIST_HEAD(&mmu->vma_list);
+	mutex_init(&mmu->vma_lock);
 	spin_lock_init(&mmu->ready_lock);
 
 	/*

@@ -5,6 +5,8 @@
 #define IPU_MMU_H
 
 #include <linux/dma-mapping.h>
+#include <linux/list.h>
+#include <linux/mutex.h>
 
 #include "ipu.h"
 #include "ipu-pdata.h"
@@ -47,6 +49,8 @@ struct ipu_mmu {
 	struct device *dev;
 
 	struct ipu_dma_mapping *dmap;
+	struct list_head vma_list;
+	struct mutex vma_lock;
 
 	struct page *trash_page;
 	dma_addr_t iova_addr_trash;
