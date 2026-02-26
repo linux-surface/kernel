@@ -281,7 +281,7 @@ const struct ipu_buttress_ctrl psys_buttress_ctrl = {
  * s0p3, s1p0, s1p1, s1p2, s1p3
  */
 static unsigned int ipu4p_csi_offsets[] = {
-	0x64300, 0x6c000, 0x6c100, 0x6c200, 0x6c300
+	0x64300, 0x6c000, 0x6c100, 0x6c200, 0x6c300, 0x6c400, 0x6c500, 0x6c600
 };
 
 static unsigned char ipu4p_csi_evlanecombine[] = {

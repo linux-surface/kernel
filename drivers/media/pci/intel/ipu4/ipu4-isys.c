@@ -270,6 +270,9 @@ irqreturn_t isys_isr(struct ipu_bus_device *adev)
 		{&sip1_status, IPU_ISYS_CSI2_B_IRQ_MASK},
 		{&sip1_status, IPU_ISYS_CSI2_C_IRQ_MASK},
 		{&sip1_status, IPU_ISYS_CSI2_D_IRQ_MASK},
+		{&sip1_status, IPU_ISYS_CSI2_E_IRQ_MASK},
+		{&sip1_status, IPU_ISYS_CSI2_F_IRQ_MASK},
+		{&sip1_status, IPU_ISYS_CSI2_G_IRQ_MASK},
 	};
 
 	spin_lock(&isys->power_lock);
