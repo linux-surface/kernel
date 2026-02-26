@@ -448,7 +448,7 @@ static int isys_notifier_init(struct ipu_isys *isys)
 	unsigned int i;
 	int ret;
 
-	v4l2_async_nf_init(&isys->notifier);
+	v4l2_async_nf_init(&isys->notifier, &isys->v4l2_dev);
 
 	for (i = 0; i < ISYS_MAX_PORTS; i++) {
 		struct v4l2_fwnode_endpoint vep = {
