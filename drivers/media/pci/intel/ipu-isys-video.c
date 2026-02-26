@@ -37,6 +37,75 @@ static bool use_stream_stop;
 module_param(use_stream_stop, bool, 0660);
 MODULE_PARM_DESC(use_stream_stop, "Use STOP command if running in CSI capture mode");
 
+const struct ipu_isys_pixelformat ipu_isys_pfmts[] = {
+	{V4L2_PIX_FMT_Y10, 10, 10, 0, MEDIA_BUS_FMT_Y10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW10},
+	/* YUV vector format */
+	{V4L2_PIX_FMT_YUYV420_V32, 24, 24, 0, MEDIA_BUS_FMT_YUYV12_1X24,
+	 IPU_FW_ISYS_FRAME_FORMAT_YUV420_16},
+	/* Bayer formats. */
+	{V4L2_PIX_FMT_SBGGR12, 16, 12, 0, MEDIA_BUS_FMT_SBGGR12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGBRG12, 16, 12, 0, MEDIA_BUS_FMT_SGBRG12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGRBG12, 16, 12, 0, MEDIA_BUS_FMT_SGRBG12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SRGGB12, 16, 12, 0, MEDIA_BUS_FMT_SRGGB12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SBGGR10, 16, 10, 0, MEDIA_BUS_FMT_SBGGR10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGBRG10, 16, 10, 0, MEDIA_BUS_FMT_SGBRG10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGRBG10, 16, 10, 0, MEDIA_BUS_FMT_SGRBG10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SRGGB10, 16, 10, 0, MEDIA_BUS_FMT_SRGGB10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SBGGR8, 8, 8, 0, MEDIA_BUS_FMT_SBGGR8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW8},
+	{V4L2_PIX_FMT_SGBRG8, 8, 8, 0, MEDIA_BUS_FMT_SGBRG8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW8},
+	{V4L2_PIX_FMT_SGRBG8, 8, 8, 0, MEDIA_BUS_FMT_SGRBG8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW8},
+	{V4L2_PIX_FMT_SRGGB8, 8, 8, 0, MEDIA_BUS_FMT_SRGGB8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW8},
+	/* Raw bayer vector formats. */
+	{V4L2_PIX_FMT_SBGGR14V32, 16, 14, 0, MEDIA_BUS_FMT_SBGGR14_1X14,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGBRG14V32, 16, 14, 0, MEDIA_BUS_FMT_SGBRG14_1X14,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGRBG14V32, 16, 14, 0, MEDIA_BUS_FMT_SGRBG14_1X14,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SRGGB14V32, 16, 14, 0, MEDIA_BUS_FMT_SRGGB14_1X14,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SBGGR12V32, 16, 12, 0, MEDIA_BUS_FMT_SBGGR12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGBRG12V32, 16, 12, 0, MEDIA_BUS_FMT_SGBRG12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGRBG12V32, 16, 12, 0, MEDIA_BUS_FMT_SGRBG12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SRGGB12V32, 16, 12, 0, MEDIA_BUS_FMT_SRGGB12_1X12,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SBGGR10V32, 16, 10, 0, MEDIA_BUS_FMT_SBGGR10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGBRG10V32, 16, 10, 0, MEDIA_BUS_FMT_SGBRG10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGRBG10V32, 16, 10, 0, MEDIA_BUS_FMT_SGRBG10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SRGGB10V32, 16, 10, 0, MEDIA_BUS_FMT_SRGGB10_1X10,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SBGGR8_16V32, 16, 8, 0, MEDIA_BUS_FMT_SBGGR8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGBRG8_16V32, 16, 8, 0, MEDIA_BUS_FMT_SGBRG8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SGRBG8_16V32, 16, 8, 0, MEDIA_BUS_FMT_SGRBG8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_PIX_FMT_SRGGB8_16V32, 16, 8, 0, MEDIA_BUS_FMT_SRGGB8_1X8,
+	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
+	{V4L2_FMT_IPU_ISYS_META, 8, 8, 0, MEDIA_BUS_FMT_FIXED,
+	 IPU_FW_ISYS_MIPI_DATA_TYPE_EMBEDDED},
+	{}
+};
+
 const struct ipu_isys_pixelformat ipu_isys_pfmts_be_soc[] = {
 	{V4L2_PIX_FMT_Y10, 16, 10, 0, MEDIA_BUS_FMT_Y10_1X10,
 	 IPU_FW_ISYS_FRAME_FORMAT_RAW16},
@@ -340,9 +409,11 @@ int ipu_isys_vidioc_querycap(struct file *file, void *fh,
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE
 	    | V4L2_CAP_VIDEO_CAPTURE_MPLANE
 	    | V4L2_CAP_VIDEO_OUTPUT_MPLANE | V4L2_CAP_STREAMING
-	    | V4L2_CAP_DEVICE_CAPS;
+	    | V4L2_CAP_DEVICE_CAPS | V4L2_CAP_META_CAPTURE |
+		V4L2_CAP_IO_MC;
 
-	cap->device_caps = V4L2_CAP_STREAMING;
+	cap->device_caps = V4L2_CAP_STREAMING | V4L2_CAP_META_CAPTURE |
+		V4L2_CAP_IO_MC;
 
 	switch (av->aq.vbq.type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
@@ -364,42 +435,30 @@ int ipu_isys_vidioc_querycap(struct file *file, void *fh,
 int ipu_isys_vidioc_enum_fmt(struct file *file, void *fh,
 			     struct v4l2_fmtdesc *f)
 {
-	struct ipu_isys_video *av = video_drvdata(file);
-	struct media_pad *pad = other_pad(&av->vdev.entity.pads[0]);
-	struct v4l2_subdev *sd;
-	const u32 *supported_codes;
-	const struct ipu_isys_pixelformat *pfmt;
-	u32 index;
+	unsigned int i, num_found;
 
-	if (!pad || !pad->entity)
-		return -EINVAL;
-	sd = media_entity_to_v4l2_subdev(pad->entity);
-	supported_codes = to_ipu_isys_subdev(sd)->supported_codes[pad->index];
+	for (i = 0, num_found = 0; i < ARRAY_SIZE(ipu_isys_pfmts); i++) {
+		if ((ipu_isys_pfmts[i].is_meta &&
+		     f->type != V4L2_BUF_TYPE_META_CAPTURE) ||
+		    (!ipu_isys_pfmts[i].is_meta &&
+		     f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE))
+			continue;
 
-	/* Walk the 0-terminated array for the f->index-th code. */
-	for (index = f->index; *supported_codes && index;
-	     index--, supported_codes++) {
-	};
+		if (f->mbus_code && f->mbus_code != ipu_isys_pfmts[i].code)
+			continue;
 
-	if (!*supported_codes)
-		return -EINVAL;
+		if (num_found < f->index) {
+			num_found++;
+			continue;
+		}
 
-	f->flags = 0;
+		f->flags = 0;
+		f->pixelformat = ipu_isys_pfmts[i].pixelformat;
 
-	/* Code found */
-	for (pfmt = av->pfmts; pfmt->bpp; pfmt++)
-		if (pfmt->code == *supported_codes)
-			break;
-
-	if (!pfmt->bpp) {
-		dev_warn(&av->isys->adev->dev,
-			 "Format not found in mapping table.");
-		return -EINVAL;
+		return 0;
 	}
 
-	f->pixelformat = pfmt->pixelformat;
-
-	return 0;
+	return -EINVAL;
 }
 
 static int vidioc_g_fmt_vid_cap_mplane(struct file *file, void *fh,
@@ -2134,7 +2193,8 @@ int ipu_isys_video_init(struct ipu_isys_video *av,
 	av->vdev.queue = &av->aq.vbq;
 	av->vdev.lock = &av->mutex;
 
-	av->vdev.device_caps = V4L2_CAP_STREAMING;
+	av->vdev.device_caps = V4L2_CAP_STREAMING | V4L2_CAP_META_CAPTURE |
+		V4L2_CAP_IO_MC;
 
 	switch (av->aq.vbq.type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:

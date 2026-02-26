@@ -30,6 +30,7 @@ struct ipu_isys_pixelformat {
 	u32 bpp_planar;
 	u32 code;
 	u32 css_pixelformat;
+	bool is_meta;
 };
 
 struct sequence_info {
