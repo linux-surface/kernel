@@ -164,7 +164,7 @@ static const struct dev_pm_ops ipu_bus_pm_ops = {
 #define IPU_BUS_PM_OPS	NULL
 #endif
 
-static int ipu_bus_match(struct device *dev, struct device_driver *drv)
+static int ipu_bus_match(struct device *dev, const struct device_driver *drv)
 {
 	struct ipu_bus_driver *adrv = to_ipu_bus_driver(drv);
 
