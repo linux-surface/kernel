@@ -172,6 +172,46 @@ struct ov5693_device {
 	} ctrls;
 };
 
+static void ov5693_log_stream_state(struct ov5693_device *ov5693, const char *tag, int enable)
+{
+	dev_dbg(ov5693->dev,
+		"%s: stream=%d fmt=%ux%u crop=[l=%d t=%d w=%u h=%u] binning[x=%d y=%d] inc[x_odd=%u y_odd=%u] vts=%u ctrls[vblank=%d exp=%d again=%d dgain=%d hflip=%d vflip=%d test_pattern=%d\n",
+		tag, enable,
+		ov5693->mode.format.width, ov5693->mode.format.height,
+		ov5693->mode.crop.left, ov5693->mode.crop.top,
+		ov5693->mode.crop.width, ov5693->mode.crop.height,
+		ov5693->mode.binning_x, ov5693->mode.binning_y,
+		ov5693->mode.inc_x_odd, ov5693->mode.inc_y_odd, ov5693->mode.vts,
+		ov5693->ctrls.vblank ? ov5693->ctrls.vblank->val : -1,
+		ov5693->ctrls.exposure ? ov5693->ctrls.exposure->val : -1,
+		ov5693->ctrls.analogue_gain ? ov5693->ctrls.analogue_gain->val : -1,
+		ov5693->ctrls.digital_gain ? ov5693->ctrls.digital_gain->val : -1,
+		ov5693->ctrls.hflip ? ov5693->ctrls.hflip->val : -1,
+		ov5693->ctrls.vflip ? ov5693->ctrls.vflip->val : -1,
+			ov5693->ctrls.test_pattern ? ov5693->ctrls.test_pattern->val : -1);
+}
+
+static void ov5693_log_hw_state(struct ov5693_device *ov5693, const char *tag)
+{
+	u64 stream_reg;
+	int ret;
+
+	ret = cci_read(ov5693->regmap, OV5693_SW_STREAM_REG, &stream_reg, NULL);
+	if (ret) {
+		dev_dbg(ov5693->dev, "%s: failed to read stream reg: %d\n", tag, ret);
+		return;
+	}
+
+	dev_dbg(ov5693->dev,
+		"%s: stream_reg=0x%02llx hts=%u vts=%u out=%ux%u crop=[x=%u..%u y=%u..%u]\n",
+		tag, stream_reg, OV5693_FIXED_PPL, ov5693->mode.vts,
+		ov5693->mode.format.width, ov5693->mode.format.height,
+		ov5693->mode.crop.left,
+		ov5693->mode.crop.left + ov5693->mode.crop.width,
+		ov5693->mode.crop.top,
+		ov5693->mode.crop.top + ov5693->mode.crop.height);
+}
+
 static const struct cci_reg_sequence ov5693_global_regs[] = {
 	{CCI_REG8(0x3016), 0xf0},
 	{CCI_REG8(0x3017), 0xf0},
@@ -631,6 +671,7 @@ static int ov5693_sensor_init(struct ov5693_device *ov5693)
 {
 	int ret;
 
+	dev_dbg(ov5693->dev, "sensor_init: start\n");
 	ret = ov5693_sw_reset(ov5693);
 	if (ret)
 		return dev_err_probe(ov5693->dev, ret,
@@ -643,6 +684,8 @@ static int ov5693_sensor_init(struct ov5693_device *ov5693)
 				     "global settings error\n");
 
 	ret = ov5693_mode_configure(ov5693);
+	if (!ret)
+		ov5693_log_stream_state(ov5693, "sensor_init configured mode", 0);
 	if (ret)
 		return dev_err_probe(ov5693->dev, ret,
 				     "mode configure error\n");
@@ -650,24 +693,32 @@ static int ov5693_sensor_init(struct ov5693_device *ov5693)
 	ret = ov5693_enable_streaming(ov5693, false);
 	if (ret)
 		dev_err(ov5693->dev, "stop streaming error\n");
+	else
+		ov5693_log_hw_state(ov5693, "sensor_init stream-off");
 
 	return ret;
 }
 
 static void ov5693_sensor_powerdown(struct ov5693_device *ov5693)
 {
+	dev_dbg(ov5693->dev, "powerdown: reset-gpio=%d powerdown-gpio=%d\n",
+		ov5693->reset ? 1 : 0, ov5693->powerdown ? 1 : 0);
 	gpiod_set_value_cansleep(ov5693->reset, 1);
 	gpiod_set_value_cansleep(ov5693->powerdown, 1);
 
 	regulator_bulk_disable(OV5693_NUM_SUPPLIES, ov5693->supplies);
 
 	clk_disable_unprepare(ov5693->xvclk);
+	dev_dbg(ov5693->dev, "powerdown: done\n");
 }
 
 static int ov5693_sensor_powerup(struct ov5693_device *ov5693)
 {
 	int ret;
+	unsigned long xvclk_rate = clk_get_rate(ov5693->xvclk);
 
+	dev_dbg(ov5693->dev, "powerup: xvclk=%lu reset-gpio=%d powerdown-gpio=%d\n",
+		xvclk_rate, ov5693->reset ? 1 : 0, ov5693->powerdown ? 1 : 0);
 	gpiod_set_value_cansleep(ov5693->reset, 1);
 	gpiod_set_value_cansleep(ov5693->powerdown, 1);
 
@@ -683,11 +734,13 @@ static int ov5693_sensor_powerup(struct ov5693_device *ov5693)
 		goto fail_power;
 	}
 
+	dev_dbg(ov5693->dev, "powerup: regulators enabled (avdd,dovdd,dvdd)\n");
 	gpiod_set_value_cansleep(ov5693->powerdown, 0);
 	gpiod_set_value_cansleep(ov5693->reset, 0);
 
 	usleep_range(5000, 7500);
 
+	dev_dbg(ov5693->dev, "powerup: done\n");
 	return 0;
 
 fail_power:
@@ -738,6 +791,9 @@ static int ov5693_detect(struct ov5693_device *ov5693)
 	u64 id;
 
 	ret = cci_read(ov5693->regmap, OV5693_REG_CHIP_ID, &id, NULL);
+	dev_dbg(ov5693->dev,
+		"detect: chip-id read ret=%d id=0x%04llx expected=0x%04x\n",
+		ret, id, OV5693_CHIP_ID);
 	if (ret)
 		return ret;
 
@@ -970,33 +1026,54 @@ static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
 	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
 	int ret;
 
+	dev_dbg(ov5693->dev, "s_stream: request enable=%d\n",
+		enable);
+	ov5693_log_stream_state(ov5693, "s_stream pre", enable);
+
 	if (enable) {
 		ret = pm_runtime_resume_and_get(ov5693->dev);
-		if (ret)
+		if (ret) {
+			dev_err(ov5693->dev,
+				"s_stream: pm_runtime_resume_and_get failed: %d\n",
+				ret);
 			return ret;
+		}
 
 		mutex_lock(&ov5693->lock);
 		ret = __v4l2_ctrl_handler_setup(&ov5693->ctrls.handler);
 		if (ret) {
+			dev_err(ov5693->dev, "s_stream: ctrl setup failed: %d\n", ret);
 			mutex_unlock(&ov5693->lock);
 			goto err_power_down;
 		}
 
 		ret = ov5693_enable_streaming(ov5693, true);
+		dev_dbg(ov5693->dev, "s_stream: stream-on register write ret=%d\n",
+			ret);
+		if (!ret)
+			ov5693_log_hw_state(ov5693, "s_stream stream-on");
 		mutex_unlock(&ov5693->lock);
 	} else {
 		mutex_lock(&ov5693->lock);
 		ret = ov5693_enable_streaming(ov5693, false);
+		dev_dbg(ov5693->dev, "s_stream: stream-off register write ret=%d\n",
+			ret);
+		if (!ret)
+			ov5693_log_hw_state(ov5693, "s_stream stream-off");
 		mutex_unlock(&ov5693->lock);
 	}
 	if (ret)
 		goto err_power_down;
+
+	ov5693_log_stream_state(ov5693, "s_stream post", enable);
 
 	if (!enable)
 		pm_runtime_put(ov5693->dev);
 
 	return 0;
 err_power_down:
+	dev_err(ov5693->dev, "s_stream: failed enable=%d ret=%d\n",
+		enable, ret);
 	pm_runtime_put_noidle(ov5693->dev);
 	return ret;
 }
@@ -1236,6 +1313,11 @@ static int ov5693_check_hwcfg(struct ov5693_device *ov5693)
 	if (ret)
 		return ret;
 
+	dev_dbg(ov5693->dev,
+		"check_hwcfg: lanes=%u nr_of_link_frequencies=%u\n",
+		bus_cfg.bus.mipi_csi2.num_data_lanes,
+		bus_cfg.nr_of_link_frequencies);
+
 	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 2) {
 		dev_err(ov5693->dev, "only a 2-lane CSI2 config is supported");
 		ret = -EINVAL;
@@ -1248,9 +1330,13 @@ static int ov5693_check_hwcfg(struct ov5693_device *ov5693)
 		goto out_free_bus_cfg;
 	}
 
-	for (i = 0; i < bus_cfg.nr_of_link_frequencies; i++)
+	for (i = 0; i < bus_cfg.nr_of_link_frequencies; i++) {
+		dev_dbg(ov5693->dev,
+			"check_hwcfg: link_frequencies[%u]=%lld\n",
+			i, bus_cfg.link_frequencies[i]);
 		if (bus_cfg.link_frequencies[i] == OV5693_LINK_FREQ_419_2MHZ)
 			break;
+	}
 
 	if (i == bus_cfg.nr_of_link_frequencies) {
 		dev_err(ov5693->dev, "supported link freq %ull not found\n",
@@ -1284,6 +1370,8 @@ static int ov5693_probe(struct i2c_client *client)
 	ret = ov5693_check_hwcfg(ov5693);
 	if (ret)
 		return ret;
+
+	dev_dbg(&client->dev, "probe: hwcfg validated\n");
 
 	mutex_init(&ov5693->lock);
 
@@ -1339,6 +1427,8 @@ static int ov5693_probe(struct i2c_client *client)
 	ret = ov5693_detect(ov5693);
 	if (ret)
 		goto err_powerdown;
+
+	dev_dbg(&client->dev, "probe: sensor detected and runtime-pm setup starting\n");
 
 	pm_runtime_set_active(&client->dev);
 	pm_runtime_get_noresume(&client->dev);

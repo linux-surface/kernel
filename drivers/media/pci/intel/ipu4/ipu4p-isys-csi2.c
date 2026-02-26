@@ -23,6 +23,24 @@ static int ipu4p_csi2_ev_correction_params(struct ipu_isys_csi2
 	return 0;
 }
 
+
+static void ipu4p_csi2_log_rx_state(struct ipu_isys_csi2 *csi2, const char *tag)
+{
+	u32 enable = readl(csi2->base + CSI2_REG_CSI_RX_ENABLE);
+	u32 lanes = readl(csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
+	u32 config = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	u32 status = readl(csi2->base + CSI2_REG_CSI_RX_STATUS);
+	u32 hs = readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS);
+	u32 lp = readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_LP);
+	u32 ctermen = readl(csi2->base + CSI2_REG_CSI_RX_DLY_CNT_TERMEN_CLANE);
+	u32 csettle = readl(csi2->base + CSI2_REG_CSI_RX_DLY_CNT_SETTLE_CLANE);
+
+	dev_dbg(&csi2->isys->adev->dev,
+		"csi %u %s: rx enable=0x%x lanes=%u config=0x%x status=0x%x hs=0x%x lp=0x%x ctermen=%u csettle=%u receiver_errors=0x%x\n",
+		csi2->index, tag, enable, lanes, config, status, hs, lp,
+		ctermen, csettle, csi2->receiver_errors);
+}
+
 static void ipu4p_isys_register_errors(struct ipu_isys_csi2 *csi2)
 {
 	u32 status;
@@ -74,6 +92,7 @@ void ipu_isys_csi2_error(struct ipu_isys_csi2 *csi2)
 
 	/* Register errors once more in case of error interrupts are disabled */
 	ipu4p_isys_register_errors(csi2);
+	ipu4p_csi2_log_rx_state(csi2, "error snapshot");
 	status = csi2->receiver_errors;
 	csi2->receiver_errors = 0;
 
@@ -103,7 +122,9 @@ int ipu_isys_csi2_set_stream(struct v4l2_subdev *sd,
 	u32 val, csi2part = 0;
 
 	dev_dbg(&csi2->isys->adev->dev, "csi2 s_stream %d\n", enable);
+	ipu4p_csi2_log_rx_state(csi2, "set_stream entry");
 	if (!enable) {
+		ipu4p_csi2_log_rx_state(csi2, "set_stream disable pre-error");
 		ipu_isys_csi2_error(csi2);
 
 		val = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
@@ -124,6 +145,7 @@ int ipu_isys_csi2_set_stream(struct v4l2_subdev *sd,
 		writel
 		    (0, isys_base +
 		     IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x10);
+		ipu4p_csi2_log_rx_state(csi2, "set_stream disable done");
 		return 0;
 	}
 
@@ -184,6 +206,7 @@ int ipu_isys_csi2_set_stream(struct v4l2_subdev *sd,
 	writel(csi2part, isys_base +
 		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x10);
 
+	ipu4p_csi2_log_rx_state(csi2, "set_stream enable done");
 	return 0;
 }
 

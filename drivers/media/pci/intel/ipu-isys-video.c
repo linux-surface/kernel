@@ -21,6 +21,7 @@
 #include "ipu-bus.h"
 #include "ipu-cpd.h"
 #include "ipu-isys.h"
+#include "ipu-isys-csi2.h"
 #include "ipu-isys-video.h"
 #include "ipu-platform.h"
 #include "ipu-platform-regs.h"
@@ -36,6 +37,25 @@ MODULE_PARM_DESC(num_stream_support, "IPU project support number of stream");
 static bool use_stream_stop;
 module_param(use_stream_stop, bool, 0660);
 MODULE_PARM_DESC(use_stream_stop, "Use STOP command if running in CSI capture mode");
+
+static void ipu_isys_log_csi2_state(struct device *dev,
+				    struct ipu_isys_pipeline *ip,
+				    const char *tag)
+{
+	struct ipu_isys_csi2 *csi2 = ip->csi2;
+
+	if (!csi2)
+		return;
+
+	dev_dbg(dev,
+		"%s: csi2 index=%u source=%u stream_handle=%d vc=%u stream_id=%u stream_count=%u remote_streams=%u receiver_errors=0x%x in_frame={%u,%u,%u,%u} wait_for_sync={%u,%u,%u,%u}\n",
+		tag, csi2->index, ip->source, ip->stream_handle, ip->vc,
+		ip->stream_id, csi2->stream_count, csi2->remote_streams,
+		csi2->receiver_errors, csi2->in_frame[0], csi2->in_frame[1],
+		csi2->in_frame[2], csi2->in_frame[3], csi2->wait_for_sync[0],
+		csi2->wait_for_sync[1], csi2->wait_for_sync[2],
+		csi2->wait_for_sync[3]);
+}
 
 const struct ipu_isys_pixelformat ipu_isys_pfmts[] = {
 	{V4L2_PIX_FMT_Y10, 10, 10, 0, MEDIA_BUS_FMT_Y10_1X10,
@@ -243,7 +263,7 @@ static int video_open(struct file *file)
 	mutex_unlock(&isys->mutex);
 
 	do {
-	rval = ipu_buttress_authenticate(isp);
+		rval = ipu_buttress_authenticate(isp);
 		if (rval == 0)
 			break;
 
@@ -1626,6 +1646,7 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 	    IPU_ISYS_SHORT_PACKET_FROM_RECEIVER)
 		csi_short_packet_prepare_firmware_stream_cfg(ip, stream_cfg);
 
+	dev_dbg(dev, "stream cfg before set_params:\n");
 	ipu_fw_isys_dump_stream_cfg(dev, stream_cfg);
 
 	ip->nr_output_pins = stream_cfg->nof_output_pins;
@@ -1639,6 +1660,8 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 	reinit_completion(&ip->stream_open_completion);
 
 	ipu_fw_isys_set_params(stream_cfg);
+	dev_dbg(dev, "stream cfg after set_params:\n");
+	ipu_fw_isys_dump_stream_cfg(dev, stream_cfg);
 
 	rval = ipu_fw_isys_complex_cmd(av->isys,
 				       ip->stream_handle,
@@ -1658,7 +1681,9 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 	tout = wait_for_completion_timeout(&ip->stream_open_completion,
 					   IPU_LIB_CALL_TIMEOUT_JIFFIES);
 	if (!tout) {
-		dev_err(dev, "stream open time out\n");
+		dev_err(dev,
+			"stream open time out (source=%u handle=%d vc=%u stream_id=%u)\n",
+			ip->source, ip->stream_handle, ip->vc, ip->stream_id);
 		rval = -ETIMEDOUT;
 		goto out_put_stream_opened;
 	}
@@ -1716,7 +1741,10 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 	tout = wait_for_completion_timeout(&ip->stream_start_completion,
 					   IPU_LIB_CALL_TIMEOUT_JIFFIES);
 	if (!tout) {
-		dev_err(dev, "stream start time out\n");
+		dev_err(dev,
+			"stream start time out (source=%u handle=%d vc=%u stream_id=%u output_pins=%u)\n",
+			ip->source, ip->stream_handle, ip->vc, ip->stream_id,
+			ip->nr_output_pins);
 		rval = -ETIMEDOUT;
 		goto out_stream_close;
 	}
@@ -1726,6 +1754,7 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 		goto out_stream_close;
 	}
 	dev_dbg(dev, "start stream: complete\n");
+	ipu_isys_log_csi2_state(dev, ip, "start stream complete state");
 
 	return 0;
 
@@ -1742,12 +1771,18 @@ out_stream_close:
 
 	tout = wait_for_completion_timeout(&ip->stream_close_completion,
 					   IPU_LIB_CALL_TIMEOUT_JIFFIES);
-	if (!tout)
-		dev_err(dev, "stream close time out\n");
-	else if (ip->error)
+	if (!tout) {
+		dev_err(dev,
+			"stream close time out (source=%u handle=%d vc=%u stream_id=%u)\n",
+			ip->source, ip->stream_handle, ip->vc, ip->stream_id);
+		if (ip->csi2)
+			ipu_isys_csi2_error(ip->csi2);
+		ipu_isys_log_csi2_state(dev, ip, "stream close timeout state");
+	} else if (ip->error) {
 		dev_err(dev, "stream close error: %d\n", ip->error);
-	else
+	} else {
 		dev_dbg(dev, "stream close complete\n");
+	}
 
 out_put_stream_opened:
 	put_stream_opened(av);
@@ -1782,12 +1817,19 @@ static void stop_streaming_firmware(struct ipu_isys_video *av)
 
 	tout = wait_for_completion_timeout(&ip->stream_stop_completion,
 					   IPU_LIB_CALL_TIMEOUT_JIFFIES);
-	if (!tout)
-		dev_err(dev, "stream stop time out\n");
-	else if (ip->error)
+	if (!tout) {
+		dev_err(dev,
+			"stream stop time out (source=%u handle=%d vc=%u stream_id=%u send_type=%u)\n",
+			ip->source, ip->stream_handle, ip->vc, ip->stream_id,
+			send_type);
+		if (ip->csi2)
+			ipu_isys_csi2_error(ip->csi2);
+		ipu_isys_log_csi2_state(dev, ip, "stream stop timeout state");
+	} else if (ip->error) {
 		dev_err(dev, "stream stop error: %d\n", ip->error);
-	else
+	} else {
 		dev_dbg(dev, "stop stream: complete\n");
+	}
 }
 
 static void close_streaming_firmware(struct ipu_isys_video *av)
@@ -1808,12 +1850,18 @@ static void close_streaming_firmware(struct ipu_isys_video *av)
 
 	tout = wait_for_completion_timeout(&ip->stream_close_completion,
 					   IPU_LIB_CALL_TIMEOUT_JIFFIES);
-	if (!tout)
-		dev_err(dev, "stream close time out\n");
-	else if (ip->error)
+	if (!tout) {
+		dev_err(dev,
+			"stream close time out (source=%u handle=%d vc=%u stream_id=%u)\n",
+			ip->source, ip->stream_handle, ip->vc, ip->stream_id);
+		if (ip->csi2)
+			ipu_isys_csi2_error(ip->csi2);
+		ipu_isys_log_csi2_state(dev, ip, "stream close timeout state");
+	} else if (ip->error) {
 		dev_err(dev, "stream close error: %d\n", ip->error);
-	else
+	} else {
 		dev_dbg(dev, "close stream: complete\n");
+	}
 
 	put_stream_opened(av);
 	put_stream_handle(av);
@@ -2016,6 +2064,10 @@ int ipu_isys_video_set_streaming(struct ipu_isys_video *av,
 		dev_err(dev, "s_stream %s (ext)\n", ip->external->entity->name);
 
 		if (ip->csi2) {
+			dev_dbg(dev,
+				"stream off ext: %s stream_count=%u remote_streams=%u\n",
+				ip->external->entity->name, ip->csi2->stream_count,
+				ip->csi2->remote_streams);
 			if (ip->csi2->stream_count == 1) {
 				v4l2_subdev_call(esd, video, s_stream, state);
 #if defined(CONFIG_VIDEO_INTEL_IPU4) || defined(CONFIG_VIDEO_INTEL_IPU4P)
@@ -2063,6 +2115,12 @@ int ipu_isys_video_set_streaming(struct ipu_isys_video *av,
 
 	/* Oh crap */
 	if (state) {
+		if (ip->csi2)
+			dev_dbg(dev,
+				"stream on pre-fw: source=%u stream_count=%u remote_streams=%u vc=%u stream_id=%u\n",
+				ip->source, ip->csi2->stream_count,
+				ip->csi2->remote_streams, ip->vc, ip->stream_id);
+
 		if (ipu_isys_csi2_skew_cal_required(ip->csi2) &&
 		    ip->csi2->remote_streams == ip->csi2->stream_count)
 			perform_skew_cal(ip);
@@ -2079,10 +2137,37 @@ int ipu_isys_video_set_streaming(struct ipu_isys_video *av,
 			ip->external->entity->name);
 
 		if (ip->csi2 &&
-		    ip->csi2->remote_streams == ip->csi2->stream_count)
+		    ip->csi2->remote_streams == ip->csi2->stream_count) {
+			ipu_isys_csi2_error(ip->csi2);
+			dev_dbg(dev,
+				"stream on ext: calling s_stream(1) for %s (remote_streams=%u stream_count=%u)\n",
+				ip->external->entity->name,
+				ip->csi2->remote_streams, ip->csi2->stream_count);
 			rval = v4l2_subdev_call(esd, video, s_stream, state);
-		else if (!ip->csi2)
+		} else if (!ip->csi2) {
+			dev_dbg(dev,
+				"stream on ext: calling s_stream(1) for non-csi2 path %s\n",
+				ip->external->entity->name);
 			rval = v4l2_subdev_call(esd, video, s_stream, state);
+		} else {
+			dev_warn(dev,
+				"stream on ext: SKIP s_stream(1) for %s due to remote_streams(%u) != stream_count(%u), source=%u vc=%u stream_id=%u\n",
+				ip->external->entity->name,
+				ip->csi2->remote_streams, ip->csi2->stream_count,
+				ip->source, ip->vc, ip->stream_id);
+		}
+		if (!rval) {
+			dev_dbg(dev,
+				"stream on ext: s_stream(1) succeeded for %s\n",
+				ip->external->entity->name);
+			if (ip->csi2)
+				ipu_isys_csi2_error(ip->csi2);
+		} else {
+			dev_err(dev,
+				"stream on ext: s_stream(1) failed for %s: %d\n",
+				ip->external->entity->name, rval);
+		}
+		ipu_isys_log_csi2_state(dev, ip, "post ext s_stream state");
 		if (rval)
 			goto out_media_entity_stop_streaming_firmware;
 	} else {

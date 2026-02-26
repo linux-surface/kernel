@@ -316,6 +316,11 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	ext_sd = media_entity_to_v4l2_subdev(ip->external->entity);
 	cfg = v4l2_get_subdev_hostdata(ext_sd);
 
+	dev_dbg(&csi2->isys->adev->dev,
+		"csi2 set_stream(%d): stream_count=%u remote_streams=%u src=%u ext=%s\n",
+		enable, csi2->stream_count, csi2->remote_streams,
+		csi2->asd.source, ext_sd ? ext_sd->name : "<none>");
+
 	if (!enable) {
 		csi2->stream_count--;
 		if (csi2->stream_count)
@@ -329,10 +334,17 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 
 	if (csi2->stream_count) {
 		csi2->stream_count++;
+		dev_dbg(&csi2->isys->adev->dev,
+			"csi2 set_stream(%d): receiver already enabled, bump stream_count to %u\n",
+			enable, csi2->stream_count);
 		return 0;
 	}
 
 	rval = v4l2_g_ctrl(ext_sd->ctrl_handler, &c);
+	if (cfg)
+		dev_dbg(&csi2->isys->adev->dev,
+			"csi2 lane cfg: hostdata nlanes=%u ctrl nlanes=%d ctrl_rval=%d\n",
+			cfg->nlanes, c.value, rval);
 	if (!rval && c.value > 0 && cfg->nlanes > c.value) {
 		nlanes = c.value;
 		dev_dbg(&csi2->isys->adev->dev, "lane nr %d.\n", nlanes);
@@ -346,6 +358,10 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 
 	ipu_isys_csi2_set_stream(sd, timing, nlanes, enable);
 	csi2->stream_count++;
+
+	dev_dbg(&csi2->isys->adev->dev,
+		"csi2 set_stream(%d): receiver enabled, nlanes=%u stream_count=%u remote_streams=%u\n",
+		enable, nlanes, csi2->stream_count, csi2->remote_streams);
 
 	return 0;
 }
@@ -420,6 +436,9 @@ static int csi2_link_validate(struct media_link *link)
 
 	if (rval) {
 		csi2->remote_streams = 1;
+		dev_dbg(&csi2->isys->adev->dev,
+			"link_validate: get_routing unavailable, default remote_streams=%u\n",
+			csi2->remote_streams);
 		return 0;
 	}
 
@@ -434,6 +453,11 @@ static int csi2_link_validate(struct media_link *link)
 		return -EINVAL;
 
 	csi2->remote_streams = active;
+	dev_dbg(&csi2->isys->adev->dev,
+		"link_validate: active routes=%u sink_stream_mask_weight=%u remote_streams=%u\n",
+		active,
+		bitmap_weight(csi2->asd.stream[link->sink->index].streams_stat, 32),
+		csi2->remote_streams);
 
 	return 0;
 }

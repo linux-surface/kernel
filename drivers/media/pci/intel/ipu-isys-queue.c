@@ -925,6 +925,10 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
 		} else if (rval < 0) {
 			dev_dbg(&av->isys->adev->dev,
 				"no request available --- postponing streamon\n");
+			dev_dbg(&av->isys->adev->dev,
+				"stream postpone details: rval=%d nr_streaming=%u nr_queues=%u requests_empty=%d\n",
+				rval, ip->nr_streaming, ip->nr_queues,
+				list_empty(&av->isys->requests));
 			goto out;
 		}
 	}
