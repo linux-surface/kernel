@@ -231,6 +231,7 @@ static int video_open(struct file *file)
 	struct ipu_bus_device *adev = to_ipu_bus_device(&isys->adev->dev);
 	struct ipu_device *isp = adev->isp;
 	int rval;
+    int retries = 3;
 
 	mutex_lock(&isys->mutex);
 
@@ -241,7 +242,20 @@ static int video_open(struct file *file)
 	}
 	mutex_unlock(&isys->mutex);
 
+	do {
 	rval = ipu_buttress_authenticate(isp);
+		if (rval == 0)
+			break;
+
+		dev_warn(&isys->adev->dev,
+				 "FW authentication failed, retrying... (%d attempts left)\n",
+				 retries);
+
+		/* delay between retries to allow hardware to settle */
+		usleep_range(1000, 2000);
+
+	} while (retries-- > 0);
+
 	if (rval) {
 		dev_err(&isys->adev->dev, "FW authentication failed\n");
 		return rval;
