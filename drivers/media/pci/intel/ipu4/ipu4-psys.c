@@ -744,7 +744,7 @@ stop_failed:
 
 static void ipu_psys_watchdog(struct timer_list *t)
 {
-	struct ipu_psys_kcmd *kcmd = from_timer(kcmd, t, watchdog);
+	struct ipu_psys_kcmd *kcmd = timer_container_of(kcmd, t, watchdog);
 	struct ipu_psys *psys = kcmd->fh->psys;
 
 	queue_work(IPU_PSYS_WORK_QUEUE, &psys->watchdog_work);
