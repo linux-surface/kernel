@@ -157,8 +157,11 @@ struct v4l2_mbus_framefmt *__ipu_isys_get_ffmt(struct v4l2_subdev *sd,
 
 	if (which == V4L2_SUBDEV_FORMAT_ACTIVE)
 		return &asd->ffmt[pad][stream];
-	else
-		return v4l2_subdev_state_get_format(cfg, pad);
+
+	struct v4l2_mbus_framefmt *ffmt = v4l2_subdev_state_get_format(cfg, pad);
+	if (!ffmt)
+	    ffmt = &asd->ffmt[pad][stream];
+	return ffmt;
 }
 
 struct v4l2_rect *__ipu_isys_get_selection(struct v4l2_subdev *sd,
@@ -176,11 +179,15 @@ struct v4l2_rect *__ipu_isys_get_selection(struct v4l2_subdev *sd,
 			return &asd->compose[pad];
 		}
 	} else {
+		struct v4l2_rect *rect;
+
 		switch (target) {
-		case V4L2_SEL_TGT_CROP:
-			return v4l2_subdev_state_get_crop(cfg, pad);
-		case V4L2_SEL_TGT_COMPOSE:
-			return v4l2_subdev_state_get_compose(cfg, pad);
+			case V4L2_SEL_TGT_CROP:
+			    rect = v4l2_subdev_state_get_crop(cfg, pad);
+			    return rect ? rect : &asd->crop[pad];
+			case V4L2_SEL_TGT_COMPOSE:
+			    rect = v4l2_subdev_state_get_compose(cfg, pad);
+			    return rect ? rect : &asd->compose[pad];
 		}
 	}
 	WARN_ON(1);
