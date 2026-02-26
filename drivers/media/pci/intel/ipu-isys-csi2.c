@@ -145,7 +145,7 @@ static int ipu_get_frame_desc_entry_by_dt(struct v4l2_subdev *sd,
 		return rval;
 
 	for (i = 0; i < desc.num_entries; i++) {
-		if (desc.entry[i].bus.csi2.data_type != data_type)
+		if (desc.entry[i].bus.csi2.dt != data_type)
 			continue;
 		*entry = desc.entry[i];
 		return 0;

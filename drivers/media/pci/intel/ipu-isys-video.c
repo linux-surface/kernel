@@ -702,7 +702,7 @@ static int link_validate(struct media_link *link)
 		sd = media_entity_to_v4l2_subdev(ip->external->entity);
 		rval = ipu_isys_subdev_get_frame_desc(sd, &desc);
 		if (!rval && ip->stream_id < desc.num_entries)
-			ip->vc = desc.entry[ip->stream_id].bus.csi2.channel;
+			ip->vc = desc.entry[ip->stream_id].bus.csi2.vc;
 	}
 
 err_subdev:
