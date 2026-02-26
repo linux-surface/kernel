@@ -1790,7 +1790,7 @@ int ipu_isys_video_prepare_streaming(struct ipu_isys_video *av,
 
 	/* Gather all entities in the graph. */
 	mutex_lock(&mdev->graph_mutex);
-	media_graph_walk_start(&graph, &av->vdev.entity.pads[0]);
+	media_graph_walk_start(&graph, &av->vdev.entity);
 	while ((entity = media_graph_walk_next(&graph)))
 		media_entity_enum_set(&ip->entity_enum, entity);
 
@@ -1903,7 +1903,7 @@ int ipu_isys_video_set_streaming(struct ipu_isys_video *av,
 	mutex_lock(&mdev->graph_mutex);
 
 	media_graph_walk_start(&ip->graph,
-				      &av->vdev.entity.pads[0]);
+				      &av->vdev.entity);
 
 	while ((entity = media_graph_walk_next(&ip->graph))) {
 		sd = media_entity_to_v4l2_subdev(entity);
@@ -1979,7 +1979,7 @@ out_media_entity_stop_streaming:
 	mutex_lock(&mdev->graph_mutex);
 
 	media_graph_walk_start(&ip->graph,
-				      &av->vdev.entity.pads[0]);
+				      &av->vdev.entity);
 
 	while (state && (entity2 = media_graph_walk_next(&ip->graph)) &&
 	       entity2 != entity) {
