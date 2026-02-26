@@ -123,21 +123,41 @@ struct ipu_isys_pipeline {
 #define to_ipu_isys_pipeline(__pipe)				\
 	container_of((__pipe), struct ipu_isys_pipeline, pipe)
 
+struct video_stream_watermark {
+	u32 width;
+	u32 height;
+	u32 hblank;
+	u32 frame_rate;
+	u64 pixel_rate;
+	u64 stream_data_rate;
+	u16 sram_gran_shift;
+	u16 sram_gran_size;
+	struct list_head stream_node;
+};
+
 struct ipu_isys_video {
 	/* Serialise access to other fields in the struct. */
 	struct mutex mutex;
 	struct media_pad pad;
 	struct video_device vdev;
 	struct v4l2_pix_format_mplane mpix;
+	struct v4l2_pix_format pix_fmt;
+	struct v4l2_meta_format meta_fmt;
 	const struct ipu_isys_pixelformat *pfmts;
 	const struct ipu_isys_pixelformat *pfmt;
 	struct ipu_isys_queue aq;
 	struct ipu_isys *isys;
 	struct ipu_isys_pipeline ip;
+	struct ipu_isys_csi2 *csi2;
+	struct ipu_isys_stream *stream;
 	unsigned int streaming;
 	bool packed;
 	unsigned int line_header_length;	/* bits */
 	unsigned int line_footer_length;	/* bits */
+	struct video_stream_watermark watermark;
+	u32 source_stream;
+	u8 vc;
+	u8 dt;
 	const struct ipu_isys_pixelformat *(*try_fmt_vid_mplane)(
 		struct ipu_isys_video *av,
 		struct v4l2_pix_format_mplane *mpix);
@@ -151,6 +171,9 @@ struct ipu_isys_video {
 extern const struct ipu_isys_pixelformat ipu_isys_pfmts[];
 extern const struct ipu_isys_pixelformat ipu_isys_pfmts_be_soc[];
 extern const struct ipu_isys_pixelformat ipu_isys_pfmts_packed[];
+
+const struct ipu_isys_pixelformat *
+ipu_isys_get_isys_format(u32 pixelformat, u32 type);
 
 const struct ipu_isys_pixelformat *
 ipu_isys_get_pixelformat(struct ipu_isys_video *av, u32 pixelformat);

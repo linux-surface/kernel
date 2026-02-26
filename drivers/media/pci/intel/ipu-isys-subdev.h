@@ -164,6 +164,7 @@ int ipu_isys_subdev_init(struct ipu_isys_subdev *asd,
 void ipu_isys_subdev_cleanup(struct ipu_isys_subdev *asd);
 int ipu_isys_subdev_get_frame_desc(struct v4l2_subdev *sd,
 				   struct v4l2_mbus_frame_desc *desc);
+u32 ipu_isys_get_src_stream_by_src_pad(struct v4l2_subdev *sd, u32 pad);
 int ipu_isys_subdev_set_routing(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_state *state,
 			   enum v4l2_subdev_format_whence which,

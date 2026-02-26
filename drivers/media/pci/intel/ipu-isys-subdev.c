@@ -465,6 +465,30 @@ int ipu_isys_subdev_get_frame_desc(struct v4l2_subdev *sd,
 	return rval;
 }
 
+u32 ipu_isys_get_src_stream_by_src_pad(struct v4l2_subdev *sd, u32 pad)
+{
+	struct v4l2_subdev_state *state;
+	struct v4l2_subdev_route *routes;
+	unsigned int i;
+	u32 source_stream = 0;
+
+	state = v4l2_subdev_lock_and_get_active_state(sd);
+	if (!state)
+		return 0;
+
+	routes = state->routing.routes;
+	for (i = 0; i < state->routing.num_routes; i++) {
+		if (routes[i].source_pad == pad) {
+			source_stream = routes[i].source_stream;
+			break;
+		}
+	}
+
+	v4l2_subdev_unlock_state(state);
+
+	return source_stream;
+}
+
 bool ipu_isys_subdev_has_route(struct media_entity *entity,
 			       unsigned int pad0, unsigned int pad1, int *stream)
 {
