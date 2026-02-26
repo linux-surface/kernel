@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright (C) 2013 - 2018 Intel Corporation */
+/* Copyright (C) 2013 - 2020 Intel Corporation */
 
 #ifndef IPU_PSYS_H
 #define IPU_PSYS_H
@@ -52,6 +52,7 @@ struct ipu_resource_alloc {
  * yet reserve real IPU resources).
  */
 #define IPU_PSYS_RESOURCE_OVERALLOC 2	/* Some room for ABI / ext lib delta */
+/* resource size may need expand for new resource model */
 struct ipu_psys_resource_pool {
 	u32 cells;	/* Bitmask of cells allocated */
 	struct ipu_resource dev_channels[IPU_FW_PSYS_N_DEV_CHN_ID +
@@ -60,12 +61,15 @@ struct ipu_psys_resource_pool {
 				       IPU_PSYS_RESOURCE_OVERALLOC];
 	struct ipu_resource dfms[IPU_FW_PSYS_N_DEV_DFM_ID +
 				 IPU_PSYS_RESOURCE_OVERALLOC];
+	DECLARE_BITMAP(cmd_queues, 32);
+	/* Protects cmd_queues bitmap */
+	spinlock_t queues_lock;
 };
 
 /*
  * This struct keeps book of the resources allocated for a specific PG.
  * It is used for freeing up resources from struct ipu_psys_resources
- * when the PG is released from IPU4 (or model of IPU4).
+ * when the PG is released from IPU (or model of IPU).
  */
 struct ipu_psys_resource_alloc {
 	u32 cells;	/* Bitmask of cells needed */
@@ -96,8 +100,10 @@ struct ipu_psys {
 	struct task_struct *sched_cmd_thread;
 	struct work_struct watchdog_work;
 	wait_queue_head_t sched_cmd_wq;
-	atomic_t wakeup_sched_thread_count;
+	atomic_t wakeup_sched_thread_count;  /* Psys schedule thread wakeup count */
+#ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfsdir;
+#endif
 
 	/* Resources needed to be managed for process groups */
 	struct ipu_psys_resource_pool resource_pool_running;
@@ -112,6 +118,8 @@ struct ipu_psys {
 
 	int active_kcmds, started_kcmds;
 	void *fwcom;
+
+	int power_gating;
 };
 
 struct ipu_psys_fh {
@@ -136,6 +144,7 @@ struct ipu_psys_kcmd {
 	struct ipu_psys_fh *fh;
 	struct list_head list;
 	struct list_head started_list;
+	struct ipu_psys_buffer_set *kbuf_set;
 	enum ipu_psys_cmd_state state;
 	void *pg_manifest;
 	size_t pg_manifest_size;
@@ -147,6 +156,10 @@ struct ipu_psys_kcmd {
 	u64 user_token;
 	u64 issue_id;
 	u32 priority;
+	u32 kernel_enable_bitmap[4];
+	u32 terminal_enable_bitmap[4];
+	u32 routing_enable_bitmap[4];
+	u32 rbm[5];
 	struct ipu_buttress_constraint constraint;
 	struct ipu_psys_event ev;
 	struct timer_list watchdog;
@@ -185,6 +198,7 @@ long ipu_psys_compat_ioctl32(struct file *file, unsigned int cmd,
 #endif
 
 void ipu_psys_setup_hw(struct ipu_psys *psys);
+void ipu_psys_subdomains_power(struct ipu_psys *psys, bool on);
 void ipu_psys_handle_events(struct ipu_psys *psys);
 int ipu_psys_kcmd_new(struct ipu_psys_command *cmd, struct ipu_psys_fh *fh);
 void ipu_psys_run_next(struct ipu_psys *psys);
@@ -192,8 +206,13 @@ void ipu_psys_watchdog_work(struct work_struct *work);
 struct ipu_psys_pg *__get_pg_buf(struct ipu_psys *psys, size_t pg_size);
 struct ipu_psys_kbuffer *
 ipu_psys_lookup_kbuffer(struct ipu_psys_fh *fh, int fd);
+int ipu_psys_mapbuf_locked(int fd, struct ipu_psys_fh *fh,
+			   struct ipu_psys_kbuffer *kbuf);
 struct ipu_psys_kbuffer *
 ipu_psys_lookup_kbuffer_by_kaddr(struct ipu_psys_fh *fh, void *kaddr);
+#ifdef IPU_PSYS_GPC
+int ipu_psys_gpc_init_debugfs(struct ipu_psys *psys);
+#endif
 int ipu_psys_resource_pool_init(struct ipu_psys_resource_pool *pool);
 void ipu_psys_resource_pool_cleanup(struct ipu_psys_resource_pool *pool);
 struct ipu_psys_kcmd *ipu_get_completed_kcmd(struct ipu_psys_fh *fh);

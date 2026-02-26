@@ -350,34 +350,30 @@ static int ipu_dma_buf_begin_cpu_access(struct dma_buf *dma_buf,
 	return -ENOTTY;
 }
 
-static int ipu_dma_buf_vmap(struct dma_buf *dmabuf, struct dma_buf_map *map)
+static int ipu_dma_buf_vmap(struct dma_buf *dmabuf, struct iosys_map *map)
 {
 	struct dma_buf_attachment *attach;
 	struct ipu_dma_buf_attach *ipu_attach;
-    void *vaddr;
 
 	if (list_empty(&dmabuf->attachments))
-		return -ENOMEM;
+		return -EINVAL;
 
 	attach = list_last_entry(&dmabuf->attachments,
 				 struct dma_buf_attachment, node);
 	ipu_attach = attach->priv;
 
 	if (!ipu_attach || !ipu_attach->pages || !ipu_attach->npages)
-		return -ENOMEM;
+		return -EINVAL;
 
-	vaddr = vm_map_ram(ipu_attach->pages,
-			  ipu_attach->npages, 0);
+	map->vaddr = vm_map_ram(ipu_attach->pages, ipu_attach->npages, 0);
+	map->is_iomem = false;
+	if (!map->vaddr)
+		return -EINVAL;
 
-    if (IS_ERR(vaddr))
-	return PTR_ERR(vaddr);
-
-    dma_buf_map_set_vaddr(map, vaddr);
-
-    return 0;
+	return 0;
 }
 
-static void ipu_dma_buf_vunmap(struct dma_buf *dmabuf, struct dma_buf_map *map)
+static void ipu_dma_buf_vunmap(struct dma_buf *dmabuf, struct iosys_map *map)
 {
 	struct dma_buf_attachment *attach;
 	struct ipu_dma_buf_attach *ipu_attach;
@@ -395,7 +391,7 @@ static void ipu_dma_buf_vunmap(struct dma_buf *dmabuf, struct dma_buf_map *map)
 	vm_unmap_ram(map->vaddr, ipu_attach->npages);
 }
 
-static struct dma_buf_ops ipu_dma_buf_ops = {
+struct dma_buf_ops ipu_dma_buf_ops = {
 	.attach = ipu_dma_buf_attach,
 	.detach = ipu_dma_buf_detach,
 	.map_dma_buf = ipu_dma_buf_map,
@@ -450,12 +446,36 @@ open_failed:
 	return rval;
 }
 
+static inline void ipu_psys_kbuf_unmap(struct ipu_psys_kbuffer *kbuf)
+{
+	if (!kbuf)
+		return;
+
+	kbuf->valid = false;
+	if (kbuf->kaddr) {
+		struct iosys_map dmap;
+
+		iosys_map_set_vaddr(&dmap, kbuf->kaddr);
+		dma_buf_vunmap(kbuf->dbuf, &dmap);
+	}
+	if (kbuf->sgt)
+		dma_buf_unmap_attachment(kbuf->db_attach,
+					 kbuf->sgt,
+					 DMA_BIDIRECTIONAL);
+	if (kbuf->db_attach)
+		dma_buf_detach(kbuf->dbuf, kbuf->db_attach);
+	dma_buf_put(kbuf->dbuf);
+
+	kbuf->db_attach = NULL;
+	kbuf->dbuf = NULL;
+	kbuf->sgt = NULL;
+}
+
 static int ipu_psys_release(struct inode *inode, struct file *file)
 {
 	struct ipu_psys *psys = inode_to_ipu_psys(inode);
 	struct ipu_psys_fh *fh = file->private_data;
 	struct ipu_psys_kbuffer *kbuf, *kbuf0;
-    struct dma_buf_map map;
 
 	mutex_lock(&fh->mutex);
 	/* clean up buffers */
@@ -466,9 +486,13 @@ static int ipu_psys_release(struct inode *inode, struct file *file)
 			if (kbuf->dbuf && kbuf->db_attach) {
 				struct dma_buf *dbuf;
 
-				map = (struct dma_buf_map)DMA_BUF_MAP_INIT_VADDR(kbuf->kaddr);
 				kbuf->valid = false;
-				dma_buf_vunmap(kbuf->dbuf, &map);
+				if (kbuf->kaddr) {
+					struct iosys_map dmap;
+
+					iosys_map_set_vaddr(&dmap, kbuf->kaddr);
+					dma_buf_vunmap(kbuf->dbuf, &dmap);
+				}
 				dma_buf_unmap_attachment(kbuf->db_attach,
 							 kbuf->sgt,
 							 DMA_BIDIRECTIONAL);
@@ -485,7 +509,7 @@ static int ipu_psys_release(struct inode *inode, struct file *file)
 			}
 		}
 	}
-	mutex_unlock(&fh->mutex);
+    mutex_unlock(&fh->mutex);
 
 	mutex_lock(&psys->mutex);
 	list_del(&fh->list);
@@ -496,7 +520,7 @@ static int ipu_psys_release(struct inode *inode, struct file *file)
 	mutex_destroy(&fh->mutex);
 	kfree(fh);
 
-	return 0;
+    return 0;
 }
 
 static int ipu_psys_getbuf(struct ipu_psys_buffer *buf, struct ipu_psys_fh *fh)
@@ -564,7 +588,9 @@ static long ipu_psys_mapbuf(int fd, struct ipu_psys_fh *fh)
 	struct ipu_psys *psys = fh->psys;
 	struct ipu_psys_kbuffer *kbuf;
 	struct dma_buf *dbuf;
-    struct dma_buf_map map;
+    struct iosys_map dmap = {
+		.is_iomem = false,
+	};
 	int ret;
 
 	mutex_lock(&fh->mutex);
@@ -620,12 +646,12 @@ static long ipu_psys_mapbuf(int fd, struct ipu_psys_fh *fh)
 
 	kbuf->dma_addr = sg_dma_address(kbuf->sgt->sgl);
 
-	ret = dma_buf_vmap(kbuf->dbuf, &map);
+	ret = dma_buf_vmap(kbuf->dbuf, &dmap);
 	if (ret) {
 		ret = -EINVAL;
 		goto error_unmap;
 	}
-    kbuf->kaddr = map.vaddr;
+    kbuf->kaddr = dmap.vaddr;
 
 mapbuf_end:
 
@@ -660,7 +686,9 @@ static long ipu_psys_unmapbuf(int fd, struct ipu_psys_fh *fh)
 	struct ipu_psys_kbuffer *kbuf;
 	struct ipu_psys *psys = fh->psys;
 	struct dma_buf *dmabuf;
-    struct dma_buf_map map;
+    struct iosys_map dmap = {
+		.is_iomem = false,
+	};
 
 	mutex_lock(&fh->mutex);
 	kbuf = ipu_psys_lookup_kbuffer(fh, fd);
@@ -670,12 +698,10 @@ static long ipu_psys_unmapbuf(int fd, struct ipu_psys_fh *fh)
 		return -EINVAL;
 	}
 
-    map = (struct dma_buf_map)DMA_BUF_MAP_INIT_VADDR(kbuf->kaddr);
-
 	/* From now on it is not safe to use this kbuffer */
 	kbuf->valid = false;
 
-	dma_buf_vunmap(kbuf->dbuf, &map);
+	dma_buf_vunmap(kbuf->dbuf, &dmap);
 	dma_buf_unmap_attachment(kbuf->db_attach, kbuf->sgt, DMA_BIDIRECTIONAL);
 
 	dma_buf_detach(kbuf->dbuf, kbuf->db_attach);
@@ -1594,3 +1620,4 @@ MODULE_AUTHOR("Zaikuo Wang <zaikuo.wang@intel.com>");
 MODULE_AUTHOR("Yunliang Ding <yunliang.ding@intel.com>");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Intel ipu processing system driver");
+MODULE_IMPORT_NS(DMA_BUF);
