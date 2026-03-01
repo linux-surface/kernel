@@ -6,7 +6,8 @@
 
 #define IPU_MMU_NAME IPU_NAME "-mmu"
 #define IPU_ISYS_CSI2_NAME IPU_NAME "-csi2"
-#define IPU_ISYS_NAME IPU_NAME "-isys"
+// #define IPU_ISYS_NAME IPU_NAME "-isys"
+#define IPU_ISYS_NAME "intel-ipu6"
 #define IPU_PSYS_NAME IPU_NAME "-psys"
 #define IPU_BUTTRESS_NAME IPU_NAME "-buttress"
 
