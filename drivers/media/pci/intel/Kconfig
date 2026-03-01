@@ -19,3 +19,67 @@ config IPU_BRIDGE
 	  - Microsoft Surface models (except Surface Pro 3)
 	  - The Lenovo Miix line (for example the 510, 520, 710 and 720)
 	  - Dell 7285
+
+config VIDEO_INTEL_IPU
+	tristate "Intel IPU driver"
+	depends on ACPI
+	select IOMMU_API
+	select IOMMU_IOVA
+	select X86_DEV_DMA_OPS if X86
+	select VIDEOBUF2_DMA_CONTIG
+	select PHYS_ADDR_T_64BIT
+	select COMMON_CLK
+	help
+	  Main driver for Intel Image Processing Unit. Say Y here.
+
+choice
+	prompt "Intel IPU generation type"
+	depends on VIDEO_INTEL_IPU
+	default VIDEO_INTEL_IPU4P
+
+config VIDEO_INTEL_IPU4
+	bool "Compile for IPU4 driver"
+	help
+	  Select IPU4 for Intel Apollo Lake (PCI ID 8086:5a88):
+	  Celeron N3350, Pentium N4200 or Atom E3900 Series Imaging Unit.
+
+config VIDEO_INTEL_IPU4P
+	bool "Compile for IPU4P driver"
+	help
+	  Select IPU4P for Intel Ice Lake (PCI ID 8086 8a19).
+	  Supported systems include:
+	  - Surface Pro 7
+	  - Surface Book 3
+	  - Surface Laptop 3
+	  - Dell XPS 13 7390 2-in-1
+
+endchoice
+
+choice
+	prompt "Intel IPU hardware platform type"
+	depends on VIDEO_INTEL_IPU
+	default VIDEO_INTEL_IPU_SOC
+
+config VIDEO_INTEL_IPU_SOC
+	bool "Compile for SOC"
+	help
+	  Select for SOC platform
+
+endchoice
+
+config VIDEO_INTEL_IPU_FW_LIB
+	bool "Compile firmware library"
+	depends on VIDEO_INTEL_IPU
+	default y
+	help
+	  If selected, the firmware hostlib css will be compiled
+
+config VIDEO_INTEL_IPU_WERROR
+	bool "Force GCC to throw errors instead of warnings when compiling"
+	depends on VIDEO_INTEL_IPU
+	depends on EXPERT
+	depends on !COMPILE_TEST
+	default n
+	help
+	  Adds -Werror to the build flags for the Intel IPU module.
+	  Recommended for driver developers only.
