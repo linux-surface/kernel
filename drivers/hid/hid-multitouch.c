@@ -83,6 +83,7 @@ MODULE_LICENSE("GPL");
 #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(24)
 #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(25)
 #define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(26)
+#define MT_QUIRK_FORCE_BUTTONPAD	BIT(27)
 
 #define MT_INPUTMODE_TOUCHSCREEN	0x02
 #define MT_INPUTMODE_TOUCHPAD		0x03
@@ -244,6 +245,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
 #define MT_CLS_APPLE_TOUCHBAR			0x0114
 #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0115
 #define MT_CLS_SURFACE_TOUCHPAD                0x0116
+#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11	0x0117
 #define MT_CLS_SIS				0x0457
 
 #define MT_DEFAULT_MAXCONTACT	10
@@ -454,6 +456,18 @@ static const struct mt_class mt_classes[] = {
 	{ .name = MT_CLS_SURFACE_TOUCHPAD,
 		.quirks = MT_QUIRK_ALWAYS_VALID |
 			MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE
+	},
+	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11,
+		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
+			MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH |
+			MT_QUIRK_ALWAYS_VALID |
+			MT_QUIRK_IGNORE_DUPLICATES |
+			MT_QUIRK_HOVERING |
+			MT_QUIRK_CONTACT_CNT_ACCURATE |
+			MT_QUIRK_STICKY_FINGERS |
+			MT_QUIRK_WIN8_PTP_BUTTONS |
+			MT_QUIRK_FORCE_BUTTONPAD,
+		.export_all_inputs = true
 	},
 	{ }
 };
@@ -860,7 +874,8 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			if ((cls->name == MT_CLS_WIN_8 ||
 			     cls->name == MT_CLS_WIN_8_FORCE_MULTI_INPUT ||
 			     cls->name == MT_CLS_WIN_8_FORCE_MULTI_INPUT_NSMU ||
-			     cls->name == MT_CLS_WIN_8_DISABLE_WAKEUP) &&
+			     cls->name == MT_CLS_WIN_8_DISABLE_WAKEUP ||
+			     cls->name == MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11) &&
 				(field->application == HID_DG_TOUCHPAD ||
 				 field->application == HID_DG_TOUCHSCREEN))
 				app->quirks |= MT_QUIRK_CONFIDENCE;
@@ -983,6 +998,16 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 
 	case 0xff000000:
 		/* we do not want to map these: no input-oriented meaning */
+		return -1;
+
+	case HID_UP_SENSOR:
+		/* Microsoft Surface Type Cover: whole-pad force sensor */
+		if ((usage->hid & HID_USAGE) == 0x0494 &&
+		    (app->quirks & MT_QUIRK_FORCE_BUTTONPAD)) {
+			hid_map_usage(hi, usage, bit, max, EV_ABS, ABS_PRESSURE);
+			set_abs(hi->input, ABS_PRESSURE, field, cls->sn_pressure);
+			return 1;
+		}
 		return -1;
 	}
 
@@ -1419,6 +1444,9 @@ static int mt_touch_input_configured(struct hid_device *hdev,
 	/* check for clickpads */
 	if ((app->mt_flags & INPUT_MT_POINTER) &&
 	    (app->buttons_count == 1))
+		td->is_buttonpad = true;
+
+	if (app->quirks & MT_QUIRK_FORCE_BUTTONPAD)
 		td->is_buttonpad = true;
 
 	if (td->is_buttonpad)
@@ -2650,6 +2678,11 @@ static const struct hid_device_id mt_devices[] = {
 	{ .driver_data = MT_CLS_SURFACE_TOUCHPAD,
 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
 			USB_VENDOR_ID_MICROSOFT, 0x0C46) },
+
+	/* Microsoft Surface Pro 11 Type Cover touchpad */
+	{ .driver_data = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11,
+		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
+			USB_VENDOR_ID_MICROSOFT, 0x0C8D) },
 
 	/* Google MT devices */
 	{ .driver_data = MT_CLS_GOOGLE,
