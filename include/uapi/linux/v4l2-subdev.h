@@ -69,6 +69,8 @@ struct v4l2_subdev_crop {
 #define V4L2_SUBDEV_MBUS_CODE_CSC_HSV_ENC	V4L2_SUBDEV_MBUS_CODE_CSC_YCBCR_ENC
 #define V4L2_SUBDEV_MBUS_CODE_CSC_QUANTIZATION	0x00000008
 
+#define V4L2_SUBDEV_FLAG_NEXT_STREAM 0x80000000
+
 /**
  * struct v4l2_subdev_mbus_code_enum - Media bus format enumeration
  * @pad: pad number, as reported by the media API
@@ -204,6 +206,9 @@ struct v4l2_subdev_capability {
  * on a video node.
  */
 #define V4L2_SUBDEV_ROUTE_FL_ACTIVE		(1U << 0)
+
+#define V4L2_SUBDEV_ROUTE_FL_IMMUTABLE	(1U << 1)
+#define V4L2_SUBDEV_ROUTE_FL_SOURCE	(1U << 2)
 
 /**
  * struct v4l2_subdev_route - A route inside a subdev

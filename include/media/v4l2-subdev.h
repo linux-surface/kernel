@@ -347,19 +347,33 @@ enum v4l2_mbus_frame_desc_flags {
  * struct v4l2_mbus_frame_desc_entry - media bus frame description structure
  *
  * @flags:	bitmask flags, as defined by &enum v4l2_mbus_frame_desc_flags.
+ * @bpp: bits per pixel
  * @stream:	stream in routing configuration
  * @pixelcode:	media bus pixel code, valid if @flags
  *		%FRAME_DESC_FL_BLOB is not set.
  * @length:	number of octets per frame, valid if @flags
  *		%V4L2_MBUS_FRAME_DESC_FL_LEN_MAX is set.
+ * @start_line: start line of the data for 2D DMA
+ * @start_pixel: start pixel of the data for 2D DMA
+ * @width: image width for 2D DMA
+ * @height: image height for 2D DMA
  * @bus:	Bus-specific frame descriptor parameters
  * @bus.csi2:	CSI-2-specific bus configuration
  */
 struct v4l2_mbus_frame_desc_entry {
 	enum v4l2_mbus_frame_desc_flags flags;
+	u8 bpp;
 	u32 stream;
 	u32 pixelcode;
 	u32 length;
+	union {
+		struct {
+			u16 start_line;
+			u16 start_pixel;
+			u16 width;
+			u16 height;
+		} two_dim;
+	};
 	union {
 		struct v4l2_mbus_frame_desc_entry_csi2 csi2;
 	} bus;
@@ -875,6 +889,8 @@ struct v4l2_subdev_pad_ops {
 			      struct v4l2_mbus_frame_desc *fd);
 	int (*get_mbus_config)(struct v4l2_subdev *sd, unsigned int pad,
 			       struct v4l2_mbus_config *config);
+	int (*get_routing)(struct v4l2_subdev *sd,
+			   struct v4l2_subdev_routing *route);
 	int (*set_routing)(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_state *state,
 			   enum v4l2_subdev_format_whence which,
@@ -961,6 +977,8 @@ struct v4l2_subdev_internal_ops {
  * should set this flag.
  */
 #define V4L2_SUBDEV_FL_HAS_EVENTS		(1U << 3)
+/* Set this flag if this sub-device supports substreams. */
+#define V4L2_SUBDEV_FL_HAS_SUBSTREAMS		(1U << 4)
 /*
  * Set this flag if this subdev supports multiplexed streams. This means
  * that the driver supports routing and handles the stream parameter in its

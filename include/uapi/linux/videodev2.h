@@ -745,6 +745,44 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_SGRBG16 v4l2_fourcc('G', 'R', '1', '6') /* 16  GRGR.. BGBG.. */
 #define V4L2_PIX_FMT_SRGGB16 v4l2_fourcc('R', 'G', '1', '6') /* 16  RGRG.. GBGB.. */
 
+/* Raw bayer vector formats. */
+#define V4L2_PIX_FMT_SBGGR8_16V32 v4l2_fourcc('b', 'V', '0', 'A')
+#define V4L2_PIX_FMT_SGBRG8_16V32 v4l2_fourcc('b', 'V', '0', 'B')
+#define V4L2_PIX_FMT_SGRBG8_16V32 v4l2_fourcc('b', 'V', '0', 'C')
+#define V4L2_PIX_FMT_SRGGB8_16V32 v4l2_fourcc('b', 'V', '0', 'D')
+#define V4L2_PIX_FMT_SBGGR8V32  v4l2_fourcc('b', 'V', '0', 'A')
+#define V4L2_PIX_FMT_SGBRG8V32  v4l2_fourcc('b', 'V', '0', 'B')
+#define V4L2_PIX_FMT_SGRBG8V32  v4l2_fourcc('b', 'V', '0', 'C')
+#define V4L2_PIX_FMT_SRGGB8V32  v4l2_fourcc('b', 'V', '0', 'D')
+#define V4L2_PIX_FMT_SBGGR10V32 v4l2_fourcc('b', 'V', '0', 'E')
+#define V4L2_PIX_FMT_SGBRG10V32 v4l2_fourcc('b', 'V', '0', 'F')
+#define V4L2_PIX_FMT_SGRBG10V32 v4l2_fourcc('b', 'V', '0', 'G')
+#define V4L2_PIX_FMT_SRGGB10V32 v4l2_fourcc('b', 'V', '0', 'H')
+#define V4L2_PIX_FMT_SBGGR12V32 v4l2_fourcc('b', 'V', '0', 'I')
+#define V4L2_PIX_FMT_SGBRG12V32 v4l2_fourcc('b', 'V', '0', 'J')
+#define V4L2_PIX_FMT_SGRBG12V32 v4l2_fourcc('b', 'V', '0', 'K')
+#define V4L2_PIX_FMT_SRGGB12V32 v4l2_fourcc('b', 'V', '0', 'L')
+
+#ifndef V4L2_PIX_FMT_SBGGR14V32
+/*
+ * Non-vectorized 14bit definitions have been upstreamed.
+ * To keep various versions of the ipu4 builds compileable use local
+ * definitions when global one's doesn't exists.
+ */
+#define V4L2_PIX_FMT_SBGGR14V32 v4l2_fourcc('b', 'V', '0', 'M')
+#define V4L2_PIX_FMT_SGBRG14V32 v4l2_fourcc('b', 'V', '0', 'N')
+#define V4L2_PIX_FMT_SGRBG14V32 v4l2_fourcc('b', 'V', '0', 'O')
+#define V4L2_PIX_FMT_SRGGB14V32 v4l2_fourcc('b', 'V', '0', 'P')
+#endif
+
+/* IPU4 */
+#define V4L2_FMT_IPU_ISA_CFG   v4l2_fourcc('i', 'p', '4', 'c')
+#define V4L2_FMT_IPU_ISYS_META v4l2_fourcc('i', 'p', '4', 'm')
+
+/* YUV vector formats. */
+#define V4L2_PIX_FMT_UYVY_V32    v4l2_fourcc('y', 'V', '3', '2')
+#define V4L2_PIX_FMT_YUYV420_V32 v4l2_fourcc('y', '0', '3', '2')
+
 /* HSV formats */
 #define V4L2_PIX_FMT_HSV24 v4l2_fourcc('H', 'S', 'V', '3')
 #define V4L2_PIX_FMT_HSV32 v4l2_fourcc('H', 'S', 'V', '4')
