@@ -6,15 +6,6 @@
  * (iaLPSS2_GPIO2_ADL.sys, msgpioclx.sys, SurfaceButton.sys, intelpep.sys)
  * and Linux pinctrl-intel + ACPI s2idle kernel source.
  *
- * Root cause:
- *   Intel INTC1055 GPIO Community 4's VNN (VCCIO nanonode) power rail drops
- *   during C-state transitions in s2idle. PADCFG registers lose state. When
- *   VNN returns, PADCFG0 on pin 213 (lid sensor) comes back with RXINV
- *   (bit 23) flipped. This phantom edge fires GPE 0x52 as an SCI. Since
- *   this Surface has no EC (first_ec==NULL), acpi_ec_dispatch_gpe() calls
- *   acpi_any_gpe_status_set(U32_MAX) which sees GPE 0x52 and promotes to
- *   full resume. pm_system_cancel_wakeup() poisons the wakeup framework
- *   permanently = death sleep.
  *
  * Architecture (layered defense, informed by Windows driver stack):
  *
