@@ -236,6 +236,19 @@ config SURFACE_PRO3_BUTTON
 	help
 	  This driver handles the power/home/volume buttons on the Microsoft Surface Pro 3/4 tablet.
 
+config SURFACE_S2IDLE_FIX
+	tristate "s2idle Fix for Surface Laptop 5"
+	depends on ACPI
+	depends on DMI
+	depends on INPUT
+	depends on SUSPEND
+	help
+	  Fix for s2idle death-sleep on Surface Laptop 5. Intel INTC1055
+	  pinctrl power-gating corrupts pin 213 PADCFG0 RXINV, causing
+	  spurious GPE 0x52 and permanent wakeup framework poisoning.
+
+	  If unsure, say N. Only needed for Surface Laptop 5.
+
 source "drivers/platform/surface/aggregator/Kconfig"
 
 endif # SURFACE_PLATFORMS
