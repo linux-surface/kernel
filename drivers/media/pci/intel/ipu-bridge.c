@@ -112,6 +112,20 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
 static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
 	{
 		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
+		},
+		.driver_data = "INT33BE",
+	},
+	{
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+		},
+		.driver_data = "OVTI5693",
+	},
+	{
+		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "XPS 13 9340"),
 		},
