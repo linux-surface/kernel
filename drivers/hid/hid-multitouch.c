@@ -84,6 +84,7 @@ MODULE_LICENSE("GPL");
 #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
 #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
 #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(27)
+#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(28)
 
 #define MT_INPUTMODE_TOUCHSCREEN	0x02
 #define MT_INPUTMODE_TOUCHPAD		0x03
@@ -249,6 +250,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
 #define MT_CLS_YOGABOOK9I			0x0115
 #define MT_CLS_EGALAX_P80H84			0x0116
 #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0117
+#define MT_CLS_SURFACE_TOUCHPAD                0x0118
 #define MT_CLS_SIS				0x0457
 
 #define MT_DEFAULT_MAXCONTACT	10
@@ -478,6 +480,10 @@ static const struct mt_class mt_classes[] = {
 			MT_QUIRK_STICKY_FINGERS |
 			MT_QUIRK_WIN8_PTP_BUTTONS,
 		.export_all_inputs = true
+	},
+	{ .name = MT_CLS_SURFACE_TOUCHPAD,
+		.quirks = MT_QUIRK_ALWAYS_VALID |
+			MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE
 	},
 	{ }
 };
@@ -2283,12 +2289,32 @@ static void mt_remove(struct hid_device *hdev)
 
 static void mt_on_hid_hw_open(struct hid_device *hdev)
 {
+	struct mt_device *td = hid_get_drvdata(hdev);
+
+	/*
+	 * Some devices (e.g. Surface Laptop Studio 2 touchpad) can get stuck
+	 * non-functional if we change touchpad reporting modes from the HID
+	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
+	 * those devices.
+	 */
+	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
+		return;
+
 	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
 }
 
 static void mt_on_hid_hw_close(struct hid_device *hdev)
 {
 	struct mt_device *td = hid_get_drvdata(hdev);
+
+	/*
+	 * Some devices (e.g. Surface Laptop Studio 2 touchpad) can get stuck
+	 * non-functional if we change touchpad reporting modes from the HID
+	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
+	 * those devices.
+	 */
+	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
+		return;
 
 	if (td->mtclass.quirks & MT_QUIRK_KEEP_LATENCY_ON_CLOSE)
 		mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_NONE);
@@ -2746,6 +2772,11 @@ static const struct hid_device_id mt_devices[] = {
 	{ .driver_data = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER,
 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
 			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
+
+	/* Microsoft Surface touch pad */
+	{ .driver_data = MT_CLS_SURFACE_TOUCHPAD,
+		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
+			USB_VENDOR_ID_MICROSOFT, 0x0C46) },
 
 	/* Google MT devices */
 	{ .driver_data = MT_CLS_GOOGLE,
