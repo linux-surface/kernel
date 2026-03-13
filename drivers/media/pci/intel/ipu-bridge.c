@@ -12,6 +12,7 @@
 #include <linux/property.h>
 #include <linux/string.h>
 #include <linux/workqueue.h>
+#include <linux/dmi.h>
 
 #include <media/ipu-bridge.h>
 #include <media/v4l2-fwnode.h>
@@ -97,6 +98,30 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
 	/* Toshiba T4KA3 */
 	IPU_SENSOR_CONFIG("XMCC0003", 1, 321468000),
 };
+
+static const struct dmi_system_id override_rotation[] = {
+	/*
+	 * Systems on which rotation value need's to be overridden but ssdb->degree value is 0 (normal)
+	 */
+	{
+		.ident = "Microsoft Surface Pro 9",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+		},
+		.driver_data = (void *)180,
+	},
+	{
+		.ident = "Microsoft Surface Pro 8",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
+		},
+		.driver_data = (void *)180,
+	},
+	{}
+};
+
 
 static const struct ipu_property_names prop_names = {
 	.clock_frequency = "clock-frequency",
@@ -248,6 +273,10 @@ out_free_buff:
 static u32 ipu_bridge_parse_rotation(struct acpi_device *adev,
 				     struct ipu_sensor_ssdb *ssdb)
 {
+ 	const struct dmi_system_id *dmi_rotation;
+	dmi_rotation = dmi_first_match(override_rotation);
+	if (dmi_rotation && dmi_rotation->driver_data)
+		return (u32)(uintptr_t)dmi_rotation->driver_data;
 	switch (ssdb->degree) {
 	case IPU_SENSOR_ROTATION_NORMAL:
 		return 0;
