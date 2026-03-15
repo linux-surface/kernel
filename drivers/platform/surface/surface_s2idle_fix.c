@@ -721,22 +721,19 @@ static int s2idle_fix_resume_noirq(struct device *dev)
 
 static int s2idle_fix_resume_early(struct device *dev)
 {
-	int fixed;
-	const char *path = in_hibernate ? "thaw_early" : "resume_early";
-
-	if (!com4_base)
-		return 0;
-
-	fixed = fix_padcfg_corruption(path);
-	if (fixed > 0)
-		stats.early_restores++;
-
-	/* Do NOT unmask GPE 0x52 here. Stale GPE status from the lid
-	 * state change fires immediately on unmask, causing ACPI _L52
-	 * to run and the ACPI button driver to report a false lid event.
-	 * Logind reacts with HandleLidSwitch (suspend), which
-	 * suspend_to_lock intercepts as a lock. Delay unmask to
-	 * fix_post_sleep_common (PM_POST_SUSPEND) when system is stable. */
+	/* No PADCFG corruption check here. Between resume_noirq and
+	 * resume_early, pinctrl-intel's own resume_noirq and early ACPI
+	 * methods legitimately toggle RXINV. Comparing against our
+	 * pre-suspend saved state produces false positives that trigger
+	 * restore_pin(), which sets last_padcfg_restore_time and starts
+	 * the 15s RXSTATE settling suppression in lid_poll_fn, making
+	 * the lid appear stuck closed for 15 seconds after every wake.
+	 *
+	 * Real VNN corruption is already handled by:
+	 *   - lps0_check during s2idle (fix_padcfg_corruption)
+	 *   - resume_noirq (fix_padcfg_corruption, runs before ACPI)
+	 *
+	 * GPE unmask is handled by fix_post_sleep_common. */
 
 	return 0;
 }
