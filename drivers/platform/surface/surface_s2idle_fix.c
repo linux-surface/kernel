@@ -6,6 +6,15 @@
  * (iaLPSS2_GPIO2_ADL.sys, msgpioclx.sys, SurfaceButton.sys, intelpep.sys)
  * and Linux pinctrl-intel + ACPI s2idle kernel source.
  *
+ * Root cause:
+ *   Intel INTC1055 GPIO Community 4's VNN (VCCIO nanonode) power rail drops
+ *   during C-state transitions in s2idle. PADCFG registers lose state. When
+ *   VNN returns, PADCFG0 on pin 213 (lid sensor) comes back with RXINV
+ *   (bit 23) flipped. This phantom edge fires GPE 0x52 as an SCI. Since
+ *   this Surface has no EC (first_ec==NULL), acpi_ec_dispatch_gpe() calls
+ *   acpi_any_gpe_status_set(U32_MAX) which sees GPE 0x52 and promotes to
+ *   full resume. pm_system_cancel_wakeup() poisons the wakeup framework
+ *   permanently = death sleep.
  *
  * Architecture (layered defense, informed by Windows driver stack):
  *
@@ -22,7 +31,7 @@
  *     acpi_any_gpe_status_set() never sees the phantom edge
  *
  *   Layer 4: LPS0 s2idle device ops (inside the s2idle idle loop)
- *     prepare: fix PADCFG, start poll timer, GPE stays masked
+ *     prepare: fix PADCFG, start poll timer, GPE enabled for lid wake
  *     check:   fix PADCFG, poll RXSTATE for lid-open, pm_system_wakeup()
  *              only on genuine lid open
  *     restore: cancel timer, clear state
@@ -89,9 +98,15 @@
 #define PADCFG2_OFF             8
 
 /* PADCFG0 bit definitions */
+#define PADCFG0_RXEV_MASK       (3u << 25)  /* bits 26:25: RX event config */
+#define PADCFG0_RXEV_LEVEL      (0u << 25)  /* 00: level-triggered */
+#define PADCFG0_RXEV_EDGE       (1u << 25)  /* 01: rising edge */
+#define PADCFG0_RXEV_DISABLED   (2u << 25)  /* 10: disabled */
+#define PADCFG0_RXEV_EITHEREDGE (3u << 25)  /* 11: either edge */
 #define PADCFG0_RXINV           BIT(23)
 #define PADCFG0_GPIROUTSCI      BIT(19)
-#define PADCFG0_GPIORXDIS       BIT(8)
+#define PADCFG0_GPIOTXDIS       BIT(8)
+#define PADCFG0_GPIORXDIS       BIT(9)
 #define PADCFG0_GPIORXSTATE     BIT(1)
 #define PADCFG0_GPIOTXSTATE     BIT(0)
 #define PADCFG0_PMODE_MASK      0x00003C00  /* bits 13:10, pad mode */
@@ -106,6 +121,23 @@
 /* GPI_IE (interrupt enable), for monitoring */
 #define COM4_GPI_IE_BASE        0x0120
 #define COM4_GPI_IE_REGS        4
+
+/* GPI_GPE_STS / GPI_GPE_EN: community-level GPE routing registers.
+ * These control which GPIO pads generate SCI events through the
+ * ACPI GPE mechanism (separate from GPI_IE which routes to CPU IRQ).
+ * Tiger Lake-LP layout: IS=0x100, IE=0x120, GPE_STS=0x140, GPE_EN=0x160 */
+#define COM4_GPI_GPE_STS_BASE   0x0140
+#define COM4_GPI_GPE_EN_BASE    0x0160
+#define COM4_GPI_SMI_STS_BASE   0x0180
+#define COM4_GPI_SMI_EN_BASE    0x01a0
+#define COM4_GPI_NMI_STS_BASE   0x01c0
+#define COM4_GPI_NMI_EN_BASE    0x01e0
+
+/* Pin 213 is in GPP_F (group 1 within TGL-LP Community 4).
+ * GPP_C = pins 171-194 (group 0), GPP_F = pins 195-219 (group 1).
+ * Pin 213 within GPP_F: 213 - 195 = 18 → bit 18. */
+#define LID_GPE_GROUP           1           /* GPP_F = group 1 */
+#define LID_GPE_BIT             18          /* pin 213 - 195 = bit 18 */
 
 /* GPE and SCI */
 #define LID_GPE                 0x52
@@ -185,6 +217,7 @@ static struct delayed_work time_sync_retry_work;
 static struct delayed_work lock_blank_work;
 static struct work_struct lock_restore_work;
 static struct hrtimer s2idle_poll_timer;
+static struct delayed_work gpe_unmask_work;
 
 static bool suspend_to_lock = true;
 module_param(suspend_to_lock, bool, 0644);
@@ -204,6 +237,8 @@ static bool lid_poll_active;
 static bool lid_resync_active;
 static bool gpe52_was_enabled;
 static bool s2idle_gpe_active;
+static u32 s2idle_saved_padcfg0;     /* original PADCFG0 before s2idle mods */
+static bool s2idle_padcfg0_modified; /* did we modify PADCFG0 in lps0_prepare? */
 static bool in_hibernate;
 static struct timespec64 saved_pre_hibernate_ts;
 static ktime_t saved_pre_hibernate_mono;
@@ -217,15 +252,17 @@ static unsigned int resync_polls_remaining;
 /* Lid switch input device */
 static struct input_dev *lid_input_dev;
 
+
 /* Exponential backoff */
 static ktime_t last_suspend_entry;
 static unsigned int consecutive_rapid_wakes;
 
-/* RXSTATE settling guard: after PADCFG restore + GPIORXDIS toggle,
- * the analog pad input circuitry needs ~10s to settle. Suppress
- * false lid-open transitions from the poller during this window. */
+/* RXSTATE settling guard: after s2idle resume, VNN power-gating
+ * causes RXSTATE to bounce for ~20s. Suppress false lid transitions
+ * from the poller during this window. */
 static ktime_t last_padcfg_restore_time;
-#define RXSTATE_SETTLE_MS 15000
+static ktime_t last_resume_time;
+#define RXSTATE_SETTLE_MS 3000
 
 /* Statistics (exposed via debugfs) */
 static struct {
@@ -500,7 +537,7 @@ static void gpe52_force_disable(void)
 	gpe52_was_enabled = true;
 }
 
-static void gpe52_unmask(const char *caller)
+static void gpe52_unmask_now(const char *caller)
 {
 	if (gpe52_was_enabled) {
 		acpi_clear_gpe(NULL, LID_GPE);
@@ -508,6 +545,65 @@ static void gpe52_unmask(const char *caller)
 		acpi_enable_gpe(NULL, LID_GPE);
 		gpe52_was_enabled = false;
 		pr_info("%s: GPE 0x52 unmasked\n", caller);
+	}
+}
+
+static void gpe_unmask_fn(struct work_struct *work)
+{
+	struct pin_context *lid = &tracked_pins[LID_TRACKED_INDEX];
+	u32 padcfg0;
+	int rxstate;
+
+	/* After settling, PM_POST_SUSPEND already called _L52 which
+	 * set RXINV=0 and LIDS=open.  RXSTATE should be 0 (settled).
+	 * RXINV=0 XOR RXSTATE=0 = 0, level de-asserted.
+	 * Unmask GPE so next lid close fires naturally via _L52. */
+
+	if (lid->valid && com4_base) {
+		padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
+		rxstate = !!(padcfg0 & PADCFG0_GPIORXSTATE);
+		pr_info("deferred-unmask: PADCFG0=0x%08x RXINV=%d "
+			"RXSTATE=%d\n", padcfg0,
+			!!(padcfg0 & PADCFG0_RXINV), rxstate);
+
+		/* If lid got closed during settling, handle it */
+		if (rxstate) {
+			pr_info("deferred-unmask: lid closed during "
+				"settle window, suspending\n");
+			report_lid_state(1);
+			last_poll_rxstate = 1;
+			lid_was_closed_at_suspend = true;
+			gpe52_unmask_now("deferred-unmask");
+			pm_suspend(PM_SUSPEND_TO_IDLE);
+			return;
+		}
+	}
+
+	gpe52_unmask_now("deferred-unmask");
+}
+
+/*
+ * Unmask GPE 0x52 after RXSTATE settling delay.
+ *
+ * After s2idle resume, VNN power cycling leaves the pad input buffer
+ * unstable for ~15 seconds. RXSTATE bounces between 0 and 1, each
+ * transition fires GPE 0x52 → _L52 → false Notify(LID0) → logind
+ * sees phantom lid open/close events that cancel pending suspends.
+ *
+ * Keep GPE masked during settling. The poller tracks lid state on our
+ * device during this window. After settling, unmask for normal ACPI
+ * button driver operation.
+ */
+static void gpe52_unmask(const char *caller, bool deferred)
+{
+	if (deferred) {
+		pr_info("%s: GPE 0x52 unmask deferred %dms\n",
+			caller, RXSTATE_SETTLE_MS);
+		schedule_delayed_work(&gpe_unmask_work,
+				      msecs_to_jiffies(RXSTATE_SETTLE_MS));
+	} else {
+		cancel_delayed_work(&gpe_unmask_work);
+		gpe52_unmask_now(caller);
 	}
 }
 
@@ -677,11 +773,25 @@ static bool lid_wake_handler(void *context)
 	if (fixed > 0)
 		stats.wakeup_handler_fixes++;
 
-	/* During s2idle: ALWAYS clear GPE 0x52 status regardless of
-	 * whether corruption was detected. The GPE could fire from a
-	 * legitimate lid event that we want to defer to lps0_check(). */
-	if (s2idle_gpe_active)
+	/* During s2idle: disable GPE 0x52 and clear all status.
+	 *
+	 * acpi_s2idle_wake() calls acpi_any_gpe_status_set() which
+	 * reads the HARDWARE enable & status registers. If GPE 0x52
+	 * has enable=1 and status=1, it promotes to full resume
+	 * BEFORE lps0_check() ever runs. Even clearing both levels
+	 * of the status chain (GPI_GPE_STS + ACPI GPE) races with
+	 * SocGpe re-assertion.
+	 *
+	 * Fix: disable GPE 0x52 (clear hw enable bit) so that
+	 * enable & status = 0 regardless of status. lps0_check()
+	 * re-enables it after reading RXSTATE. */
+	if (s2idle_gpe_active && com4_base) {
+		acpi_set_gpe(NULL, LID_GPE, ACPI_GPE_DISABLE);
+		writel(BIT(LID_GPE_BIT),
+		       com4_base + COM4_GPI_GPE_STS_BASE +
+		       LID_GPE_GROUP * 4);
 		acpi_clear_gpe(NULL, LID_GPE);
+	}
 
 	/* Never promote to full resume from here. The lid-open decision
 	 * is deferred to lps0_check() which polls RXSTATE directly. */
@@ -694,21 +804,71 @@ static bool lid_wake_handler(void *context)
 
 static int s2idle_fix_suspend_noirq(struct device *dev)
 {
+	struct pin_context *lid = &tracked_pins[LID_TRACKED_INDEX];
+
 	if (!com4_base)
 		return 0;
 
 	gpe52_force_disable();
+
+	/* Reconfigure PADCFG0 EARLY: clear GPIORXDIS to enable the input
+	 * buffer and set RXEV=either-edge for instant lid-open detection.
+	 * Doing this in suspend_noirq (well before lps0_prepare) gives the
+	 * input buffer time to settle before we enable GPE and read RXSTATE.
+	 * Keep RXINV as ACPI set it (1 = armed for lid-open). */
+	s2idle_padcfg0_modified = false;
+	if (lid->valid) {
+		u32 val = readl(pin_addr(lid) + PADCFG0_OFF);
+		s2idle_saved_padcfg0 = val;
+
+		val &= ~(PADCFG0_GPIORXDIS | PADCFG0_RXEV_MASK);
+		val |= PADCFG0_RXEV_EITHEREDGE;
+
+		writel(val, pin_addr(lid) + PADCFG0_OFF);
+		wmb();
+		s2idle_padcfg0_modified = true;
+
+		/* Wait for input buffer to settle before anyone reads RXSTATE */
+		udelay(500);
+
+		/* Clear any spurious GPIO GPE status from buffer activation */
+		writel(BIT(LID_GPE_BIT),
+		       com4_base + COM4_GPI_GPE_STS_BASE + LID_GPE_GROUP * 4);
+
+		/* Update golden snapshot to our modified config */
+		lid->padcfg0 = val & ~PADCFG0_GPIORXSTATE;
+
+		pr_info("suspend_noirq: PADCFG0 0x%08x -> 0x%08x "
+			"(RXEV=either-edge, GPIORXDIS=0), "
+			"RXSTATE after settle=%d\n",
+			s2idle_saved_padcfg0, val,
+			!!(readl(pin_addr(lid) + PADCFG0_OFF)
+			   & PADCFG0_GPIORXSTATE));
+	}
+
 	pr_info("suspend_noirq: GPE 0x52 force-disabled\n");
 	return 0;
 }
 
 static int s2idle_fix_resume_noirq(struct device *dev)
 {
+	struct pin_context *lid = &tracked_pins[LID_TRACKED_INDEX];
 	int fixed;
 	const char *path = in_hibernate ? "thaw_noirq" : "resume_noirq";
 
 	if (!com4_base)
 		return 0;
+
+	/* Restore PADCFG0 before fix_padcfg_corruption checks it */
+	if (s2idle_padcfg0_modified && lid->valid) {
+		writel(s2idle_saved_padcfg0 & ~PADCFG0_GPIORXSTATE,
+		       pin_addr(lid) + PADCFG0_OFF);
+		wmb();
+		lid->padcfg0 = s2idle_saved_padcfg0 & ~PADCFG0_GPIORXSTATE;
+		s2idle_padcfg0_modified = false;
+		writel(BIT(LID_GPE_BIT),
+		       com4_base + COM4_GPI_GPE_STS_BASE + LID_GPE_GROUP * 4);
+	}
 
 	fixed = fix_padcfg_corruption(path);
 	check_hostsw_own(path);
@@ -805,30 +965,39 @@ static enum hrtimer_restart s2idle_poll_timer_fn(struct hrtimer *timer)
 
 static void s2idle_lps0_prepare(void)
 {
-	/* Refresh golden snapshot: ACPI _L52 may have toggled RXINV
-	 * between PM_SUSPEND_PREPARE and now (e.g. lid close sets
-	 * RXINV=1). Re-snapshot so fix_padcfg_corruption during s2idle
-	 * only catches real VNN corruption, not ACPI's legitimate
-	 * RXINV changes. */
-	save_all_pins();
+	struct pin_context *lid = &tracked_pins[LID_TRACKED_INDEX];
+	u32 padcfg0;
 
-	/* GPE 0x52 stays masked during s2idle. VNN power-gating causes
-	 * transient RXSTATE glitches that fire GPE 0x52 as an SCI,
-	 * promoting to full wake before the handler can intervene.
-	 * Lid-open detection is handled by the 500ms poll timer +
-	 * lps0_check() reading RXSTATE directly. */
+	/* PADCFG0 was already reconfigured in suspend_noirq (GPIORXDIS=0,
+	 * RXEV=either-edge). By now the input buffer has had plenty of
+	 * time to settle. Clear any residual GPE from buffer activation. */
+	if (lid->valid && com4_base) {
+		writel(BIT(LID_GPE_BIT),
+		       com4_base + COM4_GPI_GPE_STS_BASE + LID_GPE_GROUP * 4);
+		padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
+		pr_info("lps0_prepare: RXSTATE=%d (settled, lid %s)\n",
+			!!(padcfg0 & PADCFG0_GPIORXSTATE),
+			(padcfg0 & PADCFG0_GPIORXSTATE) ? "closed" : "OPEN?");
+	}
+
+	/* Clear stale ACPI GPE status before unmasking */
 	acpi_clear_gpe(NULL, LID_GPE);
+
+	/* Unmask and enable GPE 0x52 for edge-driven lid wake */
+	acpi_mask_gpe(NULL, LID_GPE, FALSE);
+	acpi_set_gpe(NULL, LID_GPE, ACPI_GPE_ENABLE);
 
 	s2idle_gpe_active = true;
 	lps0_check_count = 0;
 
-	/* Periodic wakeup timer for lid polling during s2idle */
-	hrtimer_start(&s2idle_poll_timer,
-		      ns_to_ktime(S2IDLE_POLL_INTERVAL_NS),
-		      HRTIMER_MODE_REL_PINNED);
+	/* Start periodic wakeup timer as fallback.
+	 * GPE 0x52 provides instant edge-triggered wake, but if the edge
+	 * is lost (VNN glitch, firmware quirk), this timer ensures
+	 * lps0_check still runs every 500ms to poll RXSTATE. */
+	hrtimer_start(&s2idle_poll_timer, ns_to_ktime(S2IDLE_POLL_INTERVAL_NS),
+		      HRTIMER_MODE_REL);
 
-	pr_info("lps0_prepare: poll timer started (%llums), GPE 0x52 masked\n",
-		(unsigned long long)(S2IDLE_POLL_INTERVAL_NS / NSEC_PER_MSEC));
+	pr_info("lps0_prepare: GPE 0x52 enabled, poll timer started\n");
 }
 
 static void s2idle_lps0_check(void)
@@ -841,7 +1010,17 @@ static void s2idle_lps0_check(void)
 
 	/* Fix corruption on every wake within the s2idle loop */
 	fix_padcfg_corruption("lps0_check");
+
+	/* Re-enable GPE 0x52 (handler disables it to prevent
+	 * acpi_any_gpe_status_set() from promoting to full resume).
+	 * Clear residual status first, then re-enable for next edge. */
+	if (com4_base) {
+		writel(BIT(LID_GPE_BIT),
+		       com4_base + COM4_GPI_GPE_STS_BASE +
+		       LID_GPE_GROUP * 4);
+	}
 	acpi_clear_gpe(NULL, LID_GPE);
+	acpi_set_gpe(NULL, LID_GPE, ACPI_GPE_ENABLE);
 
 	/* Layer 2: power button detection.
 	 * If SAM IRQ 159 fired (via PMC always-on wake monitoring) and
@@ -854,10 +1033,43 @@ static void s2idle_lps0_check(void)
 		return;
 	}
 
-	/* Detect lid-open: RXSTATE=0 means lid is open */
+	/* Detect lid-open: RXSTATE=0 means lid is open.
+	 *
+	 * After VNN power cycling, the analog RX buffer can latch
+	 * to 0 (stale) even though the pad is HIGH (lid closed).
+	 * Toggle GPIORXDIS to force a re-latch before trusting
+	 * RXSTATE=0. This matches what restore_pin() does after
+	 * corruption fixes. */
 	lid = &tracked_pins[LID_TRACKED_INDEX];
 	if (lid->valid && lid_was_closed_at_suspend) {
 		padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
+		if (!(padcfg0 & PADCFG0_GPIORXSTATE)) {
+			/* RXSTATE=0: might be stale from VNN cycle.
+			 * Toggle GPIORXDIS to force RX buffer re-latch. */
+			u32 cfg = padcfg0;
+			writel(cfg | PADCFG0_GPIORXDIS,
+			       pin_addr(lid) + PADCFG0_OFF);
+			wmb();
+			udelay(100);
+			writel(cfg & ~PADCFG0_GPIORXDIS,
+			       pin_addr(lid) + PADCFG0_OFF);
+			wmb();
+			udelay(500);
+
+			/* Clear any edge from the toggle */
+			writel(BIT(LID_GPE_BIT),
+			       com4_base + COM4_GPI_GPE_STS_BASE +
+			       LID_GPE_GROUP * 4);
+			acpi_clear_gpe(NULL, LID_GPE);
+
+			/* Re-read after settling */
+			padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
+			if (padcfg0 & PADCFG0_GPIORXSTATE) {
+				/* Recovered: RXSTATE=1, lid is still
+				 * closed. The initial 0 was stale. */
+				return;
+			}
+		}
 		if (!(padcfg0 & PADCFG0_GPIORXSTATE)) {
 			lid_was_closed_at_suspend = false;
 			report_lid_state(0);
@@ -884,10 +1096,13 @@ static void s2idle_lps0_check(void)
 static void s2idle_lps0_restore(void)
 {
 	s2idle_gpe_active = false;
+
+	/* Stop poll timer */
 	hrtimer_cancel(&s2idle_poll_timer);
 
 	/* Re-mask GPE 0x52 leaving the s2idle loop.
-	 * PM_POST_SUSPEND will unmask it for normal operation. */
+	 * PM_POST_SUSPEND will unmask it for normal operation.
+	 * PADCFG0 restore is handled by resume_noirq. */
 	acpi_mask_gpe(NULL, LID_GPE, TRUE);
 	acpi_clear_gpe(NULL, LID_GPE);
 
@@ -909,6 +1124,7 @@ static void lid_poll_fn(struct work_struct *work)
 	struct pin_context *lid;
 	u32 padcfg0;
 	int rxstate;
+	acpi_status status;
 
 	if (!com4_base || !lid_poll_active)
 		return;
@@ -921,23 +1137,44 @@ static void lid_poll_fn(struct work_struct *work)
 	rxstate = !!(padcfg0 & PADCFG0_GPIORXSTATE);
 
 	if (rxstate != last_poll_rxstate) {
+		s64 since_resume = ktime_ms_delta(
+			ktime_get_boottime(), last_resume_time);
+
 		if (rxstate == 1 && last_poll_rxstate == 0) {
+			if (since_resume < RXSTATE_SETTLE_MS) {
+				pr_info("lid poll: RXSTATE 0->1 suppressed "
+					"(settling, %lldms since resume)\n",
+					since_resume);
+				goto reschedule;
+			}
 			report_lid_state(1);
-			pr_info("lid poll: closed (RXSTATE 0->1)\n");
+			/* Call _L52 to notify logind via ACPI button
+			 * driver.  GPE is masked after resume, so we
+			 * must dispatch _L52 manually.  The 2s poll
+			 * interval naturally debounces GPIO switch
+			 * bounce that would cause GPE storms. */
+			status = acpi_evaluate_object(NULL,
+				"\\_GPE._L52", NULL, NULL);
+			pr_info("lid poll: closed (RXSTATE 0->1), "
+				"_L52 %s (0x%x)\n",
+				ACPI_SUCCESS(status) ? "ok" : "FAILED",
+				status);
 		} else if (rxstate == 0 && last_poll_rxstate == 1) {
-			s64 since_restore = ktime_ms_delta(
-				ktime_get_boottime(),
-				last_padcfg_restore_time);
-			if (since_restore < RXSTATE_SETTLE_MS) {
+			if (since_resume < RXSTATE_SETTLE_MS) {
 				pr_info("lid poll: RXSTATE 1->0 suppressed "
-					"(settling, %lldms since restore)\n",
-					since_restore);
+					"(settling, %lldms since resume)\n",
+					since_resume);
 				/* Don't update last_poll_rxstate,
 				 * re-check next poll cycle */
 				goto reschedule;
 			}
 			report_lid_state(0);
-			pr_info("lid poll: opened (RXSTATE 1->0)\n");
+			status = acpi_evaluate_object(NULL,
+				"\\_GPE._L52", NULL, NULL);
+			pr_info("lid poll: opened (RXSTATE 1->0), "
+				"_L52 %s (0x%x)\n",
+				ACPI_SUCCESS(status) ? "ok" : "FAILED",
+				status);
 		}
 		last_poll_rxstate = rxstate;
 	}
@@ -1070,13 +1307,17 @@ static void lid_failsafe_fn(struct work_struct *work)
 	 * RXSTATE latch can be stale for ~10 seconds while the analog
 	 * pad circuitry recovers. A single read right after wake almost
 	 * always shows 0 (open) even if the lid is physically closed.
-	 * Poll with retries to let RXSTATE settle before giving up. */
+	 *
+	 * Deep sleep wakes (consecutive_rapid_wakes==0): RXSTATE is
+	 * reliable by the time failsafe runs, no settle needed.
+	 * Rapid wakes: RXSTATE can glitch for ~8s, poll to settle. */
 	lid = &tracked_pins[LID_TRACKED_INDEX];
 	if (lid->valid && com4_base) {
 		int retries;
 		bool lid_open = true;
+		int max_retries = (consecutive_rapid_wakes == 0) ? 1 : 5;
 
-		for (retries = 0; retries < 5; retries++) {
+		for (retries = 0; retries < max_retries; retries++) {
 			u32 now = readl(pin_addr(lid) + PADCFG0_OFF);
 
 			if (now & PADCFG0_GPIORXSTATE) {
@@ -1086,7 +1327,7 @@ static void lid_failsafe_fn(struct work_struct *work)
 				lid_open = false;
 				break;
 			}
-			if (retries < 4)
+			if (retries < max_retries - 1)
 				msleep(2000);
 		}
 
@@ -1138,6 +1379,7 @@ static void fix_pre_sleep_common(const char *path_name)
 		cancel_delayed_work_sync(&lid_poll_work);
 		cancel_delayed_work_sync(&lid_resync_work);
 		cancel_delayed_work_sync(&lid_failsafe_work);
+		cancel_delayed_work_sync(&gpe_unmask_work);
 	}
 
 	last_suspend_entry = ktime_get_boottime();
@@ -1156,6 +1398,11 @@ static void fix_pre_sleep_common(const char *path_name)
 		padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
 		lid_was_closed_at_suspend = !!(padcfg0 & PADCFG0_GPIORXSTATE);
 	}
+
+	/* Set GPE 0x52 wake mask BEFORE acpi_enable_all_wakeup_gpes()
+	 * (runs in acpi_s2idle_prepare, after PM_SUSPEND_PREPARE).
+	 * This ensures the PMC includes GPE 0x52 in S0ix wake sources. */
+	acpi_set_gpe_wake_mask(NULL, LID_GPE, ACPI_GPE_ENABLE);
 
 	/* Mask GPE 0x52 for the duration of sleep.
 	 * suspend_noirq does gpe52_force_disable() as belt-and-suspenders. */
@@ -1187,8 +1434,15 @@ static void fix_post_sleep_common(const char *path_name, bool schedule_work)
 	 * Real VNN corruption is already handled by resume_noirq.) */
 	check_hostsw_own(path_name);
 
-	/* Unmask fallback */
-	gpe52_unmask(path_name);
+	/* Record resume time for RXSTATE settling suppression. */
+	last_resume_time = ktime_get_boottime();
+
+	/* Unmask GPE 0x52. For s2idle (schedule_work=true), defer the
+	 * unmask by RXSTATE_SETTLE_MS to prevent VNN-settling RXSTATE
+	 * bouncing from firing _L52 with stale values, which sends
+	 * false lid open/close events to logind and cancels real
+	 * suspends. For hibernate paths, unmask immediately. */
+	gpe52_unmask(path_name, schedule_work);
 
 	lid = &tracked_pins[LID_TRACKED_INDEX];
 
@@ -1480,24 +1734,36 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 				&tracked_pins[LID_TRACKED_INDEX];
 
 			if (lid->valid && com4_base) {
-				/* RXSTATE (bit 1) is the RAW pad input,
-				 * unaffected by RXINV. No need to fix
-				 * PADCFG corruption here, just read it.
-				 * Calling fix_padcfg_corruption would
-				 * modify RXINV before save_all_pins,
-				 * poisoning the golden reference. */
 				u32 padcfg0 = readl(pin_addr(lid)
 						    + PADCFG0_OFF);
-				lid_physically_closed = !!(padcfg0
+				bool rxinv = !!(padcfg0 & PADCFG0_RXINV);
+
+				/* RXINV=1 means _L52 ran for lid close
+				 * (it calls SGII to set RXINV=1).
+				 * RXINV=0 means no recent lid close,
+				 * so this is a manual suspend (DE button,
+				 * power button, systemctl suspend).
+				 * Only intercept lid-triggered suspends
+				 * where GPIO bounce makes lid look open. */
+				if (!rxinv) {
+					pr_info("suspend_to_lock: manual "
+						"suspend (RXINV=0), "
+						"allowing\n");
+					lid_physically_closed = true;
+				} else {
+					lid_physically_closed = !!(padcfg0
 						& PADCFG0_GPIORXSTATE);
-				pr_info("suspend_to_lock: PADCFG0=0x%08x "
-					"RXSTATE=%d RXINV=%d -> %s\n",
-					padcfg0,
-					!!(padcfg0 & PADCFG0_GPIORXSTATE),
-					!!(padcfg0 & PADCFG0_RXINV),
-					lid_physically_closed ?
-					"lid closed, allowing suspend" :
-					"lid open, intercepting");
+					pr_info("suspend_to_lock: "
+						"PADCFG0=0x%08x RXSTATE=%d "
+						"RXINV=%d -> %s\n",
+						padcfg0,
+						!!(padcfg0 &
+						   PADCFG0_GPIORXSTATE),
+						rxinv,
+						lid_physically_closed ?
+						"lid closed, allowing" :
+						"lid open, intercepting");
+				}
 			}
 
 			if (!lid_physically_closed) {
@@ -1549,6 +1815,46 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 
 	case PM_POST_SUSPEND:
 		fix_post_sleep_common("post-suspend", true);
+
+		/* Call _L52 immediately to sync ACPI lid state.
+		 * At PM_POST_SUSPEND time, RXSTATE is fresh and
+		 * reliable (VNN settling hasn't started yet, first
+		 * bounce is at +4-8s).  RXSTATE=0 means lid is open.
+		 * _L52 will read RXSTATE=0, set LIDS=1 (open),
+		 * set RXINV=0, and Notify(LID0, 0x80).
+		 * This means by the time deferred-unmask runs at +25s,
+		 * RXINV=0 and RXSTATE=0 (settled), so XOR=0, level
+		 * condition de-asserted, GPE unmasks cleanly. */
+		{
+			struct pin_context *lid =
+				&tracked_pins[LID_TRACKED_INDEX];
+			if (lid->valid && com4_base) {
+				u32 padcfg0 = readl(
+					pin_addr(lid) + PADCFG0_OFF);
+				int rxstate = !!(padcfg0 &
+					PADCFG0_GPIORXSTATE);
+
+				pr_info("post-suspend: RXSTATE=%d RXINV=%d, "
+					"calling _L52\n", rxstate,
+					!!(padcfg0 & PADCFG0_RXINV));
+				acpi_evaluate_object(NULL,
+					"\\_GPE._L52", NULL, NULL);
+
+				/* Re-read after _L52 (it flips RXINV) */
+				padcfg0 = readl(
+					pin_addr(lid) + PADCFG0_OFF);
+				pr_info("post-suspend: post-_L52 RXINV=%d "
+					"RXSTATE=%d\n",
+					!!(padcfg0 & PADCFG0_RXINV),
+					!!(padcfg0 & PADCFG0_GPIORXSTATE));
+
+				report_lid_state(rxstate);
+				last_poll_rxstate = rxstate;
+				if (!rxstate) {
+					lid_was_closed_at_suspend = false;
+				}
+			}
+		}
 
 		/* If PADCFG corruption happened during this s2idle cycle,
 		 * the display may not have come back. Trigger display
@@ -1957,7 +2263,7 @@ static int __init surface_s2idle_fix_init(void)
 	 * s2idle. PM_SUSPEND_PREPARE masks GPE; resume_early unmasks it. */
 
 	/* Fix PADCFG corruption from VNN power rail drops.
-	 * Corruption can flip RXINV and clear GPIORXDIS. Check both. */
+	 * Corruption can flip RXINV and clear GPIOTXDIS. Check both. */
 	lid = &tracked_pins[LID_TRACKED_INDEX];
 	if (lid->valid) {
 		bool need_fix = false;
@@ -1967,8 +2273,8 @@ static int __init surface_s2idle_fix_init(void)
 			fixed &= ~PADCFG0_RXINV;
 			need_fix = true;
 		}
-		if (!(fixed & PADCFG0_GPIORXDIS)) {
-			fixed |= PADCFG0_GPIORXDIS;
+		if (!(fixed & PADCFG0_GPIOTXDIS)) {
+			fixed |= PADCFG0_GPIOTXDIS;
 			need_fix = true;
 		}
 		if (need_fix) {
@@ -2009,6 +2315,7 @@ static int __init surface_s2idle_fix_init(void)
 	/* Work items and timers */
 	INIT_DELAYED_WORK(&lid_failsafe_work, lid_failsafe_fn);
 	INIT_DELAYED_WORK(&lid_resync_work, lid_resync_fn);
+	INIT_DELAYED_WORK(&gpe_unmask_work, gpe_unmask_fn);
 	INIT_DELAYED_WORK(&lid_poll_work, lid_poll_fn);
 	INIT_DELAYED_WORK(&time_sync_retry_work, time_sync_retry_fn);
 	INIT_DELAYED_WORK(&lock_blank_work, lock_blank_fn);
@@ -2079,7 +2386,7 @@ static int __init surface_s2idle_fix_init(void)
 	schedule_delayed_work(&lid_poll_work,
 			      msecs_to_jiffies(LID_POLL_INTERVAL_MS));
 
-	pr_info("v5.4 loaded: SCI=%d, %d pins tracked, "
+	pr_info("v5.5 loaded: SCI=%d, %d pins tracked, "
 		"PADCFG0=0x%08x RXINV=%d RXSTATE=%d, "
 		"pwr=%s lps0=%s debugfs=%s\n",
 		sci_irq, num_tracked_pins, initial_padcfg0,
@@ -2088,6 +2395,29 @@ static int __init surface_s2idle_fix_init(void)
 		pwr_ok ? "ok" : "FAIL",
 		lps0_err ? "FAIL" : "ok",
 		dbgfs_root ? "ok" : "FAIL");
+
+	/* Dump GPIO community-level interrupt routing registers
+	 * to verify offsets and find GPI_GPE_EN state */
+	if (com4_base) {
+		int g;
+		for (g = 0; g < 3; g++) {
+			u32 is  = readl(com4_base + COM4_GPI_IE_BASE - 0x20 + g*4);
+			u32 ie  = readl(com4_base + COM4_GPI_IE_BASE + g*4);
+			u32 gs  = readl(com4_base + COM4_GPI_GPE_STS_BASE + g*4);
+			u32 ge  = readl(com4_base + COM4_GPI_GPE_EN_BASE + g*4);
+			u32 ss  = readl(com4_base + COM4_GPI_SMI_STS_BASE + g*4);
+			u32 se  = readl(com4_base + COM4_GPI_SMI_EN_BASE + g*4);
+			pr_info("init: COM4 group %d: "
+				"GPI_IS=0x%08x GPI_IE=0x%08x "
+				"GPE_STS=0x%08x GPE_EN=0x%08x "
+				"SMI_STS=0x%08x SMI_EN=0x%08x\n",
+				g, is, ie, gs, ge, ss, se);
+		}
+		pr_info("init: pin 213 GPE_EN: group %d bit %d = %d\n",
+			LID_GPE_GROUP, LID_GPE_BIT,
+			!!(readl(com4_base + COM4_GPI_GPE_EN_BASE
+				 + LID_GPE_GROUP * 4) & BIT(LID_GPE_BIT)));
+	}
 
 	return 0;
 }
@@ -2100,8 +2430,8 @@ static void __exit surface_s2idle_fix_exit(void)
 	cancel_delayed_work_sync(&lid_resync_work);
 	cancel_delayed_work_sync(&lid_failsafe_work);
 	cancel_delayed_work_sync(&time_sync_retry_work);
-
-	gpe52_unmask("exit");
+	cancel_delayed_work_sync(&gpe_unmask_work);
+	gpe52_unmask("exit", false);
 	sam_wakeup_teardown();
 	acpi_set_gpe_wake_mask(NULL, LID_GPE, ACPI_GPE_ENABLE);
 
@@ -2130,7 +2460,7 @@ static void __exit surface_s2idle_fix_exit(void)
 		com4_base = NULL;
 	}
 
-	pr_info("v5.4 unloaded: %u suspends, %u hibernates, "
+	pr_info("v5.5 unloaded: %u suspends, %u hibernates, "
 		"%u PADCFG restores, %u multi-pin fixes, "
 		"%u HOSTSW_OWN fixes, %u spurious wakes\n",
 		stats.suspend_cycles, stats.hibernate_cycles,
@@ -2143,6 +2473,6 @@ module_exit(surface_s2idle_fix_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Surface Linux Debug");
-MODULE_DESCRIPTION("Fix s2idle/hibernate death sleep on Surface Laptop 5 (v5.4)");
-MODULE_VERSION("5.4");
+MODULE_DESCRIPTION("Fix s2idle/hibernate death sleep on Surface Laptop 5 (v5.5)");
+MODULE_VERSION("5.5");
 MODULE_ALIAS("dmi:*:svnMicrosoftCorporation:pnSurfaceLaptop5:*");
