@@ -218,6 +218,7 @@ static struct delayed_work lock_blank_work;
 static struct work_struct lock_restore_work;
 static struct hrtimer s2idle_poll_timer;
 static struct delayed_work gpe_unmask_work;
+static struct work_struct lid_close_work;
 
 static bool suspend_to_lock = true;
 module_param(suspend_to_lock, bool, 0644);
@@ -233,6 +234,7 @@ static bool lid_close_reported;
 /* State flags */
 static bool lid_was_closed_at_suspend;
 static bool failsafe_in_progress;
+static bool lid_close_in_progress;
 static bool lid_poll_active;
 static bool lid_resync_active;
 static bool gpe52_was_enabled;
@@ -554,10 +556,10 @@ static void gpe_unmask_fn(struct work_struct *work)
 	u32 padcfg0;
 	int rxstate;
 
-	/* After settling, PM_POST_SUSPEND already called _L52 which
-	 * set RXINV=0 and LIDS=open.  RXSTATE should be 0 (settled).
-	 * RXINV=0 XOR RXSTATE=0 = 0, level de-asserted.
-	 * Unmask GPE so next lid close fires naturally via _L52. */
+	/* After settling, RXSTATE should be 0 (lid open) or 1 (still
+	 * closed). If closed, schedule failsafe for re-suspension.
+	 * GPE unmask at the end enables edge-triggered wake for
+	 * the next s2idle cycle (RXEV=either-edge, RXINV irrelevant). */
 
 	if (lid->valid && com4_base) {
 		padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
@@ -566,16 +568,18 @@ static void gpe_unmask_fn(struct work_struct *work)
 			"RXSTATE=%d\n", padcfg0,
 			!!(padcfg0 & PADCFG0_RXINV), rxstate);
 
-		/* If lid got closed during settling, handle it */
+		/* If lid got closed during settling, let the failsafe
+		 * handle re-suspension (it has backoff, max retries,
+		 * and failsafe_in_progress flag). Never call
+		 * pm_suspend directly here: no retry limit = death
+		 * loop on spurious rapid wakes. */
 		if (rxstate) {
-			pr_info("deferred-unmask: lid closed during "
-				"settle window, suspending\n");
-			report_lid_state(1);
+			pr_info("deferred-unmask: lid still closed, "
+				"scheduling failsafe\n");
 			last_poll_rxstate = 1;
 			lid_was_closed_at_suspend = true;
-			gpe52_unmask_now("deferred-unmask");
-			pm_suspend(PM_SUSPEND_TO_IDLE);
-			return;
+			schedule_delayed_work(&lid_failsafe_work,
+				msecs_to_jiffies(BACKOFF_BASE_MS));
 		}
 	}
 
@@ -586,13 +590,10 @@ static void gpe_unmask_fn(struct work_struct *work)
  * Unmask GPE 0x52 after RXSTATE settling delay.
  *
  * After s2idle resume, VNN power cycling leaves the pad input buffer
- * unstable for ~15 seconds. RXSTATE bounces between 0 and 1, each
- * transition fires GPE 0x52 → _L52 → false Notify(LID0) → logind
- * sees phantom lid open/close events that cancel pending suspends.
- *
- * Keep GPE masked during settling. The poller tracks lid state on our
- * device during this window. After settling, unmask for normal ACPI
- * button driver operation.
+ * unstable for ~15 seconds. RXSTATE bounces between 0 and 1.
+ * GPE is kept masked while awake (poller + lid_close_work handle
+ * lid events, bypassing logind). Unmasking only matters for the
+ * hibernate path where the ACPI button driver handles lid events.
  */
 static void gpe52_unmask(const char *caller, bool deferred)
 {
@@ -1116,6 +1117,45 @@ static struct acpi_s2idle_dev_ops s2idle_lps0_ops = {
 };
 
 /* ========================================================================
+ * Lid close suspend work
+ *
+ * Called from the poller when a genuine lid close (RXSTATE 0->1) is
+ * detected outside the VNN settling window.  Bypasses logind entirely
+ * (logind ignores lid events for ~30s after a lid-triggered resume).
+ * Runs on a separate work_struct so that fix_pre_sleep_common's
+ * cancel_delayed_work_sync(&lid_poll_work) does not deadlock.
+ * ======================================================================== */
+
+static void lid_close_fn(struct work_struct *work)
+{
+	struct pin_context *lid = &tracked_pins[LID_TRACKED_INDEX];
+	u32 padcfg0;
+
+	lid_close_in_progress = true;
+	lock_sessions();
+	msleep(300); /* Let DE render lock screen */
+
+	/* CRITICAL: re-verify lid is still closed before pm_suspend.
+	 * Surface has a hardware pin that latches during sleep,
+	 * locking ALL input. If lid opened during the 300ms window,
+	 * calling pm_suspend = death sleep (no way to interact). */
+	if (lid->valid && com4_base) {
+		padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
+		if (!(padcfg0 & PADCFG0_GPIORXSTATE)) {
+			pr_info("lid_close: lid opened during settle, "
+				"aborting suspend\n");
+			report_lid_state(0);
+			lid_was_closed_at_suspend = false;
+			lid_close_in_progress = false;
+			return;
+		}
+	}
+
+	pm_suspend(PM_SUSPEND_TO_IDLE);
+	lid_close_in_progress = false;
+}
+
+/* ========================================================================
  * Background RXSTATE polling
  * ======================================================================== */
 
@@ -1124,7 +1164,6 @@ static void lid_poll_fn(struct work_struct *work)
 	struct pin_context *lid;
 	u32 padcfg0;
 	int rxstate;
-	acpi_status status;
 
 	if (!com4_base || !lid_poll_active)
 		return;
@@ -1147,18 +1186,15 @@ static void lid_poll_fn(struct work_struct *work)
 					since_resume);
 				goto reschedule;
 			}
-			report_lid_state(1);
-			/* Call _L52 to notify logind via ACPI button
-			 * driver.  GPE is masked after resume, so we
-			 * must dispatch _L52 manually.  The 2s poll
-			 * interval naturally debounces GPIO switch
-			 * bounce that would cause GPE storms. */
-			status = acpi_evaluate_object(NULL,
-				"\\_GPE._L52", NULL, NULL);
+			/* Do NOT report_lid_state(1) here. Sending
+			 * SW_LID=closed to logind causes it to buffer
+			 * a ghost lock/suspend during its 30s lid-ignore
+			 * window, replaying it after the user unlocks.
+			 * We lock directly via lock_sessions() in
+			 * lid_close_fn, bypassing logind entirely. */
 			pr_info("lid poll: closed (RXSTATE 0->1), "
-				"_L52 %s (0x%x)\n",
-				ACPI_SUCCESS(status) ? "ok" : "FAILED",
-				status);
+				"suspending directly\n");
+			schedule_work(&lid_close_work);
 		} else if (rxstate == 0 && last_poll_rxstate == 1) {
 			if (since_resume < RXSTATE_SETTLE_MS) {
 				pr_info("lid poll: RXSTATE 1->0 suppressed "
@@ -1169,12 +1205,7 @@ static void lid_poll_fn(struct work_struct *work)
 				goto reschedule;
 			}
 			report_lid_state(0);
-			status = acpi_evaluate_object(NULL,
-				"\\_GPE._L52", NULL, NULL);
-			pr_info("lid poll: opened (RXSTATE 1->0), "
-				"_L52 %s (0x%x)\n",
-				ACPI_SUCCESS(status) ? "ok" : "FAILED",
-				status);
+			pr_info("lid poll: opened (RXSTATE 1->0)\n");
 		}
 		last_poll_rxstate = rxstate;
 	}
@@ -1243,7 +1274,6 @@ static void lid_resync_fn(struct work_struct *work)
 		}
 
 		pr_info("lid resync: still closed, re-suspending\n");
-		report_lid_state(1);
 		lock_sessions();
 		failsafe_in_progress = true;
 		pm_suspend(PM_SUSPEND_TO_IDLE);
@@ -1356,9 +1386,25 @@ static void lid_failsafe_fn(struct work_struct *work)
 	pr_info("failsafe: spurious wake, re-suspending (%u/%u)\n",
 		failsafe_suspends, FAILSAFE_MAX_RETRIES);
 
-	report_lid_state(1);
+	/* No report_lid_state(1) here, it poisons logind with
+	 * a buffered lid-close that replays as a ghost lock. */
 	lock_sessions();
 	msleep(500); /* Let GNOME render lock screen before freeze */
+
+	/* CRITICAL: final RXSTATE check before pm_suspend.
+	 * Hardware latch = death sleep if lid is open. */
+	if (lid->valid && com4_base) {
+		u32 padcfg0 = readl(pin_addr(lid) + PADCFG0_OFF);
+		if (!(padcfg0 & PADCFG0_GPIORXSTATE)) {
+			pr_info("failsafe: lid opened before suspend, "
+				"aborting\n");
+			report_lid_state(0);
+			lid_was_closed_at_suspend = false;
+			failsafe_suspends = 0;
+			return;
+		}
+	}
+
 	failsafe_in_progress = true;
 	pm_suspend(PM_SUSPEND_TO_IDLE);
 	failsafe_in_progress = false;
@@ -1373,7 +1419,7 @@ static void fix_pre_sleep_common(const char *path_name)
 	struct pin_context *lid;
 	u32 padcfg0;
 
-	if (!failsafe_in_progress) {
+	if (!failsafe_in_progress && !lid_close_in_progress) {
 		lid_poll_active = false;
 		lid_resync_active = false;
 		cancel_delayed_work_sync(&lid_poll_work);
@@ -1386,10 +1432,10 @@ static void fix_pre_sleep_common(const char *path_name)
 	atomic_set(&power_button_seen, 0);
 	padcfg_restores_at_entry = stats.padcfg_restores;
 
-	/* Re-read PADCFG0 at suspend time to capture ACPI's legitimate
-	 * state. When lid is closed, ACPI _L52 sets RXINV=1, which is
-	 * correct and must be preserved as the reference. VNN corruption
-	 * only happens during s2idle deep C-states, not here (CPU awake). */
+	/* Re-read PADCFG0 at suspend time to capture current register
+	 * state as the reference for VNN corruption detection.
+	 * VNN corruption only happens during s2idle deep C-states,
+	 * not here (CPU awake). */
 	save_all_pins();
 
 	/* Record lid state for failsafe decision */
@@ -1437,12 +1483,16 @@ static void fix_post_sleep_common(const char *path_name, bool schedule_work)
 	/* Record resume time for RXSTATE settling suppression. */
 	last_resume_time = ktime_get_boottime();
 
-	/* Unmask GPE 0x52. For s2idle (schedule_work=true), defer the
-	 * unmask by RXSTATE_SETTLE_MS to prevent VNN-settling RXSTATE
-	 * bouncing from firing _L52 with stale values, which sends
-	 * false lid open/close events to logind and cancels real
-	 * suspends. For hibernate paths, unmask immediately. */
-	gpe52_unmask(path_name, schedule_work);
+	/* Keep GPE 0x52 MASKED while awake. The poller + lid_close_work
+	 * handles lid events directly via pm_suspend, bypassing logind.
+	 * If we unmask GPE, it fires _L52 → Notify → logind buffers the
+	 * "lid closed" event during its 30s ignore window, then fires a
+	 * ghost suspend 30-120s later while the user is working.
+	 * GPE is only needed as a wake source during s2idle (handled by
+	 * lps0_prepare via acpi_set_gpe + wake mask). For hibernate
+	 * paths, unmask so ACPI button driver works normally. */
+	if (!schedule_work)
+		gpe52_unmask(path_name, false);
 
 	lid = &tracked_pins[LID_TRACKED_INDEX];
 
@@ -1734,35 +1784,34 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 				&tracked_pins[LID_TRACKED_INDEX];
 
 			if (lid->valid && com4_base) {
-				u32 padcfg0 = readl(pin_addr(lid)
-						    + PADCFG0_OFF);
-				bool rxinv = !!(padcfg0 & PADCFG0_RXINV);
-
-				/* RXINV=1 means _L52 ran for lid close
-				 * (it calls SGII to set RXINV=1).
-				 * RXINV=0 means no recent lid close,
-				 * so this is a manual suspend (DE button,
-				 * power button, systemctl suspend).
-				 * Only intercept lid-triggered suspends
-				 * where GPIO bounce makes lid look open. */
-				if (!rxinv) {
-					pr_info("suspend_to_lock: manual "
-						"suspend (RXINV=0), "
-						"allowing\n");
+				if (lid_close_in_progress) {
+					/* lid_close_fn already verified
+					 * RXSTATE=1 in its guard check.
+					 * Trust it, don't re-read (VNN
+					 * glitches cause false RXSTATE=0). */
+					pr_info("suspend_to_lock: "
+						"lid-triggered (guard "
+						"verified), allowing\n");
 					lid_physically_closed = true;
 				} else {
+					/* Not from our code. Could be a
+					 * legitimate manual suspend, or
+					 * a ghost suspend from ACPI/logind
+					 * lid handling. Check RXSTATE:
+					 * if lid open, block it (ghost
+					 * suspends with lid open trigger
+					 * the hardware input latch). */
+					u32 padcfg0 = readl(pin_addr(lid)
+							    + PADCFG0_OFF);
 					lid_physically_closed = !!(padcfg0
 						& PADCFG0_GPIORXSTATE);
 					pr_info("suspend_to_lock: "
-						"PADCFG0=0x%08x RXSTATE=%d "
-						"RXINV=%d -> %s\n",
-						padcfg0,
-						!!(padcfg0 &
-						   PADCFG0_GPIORXSTATE),
-						rxinv,
+						"external, RXSTATE=%d "
+						"-> %s\n",
+						lid_physically_closed,
 						lid_physically_closed ?
 						"lid closed, allowing" :
-						"lid open, intercepting");
+						"lid open, blocking");
 				}
 			}
 
@@ -1816,15 +1865,15 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 	case PM_POST_SUSPEND:
 		fix_post_sleep_common("post-suspend", true);
 
-		/* Call _L52 immediately to sync ACPI lid state.
-		 * At PM_POST_SUSPEND time, RXSTATE is fresh and
-		 * reliable (VNN settling hasn't started yet, first
-		 * bounce is at +4-8s).  RXSTATE=0 means lid is open.
-		 * _L52 will read RXSTATE=0, set LIDS=1 (open),
-		 * set RXINV=0, and Notify(LID0, 0x80).
-		 * This means by the time deferred-unmask runs at +25s,
-		 * RXINV=0 and RXSTATE=0 (settled), so XOR=0, level
-		 * condition de-asserted, GPE unmasks cleanly. */
+		/* Read RXSTATE to sync lid state tracking.
+		 * Do NOT call _L52: it sends Notify(LID0) to logind,
+		 * which buffers during the 30s lid-ignore window and
+		 * fires a ghost suspend 30-120s later with lid open.
+		 * Surface hardware latch engages on pm_suspend,
+		 * locking all input if lid is open = death sleep.
+		 * GPE is masked while awake (poller handles lid).
+		 * RXINV is irrelevant (suspend_noirq sets
+		 * RXEV=either-edge for wake detection). */
 		{
 			struct pin_context *lid =
 				&tracked_pins[LID_TRACKED_INDEX];
@@ -1834,25 +1883,19 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 				int rxstate = !!(padcfg0 &
 					PADCFG0_GPIORXSTATE);
 
-				pr_info("post-suspend: RXSTATE=%d RXINV=%d, "
-					"calling _L52\n", rxstate,
+				pr_info("post-suspend: RXSTATE=%d RXINV=%d\n",
+					rxstate,
 					!!(padcfg0 & PADCFG0_RXINV));
-				acpi_evaluate_object(NULL,
-					"\\_GPE._L52", NULL, NULL);
 
-				/* Re-read after _L52 (it flips RXINV) */
-				padcfg0 = readl(
-					pin_addr(lid) + PADCFG0_OFF);
-				pr_info("post-suspend: post-_L52 RXINV=%d "
-					"RXSTATE=%d\n",
-					!!(padcfg0 & PADCFG0_RXINV),
-					!!(padcfg0 & PADCFG0_GPIORXSTATE));
-
-				report_lid_state(rxstate);
-				last_poll_rxstate = rxstate;
+				/* Only report lid-open to logind.
+				 * Reporting lid-closed (SW_LID=1)
+				 * poisons logind's 30s buffer and
+				 * replays as ghost lock after wake. */
 				if (!rxstate) {
+					report_lid_state(0);
 					lid_was_closed_at_suspend = false;
 				}
+				last_poll_rxstate = rxstate;
 			}
 		}
 
@@ -2317,6 +2360,7 @@ static int __init surface_s2idle_fix_init(void)
 	INIT_DELAYED_WORK(&lid_resync_work, lid_resync_fn);
 	INIT_DELAYED_WORK(&gpe_unmask_work, gpe_unmask_fn);
 	INIT_DELAYED_WORK(&lid_poll_work, lid_poll_fn);
+	INIT_WORK(&lid_close_work, lid_close_fn);
 	INIT_DELAYED_WORK(&time_sync_retry_work, time_sync_retry_fn);
 	INIT_DELAYED_WORK(&lock_blank_work, lock_blank_fn);
 	INIT_WORK(&lock_restore_work, lock_restore_fn);
@@ -2343,15 +2387,16 @@ static int __init surface_s2idle_fix_init(void)
 	if (lps0_err)
 		pr_warn("LPS0 registration failed: %d\n", lps0_err);
 
-	/* All handlers registered. Unmask + enable GPE 0x52 for ACPI lid events.
-	 * The acpi_mask_gpe=0x52 boot param masked it at ACPI init (0.36s) for
-	 * hibernate timing gap safety. Now that our wakeup handler is registered,
-	 * we can safely unmask it. Clear stale status first. */
+	/* Keep GPE 0x52 MASKED while awake. If unmasked, GPE fires → _L52 →
+	 * Notify(LID0) → logind sees "lid closed" → logind's 30s lid-ignore
+	 * timer buffers it → ghost suspend 30-120s later while user is working.
+	 * The poller + lid_close_work handles lid events via direct pm_suspend.
+	 * GPE is only enabled as a wake source inside lps0_prepare/restore. */
 	acpi_clear_gpe(NULL, LID_GPE);
-	acpi_mask_gpe(NULL, LID_GPE, FALSE);
-	acpi_set_gpe(NULL, LID_GPE, ACPI_GPE_ENABLE);
+	acpi_mask_gpe(NULL, LID_GPE, TRUE);
+	gpe52_was_enabled = true;
 	acpi_set_gpe_wake_mask(NULL, LID_GPE, ACPI_GPE_DISABLE);
-	pr_info("init: GPE 0x52 unmasked and enabled for ACPI lid events, wake mask disabled\n");
+	pr_info("init: GPE 0x52 masked (poller handles lid events), wake mask disabled\n");
 
 	/* Lid switch input device */
 	lid_input_dev = input_allocate_device();
@@ -2431,6 +2476,7 @@ static void __exit surface_s2idle_fix_exit(void)
 	cancel_delayed_work_sync(&lid_failsafe_work);
 	cancel_delayed_work_sync(&time_sync_retry_work);
 	cancel_delayed_work_sync(&gpe_unmask_work);
+	cancel_work_sync(&lid_close_work);
 	gpe52_unmask("exit", false);
 	sam_wakeup_teardown();
 	acpi_set_gpe_wake_mask(NULL, LID_GPE, ACPI_GPE_ENABLE);
