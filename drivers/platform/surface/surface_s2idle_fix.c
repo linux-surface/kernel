@@ -1816,33 +1816,52 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 			}
 
 			if (!lid_physically_closed) {
-				static char *net_argv[] = {
-					"/usr/bin/nmcli", "networking",
-					"off", NULL
-				};
-				static char *envp[] = {
-					"HOME=/root",
-					"PATH=/usr/bin:/bin",
-					NULL
-				};
+				if (!lid_close_in_progress) {
+					/* Ghost suspend from ACPI/logind
+					 * with lid open. Just silently
+					 * cancel, no side effects. */
+					pr_info("suspend_to_lock: ghost "
+						"suspend blocked\n");
+					return NOTIFY_BAD;
+				}
+				/* Legitimate suspend_to_lock:
+				 * lid_close_fn detected close but
+				 * lid bounced open. Full intercept. */
+				{
+					static char *net_argv[] = {
+						"/usr/bin/nmcli",
+						"networking",
+						"off", NULL
+					};
+					static char *envp[] = {
+						"HOME=/root",
+						"PATH=/usr/bin:/bin",
+						NULL
+					};
 
-				pr_info("suspend_to_lock: lid open "
-					"(GPIO confirmed), converting "
-					"suspend to lock\n");
-				lock_sessions();
-				call_usermodehelper(net_argv[0], net_argv,
-						   envp, UMH_NO_WAIT);
+					pr_info("suspend_to_lock: lid "
+						"open (GPIO confirmed), "
+						"converting suspend "
+						"to lock\n");
+					lock_sessions();
+					call_usermodehelper(
+						net_argv[0], net_argv,
+						envp, UMH_NO_WAIT);
 
-				lock_bl_dev = backlight_device_get_by_name(
+					lock_bl_dev =
+					    backlight_device_get_by_name(
 						"intel_backlight");
-				if (lock_bl_dev)
-					lock_saved_brightness =
-						lock_bl_dev->props.brightness;
-				schedule_delayed_work(&lock_blank_work,
-						      msecs_to_jiffies(2000));
+					if (lock_bl_dev)
+						lock_saved_brightness =
+						    lock_bl_dev->props
+							.brightness;
+					schedule_delayed_work(
+						&lock_blank_work,
+						msecs_to_jiffies(2000));
 
-				lock_display_off = true;
-				return NOTIFY_BAD;
+					lock_display_off = true;
+					return NOTIFY_BAD;
+				}
 			}
 		}
 		stats.suspend_cycles++;
@@ -1894,6 +1913,22 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 				if (!rxstate) {
 					report_lid_state(0);
 					lid_was_closed_at_suspend = false;
+					/* Wake the display.
+					 * report_lid_state(0) is a no-op
+					 * (SW_LID already 0, input
+					 * subsystem filters duplicates).
+					 * Send KEY_WAKEUP to tell the
+					 * compositor to wake up. */
+					if (lid_input_dev) {
+						input_report_key(
+							lid_input_dev,
+							KEY_WAKEUP, 1);
+						input_sync(lid_input_dev);
+						input_report_key(
+							lid_input_dev,
+							KEY_WAKEUP, 0);
+						input_sync(lid_input_dev);
+					}
 				}
 				last_poll_rxstate = rxstate;
 			}
