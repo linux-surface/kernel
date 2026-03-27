@@ -1186,12 +1186,7 @@ static void lid_poll_fn(struct work_struct *work)
 					since_resume);
 				goto reschedule;
 			}
-			/* Do NOT report_lid_state(1) here. Sending
-			 * SW_LID=closed to logind causes it to buffer
-			 * a ghost lock/suspend during its 30s lid-ignore
-			 * window, replaying it after the user unlocks.
-			 * We lock directly via lock_sessions() in
-			 * lid_close_fn, bypassing logind entirely. */
+			report_lid_state(1);
 			pr_info("lid poll: closed (RXSTATE 0->1), "
 				"suspending directly\n");
 			schedule_work(&lid_close_work);
@@ -1483,16 +1478,13 @@ static void fix_post_sleep_common(const char *path_name, bool schedule_work)
 	/* Record resume time for RXSTATE settling suppression. */
 	last_resume_time = ktime_get_boottime();
 
-	/* Keep GPE 0x52 MASKED while awake. The poller + lid_close_work
-	 * handles lid events directly via pm_suspend, bypassing logind.
-	 * If we unmask GPE, it fires _L52 → Notify → logind buffers the
-	 * "lid closed" event during its 30s ignore window, then fires a
-	 * ghost suspend 30-120s later while the user is working.
-	 * GPE is only needed as a wake source during s2idle (handled by
-	 * lps0_prepare via acpi_set_gpe + wake mask). For hibernate
-	 * paths, unmask so ACPI button driver works normally. */
-	if (!schedule_work)
-		gpe52_unmask(path_name, false);
+	/* Unmask GPE 0x52 so the ACPI button driver handles lid
+	 * events naturally via _L52. When the user opens the lid,
+	 * GPE fires, _L52 sends Notify(LID0), GNOME turns on the
+	 * display. VNN bounce may fire ghost _L52 events, but the
+	 * ghost suspend blocker in PM_SUSPEND_PREPARE catches any
+	 * resulting logind suspend attempts. */
+	gpe52_unmask(path_name, false);
 
 	lid = &tracked_pins[LID_TRACKED_INDEX];
 
@@ -1589,6 +1581,12 @@ static void restore_backlight(void)
 		pr_warn("backlight_restore: intel_backlight not found\n");
 		return;
 	}
+
+	/* Force unblank before setting brightness. The intel
+	 * backlight driver silently zeroes brightness when
+	 * props.power != FB_BLANK_UNBLANK (set by mutter
+	 * during DPMS-off). */
+	bd->props.power = FB_BLANK_UNBLANK;
 
 	ret = backlight_device_set_brightness(bd, bd->props.max_brightness);
 	if (ret)
@@ -1906,38 +1904,25 @@ static int s2idle_pm_notify(struct notifier_block *nb,
 					rxstate,
 					!!(padcfg0 & PADCFG0_RXINV));
 
-				/* Only report lid-open to logind.
-				 * Reporting lid-closed (SW_LID=1)
-				 * poisons logind's 30s buffer and
-				 * replays as ghost lock after wake. */
-				if (!rxstate) {
-					report_lid_state(0);
+				/* Report lid state immediately.
+				 * report_lid_state(1) was called on
+				 * close, so report_lid_state(0) here
+				 * creates a real SW_LID 1->0 transition
+				 * that GNOME/logind uses to wake the
+				 * display. Without this, the poller
+				 * takes 4+ seconds (settling + poll
+				 * interval) to report open, leaving
+				 * the screen dead. */
+				report_lid_state(rxstate);
+				if (!rxstate)
 					lid_was_closed_at_suspend = false;
-					/* Wake the display.
-					 * report_lid_state(0) is a no-op
-					 * (SW_LID already 0, input
-					 * subsystem filters duplicates).
-					 * Send KEY_WAKEUP to tell the
-					 * compositor to wake up. */
-					if (lid_input_dev) {
-						input_report_key(
-							lid_input_dev,
-							KEY_WAKEUP, 1);
-						input_sync(lid_input_dev);
-						input_report_key(
-							lid_input_dev,
-							KEY_WAKEUP, 0);
-						input_sync(lid_input_dev);
-					}
-				}
 				last_poll_rxstate = rxstate;
 			}
 		}
 
-		/* If PADCFG corruption happened during this s2idle cycle,
-		 * the display may not have come back. Trigger display
-		 * reconciliation and backlight restore to prevent the
-		 * appearance of death sleep on a running system. */
+		/* If PADCFG corruption happened during this s2idle cycle
+		 * AND lid is still closed (spurious wake), trigger
+		 * display recovery in case user power-button wakes. */
 		if (stats.padcfg_restores > padcfg_restores_at_entry) {
 			pr_info("post-suspend: PADCFG corruption detected "
 				"during s2idle, triggering display recovery\n");
