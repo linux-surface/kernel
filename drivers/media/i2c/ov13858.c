@@ -1649,10 +1649,31 @@ static const struct v4l2_subdev_video_ops ov13858_video_ops = {
 	.s_stream = ov13858_set_stream,
 };
 
+static int ov13858_get_selection(struct v4l2_subdev *sd,
+				 struct v4l2_subdev_state *sd_state,
+				 struct v4l2_subdev_selection *sel)
+{
+	/* Pixel array is 4224x3136 (max supported mode) */
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+	case V4L2_SEL_TGT_NATIVE_SIZE:
+		sel->r.top = 0;
+		sel->r.left = 0;
+		sel->r.width = 4224;
+		sel->r.height = 3136;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
 static const struct v4l2_subdev_pad_ops ov13858_pad_ops = {
 	.enum_mbus_code = ov13858_enum_mbus_code,
 	.get_fmt = ov13858_get_pad_format,
 	.set_fmt = ov13858_set_pad_format,
+	.get_selection = ov13858_get_selection,
 	.enum_frame_size = ov13858_enum_frame_size,
 };
 

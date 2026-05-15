@@ -65,6 +65,8 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
 	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
 	/* Omnivision OV13858 - Surface Pro 9 */
 	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
+	/* Sony IMX681 - Surface Pro 11 */
+	IPU_SENSOR_CONFIG("SONY0681", 1, 969600000),
 	/* Omnivision OV2740 */
 	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
 	/* Omnivision OV5670 */
