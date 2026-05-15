@@ -384,7 +384,16 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
 		    }
 		    break;
-		case 0x10:
+		case 0x10:  /* Surface Pro 11 - secondary power rail */
+		    dev_info(int3472->dev, "GPIO type 0x10 detected on pin 0x%02x\n",
+			     agpio->pin_table[0]);
+		    dev_info(int3472->dev, "  con_id=%s, flags=0x%lx\n", con_id, gpio_flags);
+		    ret = skl_int3472_register_regulator(int3472, gpio,
+			 GPIO_REGULATOR_ENABLE_TIME,
+			 con_id, NULL);
+		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
+		    if (ret)
+			dev_err(int3472->dev, "Failed to register type 0x10: %d\n", ret);
 		    break;
 		default: /* Never reached */
 			ret = -EINVAL;
