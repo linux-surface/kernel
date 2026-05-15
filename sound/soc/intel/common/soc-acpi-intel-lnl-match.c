@@ -8,6 +8,7 @@
 
 #include <sound/soc-acpi.h>
 #include <sound/soc-acpi-intel-match.h>
+#include <linux/dmi.h>
 #include "sof-function-topology-lib.h"
 #include "soc-acpi-intel-sdca-quirks.h"
 #include "soc-acpi-intel-sdw-mockup-match.h"
@@ -419,6 +420,41 @@ static const struct snd_soc_acpi_adr_device rt1320_1_group1_adr[] = {
 	}
 };
 
+static const struct snd_soc_acpi_endpoint rt1320_amp_mic_endpoints[] = {
+	/* AMP Endpoint */
+	{
+		.num = 0,
+		.aggregated = 0,
+		.group_position = 0,
+		.group_id = 0,
+	},
+	/* DMIC Endpoint */
+	{
+		.num = 1,
+		.aggregated = 0,
+		.group_position = 0,
+		.group_id = 0,
+	},
+};
+
+static const struct snd_soc_acpi_adr_device rt1320_0_single_adr[] = {
+	{
+		.adr = 0x000030025D132001ull,
+		.num_endpoints = 1,
+		.endpoints = &single_endpoint,
+		.name_prefix = "rt1320-1"
+	}
+};
+
+static const struct snd_soc_acpi_adr_device rt1320_0_amp_mic_adr[] = {
+	{
+		.adr = 0x000030025D132001ull,
+		.num_endpoints = ARRAY_SIZE(rt1320_amp_mic_endpoints),
+		.endpoints = rt1320_amp_mic_endpoints,
+		.name_prefix = "rt1320-1"
+	}
+};
+
 static const struct snd_soc_acpi_adr_device rt1320_2_group2_adr[] = {
 	{
 		.adr = 0x000231025D132001ull,
@@ -539,6 +575,24 @@ static const struct snd_soc_acpi_link_adr lnl_cs42l43_l2_cs35l56x6_l13[] = {
 		.mask = BIT(3),
 		.num_adr = ARRAY_SIZE(cs35l56_3_3amp_adr),
 		.adr_d = cs35l56_3_3amp_adr,
+	},
+	{}
+};
+
+static const struct snd_soc_acpi_link_adr lnl_sdw_rt1320_l0[] = {
+	{
+		.mask = BIT(0),
+		.num_adr = ARRAY_SIZE(rt1320_0_single_adr),
+		.adr_d = rt1320_0_single_adr,
+	},
+	{}
+};
+
+static const struct snd_soc_acpi_link_adr lnl_sdw_rt1320_l0_amp_mic[] = {
+	{
+		.mask = BIT(0),
+		.num_adr = ARRAY_SIZE(rt1320_0_amp_mic_adr),
+		.adr_d = rt1320_0_amp_mic_adr,
 	},
 	{}
 };
@@ -686,7 +740,25 @@ static const struct snd_soc_acpi_link_adr lnl_sdw_rt712_vb_l2_rt1320_l1[] = {
 
 /* this table is used when there is no I2S codec present */
 /* this table is used when there is no I2S codec present */
+static bool surface_lnl_rt1320_check(void *arg)
+{
+	if (dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") &&
+	    (dmi_match(DMI_PRODUCT_NAME, "Surface Pro for Business 11th Edition with Intel") ||
+	     dmi_match(DMI_PRODUCT_NAME, "Surface Pro 11th Edition with Intel")))
+		return true;
+
+	return false;
+}
+
 struct snd_soc_acpi_mach snd_soc_acpi_intel_lnl_sdw_machines[] = {
+	{
+		.link_mask = BIT(0),
+		.links = lnl_sdw_rt1320_l0_amp_mic,
+		.drv_name = "sof_sdw",
+		.sof_tplg_filename = "sof-sdca-1amp-id2.tplg",
+		.machine_check = surface_lnl_rt1320_check,
+		.get_function_tplg_files = sof_sdw_get_tplg_files,
+	},
 	/* mockup tests need to be first */
 	{
 		.link_mask = GENMASK(3, 0),

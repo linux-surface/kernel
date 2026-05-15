@@ -22,11 +22,18 @@ int asoc_sdw_rt_dmic_rtd_init(struct snd_soc_pcm_runtime *rtd, struct snd_soc_da
 	component = dai->component;
 
 	/*
-	 * rt715-sdca (aka rt714) is a special case that uses different name in card->components
-	 * and component->name_prefix.
+	 * Some codecs use a different name in card->components than
+	 * component->name_prefix.
+	 * rt715-sdca (aka rt714) is one such case.
+	 * rt1320-1 is another: the SDCA mic function on a single RT1320
+	 * uses name_prefix "rt1320-1" (instance suffix), but UCM expects
+	 * "rt1320-dmic" following the naming convention for standalone mic
+	 * functions (rt712-dmic, rt713-dmic).
 	 */
 	if (!strcmp(component->name_prefix, "rt714"))
 		mic_name = devm_kasprintf(card->dev, GFP_KERNEL, "rt715-sdca");
+	else if (!strcmp(component->name_prefix, "rt1320-1"))
+		mic_name = devm_kasprintf(card->dev, GFP_KERNEL, "rt1320-dmic");
 	else
 		mic_name = devm_kasprintf(card->dev, GFP_KERNEL, "%s", component->name_prefix);
 	if (!mic_name)

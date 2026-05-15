@@ -879,15 +879,21 @@ static int create_sdw_dailink(struct snd_soc_card *card,
 		}
 
 		/* create stream name according to first link id */
-		if (ctx->append_dai_type)
+		if (ctx->append_dai_type) {
 			name = devm_kasprintf(dev, GFP_KERNEL,
 					      sdw_stream_name[stream + 2],
 					      ffs(sof_end->link_mask) - 1,
 					      type_strings[sof_end->dai_info->dai_type]);
-		else
+		} else if (sof_end->dai_info->dai_type == SOC_SDW_DAI_TYPE_AMP) {
+			/* Force SmartAmp name for amplifiers to match topology expectations */
+			name = devm_kasprintf(dev, GFP_KERNEL, "%s-%s",
+					      stream == SNDRV_PCM_STREAM_PLAYBACK ? "Playback" : "Capture",
+					      type_strings[SOC_SDW_DAI_TYPE_AMP]);
+		} else {
 			name = devm_kasprintf(dev, GFP_KERNEL,
 					      sdw_stream_name[stream],
 					      ffs(sof_end->link_mask) - 1);
+		}
 		if (!name)
 			return -ENOMEM;
 
