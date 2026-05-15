@@ -126,14 +126,14 @@ struct snd_soc_acpi_mach *snd_soc_acpi_codec_list(void *arg)
 EXPORT_SYMBOL_GPL(snd_soc_acpi_codec_list);
 
 #define SDW_CODEC_ADR_MASK(_adr) ((_adr) & (SDW_DISCO_LINK_ID_MASK | SDW_VERSION_MASK | \
-				  SDW_MFG_ID_MASK | SDW_PART_ID_MASK))
+				  SDW_MFG_ID_MASK | SDW_PART_ID_MASK | SDW_CLASS_ID_MASK))
 
 /* Check if all Slaves defined on the link can be found */
 bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
 					const struct snd_soc_acpi_link_adr *link,
 					struct sdw_peripherals *peripherals)
 {
-	unsigned int part_id, link_id, unique_id, mfg_id, version;
+	unsigned int part_id, link_id, unique_id, mfg_id, version, class_id;
 	int i, j, k;
 
 	for (i = 0; i < link->num_adr; i++) {
@@ -144,6 +144,7 @@ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
 		part_id = SDW_PART_ID(adr);
 		link_id = SDW_DISCO_LINK_ID(adr);
 		version = SDW_VERSION(adr);
+		class_id = SDW_CLASS_ID(adr);
 
 		for (j = 0; j < peripherals->num_peripherals; j++) {
 			struct sdw_slave *peripheral = peripherals->array[j];
@@ -152,7 +153,8 @@ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
 			if (peripheral->bus->link_id == link_id &&
 			    peripheral->id.part_id == part_id &&
 			    peripheral->id.mfg_id == mfg_id &&
-			    peripheral->id.sdw_version == version)
+			    peripheral->id.sdw_version == version &&
+			    peripheral->id.class_id == class_id)
 				reported_part_count++;
 		}
 
@@ -163,7 +165,8 @@ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
 			if (peripheral->bus->link_id != link_id ||
 			    peripheral->id.part_id != part_id ||
 			    peripheral->id.mfg_id != mfg_id ||
-			    peripheral->id.sdw_version != version)
+			    peripheral->id.sdw_version != version ||
+			    peripheral->id.class_id != class_id)
 				continue;
 
 			/* find out how many identical parts are expected */

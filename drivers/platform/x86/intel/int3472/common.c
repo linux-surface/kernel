@@ -69,7 +69,7 @@ int skl_int3472_get_sensor_adev_and_name(struct device *dev,
 		return -ENODEV;
 	}
 
-	dev_dbg(dev, "Sensor name %s\n", acpi_dev_name(sensor));
+	dev_info(dev, "Sensor ACPI name %s\n", acpi_dev_name(sensor));
 
 	*name_ret = devm_kasprintf(dev, GFP_KERNEL, I2C_DEV_NAME_FORMAT,
 				   acpi_dev_name(sensor));
