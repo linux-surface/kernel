@@ -36,6 +36,8 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/pm.h>
+#include <linux/pm_wakeirq.h>
 #include <linux/slab.h>
 #include <linux/spi/spi.h>
 #include <linux/string.h>
@@ -243,6 +245,96 @@ static const char *spi_hid_power_mode_string(enum hidspi_power_state power_state
 	default:
 		return "unknown";
 	}
+}
+
+static int spi_hid_suspend(struct spi_hid *shid)
+{
+	int error;
+	struct device *dev = &shid->spi->dev;
+
+	guard(mutex)(&shid->power_lock);
+	if (shid->power_state == HIDSPI_OFF)
+		return 0;
+
+	if (shid->hid) {
+		error = hid_driver_suspend(shid->hid, PMSG_SUSPEND);
+		if (error) {
+			dev_err(dev, "%s failed to suspend hid driver: %d\n",
+				__func__, error);
+			return error;
+		}
+	}
+
+	disable_irq(shid->spi->irq);
+
+	if (!device_may_wakeup(dev)) {
+		set_bit(SPI_HID_RESET_PENDING, &shid->flags);
+
+		shid->ops->assert_reset(shid->ops);
+
+		error = shid->ops->power_down(shid->ops);
+		if (error) {
+			dev_err(dev, "%s: could not power down\n", __func__);
+			shid->regulator_error_count++;
+			shid->regulator_last_error = error;
+			/* Undo partial suspend before returning error */
+			shid->ops->deassert_reset(shid->ops);
+			clear_bit(SPI_HID_RESET_PENDING, &shid->flags);
+			enable_irq(shid->spi->irq);
+			if (shid->hid)
+				hid_driver_reset_resume(shid->hid);
+			return error;
+		}
+
+		shid->power_state = HIDSPI_OFF;
+	}
+	return 0;
+}
+
+static int spi_hid_resume(struct spi_hid *shid)
+{
+	int error;
+	struct device *dev = &shid->spi->dev;
+
+	guard(mutex)(&shid->power_lock);
+
+	if (!device_may_wakeup(dev)) {
+		if (shid->power_state == HIDSPI_OFF) {
+			shid->ops->assert_reset(shid->ops);
+
+			shid->ops->sleep_minimal_reset_delay(shid->ops);
+
+			error = shid->ops->power_up(shid->ops);
+			if (error) {
+				dev_err(dev, "%s: could not power up\n", __func__);
+				shid->regulator_error_count++;
+				shid->regulator_last_error = error;
+				return error;
+			}
+			shid->power_state = HIDSPI_ON;
+			shid->ops->deassert_reset(shid->ops);
+		}
+	}
+
+	enable_irq(shid->spi->irq);
+
+	if (shid->hid) {
+		error = hid_driver_reset_resume(shid->hid);
+		if (error) {
+			dev_err(dev, "%s: failed to reset resume hid driver: %d\n",
+				__func__, error);
+			/* Undo partial resume before returning error */
+			disable_irq(shid->spi->irq);
+			if (!device_may_wakeup(dev)) {
+				set_bit(SPI_HID_RESET_PENDING, &shid->flags);
+				shid->ops->assert_reset(shid->ops);
+				shid->ops->power_down(shid->ops);
+				shid->power_state = HIDSPI_OFF;
+			}
+			return error;
+		}
+	}
+	return 0;
 }
 
 static void spi_hid_stop_hid(struct spi_hid *shid)
@@ -795,16 +887,16 @@ static irqreturn_t spi_hid_dev_irq(int irq, void *_shid)
 	trace_spi_hid_header_transfer(shid);
 
 	scoped_guard(mutex, &shid->io_lock) {
+		if (shid->power_state == HIDSPI_OFF) {
+			dev_warn(dev, "Device is off, ignoring interrupt\n");
+			goto out;
+		}
+
 		error = spi_hid_input_sync(shid, shid->input->header,
 					   sizeof(shid->input->header), true);
 		if (error) {
 			dev_err(dev, "Failed to transfer header: %d\n", error);
 			goto err;
-		}
-
-		if (shid->power_state == HIDSPI_OFF) {
-			dev_warn(dev, "Device is off after header was received\n");
-			goto out;
 		}
 
 		trace_spi_hid_input_header_complete(shid,
@@ -1251,10 +1343,19 @@ int spi_hid_core_probe(struct spi_device *spi, struct spihid_ops *ops,
 		dev_err(dev, "%s: unable to request threaded IRQ\n", __func__);
 		return error;
 	}
+	if (device_may_wakeup(dev)) {
+		error = dev_pm_set_wake_irq(dev, spi->irq);
+		if (error) {
+			dev_err(dev, "%s: failed to set wake IRQ\n", __func__);
+			return error;
+		}
+	}
 
 	error = shid->ops->power_up(shid->ops);
 	if (error) {
 		dev_err(dev, "%s: could not power up\n", __func__);
+		if (device_may_wakeup(dev))
+			dev_pm_clear_wake_irq(dev);
 		return error;
 	}
 
@@ -1284,8 +1385,30 @@ void spi_hid_core_remove(struct spi_device *spi)
 	error = shid->ops->power_down(shid->ops);
 	if (error)
 		dev_err(dev, "failed to disable regulator\n");
+
+	if (device_may_wakeup(dev))
+		dev_pm_clear_wake_irq(dev);
 }
 EXPORT_SYMBOL_GPL(spi_hid_core_remove);
+
+static int spi_hid_core_pm_suspend(struct device *dev)
+{
+	struct spi_hid *shid = dev_get_drvdata(dev);
+
+	return spi_hid_suspend(shid);
+}
+
+static int spi_hid_core_pm_resume(struct device *dev)
+{
+	struct spi_hid *shid = dev_get_drvdata(dev);
+
+	return spi_hid_resume(shid);
+}
+
+const struct dev_pm_ops spi_hid_core_pm = {
+	SYSTEM_SLEEP_PM_OPS(spi_hid_core_pm_suspend, spi_hid_core_pm_resume)
+};
+EXPORT_SYMBOL_GPL(spi_hid_core_pm);
 
 MODULE_DESCRIPTION("HID over SPI transport driver");
 MODULE_AUTHOR("Dmitry Antipov <dmanti@microsoft.com>");
