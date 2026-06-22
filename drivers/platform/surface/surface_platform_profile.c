@@ -32,6 +32,11 @@ enum ssam_fan_profile {
 	SSAM_FAN_PROFILE_BEST_PERFORMANCE   = 4,
 };
 
+enum ssam_fan_state {
+	SSAM_FAN_STATE_NORMAL  = 1,
+	SSAM_FAN_STATE_STANDBY = 2,
+};
+
 struct ssam_tmp_profile_info {
 	__le32 profile;
 	__le16 unknown1;
@@ -61,6 +66,13 @@ SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_profile_set, u8, {
 	.instance_id = 0x01,
 });
 
+SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_state_set, u8, {
+	.target_category = SSAM_SSH_TC_FAN,
+	.target_id = SSAM_SSH_TID_SAM,
+	.command_id = 0x0f,
+	.instance_id = 0x01,
+});
+
 static int ssam_tmp_profile_get(struct ssam_device *sdev, enum ssam_tmp_profile *p)
 {
 	struct ssam_tmp_profile_info info;
@@ -86,6 +98,13 @@ static int ssam_fan_profile_set(struct ssam_device *sdev, enum ssam_fan_profile 
 	const u8 profile = p;
 
 	return ssam_retry(__ssam_fan_profile_set, sdev->ctrl, &profile);
+}
+
+static int ssam_fan_state_set(struct ssam_device *sdev, enum ssam_fan_state s)
+{
+	const u8 state = s;
+
+	return ssam_retry(__ssam_fan_state_set, sdev->ctrl, &state);
 }
 
 static int convert_ssam_tmp_to_profile(struct ssam_device *sdev, enum ssam_tmp_profile p)
@@ -236,6 +255,49 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
 	return PTR_ERR_OR_ZERO(tpd->ppdev);
 }
 
+#ifdef CONFIG_PM_SLEEP
+
+static int surface_platform_profile_pm_prepare(struct device *dev)
+{
+	struct ssam_platform_profile_device *tpd;
+	int status;
+
+	tpd = dev_get_drvdata(dev);
+
+	if (tpd->has_fan) {
+		status = ssam_fan_state_set(tpd->sdev, SSAM_FAN_STATE_STANDBY);
+		if (status)
+			dev_err(&tpd->sdev->dev, "pm: fan standby notification failed");
+	}
+
+	return status;
+}
+
+static void surface_platform_profile_pm_complete(struct device *dev)
+{
+	struct ssam_platform_profile_device *tpd;
+	int status;
+
+	tpd = dev_get_drvdata(dev);
+
+	if (tpd->has_fan) {
+		status = ssam_fan_state_set(tpd->sdev, SSAM_FAN_STATE_NORMAL);
+		if (status)
+			dev_err(&tpd->sdev->dev, "pm: fan resume notification failed");
+	}
+}
+
+static const struct dev_pm_ops surface_platform_profile_pm_ops = {
+	.prepare  = surface_platform_profile_pm_prepare,
+	.complete = surface_platform_profile_pm_complete,
+};
+
+#else /* CONFIG_PM_SLEEP */
+
+static const struct dev_pm_ops surface_platform_profile_pm_ops = { };
+
+#endif /* CONFIG_PM_SLEEP */
+
 static const struct ssam_device_id ssam_platform_profile_match[] = {
 	{ SSAM_SDEV(TMP, SAM, 0x00, 0x01) },
 	{ },
@@ -247,6 +309,7 @@ static struct ssam_device_driver surface_platform_profile = {
 	.match_table = ssam_platform_profile_match,
 	.driver = {
 		.name = "surface_platform_profile",
+		.pm = &surface_platform_profile_pm_ops,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
