@@ -14,7 +14,7 @@
 #define IPTS_HID_REPORT_DATA	    65
 #define IPTS_HID_REPORT_SET_MODE    66
 
-#define IPTS_HID_REPORT_DATA_SIZE 7485
+#define IPTS_HID_REPORT_DATA_SIZE 7488
 
 /*
  * HID descriptor for singletouch data.
