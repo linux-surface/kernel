@@ -48,10 +48,10 @@
 
 /* Analogue Gain */
 #define OV5693_GAIN_CTRL_REG			CCI_REG16(0x350a)
-#define OV5693_GAIN_CTRL_MASK			GENMASK(10, 4)
+#define OV5693_GAIN_CTRL_MASK			GENMASK(10, 0)
 #define OV5693_GAIN_MIN				1
-#define OV5693_GAIN_MAX				127
-#define OV5693_GAIN_DEF				8
+#define OV5693_GAIN_MAX				2047
+#define OV5693_GAIN_DEF				16
 #define OV5693_GAIN_STEP			1
 
 /* Digital Gain */
@@ -444,7 +444,7 @@ static int ov5693_analog_gain_configure(struct ov5693_device *ov5693, u32 gain)
 {
 	int ret = 0;
 
-	gain = (gain << 4) & OV5693_GAIN_CTRL_MASK;
+	gain &= OV5693_GAIN_CTRL_MASK;
 
 	cci_write(ov5693->regmap, OV5693_GAIN_CTRL_REG, gain, &ret);
 
