@@ -24369,13 +24369,14 @@ S:	Maintained
 F:	Documentation/hwmon/stpddc60.rst
 F:	drivers/hwmon/pmbus/stpddc60.c
 
-ST VD55G1 DRIVER
+ST VD55G DRIVER
 M:	Benjamin Mugnier <benjamin.mugnier@foss.st.com>
 M:	Sylvain Petinot <sylvain.petinot@foss.st.com>
+M:	Peter Marshall <pm@petermarshall.ca>
 L:	linux-media@vger.kernel.org
 S:	Maintained
-F:	Documentation/devicetree/bindings/media/i2c/st,vd55g1.yaml
-F:	drivers/media/i2c/vd55g1.c
+F:	Documentation/devicetree/bindings/media/i2c/st,vd55g.yaml
+F:	drivers/media/i2c/vd55g.c
 
 ST VD56G3 IMAGE SENSOR DRIVER
 M:	Benjamin Mugnier <benjamin.mugnier@foss.st.com>
