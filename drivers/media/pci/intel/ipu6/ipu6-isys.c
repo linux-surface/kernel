@@ -98,7 +98,7 @@ enum ltr_did_type {
 	LTR_TYPE_MAX
 };
 
-#define ISYS_PM_QOS_VALUE	300
+#define ISYS_PM_QOS_VALUE	50
 
 static int isys_isr_one(struct ipu6_bus_device *adev);
 
