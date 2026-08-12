@@ -287,6 +287,16 @@ config VIDEO_IMX415
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx415.
 
+config VIDEO_IMX681
+	tristate "Sony IMX681 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a V4L2 sensor driver for the Sony IMX681 CMOS image
+	  sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called imx681.
+
 config VIDEO_MAX9271_LIB
 	tristate
 
