@@ -9,6 +9,7 @@
 #include <linux/input.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/string.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
@@ -328,6 +329,7 @@ MODULE_PARM_DESC(tablet_mode_in_slate_state, "Enable tablet mode in slate device
 
 #define SSAM_EVENT_POS_CID_POSTURE_CHANGED	0x03
 #define SSAM_POS_MAX_SOURCES			4
+#define SSAM_POS_SOURCE_LIST_PADDING_SIZE	sizeof(__le32)
 
 enum ssam_pos_source_id {
 	SSAM_POS_SOURCE_COVER = 0x00,
@@ -353,6 +355,7 @@ enum ssam_pos_state_sls {
 struct ssam_sources_list {
 	__le32 count;
 	__le32 id[SSAM_POS_MAX_SOURCES];
+	u8 padding[SSAM_POS_SOURCE_LIST_PADDING_SIZE];
 } __packed;
 
 static const char *ssam_pos_state_name_cover(struct ssam_tablet_sw *sw, u32 state)
@@ -477,6 +480,8 @@ static int ssam_pos_get_sources_list(struct ssam_tablet_sw *sw, struct ssam_sour
 {
 	struct ssam_request rqst;
 	struct ssam_response rsp;
+	u32 count;
+	size_t expected;
 	int status;
 
 	rqst.target_category = SSAM_SSH_TC_POS;
@@ -501,8 +506,15 @@ static int ssam_pos_get_sources_list(struct ssam_tablet_sw *sw, struct ssam_sour
 		return -EPROTO;
 	}
 
-	/* Make sure 'sources->count' matches with the response length. */
-	if (get_unaligned_le32(&sources->count) * sizeof(__le32) + sizeof(__le32) != rsp.length) {
+	count = get_unaligned_le32(&sources->count);
+	if (count > ARRAY_SIZE(sources->id)) {
+		dev_err(&sw->sdev->dev, "too many posture sources: %u\n", count);
+		return -EPROTO;
+	}
+
+	expected = sizeof(sources->count) + count * sizeof(sources->id[0]);
+	if (rsp.length < expected ||
+	    memchr_inv((u8 *)sources + expected, 0, rsp.length - expected)) {
 		dev_err(&sw->sdev->dev, "mismatch between number of sources and response size\n");
 		return -EPROTO;
 	}
