@@ -136,6 +136,15 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
 		},
 		.driver_data = "OVTI5693",
 	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME,
+					"Surface Pro for Business 13in 12th Ed Intel"),
+		},
+		/* OVTID858 is the rear camera on this model. */
+		.driver_data = "OVTID858",
+	},
 	{} /* Terminating entry */
 };
 
