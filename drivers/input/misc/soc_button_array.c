@@ -553,13 +553,27 @@ static int soc_device_check_MSHW0040(struct device *dev)
 {
 	acpi_handle handle = ACPI_HANDLE(dev);
 	bool exists;
+	int gpio, irq, error;
 
 	// check if OEM platform revision DSM call exists
 	exists = acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
 				MSHW0040_DSM_REVISION,
 				BIT(MSHW0040_DSM_GET_OMPR));
+	if (!exists)
+		return -ENODEV;
 
-	return exists ? 0 : -ENODEV;
+	/*
+	 * Explicitly check if the GPIO controller is ready. The generic
+	 * button creation path deliberately ignores -EPROBE_DEFER because
+	 * some Intel platforms expose virtual GPIO resources which never
+	 * acquire a GPIO provider. MSHW0040, however, is expected to have
+	 * a real power-button GPIO at index 0.
+	 */
+	error = soc_button_lookup_gpio(dev, 0, &gpio, &irq);
+	if (error == -EPROBE_DEFER)
+		return error;
+
+	return 0;
 }
 
 /*
