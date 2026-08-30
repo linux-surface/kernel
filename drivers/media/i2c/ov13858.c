@@ -4,6 +4,7 @@
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/clk.h>
+#include <linux/dmi.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
@@ -81,6 +82,21 @@
 #define OV13858_REG_TEST_PATTERN	0x4503
 #define OV13858_TEST_PATTERN_ENABLE	BIT(7)
 #define OV13858_TEST_PATTERN_MASK	0xfc
+
+/*
+ * Surface Pro 9 rear module is mounted 180 degrees. PipeWire ignores
+ * V4L2 Rotation, so flip in the sensor. Do not expose HFLIP/VFLIP
+ * (libcamera remaps Bayer). Horizontal bits match ov5693 on this
+ * module; vertical bits are the ov13b10 FORMAT1 pair (ov5693 FORMAT1
+ * bits are a no-op on this die).
+ */
+#define OV13858_REG_FORMAT1			0x3820
+#define OV13858_REG_FORMAT2			0x3821
+#define OV13858_FORMAT1_FLIP_VERT		(BIT(4) | BIT(5))
+#define OV13858_FORMAT2_FLIP_HORZ_ISP		BIT(2)
+#define OV13858_FORMAT2_FLIP_HORZ_SENSOR	BIT(1)
+
+static const struct dmi_system_id surface_pro_9_dmi[];
 
 /* Number of frames to skip */
 #define OV13858_NUM_OF_SKIP_FRAMES	2
@@ -1331,6 +1347,33 @@ static int ov13858_enable_test_pattern(struct ov13858 *ov13858, u32 pattern)
 				 OV13858_REG_VALUE_08BIT, val);
 }
 
+static int ov13858_or_reg(struct ov13858 *ov13858, u16 reg, u8 bits)
+{
+	u32 val;
+	int ret;
+
+	ret = ov13858_read_reg(ov13858, reg, OV13858_REG_VALUE_08BIT, &val);
+	if (ret)
+		return ret;
+
+	return ov13858_write_reg(ov13858, reg, OV13858_REG_VALUE_08BIT,
+				 val | bits);
+}
+
+static int ov13858_apply_rot180(struct ov13858 *ov13858)
+{
+	int ret;
+
+	ret = ov13858_or_reg(ov13858, OV13858_REG_FORMAT1,
+			     OV13858_FORMAT1_FLIP_VERT);
+	if (ret)
+		return ret;
+
+	return ov13858_or_reg(ov13858, OV13858_REG_FORMAT2,
+			      OV13858_FORMAT2_FLIP_HORZ_ISP |
+			      OV13858_FORMAT2_FLIP_HORZ_SENSOR);
+}
+
 static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct ov13858 *ov13858 = container_of(ctrl->handler,
@@ -1567,6 +1610,16 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
 	if (ret)
 		return ret;
 
+	/* After the mode table so 0x3820/0x3821 are in a known state. */
+	if (dmi_check_system(surface_pro_9_dmi)) {
+		ret = ov13858_apply_rot180(ov13858);
+		if (ret) {
+			dev_err(ov13858->dev,
+				"failed to apply Surface Pro 9 180-degree flip\n");
+			return ret;
+		}
+	}
+
 	return ov13858_write_reg(ov13858, OV13858_REG_MODE_SELECT,
 				 OV13858_REG_VALUE_08BIT,
 				 OV13858_MODE_STREAMING);
@@ -1675,6 +1728,16 @@ static const struct v4l2_subdev_internal_ops ov13858_internal_ops = {
 	.open = ov13858_open,
 };
 
+static const struct dmi_system_id surface_pro_9_dmi[] = {
+	{
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+		},
+	},
+	{ }
+};
+
 /* Initialize control handlers */
 static int ov13858_init_controls(struct ov13858 *ov13858)
 {
@@ -1759,6 +1822,14 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
 	ret = v4l2_fwnode_device_parse(ov13858->dev, &props);
 	if (ret)
 		goto error;
+
+	/*
+	 * Pixel flip is applied at stream-on. Report rotation=0 so clients
+	 * that honor metadata (and ipu-bridge quirks that set 180) do not
+	 * also rotate the already-corrected image.
+	 */
+	if (dmi_check_system(surface_pro_9_dmi))
+		props.rotation = 0;
 
 	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &ov13858_ctrl_ops,
 					      &props);
