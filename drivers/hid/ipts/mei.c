@@ -26,13 +26,6 @@ static void locked_list_add(struct list_head *new, struct list_head *head,
 	up_write(lock);
 }
 
-static void locked_list_del(struct list_head *entry, struct rw_semaphore *lock)
-{
-	down_write(lock);
-	list_del(entry);
-	up_write(lock);
-}
-
 static void ipts_mei_incoming(struct mei_cl_device *cldev)
 {
 	ssize_t ret = 0;
@@ -85,7 +78,7 @@ static int ipts_mei_search(struct ipts_mei *mei, enum ipts_command_code code,
 	if (!rsp)
 		return -EFAULT;
 
-	down_read(&mei->message_lock);
+	down_write(&mei->message_lock);
 
 	/*
 	 * Iterate over the list of received messages, and check if there is one
@@ -96,20 +89,22 @@ static int ipts_mei_search(struct ipts_mei *mei, enum ipts_command_code code,
 			break;
 	}
 
-	up_read(&mei->message_lock);
-
 	/*
 	 * If entry is not the list head, this means that the loop above has been stopped early,
-	 * and that we found a matching element. We drop the message from the list and return it.
+	 * and that we found a matching element. We drop the message from the list while still
+	 * holding the lock, so that no other waiter can claim the same entry, and return it.
 	 */
 	if (!list_entry_is_head(entry, &mei->messages, list)) {
-		locked_list_del(&entry->list, &mei->message_lock);
+		list_del(&entry->list);
+		up_write(&mei->message_lock);
 
 		*rsp = entry->rsp;
 		devm_kfree(&mei->cldev->dev, entry);
 
 		return 0;
 	}
+
+	up_write(&mei->message_lock);
 
 	return -EAGAIN;
 }
