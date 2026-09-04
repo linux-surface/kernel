@@ -335,6 +335,9 @@ static __always_inline unsigned int rb_read_page_capacity(struct buffer_data_rea
 	return (PAGE_SIZE << rpage->order) - BUF_PAGE_HDR_SIZE;
 }
 
+/* The number of bits for static buffer ids */
+#define RB_STATIC_BITS	30
+
 /*
  * Note, the buffer_page list must be first. The buffer pages
  * are allocated in cache lines, which means that each buffer
@@ -350,7 +353,7 @@ struct buffer_page {
 	local_t		 entries;	/* entries on this page */
 	unsigned long	 real_end;	/* real end of data */
 	unsigned	 order;		/* order of the page */
-	u32		 id:30;		/* ID for external mapping */
+	u32		 id:RB_STATIC_BITS; /* ID for external mapping */
 	u32		 range:1;	/* Mapped via a range */
 	struct buffer_data_page *page;	/* Actual data page */
 };
@@ -663,7 +666,7 @@ static unsigned long rb_static_max_pages(void)
 	 * Static ring buffers are using bpage::id and must account for the
 	 * reader page.
 	 */
-	return (1UL << 30) - 1;
+	return (1UL << RB_STATIC_BITS) - 1;
 }
 
 struct ring_buffer_iter {
