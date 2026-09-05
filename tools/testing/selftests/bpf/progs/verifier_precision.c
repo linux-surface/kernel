@@ -642,4 +642,38 @@ __naked int bpf_atomic_cmpxchg_32bit_precision(void)
 	: __clobber_all);
 }
 
+/*
+ * Verification takes two paths: with r1 being scalar zero on path (1)
+ * and with r1 being some other scalar on path (2).
+ * Check that the verifier does not use checkpoints created
+ * on path (1) to prune path (2).
+ */
+SEC("?tc")
+__flag(BPF_F_TEST_STATE_FREQ)
+__failure __msg("R1 type=scalar expected=fp")
+__naked int null_mem_arg_zero_size(void)
+{
+	asm volatile (
+		"call %[bpf_get_prandom_u32];"
+		"r1 = 42;"
+		"if r0 > 42 goto 1f;"
+		"r1 = 0;"
+	"1:"
+		"r2 = 0;"
+		"r3 = 0;"
+		"r4 = 0;"
+		"r5 = 0;"
+		/*
+		 * ARG_PTR_TO_MEM | PTR_MAYBE_NULL parameter can be NULL,
+		 * but can't be some other scalar value.
+		 */
+		"call %[bpf_csum_diff];"
+		"r0 = 0;"
+		"exit;"
+		:
+		: __imm(bpf_get_prandom_u32),
+		  __imm(bpf_csum_diff)
+		: __clobber_all);
+}
+
 char _license[] SEC("license") = "GPL";
