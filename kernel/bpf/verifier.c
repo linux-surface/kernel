@@ -9774,8 +9774,12 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 			struct bpf_call_arg_meta meta;
 			int err;
 
-			if (bpf_register_is_null(reg) && type_may_be_null(arg->arg_type))
+			if (bpf_register_is_null(reg) && type_may_be_null(arg->arg_type)) {
+				err = mark_arg_precision(env, argno);
+				if (err)
+					return err;
 				continue;
+			}
 
 			memset(&meta, 0, sizeof(meta)); /* leave func_id as zero */
 			err = check_reg_type(env, reg, argno, arg->arg_type, &arg->btf_id, &meta,
