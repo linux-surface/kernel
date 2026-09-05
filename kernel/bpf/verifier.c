@@ -4246,6 +4246,15 @@ static int mark_stack_arg_precision(struct bpf_verifier_env *env, int arg_idx)
 	return mark_chain_precision_batch(env, env->cur_state);
 }
 
+static int mark_arg_precision(struct bpf_verifier_env *env, argno_t argno)
+{
+	int regno = reg_from_argno(argno);
+
+	if (regno >= 0)
+		return mark_chain_precision(env, regno);
+	return mark_stack_arg_precision(env, arg_idx_from_argno(argno));
+}
+
 static int check_outgoing_stack_args(struct bpf_verifier_env *env, struct bpf_func_state *caller,
 				     int nargs, const char *callee_name, const struct btf *btf,
 				     const struct btf_param *args)
@@ -7175,7 +7184,7 @@ static int check_mem_reg(struct bpf_verifier_env *env, struct bpf_reg_state *reg
 	int size, err = 0;
 
 	if (bpf_register_is_null(reg))
-		return 0;
+		return mark_arg_precision(env, argno);
 	if (known_memory)
 		*known_memory = true;
 
