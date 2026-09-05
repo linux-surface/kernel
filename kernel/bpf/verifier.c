@@ -7160,14 +7160,8 @@ static int check_mem_size_reg(struct bpf_verifier_env *env,
 	if (err && failure)
 		*failure = BPF_MEM_SIZE_FAIL_MEMORY;
 
-	if (!err) {
-		int regno = reg_from_argno(size_argno);
-
-		if (regno >= 0)
-			err = mark_chain_precision(env, regno);
-		else
-			err = mark_stack_arg_precision(env, arg_idx_from_argno(size_argno));
-	}
+	if (!err)
+		err = mark_arg_precision(env, size_argno);
 
 	return err;
 
