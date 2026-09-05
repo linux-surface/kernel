@@ -2,8 +2,10 @@
 /* Copyright (C) 2023 SUSE LLC */
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
+#include <stdbool.h>
 #include "../../../include/linux/filter.h"
 #include "bpf_misc.h"
+#include "bpf_kfuncs.h"
 
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
@@ -706,6 +708,38 @@ __naked int null_mem_arg_global_subprog(void)
 		:
 		: __imm(bpf_get_prandom_u32)
 		: __clobber_all);
+}
+
+/* Same as above, check that path with r3 == 0 does not prune the path with r3 != 0 */
+SEC("?tc")
+__flag(BPF_F_TEST_STATE_FREQ)
+__failure __msg("R3 type=scalar expected=fp")
+int null_kfunc_arg_dynptr_slice(struct __sk_buff *skb)
+{
+	struct bpf_dynptr ptr;
+
+	bpf_dynptr_from_skb(skb, 0, &ptr);
+	asm volatile (
+		"call %[bpf_get_prandom_u32];"
+		"r3 = 42;"
+		"if r0 > 42 goto 1f;"
+		"r3 = 0;"
+	"1:"
+		"r1 = %[ptr];"
+		"r2 = 0;"
+		"r4 = 8;"
+		"call %[bpf_dynptr_slice];"
+		:
+		: __imm_ptr(ptr),
+		  __imm(bpf_get_prandom_u32),
+		  __imm(bpf_dynptr_slice)
+		: __clobber_common);
+	return 0;
+}
+
+void __kfunc_btf_root(void)
+{
+	bpf_dynptr_slice(0, 0, 0, 0);
 }
 
 char _license[] SEC("license") = "GPL";
