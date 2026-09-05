@@ -676,4 +676,36 @@ __naked int null_mem_arg_zero_size(void)
 		: __clobber_all);
 }
 
+__weak int subprog_mem_arg(int *p)
+{
+	if (p)
+		return *p;
+	return 0;
+}
+
+/*
+ * Verification takes two paths: with r1 being scalar zero on path (1)
+ * and with r1 being some other scalar on path (2).
+ * Check that the verifier does not use checkpoints created
+ * on path (1) to prune path (2).
+ */
+SEC("?raw_tp")
+__flag(BPF_F_TEST_STATE_FREQ)
+__failure __msg("R1 type=scalar expected=fp")
+__naked int null_mem_arg_global_subprog(void)
+{
+	asm volatile (
+		"call %[bpf_get_prandom_u32];"
+		"r1 = 42;"
+		"if r0 > 42 goto 1f;"
+		"r1 = 0;"
+	"1:"
+		"call subprog_mem_arg;"
+		"r0 = 0;"
+		"exit;"
+		:
+		: __imm(bpf_get_prandom_u32)
+		: __clobber_all);
+}
+
 char _license[] SEC("license") = "GPL";
