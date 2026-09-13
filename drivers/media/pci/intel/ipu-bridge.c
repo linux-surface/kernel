@@ -244,6 +244,7 @@ static const struct ipu_property_names prop_names = {
 	.data_lanes = "data-lanes",
 	.remote_endpoint = "remote-endpoint",
 	.link_frequencies = "link-frequencies",
+	.clock_noncontinuous = "clock-noncontinuous",
 };
 
 static const char * const ipu_vcm_types[] = {
@@ -590,7 +591,7 @@ static void ipu_bridge_create_fwnode_properties(
 
 	if (cfg->flags & IPU_BR_FL_CSI2_CLK_NONCONTINUOUS)
 		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_CLOCK_NONCONTINUOUS)] =
-			PROPERTY_ENTRY_BOOL("clock-noncontinuous");
+			PROPERTY_ENTRY_BOOL(names->clock_noncontinuous);
 
 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
 					sensor->prop_names.data_lanes,
