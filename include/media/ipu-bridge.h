@@ -135,6 +135,7 @@ struct ipu_property_names {
 	char data_lanes[11];
 	char remote_endpoint[16];
 	char link_frequencies[17];
+	char clock_noncontinuous[20];
 };
 
 struct ipu_node_names {
