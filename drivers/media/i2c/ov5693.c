@@ -16,6 +16,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
@@ -398,9 +399,82 @@ static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
 	       OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
 }
 
+/*
+ * On the Surface Pro 5 the front OV5693 is mounted vertically mirrored: the
+ * upright, unmirrored image needs the sensor's vertical flip and no horizontal
+ * flip (the firmware reports a 180 degree rotation instead, which would leave
+ * the image mirrored). Invert the VFLIP control so that its default (0) gives
+ * the upright image; ipu-bridge reports 0 degrees for this sensor.
+ */
+static const struct dmi_system_id ov5693_vflip_inverted_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{}
+};
+
+static bool ov5693_vflip_enabled(bool ctrl_val)
+{
+	return ctrl_val ^ !!dmi_check_system(ov5693_vflip_inverted_dmi_ids);
+}
+
+/*
+ * In the full readout each flip (ISP + sensor bits) moves the Bayer phase by
+ * one column, so with exactly one of them enabled the receiver gets GBRG
+ * instead of BGGR; with both enabled the two shifts cancel out. The crop
+ * start is only honoured in steps of two, so compensate by shifting the
+ * output window by one column instead, and widen the crop so the window still
+ * fits. The binned readout keeps its phase with either flip.
+ */
+static bool ov5693_bayer_shift(struct ov5693_device *ov5693)
+{
+	const struct ov5693_mode *mode = &ov5693->mode;
+	bool hflip, vflip;
+
+	if (mode->binning_x || mode->binning_y)
+		return false;
+
+	hflip = ov5693->ctrls.hflip && ov5693->ctrls.hflip->val;
+	vflip = ov5693->ctrls.vflip &&
+		ov5693_vflip_enabled(ov5693->ctrls.vflip->val);
+
+	return hflip ^ vflip;
+}
+
+static int ov5693_window_x_configure(struct ov5693_device *ov5693)
+{
+	const struct ov5693_mode *mode = &ov5693->mode;
+	bool binned = mode->binning_x || mode->binning_y;
+	bool shift = ov5693_bayer_shift(ov5693);
+	int ret = 0;
+
+	/* Offset X */
+	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
+		  binned ? 8 : shift, &ret);
+
+	/* Crop End X */
+	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
+		  binned ? OV5693_NATIVE_WIDTH - 1 :
+			   mode->crop.left + mode->crop.width +
+			   (shift ? 2 : 0), &ret);
+
+	return ret;
+}
+
 static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
 				      bool enable)
 {
+	enable = ov5693_vflip_enabled(enable);
+
 	u8 mask = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
 	int ret;
@@ -410,7 +484,7 @@ static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
 	if (ret)
 		return ret;
 
-	return 0;
+	return ov5693_window_x_configure(ov5693);
 }
 
 static int ov5693_flip_horz_configure(struct ov5693_device *ov5693,
@@ -425,7 +499,7 @@ static int ov5693_flip_horz_configure(struct ov5693_device *ov5693,
 	if (ret)
 		return ret;
 
-	return 0;
+	return ov5693_window_x_configure(ov5693);
 }
 
 static int ov5693_get_exposure(struct ov5693_device *ov5693, s32 *value)
@@ -658,18 +732,13 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
 		  binned ? 0 : mode->crop.left, &ret);
 
-	/* Offset X */
-	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
-		  binned ? 8 : 0, &ret);
-
 	/* Output Size X */
 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
 		  &ret);
 
-	/* Crop End X */
-	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
-		  binned ? OV5693_NATIVE_WIDTH - 1 :
-			   mode->crop.left + mode->crop.width, &ret);
+	/* Offset X and Crop End X follow the flips, see ov5693_bayer_shift(). */
+	if (!ret)
+		ret = ov5693_window_x_configure(ov5693);
 
 	/* Horizontal Total Size */
 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
@@ -712,7 +781,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 	 * The set of FORMAT1 bits that means "vertical flip" changes with the
 	 * readout mode, so re-apply the control now that binning is known.
 	 */
-	if (ov5693->ctrls.vflip && ov5693->ctrls.vflip->val)
+	if (ov5693->ctrls.vflip &&
+	    ov5693_vflip_enabled(ov5693->ctrls.vflip->val))
 		cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG,
 				OV5693_FORMAT1_FLIP_VERT_ISP_EN |
 				OV5693_FORMAT1_FLIP_VERT_SENSOR_EN,
