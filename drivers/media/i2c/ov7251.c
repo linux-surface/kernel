@@ -10,6 +10,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/init.h>
@@ -233,6 +234,64 @@ static const struct ov7251_pll_cfgs *ov7251_pll_cfgs[] = {
 	[OV7251_19_2_MHZ] = &ov7251_pll_cfgs_19_2_mhz,
 	[OV7251_24_MHZ] = &ov7251_pll_cfgs_24_mhz,
 };
+
+/*
+ * Surface IR flood illuminator.
+ *
+ * On the Surface Pro 5 the IR LED is driven by the sensor's STROBE pad, not by
+ * a GPIO or the TPS68470 LED outputs, and ACPI does not describe it. The mode
+ * tables leave the pad disabled (0x3005 = 0x00, 0x3016-0x301c = 0xf0), so the
+ * LED never lights and the IR camera (behind an IR-pass filter) sees black.
+ *
+ * 0x3b81 is the strobe pattern: 0xaa lights the LED on alternate frames, so
+ * userspace gets lit and unlit frames for ambient light subtraction.
+ *
+ * surface_ir_strobe: -1 = auto (on for the DMI matches below), 0 = off, 1 = on.
+ */
+static int surface_ir_strobe = -1;
+module_param(surface_ir_strobe, int, 0644);
+MODULE_PARM_DESC(surface_ir_strobe,
+		 "Drive the Surface IR illuminator via STROBE (-1 auto, 0 off, 1 on)");
+
+static const struct dmi_system_id ov7251_surface_ir_strobe_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{}
+};
+
+static const struct reg_value ov7251_surface_ir_strobe_regs[] = {
+	{ 0x3005, 0x08 },
+	{ 0x3016, 0x10 },
+	{ 0x3017, 0x00 },
+	{ 0x3018, 0x00 },
+	{ 0x301a, 0x00 },
+	{ 0x301b, 0x00 },
+	{ 0x301c, 0x00 },
+	{ 0x3664, 0xf0 },
+	{ 0x3b81, 0xaa },
+	{ 0x3b8b, 0x00 },
+	{ 0x3b8e, 0x03 },
+	{ 0x3b8f, 0x08 },
+	{ 0x3b96, 0xc0 },
+};
+
+static bool ov7251_use_surface_ir_strobe(void)
+{
+	if (surface_ir_strobe >= 0)
+		return surface_ir_strobe;
+
+	return dmi_check_system(ov7251_surface_ir_strobe_dmi_ids);
+}
 
 static const struct reg_value ov7251_global_init_setting[] = {
 	{ 0x0103, 0x01 },
@@ -1361,6 +1420,15 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
 				ov7251->current_mode->width,
 				ov7251->current_mode->height);
 			goto err_power_down;
+		}
+		if (ov7251_use_surface_ir_strobe()) {
+			ret = ov7251_set_register_array(ov7251,
+					ov7251_surface_ir_strobe_regs,
+					ARRAY_SIZE(ov7251_surface_ir_strobe_regs));
+			if (ret < 0) {
+				dev_err(ov7251->dev, "could not set IR strobe\n");
+				goto err_power_down;
+			}
 		}
 		ret = __v4l2_ctrl_handler_setup(&ov7251->ctrls);
 		if (ret < 0) {
