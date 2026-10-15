@@ -2726,6 +2726,43 @@ static int ov8865_get_fmt(struct v4l2_subdev *subdev,
 	return 0;
 }
 
+/*
+ * The Surface Pro 5 exposes the rear camera through libcamera's IPU3
+ * pipeline, which does not change the frame length. In the 800x600 mode
+ * (90 fps) the exposure is then capped at ~11 ms and indoor images are
+ * black even at maximum gain, so default to 30 fps there. Higher frame
+ * rates stay available through VBLANK.
+ */
+static const struct dmi_system_id ov8865_30fps_default_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{}
+};
+
+/* The 800x600 mode is the only one faster than 30 fps: 90 fps at its VTS. */
+#define OV8865_SVGA_FPS_DIVIDER			3
+
+static u32 ov8865_vblank_default(const struct ov8865_mode *mode)
+{
+	u32 vts = mode->vts;
+
+	if (mode->output_size_x == 800 && mode->output_size_y == 600 &&
+	    dmi_check_system(ov8865_30fps_default_dmi_ids))
+		vts *= OV8865_SVGA_FPS_DIVIDER;
+
+	return vts - mode->output_size_y;
+}
+
 static int ov8865_set_fmt(struct v4l2_subdev *subdev,
 			  struct v4l2_subdev_state *sd_state,
 			  struct v4l2_subdev_format *format)
@@ -2736,6 +2773,7 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
 	u32 mbus_code = 0;
 	unsigned int hblank;
 	unsigned int index;
+	u32 vblank_def;
 	int exposure_max;
 	int ret = 0;
 
@@ -2776,15 +2814,25 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
 		 sensor->state.mbus_code != mbus_code)
 		ret = ov8865_state_configure(sensor, mode, mbus_code);
 
+	vblank_def = ov8865_vblank_default(mode);
 	__v4l2_ctrl_modify_range(sensor->ctrls.vblank, OV8865_TIMING_MIN_VTS,
 				 OV8865_TIMING_MAX_VTS - mode->output_size_y,
-				 1, mode->vts - mode->output_size_y);
+				 1, vblank_def);
+
+	/*
+	 * Start every mode from its default frame length: a VBLANK value left
+	 * over from the previous mode would keep that mode's timing (e.g. the
+	 * full-size mode's 22 lines make the 800x600 mode run at ~93 fps).
+	 */
+	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE)
+		__v4l2_ctrl_s_ctrl(sensor->ctrls.vblank, vblank_def);
 
 	hblank = mode->hts - mode->output_size_x;
 	__v4l2_ctrl_modify_range(sensor->ctrls.hblank, hblank, hblank, 1,
 				 hblank);
 
-	exposure_max = mode->vts - OV8865_INTEGRATION_TIME_MARGIN;
+	exposure_max = mode->output_size_y + vblank_def -
+		       OV8865_INTEGRATION_TIME_MARGIN;
 	__v4l2_ctrl_modify_range(sensor->ctrls.exposure,
 				 sensor->ctrls.exposure->minimum, exposure_max,
 				 sensor->ctrls.exposure->step,
