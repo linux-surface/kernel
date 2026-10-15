@@ -16,6 +16,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
@@ -398,9 +399,39 @@ static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
 	       OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
 }
 
+/*
+ * On the Surface Pro 5 the front OV5693 is mounted vertically mirrored: the
+ * upright, unmirrored image needs the sensor's vertical flip and no horizontal
+ * flip (the firmware reports a 180 degree rotation instead, which would leave
+ * the image mirrored). Invert the VFLIP control so that its default (0) gives
+ * the upright image; ipu-bridge reports 0 degrees for this sensor.
+ */
+static const struct dmi_system_id ov5693_vflip_inverted_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{}
+};
+
+static bool ov5693_vflip_enabled(bool ctrl_val)
+{
+	return ctrl_val ^ !!dmi_check_system(ov5693_vflip_inverted_dmi_ids);
+}
+
 static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
 				      bool enable)
 {
+	enable = ov5693_vflip_enabled(enable);
+
 	u8 mask = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
 	int ret;
@@ -633,6 +664,7 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 {
 	const struct ov5693_mode *mode = &ov5693->mode;
 	bool binned = mode->binning_x || mode->binning_y;
+	bool vflip_shift;
 	int ret = 0;
 
 	/*
@@ -654,13 +686,22 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 	 * IPU6, no frame ever completes).
 	 */
 
+	/*
+	 * In the full readout the vertical flip (ISP + sensor bits) moves the
+	 * Bayer phase by one column (BGGR -> GBRG). The crop start is only
+	 * honoured in steps of two, so shift the output window by one column
+	 * instead, and widen the crop so the window still fits.
+	 */
+	vflip_shift = !binned && ov5693->ctrls.vflip &&
+		      ov5693_vflip_enabled(ov5693->ctrls.vflip->val);
+
 	/* Crop Start X */
 	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
 		  binned ? 0 : mode->crop.left, &ret);
 
 	/* Offset X */
 	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
-		  binned ? 8 : 0, &ret);
+		  binned ? 8 : vflip_shift, &ret);
 
 	/* Output Size X */
 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
@@ -669,7 +710,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 	/* Crop End X */
 	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
 		  binned ? OV5693_NATIVE_WIDTH - 1 :
-			   mode->crop.left + mode->crop.width, &ret);
+			   mode->crop.left + mode->crop.width +
+			   (vflip_shift ? 2 : 0), &ret);
 
 	/* Horizontal Total Size */
 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
@@ -712,7 +754,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 	 * The set of FORMAT1 bits that means "vertical flip" changes with the
 	 * readout mode, so re-apply the control now that binning is known.
 	 */
-	if (ov5693->ctrls.vflip && ov5693->ctrls.vflip->val)
+	if (ov5693->ctrls.vflip &&
+	    ov5693_vflip_enabled(ov5693->ctrls.vflip->val))
 		cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG,
 				OV5693_FORMAT1_FLIP_VERT_ISP_EN |
 				OV5693_FORMAT1_FLIP_VERT_SENSOR_EN,
