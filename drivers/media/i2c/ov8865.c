@@ -8,6 +8,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of_graph.h>
@@ -2189,10 +2190,34 @@ static int ov8865_blue_balance_configure(struct ov8865_sensor *sensor,
 
 /* Flip */
 
+/*
+ * On the Surface Pro 5 the rear OV8865 is mounted vertically mirrored: the
+ * upright image needs the sensor's vertical flip enabled. Invert the VFLIP
+ * control so that the default (0) gives an upright image.
+ */
+static const struct dmi_system_id ov8865_vflip_inverted_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{}
+};
+
 static int ov8865_flip_vert_configure(struct ov8865_sensor *sensor, bool enable)
 {
 	u8 bits = OV8865_FORMAT1_FLIP_VERT_ISP_EN |
 		  OV8865_FORMAT1_FLIP_VERT_SENSOR_EN;
+
+	if (dmi_check_system(ov8865_vflip_inverted_dmi_ids))
+		enable = !enable;
 
 	return ov8865_update_bits(sensor, OV8865_FORMAT1_REG, bits,
 				  enable ? bits : 0);
