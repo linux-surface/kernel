@@ -318,7 +318,7 @@ static const struct cci_reg_sequence ov5693_global_regs[] = {
 	{CCI_REG8(0x4009), 0x10},
 	{CCI_REG8(0x4058), 0x00},
 	{CCI_REG8(0x4101), 0xb2},
-	{CCI_REG8(0x4307), 0x31},
+	{CCI_REG8(0x4307), 0x30},
 	{CCI_REG8(0x4511), 0x05},
 	{CCI_REG8(0x4512), 0x01},
 	{CCI_REG8(0x481f), 0x30},
@@ -703,6 +703,33 @@ static const struct cci_reg_sequence ov5693_mode_binned_regs[] = {
 	{CCI_REG8(0x371f), 0x1f},
 };
 
+/*
+ * Binned readout set. With the 60 fps values (0) the IPU3 CIO2 of the
+ * Surface Pro 5 loses several frames per stream ("frame sync error",
+ * short payloads); the 30 fps values (1, default) stream cleanly.
+ *   binned_regs = 0: readout and MIPI PLL of the 60 fps binned mode
+ *   binned_regs = 1: 30 fps binned values, MIPI PLL multiplier 0x7d
+ *   binned_regs = 2: 30 fps binned values with the full-mode PLL (0x83)
+ * blc_target: black level target (0x4009); 0 leaves the default.
+ */
+static int binned_regs = 1;
+module_param(binned_regs, int, 0644);
+MODULE_PARM_DESC(binned_regs, "binned readout set (0=60fps, 1=30fps, 2=30fps+full PLL)");
+
+static int blc_target;
+module_param(blc_target, int, 0644);
+MODULE_PARM_DESC(blc_target, "black level target 0x4009 (0=default)");
+
+static const struct cci_reg_sequence ov5693_mode_binned30_regs[] = {
+	{CCI_REG8(0x30b3), 0x7d},	/* MIPI PLL multiplier */
+	{CCI_REG8(0x3620), 0x54},
+	{CCI_REG8(0x3621), 0xc7},
+	{CCI_REG8(0x3622), 0x0f},
+	{CCI_REG8(0x3708), 0xe6},
+	{CCI_REG8(0x3709), 0xc7},
+	{CCI_REG8(0x371f), 0x0c},
+};
+
 static int ov5693_mode_configure(struct ov5693_device *ov5693)
 {
 	const struct ov5693_mode *mode = &ov5693->mode;
@@ -789,12 +816,21 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 				ov5693_flip_vert_bits(ov5693), &ret);
 
 	/* PLL and analogue readout timing follow the readout mode. */
-	if (mode->binning_x || mode->binning_y)
+	if ((mode->binning_x || mode->binning_y) && binned_regs) {
+		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned30_regs,
+				    ARRAY_SIZE(ov5693_mode_binned30_regs), &ret);
+		if (binned_regs == 2)
+			cci_write(ov5693->regmap, CCI_REG8(0x30b3), 0x83, &ret);
+	} else if (mode->binning_x || mode->binning_y)
 		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned_regs,
 				    ARRAY_SIZE(ov5693_mode_binned_regs), &ret);
 	else
 		cci_multi_reg_write(ov5693->regmap, ov5693_mode_full_regs,
 				    ARRAY_SIZE(ov5693_mode_full_regs), &ret);
+
+	if (blc_target)
+		cci_write(ov5693->regmap, CCI_REG8(0x4009), blc_target & 0xff,
+			  &ret);
 
 	return ret;
 }
