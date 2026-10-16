@@ -181,10 +181,10 @@
 #define OV8865_HTS_L_REG			0x380d
 #define OV8865_HTS_L(v)				((v) & GENMASK(7, 0))
 #define OV8865_VTS_H_REG			0x380e
-#define OV8865_VTS_H(v)				(((v) & GENMASK(11, 8)) >> 8)
+#define OV8865_VTS_H(v)				(((v) & GENMASK(14, 8)) >> 8)
 #define OV8865_VTS_L_REG			0x380f
 #define OV8865_VTS_L(v)				((v) & GENMASK(7, 0))
-#define OV8865_TIMING_MAX_VTS			0xffff
+#define OV8865_TIMING_MAX_VTS			0x7fff
 #define OV8865_TIMING_MIN_VTS			0x04
 #define OV8865_OFFSET_X_H_REG			0x3810
 #define OV8865_OFFSET_X_H(v)			(((v) & GENMASK(15, 8)) >> 8)
