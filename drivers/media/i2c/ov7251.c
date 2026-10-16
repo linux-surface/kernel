@@ -285,6 +285,18 @@ static const struct reg_value ov7251_surface_ir_strobe_regs[] = {
 	{ 0x3b96, 0xc0 },
 };
 
+/*
+ * Strobe pattern (0x3b81): 0xaa lights alternate frames, 0xff every frame.
+ * The strobe pulse follows the exposure time (0x3b8c-0x3b8f, in lines),
+ * clamped to the range the Surface uses.
+ */
+static int surface_ir_pattern = 0xaa;
+module_param(surface_ir_pattern, int, 0644);
+MODULE_PARM_DESC(surface_ir_pattern, "IR strobe pattern 0x3b81 (0xaa alternate frames, 0xff every frame)");
+
+#define OV7251_STROBE_MIN_LINES		52
+#define OV7251_STROBE_MAX_LINES		776
+
 static bool ov7251_use_surface_ir_strobe(void)
 {
 	if (surface_ir_strobe >= 0)
@@ -924,13 +936,28 @@ static int ov7251_set_exposure(struct ov7251 *ov7251, s32 exposure)
 {
 	u16 reg;
 	u8 val[3];
+	s32 strobe;
+	int ret;
 
 	reg = OV7251_AEC_EXPO_0;
 	val[0] = (exposure & 0xf000) >> 12; /* goes to OV7251_AEC_EXPO_0 */
 	val[1] = (exposure & 0x0ff0) >> 4;  /* goes to OV7251_AEC_EXPO_1 */
 	val[2] = (exposure & 0x000f) << 4;  /* goes to OV7251_AEC_EXPO_2 */
 
-	return ov7251_write_seq_regs(ov7251, reg, val, 3);
+	ret = ov7251_write_seq_regs(ov7251, reg, val, 3);
+	if (ret < 0 || !ov7251_use_surface_ir_strobe())
+		return ret;
+
+	strobe = clamp_t(s32, exposure, OV7251_STROBE_MIN_LINES,
+			 OV7251_STROBE_MAX_LINES);
+	val[0] = 0;
+	val[1] = 0;
+	val[2] = strobe >> 8;
+	ret = ov7251_write_seq_regs(ov7251, 0x3b8c, val, 3);
+	if (ret < 0)
+		return ret;
+
+	return ov7251_write_reg(ov7251, 0x3b8f, strobe & 0xff);
 }
 
 static int ov7251_set_gain(struct ov7251 *ov7251, s32 gain)
@@ -1425,6 +1452,9 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
 			ret = ov7251_set_register_array(ov7251,
 					ov7251_surface_ir_strobe_regs,
 					ARRAY_SIZE(ov7251_surface_ir_strobe_regs));
+			if (!ret)
+				ret = ov7251_write_reg(ov7251, 0x3b81,
+						       surface_ir_pattern & 0xff);
 			if (ret < 0) {
 				dev_err(ov7251->dev, "could not set IR strobe\n");
 				goto err_power_down;
