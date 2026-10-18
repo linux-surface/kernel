@@ -218,7 +218,7 @@ static int spi_hid_output(struct spi_hid *shid, void *buf, u16 length)
 	return ret;
 }
 
-static const char *const spi_hid_power_mode_string(u8 power_state)
+static const char *spi_hid_power_mode_string(u8 power_state)
 {
 	switch (power_state) {
 	case SPI_HID_POWER_MODE_ACTIVE:
