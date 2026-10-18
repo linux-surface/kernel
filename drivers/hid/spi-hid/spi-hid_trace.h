@@ -36,7 +36,7 @@ DECLARE_EVENT_CLASS(spi_hid_transfer,
 
 	TP_fast_assign(
 		__entry->bus_num = shid->spi->controller->bus_num;
-		__entry->chip_select = shid->spi->chip_select;
+		__entry->chip_select = spi_get_chipselect(shid->spi, 0);
 		__entry->len = rx_len + tx_len;
 		__entry->ret = ret;
 
@@ -94,7 +94,7 @@ DECLARE_EVENT_CLASS(spi_hid_irq,
 
 	TP_fast_assign(
 		__entry->bus_num = shid->spi->controller->bus_num;
-		__entry->chip_select = shid->spi->chip_select;
+		__entry->chip_select = spi_get_chipselect(shid->spi, 0);
 		__entry->irq = irq;
 	),
 
@@ -131,7 +131,7 @@ DECLARE_EVENT_CLASS(spi_hid,
 
 	TP_fast_assign(
 		__entry->bus_num = shid->spi->controller->bus_num;
-		__entry->chip_select = shid->spi->chip_select;
+		__entry->chip_select = spi_get_chipselect(shid->spi, 0);
 		__entry->input_stage = shid->input_stage;
 		__entry->power_state = shid->power_state;
 		__entry->input_transfer_pending = shid->input_transfer_pending;
