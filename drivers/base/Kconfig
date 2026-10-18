@@ -76,7 +76,7 @@ config DEVTMPFS_SAFE
 config DRIVER_DEFERRED_PROBE_TIMEOUT
 	int "Default value for deferred_probe_timeout"
 	default 0 if !MODULES
-	default 10 if MODULES
+	default -1 if MODULES
 	help
 	  Set the default value for the deferred_probe_timeout kernel parameter.
 	  See Documentation/admin-guide/kernel-parameters.txt for a description

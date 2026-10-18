@@ -258,7 +258,7 @@ static int deferred_devs_show(struct seq_file *s, void *data)
 DEFINE_SHOW_ATTRIBUTE(deferred_devs);
 
 static int driver_deferred_probe_timeout = CONFIG_DRIVER_DEFERRED_PROBE_TIMEOUT;
-static int fw_devlink_timeout = -1;
+static int fw_devlink_timeout = 10;
 
 static int __init deferred_probe_timeout_setup(char *str)
 {
