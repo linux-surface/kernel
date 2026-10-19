@@ -1477,7 +1477,7 @@ static int spi_hid_probe(struct spi_device *spi)
 	INIT_WORK(&shid->refresh_device_work, spi_hid_refresh_device_work);
 	INIT_WORK(&shid->error_work, spi_hid_error_work);
 
-	irqflags = irq_get_trigger_type(spi->irq) | IRQF_ONESHOT;
+	irqflags = irq_get_trigger_type(spi->irq);
 	ret = request_irq(spi->irq, spi_hid_dev_irq, irqflags,
 			dev_name(&spi->dev), shid);
 	if (ret)
