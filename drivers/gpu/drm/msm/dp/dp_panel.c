@@ -153,6 +153,24 @@ static int msm_dp_panel_read_dpcd(struct msm_dp_panel *msm_dp_panel)
 					   "SUPPORTED_LINK_RATES[%d]: %d\n", i, rate);
 
 				/*
+				 * Some panels (e.g. LGD LP129WT112684 on the
+				 * Surface Pro X) report intermediate rates that
+				 * we cannot drive, and in non-ascending order.
+				 * Ignore the table in that case and fall back to
+				 * MAX_LINK_RATE below.
+				 */
+				if (!is_link_rate_valid(drm_dp_link_rate_to_bw_code(rate))) {
+					drm_dbg_dp(panel->drm_dev,
+						   "unsupported link rate %d in SUPPORTED_LINK_RATES, ignoring table\n",
+						   rate);
+					memset(link_info->supported_rates, 0,
+					       sizeof(link_info->supported_rates));
+					link_info->rate = 0;
+					link_info->rate_set = 0;
+					break;
+				}
+
+				/*
 				 * Limit link rate from link-frequencies of endpoint
 				 * property of dtsi
 				 */
