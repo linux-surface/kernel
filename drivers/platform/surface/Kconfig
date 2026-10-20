@@ -186,6 +186,21 @@ config SURFACE_GPE
 	  accordingly. It is required on those devices to allow wake-ups from
 	  suspend by opening the lid.
 
+config SURFACE_GPU_POWER
+	tristate "Surface GPU Power Controller Driver"
+	depends on ACPI
+	help
+	  Driver for the GPU power controller (MSHW0216) found on Microsoft
+	  Surface Laptop Studio devices with a discrete NVIDIA GPU.
+
+	  Without this driver, the firmware limits the discrete GPU to 10 W
+	  once it has been runtime-suspended (D3cold). The driver activates
+	  the controller, like Windows does, which removes this limit and
+	  enables NVIDIA Dynamic Boost.
+
+	  Select M or Y here, if you want full discrete GPU performance on
+	  the Surface Laptop Studio.
+
 config SURFACE_HOTPLUG
 	tristate "Surface Hot-Plug Driver"
 	depends on ACPI
