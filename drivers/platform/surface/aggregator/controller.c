@@ -2753,12 +2753,20 @@ int ssam_irq_setup(struct ssam_controller *ctrl)
 	 */
 	const int irqf = IRQF_ONESHOT | IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN;
 
-	gpiod = gpiod_get(dev, "ssam_wakeup-int", GPIOD_ASIS);
-	if (IS_ERR(gpiod)) {
-		irq = fwnode_irq_get(dev_fwnode(dev), 0);
-	} else {
+	/*
+	 * Only fall back to the fwnode IRQ if no wakeup GPIO is described at
+	 * all. Any other error, in particular -EPROBE_DEFER while the GPIO
+	 * controller has not been registered yet, must reach the probe.
+	 */
+	gpiod = gpiod_get_optional(dev, "ssam_wakeup-int", GPIOD_ASIS);
+	if (IS_ERR(gpiod))
+		return PTR_ERR(gpiod);
+
+	if (gpiod) {
 		irq = gpiod_to_irq(gpiod);
 		gpiod_put(gpiod);
+	} else {
+		irq = fwnode_irq_get(dev_fwnode(dev), 0);
 	}
 
 	if (irq < 0)
