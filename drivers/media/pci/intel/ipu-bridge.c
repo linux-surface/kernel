@@ -155,6 +155,45 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
 	{} /* Terminating entry */
 };
 
+/*
+ * DMI matches for devices whose SSDB reports a 180° rotation for sensors that
+ * are not actually rotated. On the Surface Pro 5 the firmware reports 180° for
+ * both the front (OV5693) and the rear (OV8865) camera. Measured on the
+ * device, both need a vertical flip only and no mirroring, which is not a
+ * rotation: report 0 degrees and let the sensor drivers apply the flip.
+ */
+static const struct dmi_system_id not_rotated_sensor_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+		.driver_data = "INT33BE",
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+		.driver_data = "INT347A",
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+		.driver_data = "INT33BE",
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+		.driver_data = "INT347A",
+	},
+	{} /* Terminating entry */
+};
+
 static const struct ipu_property_names prop_names = {
 	.clock_frequency = "clock-frequency",
 	.rotation = "rotation",
@@ -345,6 +384,11 @@ static u32 ipu_bridge_parse_rotation(struct acpi_device *adev,
 	     dmi_id = dmi_first_match(dmi_id + 1))
 		if (acpi_dev_hid_match(adev, dmi_id->driver_data))
 			return 180;
+
+	for (dmi_id = dmi_first_match(not_rotated_sensor_dmi_ids); dmi_id;
+	     dmi_id = dmi_first_match(dmi_id + 1))
+		if (acpi_dev_hid_match(adev, dmi_id->driver_data))
+			return 0;
 
 	switch (ssdb->degree) {
 	case IPU_SENSOR_ROTATION_NORMAL:
