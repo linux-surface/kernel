@@ -35,6 +35,15 @@
 #define OV5693_STOP_STREAMING			0x00
 #define OV5693_SW_RESET				0x01
 
+/* MIPI transmitter control */
+#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
+/* Gate the clock lane when there is no packet to transmit */
+#define OV5693_MIPI_CTRL00_CLOCK_LANE_GATE	BIT(5)
+
+static int clock_ncont = -1;
+module_param(clock_ncont, int, 0444);
+MODULE_PARM_DESC(clock_ncont, "MIPI clock lane gating: -1 auto (default), 0 off, 1 on");
+
 #define OV5693_REG_CHIP_ID			CCI_REG16(0x300a)
 /* Yes, this is right. The datasheet for the OV5693 gives its ID as 0x5690 */
 #define OV5693_CHIP_ID				0x5690
@@ -143,6 +152,9 @@ struct ov5693_device {
 	struct gpio_desc *powerdown;
 	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
 	struct clk *xvclk;
+
+	/* Gate the MIPI clock lane when idle (CSI-2 non-continuous clock) */
+	bool clock_ncont;
 
 	struct ov5693_mode {
 		struct v4l2_rect crop;
@@ -610,6 +622,12 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
 {
 	int ret = 0;
+
+	/* Backport of the linux-next fix for IPU6 Surface front cameras. */
+	if (enable && ov5693->clock_ncont)
+		cci_update_bits(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
+				OV5693_MIPI_CTRL00_CLOCK_LANE_GATE,
+				OV5693_MIPI_CTRL00_CLOCK_LANE_GATE, &ret);
 
 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
@@ -1258,6 +1276,22 @@ static int ov5693_check_hwcfg(struct ov5693_device *ov5693)
 		ret = -EINVAL;
 		goto out_free_bus_cfg;
 	}
+
+	/*
+	 * Upstream (linux-next) gets this from a "clock-noncontinuous" endpoint
+	 * property set by ipu-bridge; this kernel's ipu-bridge does not set it,
+	 * so also enable it for the OVTI5693 HID, only found on IPU6 Surface
+	 * devices (Pro 8, Pro 9, Go 4). clock_ncont=0/1 overrides it.
+	 */
+	if (clock_ncont >= 0)
+		ov5693->clock_ncont = clock_ncont;
+	else
+		ov5693->clock_ncont = (bus_cfg.bus.mipi_csi2.flags &
+				       V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK) ||
+			(has_acpi_companion(ov5693->dev) &&
+			 acpi_dev_hid_match(ACPI_COMPANION(ov5693->dev), "OVTI5693"));
+	dev_info(ov5693->dev, "MIPI clock lane gating %s\n",
+		 ov5693->clock_ncont ? "enabled" : "disabled");
 
 out_free_bus_cfg:
 	v4l2_fwnode_endpoint_free(&bus_cfg);
