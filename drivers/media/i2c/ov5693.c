@@ -16,6 +16,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
@@ -82,6 +83,17 @@
 #define OV5693_OFFSET_START_X_REG		CCI_REG16(0x3810)
 #define OV5693_OFFSET_START_Y_REG		CCI_REG16(0x3812)
 
+/*
+ * ISP window Y offset used in the binned mode. Parity selects the Bayer
+ * phase of the output: 2 (even) keeps the advertised BGGR phase and is what
+ * libcamera's software ISP expects; 3 (odd, the Windows value) yields the
+ * GRBG phase that the IPU6 PSYS program groups from the Windows tuning
+ * expect. Switch with: modprobe ov5693 binned_y_offset=3
+ */
+static int binned_y_offset = 2;
+module_param(binned_y_offset, int, 0644);
+MODULE_PARM_DESC(binned_y_offset, "binned-mode ISP window Y offset (2=softISP/BGGR, 3=PSYS/GRBG)");
+
 #define OV5693_SUB_INC_X_REG			CCI_REG8(0x3814)
 #define OV5693_SUB_INC_Y_REG			CCI_REG8(0x3815)
 
@@ -109,6 +121,10 @@
 #define OV5693_ACTIVE_START_TOP			6
 #define OV5693_MIN_CROP_WIDTH			2
 #define OV5693_MIN_CROP_HEIGHT			2
+
+/* MIPI control */
+#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
+#define OV5693_MIPI_CTRL00_IPU6			0x2d
 
 /* Test Pattern */
 #define OV5693_TEST_PATTERN_REG			CCI_REG8(0x5e00)
@@ -285,6 +301,15 @@ static const struct cci_reg_sequence ov5693_global_regs[] = {
 	{CCI_REG8(0x3a04), 0x06},
 	{CCI_REG8(0x3a05), 0x14},
 	{CCI_REG8(0x3e07), 0x20},
+	/*
+	 * BLC: same values the Windows driver writes. The sensor keeps its
+	 * black pedestal at ~16 LSB (10-bit) at every analogue gain (measured
+	 * with dark captures; adding the remaining Windows BLC registers
+	 * 0x4002/0x4005/0x400c/0x400d/0x404e/0x404f does not change that).
+	 * Note the OEM .aiqb black-level calibration says 64.9 because it is
+	 * expressed at the 12-bit alignment Windows' ISYS DMA delivers
+	 * (16.2 <<2); see REPRODUCIR.md section 10.
+	 */
 	{CCI_REG8(0x4000), 0x08},
 	{CCI_REG8(0x4001), 0x04},
 	{CCI_REG8(0x4004), 0x08},
@@ -293,7 +318,7 @@ static const struct cci_reg_sequence ov5693_global_regs[] = {
 	{CCI_REG8(0x4009), 0x10},
 	{CCI_REG8(0x4058), 0x00},
 	{CCI_REG8(0x4101), 0xb2},
-	{CCI_REG8(0x4307), 0x31},
+	{CCI_REG8(0x4307), 0x30},
 	{CCI_REG8(0x4511), 0x05},
 	{CCI_REG8(0x4512), 0x01},
 	{CCI_REG8(0x481f), 0x30},
@@ -353,19 +378,113 @@ static const u8 ov5693_test_pattern_bits[] = {
 
 /* V4L2 Controls Functions */
 
+/*
+ * Which FORMAT1 bits express a vertical flip depends on the readout mode.
+ *
+ * At full resolution both the sensor-side and the ISP-side bit are used, as
+ * the datasheet describes. With 2x2 binning, setting both corrupts the CSI-2
+ * framing: an IPU6 receiver reports "Frame sync error" on every frame and no
+ * data arrives at all. The ISP bit alone streams cleanly but does not
+ * actually flip the picture, so the sensor-side bit alone is the one that
+ * both streams and flips. It also inverts the vertical Bayer phase, which
+ * the even ISP window offset in ov5693_mode_configure() keeps in place --
+ * measured on a Surface Pro 7+ against the full-resolution orientation.
+ */
+static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
+{
+	if (ov5693->mode.binning_y)
+		return OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
+
+	return OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+	       OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
+}
+
+/*
+ * On the Surface Pro 5 the front OV5693 is mounted vertically mirrored: the
+ * upright, unmirrored image needs the sensor's vertical flip and no horizontal
+ * flip (the firmware reports a 180 degree rotation instead, which would leave
+ * the image mirrored). Invert the VFLIP control so that its default (0) gives
+ * the upright image; ipu-bridge reports 0 degrees for this sensor.
+ */
+static const struct dmi_system_id ov5693_vflip_inverted_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{}
+};
+
+static bool ov5693_vflip_enabled(bool ctrl_val)
+{
+	return ctrl_val ^ !!dmi_check_system(ov5693_vflip_inverted_dmi_ids);
+}
+
+/*
+ * In the full readout each flip (ISP + sensor bits) moves the Bayer phase by
+ * one column, so with exactly one of them enabled the receiver gets GBRG
+ * instead of BGGR; with both enabled the two shifts cancel out. The crop
+ * start is only honoured in steps of two, so compensate by shifting the
+ * output window by one column instead, and widen the crop so the window still
+ * fits. The binned readout keeps its phase with either flip.
+ */
+static bool ov5693_bayer_shift(struct ov5693_device *ov5693)
+{
+	const struct ov5693_mode *mode = &ov5693->mode;
+	bool hflip, vflip;
+
+	if (mode->binning_x || mode->binning_y)
+		return false;
+
+	hflip = ov5693->ctrls.hflip && ov5693->ctrls.hflip->val;
+	vflip = ov5693->ctrls.vflip &&
+		ov5693_vflip_enabled(ov5693->ctrls.vflip->val);
+
+	return hflip ^ vflip;
+}
+
+static int ov5693_window_x_configure(struct ov5693_device *ov5693)
+{
+	const struct ov5693_mode *mode = &ov5693->mode;
+	bool binned = mode->binning_x || mode->binning_y;
+	bool shift = ov5693_bayer_shift(ov5693);
+	int ret = 0;
+
+	/* Offset X */
+	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
+		  binned ? 8 : shift, &ret);
+
+	/* Crop End X */
+	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
+		  binned ? OV5693_NATIVE_WIDTH - 1 :
+			   mode->crop.left + mode->crop.width +
+			   (shift ? 2 : 0), &ret);
+
+	return ret;
+}
+
 static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
 				      bool enable)
 {
-	u8 bits = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+	enable = ov5693_vflip_enabled(enable);
+
+	u8 mask = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
 	int ret;
 
-	ret = cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG, bits,
-			      enable ? bits : 0, NULL);
+	ret = cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG, mask,
+			      enable ? ov5693_flip_vert_bits(ov5693) : 0, NULL);
 	if (ret)
 		return ret;
 
-	return 0;
+	return ov5693_window_x_configure(ov5693);
 }
 
 static int ov5693_flip_horz_configure(struct ov5693_device *ov5693,
@@ -380,7 +499,7 @@ static int ov5693_flip_horz_configure(struct ov5693_device *ov5693,
 	if (ret)
 		return ret;
 
-	return 0;
+	return ov5693_window_x_configure(ov5693);
 }
 
 static int ov5693_get_exposure(struct ov5693_device *ov5693, s32 *value)
@@ -549,36 +668,116 @@ static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
 
 /* System Control Functions */
 
+/*
+ * Registers the vendor (Windows) driver programs differently for the full
+ * resolution and the 2x2 binned readout, taken from the mode tables in
+ * ov5693.sys.
+ *
+ * The mainline driver writes only the full-resolution values, once, from
+ * ov5693_global_regs, and never revisits them. Selecting the binned mode
+ * therefore leaves the sensor with a MIPI PLL multiplier (0x30b3) and
+ * analogue readout timing meant for twice the line length. On an IPU6 the
+ * receiver then reports "Transfer FIFO overflow" and every frame arrives
+ * empty, which is why the binned mode has been unusable -- and why the
+ * sensor has had to be read at full resolution and downscaled, costing two
+ * stops of light and forcing the AGC to its maximum analogue gain.
+ */
+static const struct cci_reg_sequence ov5693_mode_full_regs[] = {
+	{CCI_REG8(0x30b3), 0x83},	/* MIPI PLL multiplier */
+	{CCI_REG8(0x3620), 0x54},
+	{CCI_REG8(0x3621), 0xc7},
+	{CCI_REG8(0x3622), 0x0f},
+	{CCI_REG8(0x3708), 0xe2},
+	{CCI_REG8(0x3709), 0xc3},
+	{CCI_REG8(0x371f), 0x0c},
+};
+
+static const struct cci_reg_sequence ov5693_mode_binned_regs[] = {
+	{CCI_REG8(0x30b3), 0x70},	/* MIPI PLL multiplier */
+	{CCI_REG8(0x3600), 0xbc},	/* analogue, vendor sets it binned-only */
+	{CCI_REG8(0x3620), 0x44},
+	{CCI_REG8(0x3621), 0xb5},
+	{CCI_REG8(0x3622), 0x0c},
+	{CCI_REG8(0x3708), 0xe6},
+	{CCI_REG8(0x3709), 0xc7},
+	{CCI_REG8(0x371f), 0x1f},
+};
+
+/*
+ * Binned readout set. With the 60 fps values (0) the IPU3 CIO2 of the
+ * Surface Pro 5 loses several frames per stream ("frame sync error",
+ * short payloads); the 30 fps values (1, default) stream cleanly.
+ *   binned_regs = 0: readout and MIPI PLL of the 60 fps binned mode
+ *   binned_regs = 1: 30 fps binned values, MIPI PLL multiplier 0x7d
+ *   binned_regs = 2: 30 fps binned values with the full-mode PLL (0x83)
+ * blc_target: black level target (0x4009); 0 leaves the default.
+ */
+static int binned_regs = 1;
+module_param(binned_regs, int, 0644);
+MODULE_PARM_DESC(binned_regs, "binned readout set (0=60fps, 1=30fps, 2=30fps+full PLL)");
+
+static int blc_target;
+module_param(blc_target, int, 0644);
+MODULE_PARM_DESC(blc_target, "black level target 0x4009 (0=default)");
+
+static const struct cci_reg_sequence ov5693_mode_binned30_regs[] = {
+	{CCI_REG8(0x30b3), 0x7d},	/* MIPI PLL multiplier */
+	{CCI_REG8(0x3620), 0x54},
+	{CCI_REG8(0x3621), 0xc7},
+	{CCI_REG8(0x3622), 0x0f},
+	{CCI_REG8(0x3708), 0xe6},
+	{CCI_REG8(0x3709), 0xc7},
+	{CCI_REG8(0x371f), 0x0c},
+};
+
 static int ov5693_mode_configure(struct ov5693_device *ov5693)
 {
 	const struct ov5693_mode *mode = &ov5693->mode;
+	bool binned = mode->binning_x || mode->binning_y;
 	int ret = 0;
 
-	/* Crop Start X */
-	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG, mode->crop.left,
-		  &ret);
+	/*
+	 * Readout geometry. At full resolution this is the crop rectangle
+	 * selected over the media API, with the sensor-ISP window offsets at
+	 * zero.
+	 *
+	 * The binned mode instead copies the vendor driver: read the whole
+	 * pixel array (0..2623 x 0..1955), bin it to 1312x978, and let the
+	 * ISP window offsets place the 1296x972 output inside that. The
+	 * vertical offset is 2 rather than the vendor's 3: an odd offset
+	 * shifts the Bayer phase by one row (everything decodes magenta and
+	 * green); the vendor ISP knows the resulting phase, a V4L2 receiver
+	 * assumes it unchanged. The
+	 * obvious alternative -- keeping the 2592x1944 crop so the binned
+	 * readout exactly equals the output size with zero offset -- leaves
+	 * the sensor ISP without spare pixels around the window, and the
+	 * frames it emits then fail CSI-2 framing ("Frame sync error" on the
+	 * IPU6, no frame ever completes).
+	 */
 
-	/* Offset X */
-	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG, 0, &ret);
+	/* Crop Start X */
+	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
+		  binned ? 0 : mode->crop.left, &ret);
 
 	/* Output Size X */
 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
 		  &ret);
 
-	/* Crop End X */
-	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
-		  mode->crop.left + mode->crop.width, &ret);
+	/* Offset X and Crop End X follow the flips, see ov5693_bayer_shift(). */
+	if (!ret)
+		ret = ov5693_window_x_configure(ov5693);
 
 	/* Horizontal Total Size */
 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
 		  &ret);
 
 	/* Crop Start Y */
-	cci_write(ov5693->regmap, OV5693_CROP_START_Y_REG, mode->crop.top,
-		  &ret);
+	cci_write(ov5693->regmap, OV5693_CROP_START_Y_REG,
+		  binned ? 0 : mode->crop.top, &ret);
 
-	/* Offset Y */
-	cci_write(ov5693->regmap, OV5693_OFFSET_START_Y_REG, 0, &ret);
+	/* Offset Y: parity picks the Bayer phase, see binned_y_offset. */
+	cci_write(ov5693->regmap, OV5693_OFFSET_START_Y_REG,
+		  binned ? binned_y_offset : 0, &ret);
 
 	/* Output Size Y */
 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_Y_REG, mode->format.height,
@@ -586,7 +785,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 
 	/* Crop End Y */
 	cci_write(ov5693->regmap, OV5693_CROP_END_Y_REG,
-		  mode->crop.top + mode->crop.height, &ret);
+		  binned ? OV5693_NATIVE_HEIGHT - 1 :
+			   mode->crop.top + mode->crop.height, &ret);
 
 	/* Subsample X increase */
 	cci_write(ov5693->regmap, OV5693_SUB_INC_X_REG,
@@ -604,12 +804,52 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
 			OV5693_FORMAT2_HBIN_EN,
 			mode->binning_x ? OV5693_FORMAT2_HBIN_EN : 0, &ret);
 
+	/*
+	 * The set of FORMAT1 bits that means "vertical flip" changes with the
+	 * readout mode, so re-apply the control now that binning is known.
+	 */
+	if (ov5693->ctrls.vflip &&
+	    ov5693_vflip_enabled(ov5693->ctrls.vflip->val))
+		cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG,
+				OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+				OV5693_FORMAT1_FLIP_VERT_SENSOR_EN,
+				ov5693_flip_vert_bits(ov5693), &ret);
+
+	/* PLL and analogue readout timing follow the readout mode. */
+	if ((mode->binning_x || mode->binning_y) && binned_regs) {
+		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned30_regs,
+				    ARRAY_SIZE(ov5693_mode_binned30_regs), &ret);
+		if (binned_regs == 2)
+			cci_write(ov5693->regmap, CCI_REG8(0x30b3), 0x83, &ret);
+	} else if (mode->binning_x || mode->binning_y)
+		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned_regs,
+				    ARRAY_SIZE(ov5693_mode_binned_regs), &ret);
+	else
+		cci_multi_reg_write(ov5693->regmap, ov5693_mode_full_regs,
+				    ARRAY_SIZE(ov5693_mode_full_regs), &ret);
+
+	if (blc_target)
+		cci_write(ov5693->regmap, CCI_REG8(0x4009), blc_target & 0xff,
+			  &ret);
+
 	return ret;
 }
 
 static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
 {
 	int ret = 0;
+
+	/*
+	 * Program MIPI_CTRL00 (CSI-2 clock-lane control) before starting the
+	 * stream. The 0x00 power-on default is accepted by the IPU3 ISP but
+	 * leaves the IPU6 D-PHY (Surface Pro 7+/8/9) unable to lock onto the
+	 * link: the sensor streams yet the receiver gets no CSI-2 data and
+	 * capture times out. 0x2d matches the value the vendor (Windows)
+	 * driver writes and lets the IPU6 receive frames.
+	 */
+	if (enable)
+		cci_write(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
+			  OV5693_MIPI_CTRL00_IPU6, &ret);
 
 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
@@ -761,6 +1001,16 @@ static unsigned int __ov5693_calc_vts(u32 height)
 	unsigned int tgt_fps;
 
 	tgt_fps = rounddown(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / height, 30);
+
+	/*
+	 * Cap at 30fps. Left alone this picks 60fps for the 2x2 binned mode,
+	 * which halves VTS to 1038 -- and the binned readout runs off a slower
+	 * MIPI PLL (0x30b3), so the link cannot carry twice the frame rate:
+	 * the IPU6 reports "Frame sync error" and no frame ever completes. The
+	 * vendor driver runs the same mode at VTS 1984. Staying at 30fps also
+	 * keeps the exposure ceiling, which is VTS bound, where it was.
+	 */
+	tgt_fps = min(tgt_fps, 30U);
 
 	return ALIGN_DOWN(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / tgt_fps, 2);
 }
@@ -976,6 +1226,19 @@ static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
 			return ret;
 
 		mutex_lock(&ov5693->lock);
+
+		/*
+		 * Same as ov8865: the mode registers are only written on
+		 * runtime PM resume, so a format change on a sensor that stays
+		 * powered never reaches the chip. Program the mode first, then
+		 * the controls, so the mode registers don't clobber them.
+		 */
+		ret = ov5693_mode_configure(ov5693);
+		if (ret) {
+			mutex_unlock(&ov5693->lock);
+			goto err_power_down;
+		}
+
 		ret = __v4l2_ctrl_handler_setup(&ov5693->ctrls.handler);
 		if (ret) {
 			mutex_unlock(&ov5693->lock);
