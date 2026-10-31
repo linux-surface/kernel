@@ -158,10 +158,15 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length)
 	if (!data)
 		return -EFAULT;
 
-	do {
-		ret = mei_cldev_send(mei->cldev, (u8 *)data, length);
-	} while (ret == -EINTR);
-
+	/*
+	 * Do not retry on -EINTR. mei_cldev_send() queues the message before it
+	 * waits (interruptibly) for the transfer to complete, so a retry sends a
+	 * duplicate command. Worse, if the caller has a signal pending (SIGKILL,
+	 * or the freezer's fake signal during suspend/hibernate), every retry
+	 * returns -EINTR immediately and the loop spins forever, leaving the
+	 * task unkillable and failing the freezer.
+	 */
+	ret = mei_cldev_send(mei->cldev, (u8 *)data, length);
 	if (ret < 0)
 		return ret;
 
