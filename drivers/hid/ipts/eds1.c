@@ -60,8 +60,15 @@ static int ipts_eds1_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
 	ipts->mode = mode;
 
 	ret = ipts_control_restart(ipts);
-	if (ret)
+	if (ret) {
 		dev_err(ipts->dev, "Failed to switch modes: %d\n", ret);
+
+		/*
+		 * The device is stopped and the HID device is inactive, so userspace
+		 * cannot retry. Restart it (in the requested mode) in the background.
+		 */
+		ipts_control_schedule_recovery(ipts);
+	}
 
 	return ret;
 }

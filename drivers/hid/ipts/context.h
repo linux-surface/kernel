@@ -15,6 +15,7 @@
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include "mei.h"
 #include "resources.h"
@@ -47,6 +48,12 @@ struct ipts_context {
 	struct ipts_resources resources;
 
 	struct ipts_thread receiver_loop;
+
+	/*
+	 * Restarts the device in the background if a mode switch failed.
+	 */
+	struct delayed_work recovery_work;
+	unsigned int recovery_attempts;
 };
 
 #endif /* IPTS_CONTEXT_H */

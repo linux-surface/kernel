@@ -123,4 +123,26 @@ int ipts_control_stop(struct ipts_context *ipts);
  */
 int ipts_control_restart(struct ipts_context *ipts);
 
+/**
+ * ipts_control_init_recovery() - Initializes the background restart work.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_init_recovery(struct ipts_context *ipts);
+
+/**
+ * ipts_control_schedule_recovery() - Restarts the device in the background.
+ * @ipts: The IPTS driver context.
+ *
+ * Used when a restart failed, e.g. because the calling process was interrupted.
+ * Without this, the device would stay stopped and the HID device inactive,
+ * so userspace has no way to restart it.
+ */
+void ipts_control_schedule_recovery(struct ipts_context *ipts);
+
+/**
+ * ipts_control_cancel_recovery() - Cancels and waits for the background restart.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_cancel_recovery(struct ipts_context *ipts);
+
 #endif /* IPTS_CONTROL_H */

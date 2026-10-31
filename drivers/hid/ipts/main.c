@@ -76,6 +76,7 @@ static int ipts_probe(struct mei_cl_device *cldev, const struct mei_cl_device_id
 
 	mutex_init(&ipts->feature_lock);
 	init_completion(&ipts->feature_event);
+	ipts_control_init_recovery(ipts);
 
 	mei_cldev_set_drvdata(cldev, ipts);
 
@@ -99,6 +100,7 @@ static void ipts_remove(struct mei_cl_device *cldev)
 	}
 
 	ipts = mei_cldev_get_drvdata(cldev);
+	ipts_control_cancel_recovery(ipts);
 
 	ret = ipts_control_stop(ipts);
 	if (ret)

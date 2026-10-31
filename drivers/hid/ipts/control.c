@@ -484,3 +484,51 @@ int ipts_control_restart(struct ipts_context *ipts)
 
 	return 0;
 }
+
+#define IPTS_RECOVERY_DELAY_MS	   2000
+#define IPTS_RECOVERY_MAX_ATTEMPTS 5
+
+static void ipts_control_recovery_work(struct work_struct *work)
+{
+	int ret = 0;
+	struct ipts_context *ipts =
+		container_of(to_delayed_work(work), struct ipts_context, recovery_work);
+
+	dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
+
+	ret = ipts_control_restart(ipts);
+	if (!ret) {
+		ipts->recovery_attempts = 0;
+		return;
+	}
+
+	if (++ipts->recovery_attempts >= IPTS_RECOVERY_MAX_ATTEMPTS) {
+		dev_err(ipts->dev, "Giving up restarting IPTS: %d\n", ret);
+		ipts->recovery_attempts = 0;
+		return;
+	}
+
+	queue_delayed_work(system_freezable_wq, &ipts->recovery_work,
+			   msecs_to_jiffies(IPTS_RECOVERY_DELAY_MS));
+}
+
+void ipts_control_init_recovery(struct ipts_context *ipts)
+{
+	INIT_DELAYED_WORK(&ipts->recovery_work, ipts_control_recovery_work);
+	ipts->recovery_attempts = 0;
+}
+
+void ipts_control_schedule_recovery(struct ipts_context *ipts)
+{
+	/*
+	 * Use a freezable workqueue: if the restart failed because the system
+	 * is going to sleep, the recovery runs after the system is thawed.
+	 */
+	queue_delayed_work(system_freezable_wq, &ipts->recovery_work,
+			   msecs_to_jiffies(IPTS_RECOVERY_DELAY_MS));
+}
+
+void ipts_control_cancel_recovery(struct ipts_context *ipts)
+{
+	cancel_delayed_work_sync(&ipts->recovery_work);
+}
