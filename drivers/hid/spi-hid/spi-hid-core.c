@@ -167,6 +167,33 @@ struct spi_hid_output_report {
 
 static struct hid_ll_driver spi_hid_ll_driver;
 
+/*
+ * Debug dumping to the kernel log:
+ *   0: off
+ *   1: control traffic (all output transfers, all non-DATA input reports,
+ *      parsed device descriptor, reset/error events)
+ *   2: additionally the first 64 bytes of DATA input reports
+ *   3: additionally full DATA input reports
+ */
+static int debug;
+module_param(debug, int, 0644);
+MODULE_PARM_DESC(debug, "Dump protocol traffic to kernel log (0=off, 1=control, 2=+data head, 3=+full data)");
+
+#define spi_hid_dbg(shid, level, fmt, ...)					\
+	do {									\
+		if (READ_ONCE(debug) >= (level))				\
+			dev_info(&(shid)->spi->dev, "dbg: " fmt, ##__VA_ARGS__); \
+	} while (0)
+
+static void spi_hid_dbg_dump(struct spi_hid *shid, const char *what,
+			     const void *buf, size_t len)
+{
+	char prefix[64];
+
+	snprintf(prefix, sizeof(prefix), "%s %s: ", dev_name(&shid->spi->dev), what);
+	print_hex_dump(KERN_INFO, prefix, DUMP_PREFIX_OFFSET, 16, 1, buf, len, false);
+}
+
 static bool spi_hid_is_draft(const struct spi_hid *shid)
 {
 	return shid->conf->protocol == SPI_HID_PROTOCOL_DRAFT;
@@ -417,6 +444,9 @@ static int spi_hid_output(struct spi_hid *shid, const void *buf, u16 length)
 {
 	int error;
 
+	if (READ_ONCE(debug) >= 1)
+		spi_hid_dbg_dump(shid, "out", buf, length);
+
 	error = spi_write(shid->spi, buf, length);
 
 	if (error) {
@@ -551,6 +581,8 @@ static void spi_hid_error_handler(struct spi_hid *shid)
 	int error;
 
 	trace_spi_hid_error_handler(shid);
+	spi_hid_dbg(shid, 1, "error handler (attempt %u, flags 0x%lx)\n",
+		    shid->reset_attempts, shid->flags);
 
 	guard(mutex)(&shid->power_lock);
 	if (shid->power_state == HIDSPI_OFF)
@@ -690,6 +722,7 @@ static void spi_hid_reset_response(struct spi_hid *shid)
 	int error;
 
 	trace_spi_hid_reset_response(shid);
+	spi_hid_dbg(shid, 1, "reset response (flags 0x%lx)\n", shid->flags);
 
 	if (test_bit(SPI_HID_READY, &shid->flags)) {
 		dev_err(dev, "Spontaneous FW reset!\n");
@@ -1055,6 +1088,16 @@ static int spi_hid_process_input_report(struct spi_hid *shid,
 		/* Reset attempts at every successful device descriptor fetch */
 		shid->reset_attempts = 0;
 
+		spi_hid_dbg(shid, 1,
+			    "device descriptor: version %04x, vid %04x, pid %04x, ver %04x, rdesc len %u, max in %u, max out %u, rdesc reg %04x, in reg %04x, out reg %04x, no-ack %u\n",
+			    shid->desc.hid_version, shid->desc.vendor_id,
+			    shid->desc.product_id, shid->desc.version_id,
+			    shid->desc.report_descriptor_length,
+			    shid->desc.max_input_length, shid->desc.max_output_length,
+			    shid->desc.report_descriptor_register,
+			    shid->desc.input_register, shid->desc.output_register,
+			    shid->desc.no_output_report_ack);
+
 		set_bit(SPI_HID_CREATE_DEVICE, &shid->flags);
 		schedule_work(&shid->reset_work);
 
@@ -1221,6 +1264,10 @@ static irqreturn_t spi_hid_dev_irq(int irq, void *_shid)
 				shid->bus_last_error = error;
 				goto err;
 			}
+			spi_hid_dbg(shid, 1, "dropping invalid header during reset: %d\n", error);
+			if (READ_ONCE(debug) >= 1)
+				spi_hid_dbg_dump(shid, "in hdr", shid->input->header,
+						 sizeof(shid->input->header));
 			goto out;
 		}
 
@@ -1249,6 +1296,24 @@ static irqreturn_t spi_hid_dev_irq(int irq, void *_shid)
 			shid->bus_error_count++;
 			shid->bus_last_error = shid->input_message.status;
 			goto err;
+		}
+
+		if (READ_ONCE(debug) >= 1) {
+			u8 *raw = shid->input->body + spi_hid_input_body_offset(shid);
+			u8 type = spi_hid_is_draft(shid) ? header.report_type : raw[0];
+			size_t len = header.report_length;
+			int level = type == DATA ? 2 : 1;
+
+			if (type == DATA && READ_ONCE(debug) < 3)
+				len = min_t(size_t, len, 64);
+
+			if (READ_ONCE(debug) >= level) {
+				spi_hid_dbg(shid, level, "in: type 0x%x, length %u\n",
+					    type, header.report_length);
+				spi_hid_dbg_dump(shid, "in hdr", shid->input->header,
+						 sizeof(shid->input->header));
+				spi_hid_dbg_dump(shid, "in body", raw, len);
+			}
 		}
 
 		if (spi_hid_is_draft(shid)) {
