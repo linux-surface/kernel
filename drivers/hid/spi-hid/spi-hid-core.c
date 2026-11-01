@@ -1045,15 +1045,15 @@ static int spi_hid_process_input_report(struct spi_hid *shid,
 		/* Mark the completion done to avoid timeout */
 		spi_hid_response_handler(shid, &body);
 
-		/* Reset attempts at every device descriptor fetch */
-		shid->reset_attempts = 0;
-
 		if (spi_hid_is_draft(shid))
 			error = spi_hid_handle_dev_desc_draft(shid, buf, &body);
 		else
 			error = spi_hid_handle_dev_desc_v1(shid, buf, &body);
 		if (error)
 			return error;
+
+		/* Reset attempts at every successful device descriptor fetch */
+		shid->reset_attempts = 0;
 
 		set_bit(SPI_HID_CREATE_DEVICE, &shid->flags);
 		schedule_work(&shid->reset_work);
