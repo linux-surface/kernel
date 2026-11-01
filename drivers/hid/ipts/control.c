@@ -22,6 +22,9 @@
 #include "spec-data.h"
 #include "spec-device.h"
 
+#define IPTS_RESTART_DELAY_MS	  2000
+#define IPTS_RESTART_MAX_ATTEMPTS 5
+
 static int ipts_control_get_device_info(struct ipts_context *ipts, struct ipts_device_info *info)
 {
 	int ret = 0;
@@ -497,4 +500,50 @@ int ipts_control_restart(struct ipts_context *ipts)
 		return ret;
 
 	return 0;
+}
+
+static void ipts_control_restart_work(struct work_struct *work)
+{
+	int ret = 0;
+	struct ipts_context *ipts =
+		container_of(to_delayed_work(work), struct ipts_context, restart_work);
+
+	mutex_lock(&ipts->control_lock);
+
+	dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
+	ret = ipts_control_restart(ipts);
+
+	mutex_unlock(&ipts->control_lock);
+
+	if (!ret) {
+		ipts->restart_attempts = 0;
+		return;
+	}
+
+	if (++ipts->restart_attempts >= IPTS_RESTART_MAX_ATTEMPTS) {
+		dev_err(ipts->dev, "Giving up restarting IPTS: %d\n", ret);
+		ipts->restart_attempts = 0;
+		return;
+	}
+
+	queue_delayed_work(system_freezable_wq, &ipts->restart_work,
+			   msecs_to_jiffies(IPTS_RESTART_DELAY_MS));
+}
+
+void ipts_control_init_restart(struct ipts_context *ipts)
+{
+	mutex_init(&ipts->control_lock);
+	INIT_DELAYED_WORK(&ipts->restart_work, ipts_control_restart_work);
+	ipts->restart_attempts = 0;
+}
+
+void ipts_control_schedule_restart(struct ipts_context *ipts)
+{
+	queue_delayed_work(system_freezable_wq, &ipts->restart_work,
+			   msecs_to_jiffies(IPTS_RESTART_DELAY_MS));
+}
+
+void ipts_control_disable_restart(struct ipts_context *ipts)
+{
+	disable_delayed_work_sync(&ipts->restart_work);
 }

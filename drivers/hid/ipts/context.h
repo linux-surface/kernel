@@ -15,6 +15,7 @@
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include "mei.h"
 #include "resources.h"
@@ -47,6 +48,14 @@ struct ipts_context {
 	struct ipts_resources resources;
 
 	struct ipts_thread receiver_loop;
+
+	/*
+	 * Serializes restarting the device.
+	 */
+	struct mutex control_lock;
+
+	struct delayed_work restart_work;
+	unsigned int restart_attempts;
 };
 
 #endif /* IPTS_CONTEXT_H */

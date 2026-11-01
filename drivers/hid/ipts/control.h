@@ -123,4 +123,22 @@ int ipts_control_stop(struct ipts_context *ipts);
  */
 int ipts_control_restart(struct ipts_context *ipts);
 
+/**
+ * ipts_control_init_restart() - Initializes restarting the device in the background.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_init_restart(struct ipts_context *ipts);
+
+/**
+ * ipts_control_schedule_restart() - Restarts the device in the background.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_schedule_restart(struct ipts_context *ipts);
+
+/**
+ * ipts_control_disable_restart() - Cancels background restarts and prevents new ones.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_disable_restart(struct ipts_context *ipts);
+
 #endif /* IPTS_CONTROL_H */

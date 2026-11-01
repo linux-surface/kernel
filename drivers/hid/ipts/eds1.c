@@ -50,19 +50,35 @@ int ipts_eds1_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t
 static int ipts_eds1_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
 {
 	int ret = 0;
+	enum ipts_mode old_mode;
 
 	if (!ipts)
 		return -EFAULT;
 
-	if (ipts->mode == mode)
-		return 0;
+	mutex_lock(&ipts->control_lock);
 
+	if (ipts->mode == mode)
+		goto out;
+
+	old_mode = ipts->mode;
 	ipts->mode = mode;
 
 	ret = ipts_control_restart(ipts);
-	if (ret)
+	if (ret) {
 		dev_err(ipts->dev, "Failed to switch modes: %d\n", ret);
 
+		/*
+		 * The device is stopped, and the HID device is inactive, so userspace cannot
+		 * retry. Restart the device in the previous mode. Do it in the background,
+		 * since the current task may not be able to talk to the device anymore
+		 * (e.g. because it has a signal pending).
+		 */
+		ipts->mode = old_mode;
+		ipts_control_schedule_restart(ipts);
+	}
+
+out:
+	mutex_unlock(&ipts->control_lock);
 	return ret;
 }
 
