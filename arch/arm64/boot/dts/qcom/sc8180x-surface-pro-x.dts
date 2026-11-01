@@ -767,22 +767,12 @@
 		// (Surface Duo 2) DT.
 	};
 
-	spi1_hid0_reset_deassert: spi1-hid1-reset-deassert {
+	spi1_hid0_reset_default: spi1-hid1-reset-default-state {
 		pins = "gpio54";
 		function = "gpio";
 
 		drive-strength = <2>;
 		bias-disable;
-		output-high;
-	};
-
-	spi1_hid0_reset_assert: spi1-hid1-reset-assert {
-		pins = "gpio54";
-		function = "gpio";
-
-		drive-strength = <2>;
-		bias-disable;
-		output-low;
 	};
 
 	spi1_hid0_int_bias: spi1-hid1-int-bias {
@@ -791,14 +781,6 @@
 
 		input-enable;
 		bias-pull-up;
-	};
-
-	spi1_hid0_int_unbias: spi1-hid1-int-unbias {
-		pins = "gpio122";
-		function = "gpio";
-
-		input-enable;
-		bias-disable;
 	};
 
 	i2c2_active: i2c2-active-state {
@@ -1146,7 +1128,7 @@
 	pinctrl-0 = <&spi1_active>;
 
 	hid@0 {
-		compatible = "hid-over-spi";
+		compatible = "microsoft,surface-pro-x-touch";
 
 		reg = <0>;
 		// spi-max-frequency = <25000000>;
@@ -1154,14 +1136,12 @@
 
 		interrupts-extended = <&tlmm 122 IRQ_TYPE_EDGE_FALLING>;
 
-		pinctrl-names = "active", "sleep", "reset";
-		pinctrl-0 = <&spi1_hid0_reset_deassert &spi1_hid0_int_bias>;
-		pinctrl-1 = <&spi1_hid0_reset_assert &spi1_hid0_int_unbias>;
-		pinctrl-2 = <&spi1_hid0_reset_assert &spi1_hid0_int_bias>;
+		reset-gpios = <&tlmm 54 GPIO_ACTIVE_LOW>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&spi1_hid0_reset_default &spi1_hid0_int_bias>;
 
 		vdd-supply = <&vreg_ts_5p0>;
-
-		hid-descr-addr = <1>;
 	};
 };
 
