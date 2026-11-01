@@ -158,10 +158,13 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length)
 	if (!data)
 		return -EFAULT;
 
-	do {
-		ret = mei_cldev_send(mei->cldev, (u8 *)data, length);
-	} while (ret == -EINTR);
-
+	/*
+	 * Don't retry on -EINTR: mei_cldev_send() queues the message before it waits for the
+	 * transfer to complete, and returns -EINTR if a signal is pending. The signal stays
+	 * pending until we return to userspace, so retrying would loop forever (and queue
+	 * the message again every time).
+	 */
+	ret = mei_cldev_send(mei->cldev, (u8 *)data, length);
 	if (ret < 0)
 		return ret;
 
