@@ -102,7 +102,7 @@ static int spi_hid_of_populate_config(struct spi_hid_of_config *conf,
 	}
 	conf->supply_enabled = false;
 
-	conf->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	conf->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(conf->reset_gpio)) {
 		dev_err(dev, "%s: error getting reset GPIO.", __func__);
 		return PTR_ERR(conf->reset_gpio);

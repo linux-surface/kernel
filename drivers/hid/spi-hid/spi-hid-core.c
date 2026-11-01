@@ -825,6 +825,13 @@ static int spi_hid_bus_validate_header(struct spi_hid *shid,
 		return -EMSGSIZE;
 	}
 
+	if (header->report_length > sizeof(shid->input->body) + shid->bufsize) {
+		dev_err(dev, "Input report body size %u > buffer size %zu\n",
+			header->report_length,
+			sizeof(shid->input->body) + shid->bufsize);
+		return -EMSGSIZE;
+	}
+
 	if (header->last_fragment_flag != 1) {
 		dev_err(dev, "Multi-fragment reports not supported\n");
 		return -EOPNOTSUPP;
@@ -1112,6 +1119,8 @@ static int spi_hid_ll_parse(struct hid_device *hid)
 	}
 
 	if (rsize > shid->bufsize) {
+		guard(disable_irq)(&shid->spi->irq);
+
 		error = spi_hid_alloc_buffers(shid, rsize);
 		if (error)
 			return error;
@@ -1176,7 +1185,7 @@ static int spi_hid_ll_raw_request(struct hid_device *hid,
 		ret = min_t(size_t, len,
 			    (shid->response->body[1] | (shid->response->body[2] << 8)) + 1);
 		buf[0] = shid->response->body[3];
-		memcpy(&buf[1], &shid->response->content, ret);
+		memcpy(&buf[1], &shid->response->content, ret - 1);
 		break;
 	default:
 		dev_err(dev, "invalid request type\n");
@@ -1206,9 +1215,7 @@ static int spi_hid_ll_output_report(struct hid_device *hid, __u8 *buf,
 	}
 
 	if (shid->desc.no_output_report_ack) {
-		scoped_guard(mutex, &shid->output_lock) {
-			error = spi_hid_send_output_report(shid, &report);
-		}
+		error = spi_hid_send_output_report(shid, &report);
 	} else {
 		error = spi_hid_sync_request(shid, &report);
 	}
