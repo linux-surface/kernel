@@ -58,6 +58,56 @@
 #define SPI_HID_INPUT_HEADER_VERSION		0x03
 #define SPI_HID_SUPPORTED_VERSION		0x0300
 
+/*
+ * Draft protocol constants. This pre-1.0 revision of the protocol is used by
+ * the touchscreen digitizer on the Microsoft Surface Pro X. Compared to the
+ * 1.0 specification, it differs in the following ways:
+ *
+ * - Input header version 2: The report type is contained in the input header
+ *   and the report length field is only 12 bits wide.
+ * - The input report body header is only 3 bytes (no report type). Its
+ *   content length field includes the body header length fields.
+ * - Requests are sent to registers announced in the device descriptor, using
+ *   a 6 byte output header (with a 12 bit length field) followed by a 4 byte
+ *   body header. The device descriptor itself is requested by writing to a
+ *   fixed register.
+ * - The device descriptor has version 1.0 and contains the register
+ *   addresses mentioned above.
+ * - SET_FEATURE and OUTPUT_REPORT requests are not acknowledged.
+ */
+#define SPI_HID_DRAFT_INPUT_HEADER_VERSION	0x02
+#define SPI_HID_DRAFT_OUTPUT_HEADER_VERSION	0x02
+#define SPI_HID_DRAFT_SUPPORTED_VERSION		0x0100
+#define SPI_HID_DRAFT_INPUT_BODY_HEADER_LEN	3
+#define SPI_HID_DRAFT_OUTPUT_HEADER_LEN		6
+#define SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN	4
+#define SPI_HID_DRAFT_CONTENT_TYPE_COMMAND	0x00
+
+/*
+ * Additional space required in the output buffer for the draft protocol,
+ * compared to the 1.0 protocol (6 + 4 + 3 + padding vs. 8 bytes of
+ * headers).
+ */
+#define SPI_HID_DRAFT_OUTPUT_EXTRA_LEN		8
+
+/* Draft protocol device descriptor */
+struct spi_hid_draft_dev_descriptor {
+	__le16 dev_desc_len;
+	__le16 bcd_ver;
+	__le16 rep_desc_len;
+	__le16 rep_desc_reg;
+	__le16 input_reg;
+	__le16 max_input_len;
+	__le16 output_reg;
+	__le16 max_output_len;
+	__le16 command_reg;
+	__le16 vendor_id;
+	__le16 product_id;
+	__le16 version_id;
+	__le16 flags;
+	u8 reserved[2];
+} __packed;
+
 #define SPI_HID_OUTPUT_REPORT_CONTENT_ID_DESC_REQUEST	0x00
 
 #define SPI_HID_MAX_RESET_ATTEMPTS	3
@@ -93,6 +143,7 @@
 /* Processed data from input report header */
 struct spi_hid_input_header {
 	u8 version;
+	u8 report_type;		/* draft protocol only */
 	u16 report_length;
 	u8 last_fragment_flag;
 	u8 sync_const;
@@ -116,16 +167,39 @@ struct spi_hid_output_report {
 
 static struct hid_ll_driver spi_hid_ll_driver;
 
+static bool spi_hid_is_draft(const struct spi_hid *shid)
+{
+	return shid->conf->protocol == SPI_HID_PROTOCOL_DRAFT;
+}
+
+/*
+ * Offset into the input body buffer at which the body is read. For the draft
+ * protocol, we read the 3 byte body header to offset 1 so that the content
+ * ends up at the same location as for the 1.0 protocol, and then convert the
+ * body header in place to the 1.0 format (see spi_hid_draft_convert_body()).
+ */
+static size_t spi_hid_input_body_offset(const struct spi_hid *shid)
+{
+	if (spi_hid_is_draft(shid))
+		return HIDSPI_INPUT_BODY_HEADER_SIZE - SPI_HID_DRAFT_INPUT_BODY_HEADER_LEN;
+
+	return 0;
+}
+
+static void spi_hid_populate_read_approval(u8 *buf, u8 opcode, u32 address)
+{
+	buf[0] = opcode;
+	put_unaligned_be24(address, &buf[1]);
+	buf[4] = SPI_HID_READ_APPROVAL_CONSTANT;
+}
+
 static void spi_hid_populate_read_approvals(const struct spi_hid_conf *conf,
 					    u8 *header_buf, u8 *body_buf)
 {
-	header_buf[0] = conf->read_opcode;
-	put_unaligned_be24(conf->input_report_header_address, &header_buf[1]);
-	header_buf[4] = SPI_HID_READ_APPROVAL_CONSTANT;
-
-	body_buf[0] = conf->read_opcode;
-	put_unaligned_be24(conf->input_report_body_address, &body_buf[1]);
-	body_buf[4] = SPI_HID_READ_APPROVAL_CONSTANT;
+	spi_hid_populate_read_approval(header_buf, conf->read_opcode,
+				       conf->input_report_header_address);
+	spi_hid_populate_read_approval(body_buf, conf->read_opcode,
+				       conf->input_report_body_address);
 }
 
 static void spi_hid_parse_dev_desc(const struct hidspi_dev_descriptor *raw,
@@ -145,13 +219,59 @@ static void spi_hid_parse_dev_desc(const struct hidspi_dev_descriptor *raw,
 	desc->no_output_report_ack = le16_to_cpu(raw->flags) & BIT(0);
 }
 
-static void spi_hid_populate_input_header(const u8 *buf,
-					  struct spi_hid_input_header *header)
+static void spi_hid_populate_input_header_v1(const u8 *buf,
+					     struct spi_hid_input_header *header)
 {
 	header->version            = buf[0] & 0xf;
+	header->report_type        = 0;
 	header->report_length      = (get_unaligned_le16(&buf[1]) & 0x3fff) * 4;
 	header->last_fragment_flag = (buf[2] & 0x40) >> 6;
 	header->sync_const         = buf[3];
+}
+
+static void spi_hid_populate_input_header_draft(const u8 *buf,
+						struct spi_hid_input_header *header)
+{
+	header->version            = buf[0] & 0xf;
+	header->report_type        = (buf[0] >> 4) & 0xf;
+	header->report_length      = ((buf[1] >> 4) | (buf[2] << 4)) * 4;
+	/* Fragment ID in buf[1] bits 0-3. Fragmentation is not supported. */
+	header->last_fragment_flag = 1;
+	header->sync_const         = buf[3];
+}
+
+static void spi_hid_populate_input_header(const struct spi_hid *shid,
+					  const u8 *buf,
+					  struct spi_hid_input_header *header)
+{
+	if (spi_hid_is_draft(shid))
+		spi_hid_populate_input_header_draft(buf, header);
+	else
+		spi_hid_populate_input_header_v1(buf, header);
+}
+
+/*
+ * Convert a draft protocol input body header, read to offset 1 of the body
+ * buffer, in place to the 1.0 format. Afterwards, the body can be handled
+ * like any 1.0 protocol body.
+ */
+static int spi_hid_draft_convert_body(struct spi_hid *shid,
+				      const struct spi_hid_input_header *header)
+{
+	u8 *body = shid->input->body;
+	u16 len = get_unaligned_le16(&body[1]);
+
+	if (len < SPI_HID_DRAFT_INPUT_BODY_HEADER_LEN || len > header->report_length) {
+		dev_err(&shid->spi->dev, "Bad draft body length %u (report length %u)\n",
+			len, header->report_length);
+		return -EPROTO;
+	}
+
+	/* body[3] already contains the content ID */
+	body[0] = header->report_type;
+	put_unaligned_le16(len - SPI_HID_DRAFT_INPUT_BODY_HEADER_LEN, &body[1]);
+
+	return 0;
 }
 
 static void spi_hid_populate_input_body(const u8 *buf,
@@ -165,10 +285,8 @@ static void spi_hid_populate_input_body(const u8 *buf,
 static void spi_hid_input_report_prepare(struct spi_hid_input_buf *buf,
 					 struct spi_hid_input_report *report)
 {
-	struct spi_hid_input_header header;
 	struct input_report_body_header body;
 
-	spi_hid_populate_input_header(buf->header, &header);
 	spi_hid_populate_input_body(buf->body, &body);
 	report->report_type = body.input_report_type;
 	report->content_length = body.content_len;
@@ -185,6 +303,82 @@ static void spi_hid_populate_output_header(u8 *buf,
 	buf[4] = report->report_type;
 	put_unaligned_le16(report->content_length, &buf[5]);
 	buf[7] = report->content_id;
+}
+
+static void spi_hid_draft_populate_output_header(u8 *buf, u8 opcode, u32 reg,
+						 u16 body_length)
+{
+	buf[0] = opcode;
+	put_unaligned_be24(reg, &buf[1]);
+	buf[4] = SPI_HID_DRAFT_OUTPUT_HEADER_VERSION | ((body_length & 0xf) << 4);
+	buf[5] = (body_length >> 4) & 0xff;
+}
+
+/*
+ * Build a draft protocol request in the output buffer. Returns the number of
+ * bytes to transfer or a negative error code.
+ */
+static int spi_hid_draft_populate_output(struct spi_hid *shid,
+					 const struct spi_hid_output_report *report)
+{
+	u8 *buf = (u8 *)shid->output;
+	u8 *body = &buf[SPI_HID_DRAFT_OUTPUT_HEADER_LEN];
+	u8 *content = &body[SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN];
+	u16 content_length, body_length, padded_length;
+	u8 content_type;
+	u32 reg;
+
+	switch (report->report_type) {
+	case DEVICE_DESCRIPTOR:
+		/* Plain write of an empty body to the device descriptor register. */
+		memset(body, 0, SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN);
+		spi_hid_draft_populate_output_header(buf, shid->conf->write_opcode,
+						     shid->conf->device_descriptor_address,
+						     SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN);
+		return SPI_HID_DRAFT_OUTPUT_HEADER_LEN + SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN;
+
+	case REPORT_DESCRIPTOR:
+		reg = shid->desc.report_descriptor_register;
+		content_type = SPI_HID_DRAFT_CONTENT_TYPE_COMMAND;
+		break;
+
+	case SET_FEATURE:
+	case GET_FEATURE:
+	case OUTPUT_REPORT:
+		/* Content types match the 1.0 output report types. */
+		reg = shid->desc.output_register;
+		content_type = report->report_type;
+		break;
+
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	/*
+	 * The content length field includes the length and ID fields of the
+	 * body header. The body length in the output header is computed as in
+	 * the original (downstream) driver for this protocol revision, i.e.
+	 * as full body header length plus content length field. This results
+	 * in 3 additional zero bytes being sent, which the device ignores.
+	 */
+	content_length = report->content_length + 3;
+	body_length = SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN + content_length;
+	padded_length = round_up(body_length, 4);
+
+	spi_hid_draft_populate_output_header(buf, shid->conf->write_opcode, reg,
+					     padded_length);
+
+	body[0] = content_type;
+	put_unaligned_le16(content_length, &body[1]);
+	body[3] = report->content_id;
+
+	if (report->content_length)
+		memcpy(content, report->content, report->content_length);
+
+	memset(&content[report->content_length], 0,
+	       padded_length - SPI_HID_DRAFT_OUTPUT_BODY_HEADER_LEN - report->content_length);
+
+	return SPI_HID_DRAFT_OUTPUT_HEADER_LEN + padded_length;
 }
 
 static int spi_hid_input_sync(struct spi_hid *shid, void *buf, u16 length,
@@ -417,6 +611,19 @@ static int __spi_hid_send_output_report(struct spi_hid *shid,
 	}
 
 	guard(mutex)(&shid->io_lock);
+
+	if (spi_hid_is_draft(shid)) {
+		error = spi_hid_draft_populate_output(shid, report);
+		if (error < 0)
+			return error;
+
+		error = spi_hid_output(shid, buf, error);
+		if (error)
+			dev_err(dev, "Failed output transfer: %d\n", error);
+
+		return error;
+	}
+
 	spi_hid_populate_output_header(buf->header, shid->conf, report);
 
 	if (report->content_length)
@@ -714,22 +921,115 @@ static void spi_hid_reset_work(struct work_struct *work)
 	}
 }
 
+static int spi_hid_handle_dev_desc_v1(struct spi_hid *shid,
+				      struct spi_hid_input_buf *buf,
+				      const struct input_report_body_header *body)
+{
+	struct hidspi_dev_descriptor *raw = (struct hidspi_dev_descriptor *)buf->content;
+	struct device *dev = &shid->spi->dev;
+
+	/* Validate device descriptor length before parsing */
+	if (body->content_len != HIDSPI_DEVICE_DESCRIPTOR_SIZE) {
+		dev_err(dev, "Invalid content length %d, expected %zu\n",
+			body->content_len,
+			HIDSPI_DEVICE_DESCRIPTOR_SIZE);
+		return -EPROTO;
+	}
+
+	if (le16_to_cpu(raw->dev_desc_len) !=
+	    HIDSPI_DEVICE_DESCRIPTOR_SIZE) {
+		dev_err(dev,
+			"Invalid wDeviceDescLength %d, expected %zu\n",
+			le16_to_cpu(raw->dev_desc_len),
+			HIDSPI_DEVICE_DESCRIPTOR_SIZE);
+		return -EPROTO;
+	}
+
+	spi_hid_parse_dev_desc(raw, &shid->desc);
+
+	if (shid->desc.hid_version != SPI_HID_SUPPORTED_VERSION) {
+		dev_err(dev,
+			"Unsupported device descriptor version %4x\n",
+			shid->desc.hid_version);
+		return -EPROTONOSUPPORT;
+	}
+
+	return 0;
+}
+
+static int spi_hid_handle_dev_desc_draft(struct spi_hid *shid,
+					 struct spi_hid_input_buf *buf,
+					 const struct input_report_body_header *body)
+{
+	struct spi_hid_draft_dev_descriptor *raw =
+		(struct spi_hid_draft_dev_descriptor *)buf->content;
+	struct spi_hid_device_descriptor *desc = &shid->desc;
+	struct device *dev = &shid->spi->dev;
+	u16 input_register;
+
+	/* Only require the fields we use, ignore reserved bytes. */
+	if (body->content_len < offsetofend(struct spi_hid_draft_dev_descriptor, flags)) {
+		dev_err(dev, "Invalid content length %d, expected at least %zu\n",
+			body->content_len,
+			offsetofend(struct spi_hid_draft_dev_descriptor, flags));
+		return -EPROTO;
+	}
+
+	desc->hid_version = le16_to_cpu(raw->bcd_ver);
+	if (desc->hid_version != SPI_HID_DRAFT_SUPPORTED_VERSION) {
+		dev_err(dev, "Unsupported device descriptor version %4x\n",
+			desc->hid_version);
+		return -EPROTONOSUPPORT;
+	}
+
+	desc->report_descriptor_length = le16_to_cpu(raw->rep_desc_len);
+	desc->report_descriptor_register = le16_to_cpu(raw->rep_desc_reg);
+	desc->max_input_length = le16_to_cpu(raw->max_input_len);
+	desc->output_register = le16_to_cpu(raw->output_reg);
+	desc->max_output_length = le16_to_cpu(raw->max_output_len);
+	desc->max_fragment_length = 0;
+	desc->vendor_id = le16_to_cpu(raw->vendor_id);
+	desc->product_id = le16_to_cpu(raw->product_id);
+	desc->version_id = le16_to_cpu(raw->version_id);
+	desc->no_output_report_ack = true;
+
+	/*
+	 * Input reports (header and body) are read from the input register
+	 * announced in the descriptor. This runs in the IRQ thread, which is
+	 * the only user of the read approval buffers.
+	 */
+	input_register = le16_to_cpu(raw->input_reg);
+	if (input_register && input_register != desc->input_register) {
+		desc->input_register = input_register;
+		spi_hid_populate_read_approval(shid->read_approval_header,
+					       shid->conf->read_opcode, input_register);
+		spi_hid_populate_read_approval(shid->read_approval_body,
+					       shid->conf->read_opcode, input_register);
+	}
+
+	return 0;
+}
+
 static int spi_hid_process_input_report(struct spi_hid *shid,
 					struct spi_hid_input_buf *buf)
 {
 	struct spi_hid_input_header header;
 	struct input_report_body_header body;
 	struct device *dev = &shid->spi->dev;
-	struct hidspi_dev_descriptor *raw;
+	size_t body_header_len;
+	int error;
 
 	trace_spi_hid_process_input_report(shid);
 
-	spi_hid_populate_input_header(buf->header, &header);
+	spi_hid_populate_input_header(shid, buf->header, &header);
 	spi_hid_populate_input_body(buf->body, &body);
 
-	if (HIDSPI_INPUT_BODY_SIZE(body.content_len) > header.report_length) {
-		dev_err(dev, "Bad body length %zu > %u\n", HIDSPI_INPUT_BODY_SIZE(body.content_len),
-			header.report_length);
+	body_header_len = spi_hid_is_draft(shid) ? SPI_HID_DRAFT_INPUT_BODY_HEADER_LEN
+						 : HIDSPI_INPUT_BODY_HEADER_SIZE;
+
+	if (body.content_len + body_header_len > header.report_length) {
+		dev_err(dev, "Bad body length %zu > %u\n",
+			body.content_len + body_header_len, header.report_length);
 		return -EPROTO;
 	}
 
@@ -747,33 +1047,13 @@ static int spi_hid_process_input_report(struct spi_hid *shid,
 
 		/* Reset attempts at every device descriptor fetch */
 		shid->reset_attempts = 0;
-		raw = (struct hidspi_dev_descriptor *)buf->content;
 
-		/* Validate device descriptor length before parsing */
-		if (body.content_len != HIDSPI_DEVICE_DESCRIPTOR_SIZE) {
-			dev_err(dev, "Invalid content length %d, expected %zu\n",
-				body.content_len,
-				HIDSPI_DEVICE_DESCRIPTOR_SIZE);
-			return -EPROTO;
-		}
-
-		if (le16_to_cpu(raw->dev_desc_len) !=
-		    HIDSPI_DEVICE_DESCRIPTOR_SIZE) {
-			dev_err(dev,
-				"Invalid wDeviceDescLength %d, expected %zu\n",
-				le16_to_cpu(raw->dev_desc_len),
-				HIDSPI_DEVICE_DESCRIPTOR_SIZE);
-			return -EPROTO;
-		}
-
-		spi_hid_parse_dev_desc(raw, &shid->desc);
-
-		if (shid->desc.hid_version != SPI_HID_SUPPORTED_VERSION) {
-			dev_err(dev,
-				"Unsupported device descriptor version %4x\n",
-				shid->desc.hid_version);
-			return -EPROTONOSUPPORT;
-		}
+		if (spi_hid_is_draft(shid))
+			error = spi_hid_handle_dev_desc_draft(shid, buf, &body);
+		else
+			error = spi_hid_handle_dev_desc_v1(shid, buf, &body);
+		if (error)
+			return error;
 
 		set_bit(SPI_HID_CREATE_DEVICE, &shid->flags);
 		schedule_work(&shid->reset_work);
@@ -811,8 +1091,11 @@ static int spi_hid_bus_validate_header(struct spi_hid *shid,
 				       struct spi_hid_input_header *header)
 {
 	struct device *dev = &shid->spi->dev;
+	u8 version = spi_hid_is_draft(shid) ? SPI_HID_DRAFT_INPUT_HEADER_VERSION
+					    : SPI_HID_INPUT_HEADER_VERSION;
+	size_t offset = spi_hid_input_body_offset(shid);
 
-	if (header->version != SPI_HID_INPUT_HEADER_VERSION) {
+	if (header->version != version) {
 		dev_err(dev, "Unknown input report version (v 0x%x)\n",
 			header->version);
 		return -EINVAL;
@@ -825,10 +1108,10 @@ static int spi_hid_bus_validate_header(struct spi_hid *shid,
 		return -EMSGSIZE;
 	}
 
-	if (header->report_length > sizeof(shid->input->body) + shid->bufsize) {
+	if (offset + header->report_length > sizeof(shid->input->body) + shid->bufsize) {
 		dev_err(dev, "Input report body size %u > buffer size %zu\n",
 			header->report_length,
-			sizeof(shid->input->body) + shid->bufsize);
+			sizeof(shid->input->body) + shid->bufsize - offset);
 		return -EMSGSIZE;
 	}
 
@@ -880,6 +1163,10 @@ static int spi_hid_set_request(struct spi_hid *shid, u8 *arg_buf, u16 arg_len,
 		.content = arg_buf,
 	};
 
+	/* SET_FEATURE requests are not acknowledged in the draft protocol. */
+	if (spi_hid_is_draft(shid))
+		return spi_hid_send_output_report(shid, &report);
+
 	return spi_hid_sync_request(shid, &report);
 }
 
@@ -921,7 +1208,7 @@ static irqreturn_t spi_hid_dev_irq(int irq, void *_shid)
 			goto err;
 		}
 
-		spi_hid_populate_input_header(shid->input->header, &header);
+		spi_hid_populate_input_header(shid, shid->input->header, &header);
 
 		error = spi_hid_bus_validate_header(shid, &header);
 		if (error) {
@@ -937,8 +1224,9 @@ static irqreturn_t spi_hid_dev_irq(int irq, void *_shid)
 			goto out;
 		}
 
-		error = spi_hid_input_sync(shid, shid->input->body, header.report_length,
-					   false);
+		error = spi_hid_input_sync(shid,
+					   shid->input->body + spi_hid_input_body_offset(shid),
+					   header.report_length, false);
 		if (error) {
 			dev_err(dev, "Failed to transfer body: %d\n", error);
 			goto err;
@@ -962,6 +1250,12 @@ static irqreturn_t spi_hid_dev_irq(int irq, void *_shid)
 			shid->bus_last_error = shid->input_message.status;
 			goto err;
 		}
+
+		if (spi_hid_is_draft(shid)) {
+			error = spi_hid_draft_convert_body(shid, &header);
+			if (error)
+				goto err;
+		}
 	}
 
 	error = spi_hid_process_input_report(shid, shid->input);
@@ -984,7 +1278,8 @@ static int spi_hid_alloc_buffers(struct spi_hid *shid, size_t report_size)
 	struct device *dev = &shid->spi->dev;
 	int inbufsize = round_up(sizeof(shid->input->header) +
 				 sizeof(shid->input->body) + report_size, 4);
-	int outbufsize = round_up(sizeof(shid->output->header) + report_size, 4);
+	int outbufsize = round_up(sizeof(shid->output->header) + report_size +
+				  SPI_HID_DRAFT_OUTPUT_EXTRA_LEN, 4);
 	void *tmp;
 
 	tmp = devm_krealloc(dev, shid->output, outbufsize, GFP_KERNEL | __GFP_ZERO);
@@ -1184,7 +1479,11 @@ static int spi_hid_ll_raw_request(struct hid_device *hid,
 
 		ret = min_t(size_t, len,
 			    (shid->response->body[1] | (shid->response->body[2] << 8)) + 1);
-		buf[0] = shid->response->body[3];
+		/*
+		 * For the draft protocol, follow the original driver and use
+		 * the requested report ID.
+		 */
+		buf[0] = spi_hid_is_draft(shid) ? reportnum : shid->response->body[3];
 		memcpy(&buf[1], &shid->response->content, ret - 1);
 		break;
 	default:
@@ -1410,6 +1709,9 @@ int spi_hid_core_probe(struct spi_device *spi, struct spihid_ops *ops,
 	shid->is_panel_follower = drm_is_panel_follower(&spi->dev);
 
 	spi_set_drvdata(spi, shid);
+
+	/* Draft protocol: input register until we get the device descriptor */
+	shid->desc.input_register = conf->input_report_header_address;
 
 	/* Using now populated conf let's pre-calculate the read approvals */
 	spi_hid_populate_read_approvals(shid->conf, shid->read_approval_header,

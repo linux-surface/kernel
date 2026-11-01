@@ -33,6 +33,16 @@ struct spi_hid_timing_data {
 	u32 minimal_reset_delay_ms;
 };
 
+/*
+ * Match data. If draft_conf is set, the device uses the draft protocol and
+ * the protocol configuration is taken from here instead of from device
+ * properties.
+ */
+struct spi_hid_of_data {
+	const struct spi_hid_timing_data *timing_data;
+	const struct spi_hid_conf *draft_conf;
+};
+
 /* Config structure is filled with data from Device Tree */
 struct spi_hid_of_config {
 	struct spihid_ops ops;
@@ -51,11 +61,52 @@ static const struct spi_hid_timing_data timing_data = {
 	.minimal_reset_delay_ms = 100,
 };
 
+static const struct spi_hid_of_data spi_hid_of_data_v1 = {
+	.timing_data = &timing_data,
+};
+
+static const struct spi_hid_conf spi_hid_surface_pro_x_conf = {
+	.protocol = SPI_HID_PROTOCOL_DRAFT,
+	.input_report_header_address = 0x1000,
+	.input_report_body_address = 0x1000,
+	.device_descriptor_address = 0x0001,
+	.read_opcode = 0x0b,
+	.write_opcode = 0x02,
+};
+
+static const struct spi_hid_of_data spi_hid_of_data_surface_pro_x = {
+	.timing_data = &timing_data,
+	.draft_conf = &spi_hid_surface_pro_x_conf,
+};
+
+static int spi_hid_of_populate_power_config(struct spi_hid_of_config *conf,
+					    struct device *dev)
+{
+	conf->supply = devm_regulator_get(dev, "vdd");
+	if (IS_ERR(conf->supply)) {
+		if (PTR_ERR(conf->supply) != -EPROBE_DEFER)
+			dev_err(dev, "Failed to get regulator: %ld.",
+				PTR_ERR(conf->supply));
+		return PTR_ERR(conf->supply);
+	}
+	conf->supply_enabled = false;
+
+	conf->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(conf->reset_gpio)) {
+		dev_err(dev, "%s: error getting reset GPIO.", __func__);
+		return PTR_ERR(conf->reset_gpio);
+	}
+
+	return 0;
+}
+
 static int spi_hid_of_populate_config(struct spi_hid_of_config *conf,
 				      struct device *dev)
 {
 	int error;
 	u32 val;
+
+	conf->property_conf.protocol = SPI_HID_PROTOCOL_V1;
 
 	error = device_property_read_u32(dev, "input-report-header-address",
 					 &val);
@@ -92,21 +143,6 @@ static int spi_hid_of_populate_config(struct spi_hid_of_config *conf,
 		return -ENODEV;
 	}
 	conf->property_conf.write_opcode = val;
-
-	conf->supply = devm_regulator_get(dev, "vdd");
-	if (IS_ERR(conf->supply)) {
-		if (PTR_ERR(conf->supply) != -EPROBE_DEFER)
-			dev_err(dev, "Failed to get regulator: %ld.",
-				PTR_ERR(conf->supply));
-		return PTR_ERR(conf->supply);
-	}
-	conf->supply_enabled = false;
-
-	conf->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
-	if (IS_ERR(conf->reset_gpio)) {
-		dev_err(dev, "%s: error getting reset GPIO.", __func__);
-		return PTR_ERR(conf->reset_gpio);
-	}
 
 	return 0;
 }
@@ -179,6 +215,7 @@ static void spi_hid_of_sleep_minimal_reset_delay(struct spihid_ops *ops)
 static int spi_hid_of_probe(struct spi_device *spi)
 {
 	struct device *dev = &spi->dev;
+	const struct spi_hid_of_data *data;
 	struct spi_hid_of_config *config;
 	int error;
 
@@ -194,9 +231,11 @@ static int spi_hid_of_probe(struct spi_device *spi)
 	config->ops.sleep_minimal_reset_delay =
 		spi_hid_of_sleep_minimal_reset_delay;
 
-	config->timing_data = device_get_match_data(dev);
-	if (!config->timing_data)
-		config->timing_data = &timing_data;
+	data = device_get_match_data(dev);
+	if (!data)
+		data = &spi_hid_of_data_v1;
+
+	config->timing_data = data->timing_data;
 
 	/*
 	 * FIXME: hid_over_spi_flags could be retrieved from spi mode.
@@ -204,22 +243,36 @@ static int spi_hid_of_probe(struct spi_device *spi)
 	 */
 	config->hid_over_spi_flags = 0;
 
-	error = spi_hid_of_populate_config(config, dev);
-	if (error) {
-		dev_err(dev, "%s: unable to populate config data.", __func__);
-		return error;
+	if (data->draft_conf) {
+		config->property_conf = *data->draft_conf;
+	} else {
+		error = spi_hid_of_populate_config(config, dev);
+		if (error) {
+			dev_err(dev, "%s: unable to populate config data.", __func__);
+			return error;
+		}
 	}
+
+	error = spi_hid_of_populate_power_config(config, dev);
+	if (error)
+		return error;
 
 	return spi_hid_core_probe(spi, &config->ops, &config->property_conf);
 }
 
 static const struct of_device_id spi_hid_of_match[] = {
-	{ .compatible = "hid-over-spi", .data = &timing_data },
+	{ .compatible = "microsoft,surface-pro-x-touch", .data = &spi_hid_of_data_surface_pro_x },
+	{ .compatible = "hid-over-spi", .data = &spi_hid_of_data_v1 },
 	{}
 };
 MODULE_DEVICE_TABLE(of, spi_hid_of_match);
 
+/*
+ * The SPI core emits "spi:<compatible without vendor prefix>" modaliases, so
+ * all compatibles need an entry here for module autoloading.
+ */
 static const struct spi_device_id spi_hid_of_id_table[] = {
+	{ "surface-pro-x-touch", 0 },
 	{ "hid", 0 },
 	{ "hid-over-spi", 0 },
 	{ }

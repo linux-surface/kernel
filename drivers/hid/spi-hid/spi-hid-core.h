@@ -40,6 +40,11 @@ struct spi_hid_device_descriptor {
 	u16 product_id;
 	u16 version_id;
 	u8 no_output_report_ack;
+
+	/* Draft protocol only: register addresses for requests */
+	u16 report_descriptor_register;
+	u16 input_register;
+	u16 output_register;
 };
 
 /* Driver context */

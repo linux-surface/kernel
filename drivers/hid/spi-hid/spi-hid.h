@@ -10,11 +10,25 @@
 #include <linux/spi/spi.h>
 #include <linux/sysfs.h>
 
+/**
+ * enum spi_hid_protocol - HID over SPI protocol revision
+ * @SPI_HID_PROTOCOL_V1: HID Over SPI Protocol Specification 1.0
+ * @SPI_HID_PROTOCOL_DRAFT: Pre-1.0 draft revision of the protocol (input
+ *	header version 2, device descriptor version 1.0), as used by the
+ *	touchscreen digitizer of the Microsoft Surface Pro X.
+ */
+enum spi_hid_protocol {
+	SPI_HID_PROTOCOL_V1,
+	SPI_HID_PROTOCOL_DRAFT,
+};
+
 /* struct spi_hid_conf - Conf provided to the core */
 struct spi_hid_conf {
+	enum spi_hid_protocol protocol;
 	u32 input_report_header_address;
 	u32 input_report_body_address;
 	u32 output_report_address;
+	u32 device_descriptor_address;	/* draft protocol only */
 	u8 read_opcode;
 	u8 write_opcode;
 };
