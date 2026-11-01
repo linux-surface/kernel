@@ -66,8 +66,15 @@ struct ipts_context {
 	 * mode switch) run from restart_work, never inside the callback.
 	 */
 	struct mutex ctl_lock;
-	struct work_struct restart_work;
+	struct delayed_work restart_work;
 	bool removing;
+
+	/*
+	 * When a restart fails to start the device again: the mode to go back to, and how many
+	 * restarts were tried. Retries run from restart_work, too.
+	 */
+	enum ipts_mode restart_old_mode;
+	unsigned int restart_attempts;
 
 	/*
 	 * Freed when the last reference is dropped. Probe holds one (dropped by devres), and the

@@ -28,6 +28,9 @@
 #include "spec-data.h"
 #include "spec-device.h"
 
+#define IPTS_RESTART_DELAY_MS	  2000
+#define IPTS_RESTART_MAX_ATTEMPTS 5
+
 static int ipts_control_get_device_info(struct ipts_context *ipts, struct ipts_device_info *info)
 {
 	int ret = 0;
@@ -671,12 +674,19 @@ int ipts_control_stop(struct ipts_context *ipts)
 static void ipts_control_restart_work(struct work_struct *work)
 {
 	int ret = 0;
-	struct ipts_context *ipts = container_of(work, struct ipts_context, restart_work);
+	struct ipts_context *ipts =
+		container_of(to_delayed_work(work), struct ipts_context, restart_work);
 
 	mutex_lock(&ipts->ctl_lock);
 
 	if (READ_ONCE(ipts->removing))
 		goto out;
+
+	/*
+	 * A retry: the start failed, so the device is stopped already.
+	 */
+	if (ipts->restart_attempts)
+		goto start;
 
 	ret = _ipts_control_stop(ipts);
 	if (ret == IPTS_STOP_LEAKED) {
@@ -705,9 +715,34 @@ static void ipts_control_restart_work(struct work_struct *work)
 	if (READ_ONCE(ipts->removing))
 		goto out;
 
+start:
 	ret = ipts_control_start(ipts);
-	if (ret)
-		dev_err(ipts->dev, "Failed to restart IPTS: %d\n", ret);
+	if (!ret) {
+		ipts->restart_attempts = 0;
+		goto out;
+	}
+
+	dev_err(ipts->dev, "Failed to restart IPTS: %d\n", ret);
+
+	if (++ipts->restart_attempts >= IPTS_RESTART_MAX_ATTEMPTS) {
+		dev_err(ipts->dev, "Giving up restarting IPTS: %d\n", ret);
+		ipts->restart_attempts = 0;
+		goto out;
+	}
+
+	if (READ_ONCE(ipts->removing))
+		goto out;
+
+	/*
+	 * The device is stopped, and the HID device is inactive, so userspace cannot retry.
+	 * Restart the device in the previous mode, which works without iptsd, and iptsd can
+	 * switch modes again once it is restarted. The retry holds its own reference.
+	 */
+	ipts->mode = ipts->restart_old_mode;
+
+	ipts_context_get(ipts);
+	if (!schedule_delayed_work(&ipts->restart_work, msecs_to_jiffies(IPTS_RESTART_DELAY_MS)))
+		ipts_context_put(ipts);
 
 out:
 	mutex_unlock(&ipts->ctl_lock);
@@ -721,7 +756,8 @@ out:
 void ipts_control_init(struct ipts_context *ipts)
 {
 	mutex_init(&ipts->ctl_lock);
-	INIT_WORK(&ipts->restart_work, ipts_control_restart_work);
+	INIT_DELAYED_WORK(&ipts->restart_work, ipts_control_restart_work);
+	ipts->restart_attempts = 0;
 	ipts->removing = false;
 }
 
@@ -742,7 +778,7 @@ int ipts_control_restart(struct ipts_context *ipts)
 	 * already, it holds its own.
 	 */
 	ipts_context_get(ipts);
-	if (!schedule_work(&ipts->restart_work))
+	if (!schedule_delayed_work(&ipts->restart_work, 0))
 		ipts_context_put(ipts);
 
 	return 0;
@@ -754,6 +790,6 @@ void ipts_control_cancel_restart(struct ipts_context *ipts)
 	 * Never waits: a restart that is running holds ctl_lock, which remove waits for with a
 	 * bound. A queued one that is cancelled drops its reference here.
 	 */
-	if (cancel_work(&ipts->restart_work))
+	if (cancel_delayed_work(&ipts->restart_work))
 		ipts_context_put(ipts);
 }
