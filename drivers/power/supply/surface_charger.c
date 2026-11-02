@@ -8,6 +8,8 @@
 
 #include <linux/unaligned.h>
 #include <linux/kernel.h>
+#include <linux/limits.h>
+#include <linux/minmax.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/power_supply.h>
@@ -39,6 +41,12 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
 	.command_id      = 0x0d,
 });
 
+/* Get connected power adapter rating in mW (Artg). */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_artg, __le32, {
+	.target_category = SSAM_SSH_TC_BAT,
+	.command_id      = 0x0f,
+});
+
 
 /* -- Device structures. ---------------------------------------------------- */
 
@@ -59,6 +67,7 @@ struct spwr_ac_device {
 	struct mutex lock;  /* Guards access to state below. */
 
 	__le32 state;
+	__le32 artg;
 };
 
 
@@ -66,7 +75,9 @@ struct spwr_ac_device {
 
 static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 {
-	__le32 old = ac->state;
+	__le32 old_state = ac->state;
+	__le32 old_artg = ac->artg;
+	__le32 artg = 0;
 	int status;
 
 	lockdep_assert_held(&ac->lock);
@@ -75,7 +86,15 @@ static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 	if (status < 0)
 		return status;
 
-	return old != ac->state;
+	if (le32_to_cpu(ac->state)) {
+		status = ssam_retry(ssam_bat_get_artg, ac->sdev, &artg);
+		if (status < 0)
+			artg = 0;
+	}
+
+	ac->artg = artg;
+
+	return old_state != ac->state || old_artg != ac->artg;
 }
 
 static int spwr_ac_update(struct spwr_ac_device *ac)
@@ -134,6 +153,7 @@ static u32 spwr_notify_ac(struct ssam_event_notifier *nf, const struct ssam_even
 
 static const enum power_supply_property spwr_ac_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_INPUT_POWER_LIMIT,
 };
 
 static int spwr_ac_get_property(struct power_supply *psy, enum power_supply_property psp,
@@ -152,6 +172,10 @@ static int spwr_ac_get_property(struct power_supply *psy, enum power_supply_prop
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
 		val->intval = !!le32_to_cpu(ac->state);
+		break;
+
+	case POWER_SUPPLY_PROP_INPUT_POWER_LIMIT:
+		val->intval = min_t(u64, (u64)le32_to_cpu(ac->artg) * 1000, INT_MAX);
 		break;
 
 	default:
