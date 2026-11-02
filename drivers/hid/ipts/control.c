@@ -433,11 +433,14 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 	ipts_hid_disable(ipts);
 	dev_info(ipts->dev, "Stopping IPTS\n");
 
+	/*
+	 * The receiver thread is gone even if this fails: the error only says that shutting
+	 * it down did not go cleanly. Bailing out here would leave the resources and the HID
+	 * device behind.
+	 */
 	ret = ipts_receiver_stop(ipts);
-	if (ret) {
+	if (ret)
 		dev_err(ipts->dev, "Failed to stop receiver: %d\n", ret);
-		return ret;
-	}
 
 	ret = ipts_resources_free(&ipts->resources);
 	if (ret) {
@@ -451,18 +454,19 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 int ipts_control_stop(struct ipts_context *ipts)
 {
 	int ret = 0;
+	int hid_ret = 0;
 
+	/*
+	 * Always free the HID device. This is called when removing the device, so nothing
+	 * would free it later, and it would stay around when the device is probed again.
+	 */
 	ret = _ipts_control_stop(ipts);
-	if (ret)
-		return ret;
 
-	ret = ipts_hid_free(ipts);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to free HID device: %d\n", ret);
-		return ret;
-	}
+	hid_ret = ipts_hid_free(ipts);
+	if (hid_ret)
+		dev_err(ipts->dev, "Failed to free HID device: %d\n", hid_ret);
 
-	return 0;
+	return ret ?: hid_ret;
 }
 
 int ipts_control_restart(struct ipts_context *ipts)
