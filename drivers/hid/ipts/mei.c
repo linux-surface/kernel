@@ -261,6 +261,29 @@ void ipts_mei_free_messages(struct ipts_mei *mei)
 	up_write(&mei->message_lock);
 }
 
+size_t ipts_mei_flush(struct ipts_mei *mei)
+{
+	size_t count = 0;
+	struct ipts_mei_message *entry = NULL;
+	struct ipts_mei_message *tmp = NULL;
+
+	if (!mei)
+		return 0;
+
+	if (!ipts_mei_lock_timeout(mei, IPTS_MEI_LOCK_TIMEOUT_MS))
+		return 0;
+
+	list_for_each_entry_safe(entry, tmp, &mei->messages, list) {
+		list_del(&entry->list);
+		kfree(entry);
+		count++;
+	}
+
+	ipts_mei_unlock(mei);
+
+	return count;
+}
+
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev)
 {
 	if (!mei)
