@@ -63,4 +63,12 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
  */
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev);
 
+/**
+ * ipts_mei_flush() - Drops all received messages that have not been consumed.
+ * @mei: The IPTS MEI device context.
+ *
+ * Returns: The number of dropped messages.
+ */
+size_t ipts_mei_flush(struct ipts_mei *mei);
+
 #endif /* IPTS_MEI_H */

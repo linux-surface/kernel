@@ -345,12 +345,22 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
 int ipts_control_start(struct ipts_context *ipts)
 {
 	int ret = 0;
+	size_t stale = 0;
 	struct ipts_device_info info = { 0 };
 
 	if (!ipts)
 		return -EFAULT;
 
 	dev_info(ipts->dev, "Starting IPTS\n");
+
+	/*
+	 * Responses to commands that were interrupted while sending (or that timed out) can
+	 * still arrive later. Drop them, so that they are not mistaken for responses to the
+	 * commands sent below.
+	 */
+	stale = ipts_mei_flush(&ipts->mei);
+	if (stale)
+		dev_dbg(ipts->dev, "Dropped %zu stale responses\n", stale);
 
 	ret = ipts_control_get_device_info(ipts, &info);
 	if (ret) {
