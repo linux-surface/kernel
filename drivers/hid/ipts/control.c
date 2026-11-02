@@ -685,8 +685,27 @@ static void ipts_control_restart_work(struct work_struct *work)
 	/*
 	 * A retry: the start failed, so the device is stopped already.
 	 */
-	if (ipts->restart_attempts)
+	if (ipts->restart_attempts) {
+		dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
+
+		/*
+		 * After a timeout, every response from the ME can arrive only when the next
+		 * command is sent, which makes all further commands time out as well. Waiting
+		 * doesn't help, but reconnecting does.
+		 */
+		ret = ipts_mei_reconnect(&ipts->mei);
+		if (ret) {
+			dev_err(ipts->dev, "Failed to reconnect to the ME: %d\n", ret);
+			goto failed;
+		}
+
+		msleep(1000);
+
+		if (READ_ONCE(ipts->removing))
+			goto out;
+
 		goto start;
+	}
 
 	ret = _ipts_control_stop(ipts);
 	if (ret == IPTS_STOP_LEAKED) {
@@ -724,6 +743,7 @@ start:
 
 	dev_err(ipts->dev, "Failed to restart IPTS: %d\n", ret);
 
+failed:
 	if (++ipts->restart_attempts >= IPTS_RESTART_MAX_ATTEMPTS) {
 		dev_err(ipts->dev, "Giving up restarting IPTS: %d\n", ret);
 		ipts->restart_attempts = 0;
