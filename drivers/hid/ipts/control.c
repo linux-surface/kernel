@@ -511,8 +511,26 @@ static void ipts_control_restart_work(struct work_struct *work)
 	mutex_lock(&ipts->control_lock);
 
 	dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
-	ret = ipts_control_restart(ipts);
+	ret = _ipts_control_stop(ipts);
+	if (ret)
+		goto unlock;
 
+	/*
+	 * After a timeout, every response from the ME can arrive only when the next command is
+	 * sent, which makes all further commands time out as well. Waiting doesn't help, but
+	 * reconnecting does.
+	 */
+	ret = ipts_mei_reconnect(&ipts->mei);
+	if (ret) {
+		dev_err(ipts->dev, "Failed to reconnect to the ME: %d\n", ret);
+		goto unlock;
+	}
+
+	msleep(1000);
+
+	ret = ipts_control_start(ipts);
+
+unlock:
 	mutex_unlock(&ipts->control_lock);
 
 	if (!ret) {

@@ -193,6 +193,29 @@ size_t ipts_mei_flush(struct ipts_mei *mei)
 	return count;
 }
 
+int ipts_mei_reconnect(struct ipts_mei *mei)
+{
+	int ret = 0;
+
+	if (!mei)
+		return -EFAULT;
+
+	if (!mei->cldev)
+		return -EFAULT;
+
+	/*
+	 * This also unregisters the receive callback, and fails only if the client was already
+	 * gone. Try to connect anyway.
+	 */
+	mei_cldev_disable(mei->cldev);
+
+	ret = mei_cldev_enable(mei->cldev);
+	if (ret)
+		return ret;
+
+	return mei_cldev_register_rx_cb(mei->cldev, ipts_mei_incoming);
+}
+
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev)
 {
 	if (!mei)

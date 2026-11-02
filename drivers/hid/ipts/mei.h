@@ -55,6 +55,14 @@ int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts
 int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
 
 /**
+ * ipts_mei_reconnect() - Disconnects from the ME client and connects again.
+ * @mei: The MEI device context.
+ *
+ * Return: 0 on success, <0 on error.
+ */
+int ipts_mei_reconnect(struct ipts_mei *mei);
+
+/**
  * ipts_mei_init() - Initialize the MEI device context.
  * @mei: The MEI device context to initialize.
  * @cldev: The MEI device the context will be bound to.
