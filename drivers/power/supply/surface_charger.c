@@ -145,8 +145,9 @@ static int spwr_ac_get_property(struct power_supply *psy, enum power_supply_prop
 	mutex_lock(&ac->lock);
 
 	status = spwr_ac_update_unlocked(ac);
-	if (status)
+	if (status < 0)
 		goto out;
+	status = 0;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
