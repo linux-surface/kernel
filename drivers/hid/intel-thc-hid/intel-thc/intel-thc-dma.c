@@ -590,7 +590,8 @@ static int read_dma_buffer(struct thc_device *dev,
 	}
 
 	sg = read_config->sgls[prd_table_index];
-	ret = sg_copy_to_buffer(sg, nent, read_buff, mes_len);
+	ret = sg_copy_to_buffer(sg, read_config->sgls_nent_pages[prd_table_index],
+				read_buff, mes_len);
 	if (ret != mes_len) {
 		dev_err_once(dev->dev, "Copied %zu bytes instead of requested %zu\n",
 			     ret, mes_len);
