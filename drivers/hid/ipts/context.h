@@ -48,7 +48,7 @@ struct ipts_context {
 
 	/*
 	 * Freed when the last reference is dropped. Probe holds one (dropped by devres), and the
-	 * receiver thread and the HID device hold one each.
+	 * receiver thread, the HID device and every holder of message_lock hold one each.
 	 */
 	struct kref refcount;
 
@@ -69,8 +69,8 @@ struct ipts_context {
 void ipts_context_release(struct kref *refcount);
 
 /*
- * Every user of the context (the receiver thread, the HID device) takes a reference, so the
- * context is freed only after the last user is gone.
+ * Every user of the context (the receiver thread, the HID device, a holder of message_lock)
+ * takes a reference, so the context is freed only after the last user is gone.
  */
 static inline void ipts_context_get(struct ipts_context *ipts)
 {
