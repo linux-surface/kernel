@@ -18,6 +18,7 @@
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/wait.h>
+#include <linux/workqueue.h>
 
 #include "mei.h"
 #include "resources.h"
@@ -47,8 +48,17 @@ struct ipts_context {
 	struct hid_device *hid;
 
 	/*
+	 * Serializes a restart with remove. Restarts requested from a HID callback (the EDS1
+	 * mode switch) run from restart_work, never inside the callback.
+	 */
+	struct mutex ctl_lock;
+	struct work_struct restart_work;
+	bool removing;
+
+	/*
 	 * Freed when the last reference is dropped. Probe holds one (dropped by devres), and the
-	 * receiver thread, the HID device and every holder of message_lock hold one each.
+	 * receiver thread, the HID device, every holder of message_lock and a queued restart
+	 * hold one each.
 	 */
 	struct kref refcount;
 
@@ -69,8 +79,8 @@ struct ipts_context {
 void ipts_context_release(struct kref *refcount);
 
 /*
- * Every user of the context (the receiver thread, the HID device, a holder of message_lock)
- * takes a reference, so the context is freed only after the last user is gone.
+ * Every user of the context (the receiver thread, the HID device, a holder of message_lock, a
+ * queued restart) takes a reference, so the context is freed only after the last user is gone.
  */
 static inline void ipts_context_get(struct ipts_context *ipts)
 {

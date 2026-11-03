@@ -11,6 +11,8 @@
 #include <linux/types.h>
 
 #include "context.h"
+#include "mei.h"
+#include "receiver.h"
 #include "spec-data.h"
 #include "spec-device.h"
 
@@ -99,6 +101,20 @@ static inline int ipts_control_refill_buffer(struct ipts_context *ipts, u32 buff
 	return ipts_control_send_feedback(ipts, buffer);
 }
 
+/*
+ * The longest ipts_control_start() takes on a restart. Only EDS1 devices restart. They send
+ * three commands that wait for their reply (GET_DEVICE_INFO, SET_MODE and SET_MEM_WINDOW) and
+ * READY_FOR_DATA, which is only sent. GET_DESCRIPTOR is sent only to newer devices, since the
+ * EDS1 HID descriptor is built into the driver, and the rest of a start sends no command. The
+ * bound still counts four replies; the fourth is margin.
+ */
+#define IPTS_CONTROL_START_TIMEOUT_MS (4 * IPTS_RECEIVER_CMD_MS + IPTS_MEI_SEND_TIMEOUT_MS)
+
+/*
+ * The longest a stop takes: the stop of the receiver thread.
+ */
+#define IPTS_CONTROL_STOP_TIMEOUT_MS IPTS_RECEIVER_STOP_TIMEOUT_MS
+
 /**
  * ipts_control_start() - Initialized the device and starts the data flow.
  * @ipts: The IPTS driver context.
@@ -116,11 +132,23 @@ int ipts_control_start(struct ipts_context *ipts);
 int ipts_control_stop(struct ipts_context *ipts);
 
 /**
- * ipts_control_restart() - Stops the device and starts it again.
+ * ipts_control_restart() - Schedules a stop and start of the device.
  * @ipts: The IPTS driver context.
  *
- * Returns: 0 on success, <0 on error.
+ * Returns: 0 if the restart was scheduled, <0 on error.
  */
 int ipts_control_restart(struct ipts_context *ipts);
+
+/**
+ * ipts_control_cancel_restart() - Cancels a restart that is queued but not running yet.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_cancel_restart(struct ipts_context *ipts);
+
+/**
+ * ipts_control_init() - Initializes the lock and the work item of the context.
+ * @ipts: The IPTS driver context.
+ */
+void ipts_control_init(struct ipts_context *ipts);
 
 #endif /* IPTS_CONTROL_H */

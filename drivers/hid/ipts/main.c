@@ -132,6 +132,7 @@ static int ipts_probe(struct mei_cl_device *cldev, const struct mei_cl_device_id
 
 	mutex_init(&ipts->feature_lock);
 	init_completion(&ipts->feature_event);
+	ipts_control_init(ipts);
 
 	mei_cldev_set_drvdata(cldev, ipts);
 
@@ -154,6 +155,31 @@ err_disable:
  */
 #define IPTS_REMOVE_TIMEOUT_MS 12000
 
+/*
+ * How long ipts_remove() waits for a running restart to release ctl_lock: the longest a
+ * restart can still hold it once removing is set. Before its last check of removing, that is
+ * the rest of a stop and the one-second pause; after it, a start. The sum of a start and a
+ * stop covers either. One second more covers scheduling. A restart that holds the lock for
+ * longer is stuck.
+ */
+#define IPTS_REMOVE_LOCK_TIMEOUT_MS                                                         \
+	(IPTS_CONTROL_START_TIMEOUT_MS + IPTS_CONTROL_STOP_TIMEOUT_MS + 1000)
+#define IPTS_REMOVE_LOCK_POLL_MS    10
+
+static bool ipts_remove_lock(struct ipts_context *ipts)
+{
+	unsigned long end = jiffies + msecs_to_jiffies(IPTS_REMOVE_LOCK_TIMEOUT_MS);
+
+	while (!mutex_trylock(&ipts->ctl_lock)) {
+		if (time_after(jiffies, end))
+			return false;
+
+		msleep(IPTS_REMOVE_LOCK_POLL_MS);
+	}
+
+	return true;
+}
+
 static void ipts_remove(struct mei_cl_device *cldev)
 {
 	int ret = 0;
@@ -166,7 +192,30 @@ static void ipts_remove(struct mei_cl_device *cldev)
 
 	ipts = mei_cldev_get_drvdata(cldev);
 
+	/*
+	 * No new restarts, and cancel a queued one. A restart that is already running sees
+	 * removing before it starts the device again, and is waited for, bounded, through
+	 * ctl_lock. One scheduled by a HID callback that raced with this is cancelled after the
+	 * stop, or sees removing and does nothing.
+	 */
+	WRITE_ONCE(ipts->removing, true);
+	ipts_control_cancel_restart(ipts);
+
+	if (!ipts_remove_lock(ipts)) {
+		/*
+		 * A restart is stuck with the device half stopped or started. Nothing it uses
+		 * may be freed, so the stop is skipped.
+		 */
+		dev_err(&cldev->dev, "A restart of IPTS did not finish, not stopping it\n");
+		mei_cldev_disable(cldev);
+		return;
+	}
+
 	ret = ipts_control_stop(ipts);
+	mutex_unlock(&ipts->ctl_lock);
+
+	ipts_control_cancel_restart(ipts);
+
 	if (ret)
 		dev_err(&cldev->dev, "Failed to stop IPTS: %d\n", ret);
 

@@ -12,7 +12,9 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include "cmd.h"
 #include "context.h"
@@ -438,6 +440,12 @@ int ipts_control_start(struct ipts_context *ipts)
 	return 0;
 }
 
+/*
+ * Returned by _ipts_control_stop() when the receiver thread is gone, but the device did not
+ * confirm its stop: its DMA buffers were leaked, and it must not be started again.
+ */
+#define IPTS_STOP_LEAKED 1
+
 static int _ipts_control_stop(struct ipts_context *ipts)
 {
 	int ret = 0;
@@ -461,14 +469,14 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 	if (ret) {
 		dev_err(ipts->dev, "Receiver thread died without stopping the device: %d\n", ret);
 		ipts_control_leak_buffers(ipts);
-		return 0;
+		return IPTS_STOP_LEAKED;
 	}
 
 	if (ipts->receiver_loop.exit_code) {
 		dev_err(ipts->dev, "Failed to stop the device: %d\n",
 			ipts->receiver_loop.exit_code);
 		ipts_control_leak_buffers(ipts);
-		return 0;
+		return IPTS_STOP_LEAKED;
 	}
 
 	ret = ipts_resources_free(&ipts->resources);
@@ -491,7 +499,7 @@ int ipts_control_stop(struct ipts_context *ipts)
 	 * it, is still running.
 	 */
 	ret = _ipts_control_stop(ipts);
-	if (ret)
+	if (ret < 0)
 		return ret;
 
 	ret = ipts_hid_free(ipts);
@@ -501,22 +509,91 @@ int ipts_control_stop(struct ipts_context *ipts)
 	return 0;
 }
 
-int ipts_control_restart(struct ipts_context *ipts)
+static void ipts_control_restart_work(struct work_struct *work)
 {
 	int ret = 0;
+	struct ipts_context *ipts = container_of(work, struct ipts_context, restart_work);
+
+	mutex_lock(&ipts->ctl_lock);
+
+	if (READ_ONCE(ipts->removing))
+		goto out;
 
 	ret = _ipts_control_stop(ipts);
-	if (ret)
-		return ret;
+	if (ret == IPTS_STOP_LEAKED) {
+		/*
+		 * Starting a device that did not confirm its stop can leave its firmware
+		 * unresponsive until the next boot.
+		 */
+		dev_err(ipts->dev, "Device stop not confirmed, not restarting IPTS\n");
+		goto out;
+	}
+
+	if (ret) {
+		dev_err(ipts->dev, "Failed to stop IPTS for a restart: %d\n", ret);
+		goto out;
+	}
 
 	/*
 	 * Wait a second to give the sensor time to fully shut down.
 	 */
 	msleep(1000);
 
+	/*
+	 * A remove that started meanwhile waits for this, and stops the device anyway.
+	 */
+	if (READ_ONCE(ipts->removing))
+		goto out;
+
 	ret = ipts_control_start(ipts);
 	if (ret)
-		return ret;
+		dev_err(ipts->dev, "Failed to restart IPTS: %d\n", ret);
+
+out:
+	mutex_unlock(&ipts->ctl_lock);
+
+	/*
+	 * Drop the reference that ipts_control_restart() took for this run.
+	 */
+	ipts_context_put(ipts);
+}
+
+void ipts_control_init(struct ipts_context *ipts)
+{
+	mutex_init(&ipts->ctl_lock);
+	INIT_WORK(&ipts->restart_work, ipts_control_restart_work);
+	ipts->removing = false;
+}
+
+int ipts_control_restart(struct ipts_context *ipts)
+{
+	if (!ipts)
+		return -EFAULT;
+
+	/*
+	 * Called from a HID callback, which the stop has to wait for, so the restart itself
+	 * runs from a work item.
+	 */
+	if (READ_ONCE(ipts->removing))
+		return -ENODEV;
+
+	/*
+	 * A queued restart holds a reference until it ran or was cancelled. If one is queued
+	 * already, it holds its own.
+	 */
+	ipts_context_get(ipts);
+	if (!schedule_work(&ipts->restart_work))
+		ipts_context_put(ipts);
 
 	return 0;
+}
+
+void ipts_control_cancel_restart(struct ipts_context *ipts)
+{
+	/*
+	 * Never waits: a restart that is running holds ctl_lock, which remove waits for with a
+	 * bound. A queued one that is cancelled drops its reference here.
+	 */
+	if (cancel_work(&ipts->restart_work))
+		ipts_context_put(ipts);
 }
