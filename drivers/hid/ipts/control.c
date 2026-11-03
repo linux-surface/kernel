@@ -397,7 +397,15 @@ int ipts_control_start(struct ipts_context *ipts)
 		ret = ipts_control_get_descriptor(ipts);
 		if (ret) {
 			dev_err(ipts->dev, "Failed to fetch HID descriptor: %d\n", ret);
-			return ret;
+
+			/*
+			 * Unless the device replied, it may still write the descriptor into its
+			 * buffer.
+			 */
+			if (ret == -EBADR || ret == -ENODATA)
+				goto err_free_resources;
+
+			goto err_leak_resources;
 		}
 
 		/*
@@ -409,25 +417,25 @@ int ipts_control_start(struct ipts_context *ipts)
 	ret = ipts_control_set_mode(ipts, ipts->mode);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to set mode: %d\n", ret);
-		return ret;
+		goto err_free_resources;
 	}
 
 	ret = ipts_control_set_mem_window(ipts, &ipts->resources);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to set memory window: %d\n", ret);
-		return ret;
+		goto err_leak_resources;
 	}
 
 	ret = ipts_receiver_start(ipts);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to start receiver: %d\n", ret);
-		return ret;
+		goto err_leak_resources;
 	}
 
 	ret = ipts_control_request_data(ipts);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to request data: %d\n", ret);
-		return ret;
+		goto err_stop;
 	}
 
 	ipts_hid_enable(ipts);
@@ -435,10 +443,29 @@ int ipts_control_start(struct ipts_context *ipts)
 	ret = ipts_hid_init(ipts, info);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to initialize HID device: %d\n", ret);
-		return ret;
+		goto err_stop;
 	}
 
 	return 0;
+
+err_stop:
+	/*
+	 * The receiver is running: stop it through the normal stop path, which keeps whatever
+	 * a receiver thread that does not stop can still use.
+	 */
+	ipts_control_stop(ipts);
+	return ret;
+
+err_leak_resources:
+	/*
+	 * The device may already have been given these buffers and was never told to stop.
+	 */
+	ipts_control_leak_buffers(ipts);
+	return ret;
+
+err_free_resources:
+	ipts_resources_free(&ipts->resources);
+	return ret;
 }
 
 /*

@@ -161,9 +161,9 @@ err_disable:
 /*
  * How long ipts_remove() waits for a running restart to release ctl_lock: the longest a
  * restart can still hold it once removing is set. Before its last check of removing, that is
- * the rest of a stop and the one-second pause; after it, a start. The sum of a start and a
- * stop covers either. One second more covers scheduling. A restart that holds the lock for
- * longer is stuck.
+ * the rest of a stop and the one-second pause; after it, a start, and a stop if the start
+ * fails. The sum of a start and a stop covers either. One second more covers scheduling. A
+ * restart that holds the lock for longer is stuck.
  */
 #define IPTS_REMOVE_LOCK_TIMEOUT_MS                                                         \
 	(IPTS_CONTROL_START_TIMEOUT_MS + IPTS_CONTROL_STOP_TIMEOUT_MS + 1000)

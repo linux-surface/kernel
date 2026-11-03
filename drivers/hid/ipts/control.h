@@ -126,6 +126,9 @@ static inline int ipts_control_refill_buffer(struct ipts_context *ipts, u32 buff
  * ipts_control_start() - Initialized the device and starts the data flow.
  * @ipts: The IPTS driver context.
  *
+ * On failure, what it set up is torn down again, except what the device or a receiver thread
+ * that does not stop may still use: DMA buffers the device may have been given are leaked.
+ *
  * Returns: 0 on success, <0 on error.
  */
 int ipts_control_start(struct ipts_context *ipts);

@@ -171,10 +171,15 @@ static struct hid_ll_driver ipts_hid_driver = {
 static int ipts_hid_handle_data(struct ipts_context *ipts, u32 buffer)
 {
 	u8 *temp = NULL;
+	struct hid_device *hid = NULL;
 	struct ipts_hid_header *frame = NULL;
 	struct ipts_data_header *header = NULL;
 
-	if (!ipts->hid)
+	/*
+	 * Set by ipts_hid_init() while this thread is already running.
+	 */
+	hid = READ_ONCE(ipts->hid);
+	if (!hid)
 		return -ENODEV;
 
 	header = (struct ipts_data_header *)ipts->resources.data[buffer].address;
@@ -189,7 +194,7 @@ static int ipts_hid_handle_data(struct ipts_context *ipts, u32 buffer)
 		return 0;
 
 	if (header->type == IPTS_DATA_TYPE_HID)
-		return hid_input_report(ipts->hid, HID_INPUT_REPORT, header->data, header->size, 1);
+		return hid_input_report(hid, HID_INPUT_REPORT, header->data, header->size, 1);
 
 	if (header->type == IPTS_DATA_TYPE_GET_FEATURES) {
 		ipts->feature_report.address = header->data;
@@ -216,7 +221,7 @@ static int ipts_hid_handle_data(struct ipts_context *ipts, u32 buffer)
 
 	memcpy(frame->data, header->data, header->size);
 
-	return hid_input_report(ipts->hid, HID_INPUT_REPORT, temp, IPTS_HID_REPORT_DATA_SIZE, 1);
+	return hid_input_report(hid, HID_INPUT_REPORT, temp, IPTS_HID_REPORT_DATA_SIZE, 1);
 }
 
 int ipts_hid_input_data(struct ipts_context *ipts, u32 buffer)
@@ -242,6 +247,7 @@ int ipts_hid_input_data(struct ipts_context *ipts, u32 buffer)
 int ipts_hid_init(struct ipts_context *ipts, struct ipts_device_info info)
 {
 	int ret = 0;
+	struct hid_device *hid = NULL;
 
 	if (!ipts)
 		return -EFAULT;
@@ -249,35 +255,43 @@ int ipts_hid_init(struct ipts_context *ipts, struct ipts_device_info info)
 	if (ipts->hid)
 		return 0;
 
-	ipts->hid = hid_allocate_device();
-	if (IS_ERR(ipts->hid)) {
-		int err = PTR_ERR(ipts->hid);
-
-		dev_err(ipts->dev, "Failed to allocate HID device: %d\n", err);
-		return err;
+	hid = hid_allocate_device();
+	if (IS_ERR(hid)) {
+		ret = PTR_ERR(hid);
+		dev_err(ipts->dev, "Failed to allocate HID device: %d\n", ret);
+		return ret;
 	}
 
 	/*
 	 * The HID device uses the context in its callbacks until it is destroyed: hold a
-	 * reference for its whole life.
+	 * reference for its whole life, also when hid_add_device() fails and it is left for
+	 * ipts_control_stop() to destroy.
 	 */
 	ipts_context_get(ipts);
 
-	ipts->hid->driver_data = ipts;
-	ipts->hid->dev.parent = ipts->dev;
-	ipts->hid->ll_driver = &ipts_hid_driver;
+	hid->driver_data = ipts;
+	hid->dev.parent = ipts->dev;
+	hid->ll_driver = &ipts_hid_driver;
 
-	ipts->hid->vendor = info.vendor;
-	ipts->hid->product = info.product;
-	ipts->hid->group = HID_GROUP_GENERIC;
+	hid->vendor = info.vendor;
+	hid->product = info.product;
+	hid->group = HID_GROUP_GENERIC;
 
-	snprintf(ipts->hid->name, sizeof(ipts->hid->name), "IPTS %04X:%04X", info.vendor,
-		 info.product);
+	snprintf(hid->name, sizeof(hid->name), "IPTS %04X:%04X", info.vendor, info.product);
 
-	ret = hid_add_device(ipts->hid);
+	/*
+	 * The receiver thread is already running and reads ipts->hid, so the device is published
+	 * only once it is set up. The release orders the setup before the pointer.
+	 */
+	smp_store_release(&ipts->hid, hid);
+
+	/*
+	 * On failure ipts->hid stays set: the receiver thread may already be using it, so it
+	 * is destroyed by ipts_control_stop() once HID input has stopped.
+	 */
+	ret = hid_add_device(hid);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to add HID device: %d\n", ret);
-		ipts_hid_free(ipts);
 		return ret;
 	}
 
