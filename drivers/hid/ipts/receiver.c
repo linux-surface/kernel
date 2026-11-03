@@ -239,6 +239,11 @@ int ipts_receiver_start(struct ipts_context *ipts)
 	return 0;
 }
 
+/*
+ * How long a stop waits for the receiver thread to return.
+ */
+#define IPTS_RECEIVER_STOP_TIMEOUT_MS 10000
+
 int ipts_receiver_stop(struct ipts_context *ipts)
 {
 	int ret = 0;
@@ -252,12 +257,22 @@ int ipts_receiver_stop(struct ipts_context *ipts)
 	if (!ipts->receiver_loop.thread)
 		return 0;
 
-	ret = ipts_thread_stop(&ipts->receiver_loop);
+	ret = ipts_thread_stop(&ipts->receiver_loop, IPTS_RECEIVER_STOP_TIMEOUT_MS);
+	if (ret == -ETIMEDOUT) {
+		/*
+		 * Still running: the thread keeps its reference, and everything it uses.
+		 */
+		dev_err(ipts->dev, "Failed to stop receiver loop: %d\n", ret);
+		return ret;
+	}
 
 	/*
-	 * The thread is gone, so drop its reference.
+	 * The thread is gone (it returned or died), so drop its reference.
 	 */
 	ipts_context_put(ipts);
+
+	if (!ret)
+		ret = ipts->receiver_loop.exit_code;
 
 	if (ret) {
 		dev_err(ipts->dev, "Failed to stop receiver loop: %d\n", ret);
