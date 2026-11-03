@@ -10,6 +10,8 @@
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/types.h>
 
 #include "cmd.h"
@@ -342,6 +344,19 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
 	return ipts_control_send_feedback(ipts, IPTS_HID2ME_BUFFER);
 }
 
+/*
+ * The device was never told to stop, or never confirmed it, so it may still write to its
+ * DMA buffers. They are never freed; the next start allocates new ones. The report buffer
+ * is driver memory only and is freed.
+ */
+static void ipts_control_leak_buffers(struct ipts_context *ipts)
+{
+	dev_warn(ipts->dev, "Device stop not confirmed, leaking its DMA buffers\n");
+
+	kfree(ipts->resources.report.address);
+	memset(&ipts->resources, 0, sizeof(ipts->resources));
+}
+
 int ipts_control_start(struct ipts_context *ipts)
 {
 	int ret = 0;
@@ -434,16 +449,31 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 	dev_info(ipts->dev, "Stopping IPTS\n");
 
 	ret = ipts_receiver_stop(ipts);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to stop receiver: %d\n", ret);
+	if (ret == -ETIMEDOUT) {
+		/*
+		 * The thread is still running and can still touch the buffers and the HID
+		 * device, so nothing is freed.
+		 */
+		dev_err(ipts->dev, "Receiver thread did not stop\n");
 		return ret;
 	}
 
-	ret = ipts_resources_free(&ipts->resources);
 	if (ret) {
-		dev_err(ipts->dev, "Failed to free resources: %d\n", ret);
-		return ret;
+		dev_err(ipts->dev, "Receiver thread died without stopping the device: %d\n", ret);
+		ipts_control_leak_buffers(ipts);
+		return 0;
 	}
+
+	if (ipts->receiver_loop.exit_code) {
+		dev_err(ipts->dev, "Failed to stop the device: %d\n",
+			ipts->receiver_loop.exit_code);
+		ipts_control_leak_buffers(ipts);
+		return 0;
+	}
+
+	ret = ipts_resources_free(&ipts->resources);
+	if (ret)
+		dev_err(ipts->dev, "Failed to free resources: %d\n", ret);
 
 	return 0;
 }
@@ -452,15 +482,21 @@ int ipts_control_stop(struct ipts_context *ipts)
 {
 	int ret = 0;
 
+	if (!ipts)
+		return -EFAULT;
+
+	/*
+	 * The HID device must be gone before the module can unload, or opening its hidraw node
+	 * later runs freed module code. It is kept only while the receiver thread, which feeds
+	 * it, is still running.
+	 */
 	ret = _ipts_control_stop(ipts);
 	if (ret)
 		return ret;
 
 	ret = ipts_hid_free(ipts);
-	if (ret) {
+	if (ret)
 		dev_err(ipts->dev, "Failed to free HID device: %d\n", ret);
-		return ret;
-	}
 
 	return 0;
 }

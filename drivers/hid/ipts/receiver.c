@@ -252,10 +252,13 @@ int ipts_receiver_stop(struct ipts_context *ipts)
 		return -EFAULT;
 
 	/*
-	 * A start that failed early never started the thread, so there is no reference to drop.
+	 * A start that failed early never started the thread: there is no reference to drop,
+	 * and the exit code of an earlier thread must not be reported again.
 	 */
-	if (!ipts->receiver_loop.thread)
+	if (!ipts->receiver_loop.thread) {
+		ipts->receiver_loop.exit_code = 0;
 		return 0;
+	}
 
 	ret = ipts_thread_stop(&ipts->receiver_loop, IPTS_RECEIVER_STOP_TIMEOUT_MS);
 	if (ret == -ETIMEDOUT) {
@@ -270,9 +273,6 @@ int ipts_receiver_stop(struct ipts_context *ipts)
 	 * The thread is gone (it returned or died), so drop its reference.
 	 */
 	ipts_context_put(ipts);
-
-	if (!ret)
-		ret = ipts->receiver_loop.exit_code;
 
 	if (ret) {
 		dev_err(ipts->dev, "Failed to stop receiver loop: %d\n", ret);
