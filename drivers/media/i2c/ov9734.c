@@ -4,9 +4,11 @@
 #include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 #include <linux/unaligned.h>
 
 #include <media/v4l2-ctrls.h>
@@ -26,6 +28,14 @@
 #define OV9734_REG_MODE_SELECT		0x0100
 #define OV9734_MODE_STANDBY		0x00
 #define OV9734_MODE_STREAMING		0x01
+
+static const char * const ov9734_supply_names[] = {
+	"avdd",		/* Analog power */
+	"dovdd",	/* Digital I/O power */
+	"dvdd",		/* Digital core power */
+};
+
+#define OV9734_NUM_SUPPLIES	ARRAY_SIZE(ov9734_supply_names)
 
 /* vertical-timings from sensor */
 #define OV9734_REG_VTS			0x380e
@@ -325,6 +335,8 @@ static const struct ov9734_mode supported_modes[] = {
 struct ov9734 {
 	struct device *dev;
 	struct clk *clk;
+	struct gpio_desc *reset;
+	struct regulator_bulk_data supplies[OV9734_NUM_SUPPLIES];
 
 	struct v4l2_subdev sd;
 	struct media_pad pad;
@@ -805,6 +817,45 @@ static const struct v4l2_subdev_internal_ops ov9734_internal_ops = {
 	.open = ov9734_open,
 };
 
+static int ov9734_power_off(struct device *dev)
+{
+	struct v4l2_subdev *sd = dev_get_drvdata(dev);
+	struct ov9734 *ov9734 = to_ov9734(sd);
+
+	gpiod_set_value_cansleep(ov9734->reset, 1);
+	clk_disable_unprepare(ov9734->clk);
+	regulator_bulk_disable(OV9734_NUM_SUPPLIES, ov9734->supplies);
+
+	return 0;
+}
+
+static int ov9734_power_on(struct device *dev)
+{
+	struct v4l2_subdev *sd = dev_get_drvdata(dev);
+	struct ov9734 *ov9734 = to_ov9734(sd);
+	int ret;
+
+	ret = regulator_bulk_enable(OV9734_NUM_SUPPLIES, ov9734->supplies);
+	if (ret) {
+		dev_err(dev, "failed to enable regulators: %d", ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(ov9734->clk);
+	if (ret) {
+		dev_err(dev, "failed to enable clock: %d", ret);
+		regulator_bulk_disable(OV9734_NUM_SUPPLIES, ov9734->supplies);
+		return ret;
+	}
+
+	usleep_range(1000, 2000);
+	gpiod_set_value_cansleep(ov9734->reset, 0);
+	/* 8192 xvclk cycles before the first SCCB transaction, with margin */
+	usleep_range(5000, 6000);
+
+	return 0;
+}
+
 static int ov9734_identify_module(struct ov9734 *ov9734)
 {
 	int ret;
@@ -881,6 +932,8 @@ static void ov9734_remove(struct i2c_client *client)
 	media_entity_cleanup(&sd->entity);
 	v4l2_ctrl_handler_free(sd->ctrl_handler);
 	pm_runtime_disable(ov9734->dev);
+	if (!pm_runtime_status_suspended(ov9734->dev))
+		ov9734_power_off(ov9734->dev);
 	pm_runtime_set_suspended(ov9734->dev);
 	mutex_destroy(&ov9734->mutex);
 }
@@ -915,11 +968,31 @@ static int ov9734_probe(struct i2c_client *client)
 				     "external clock %lu is not supported",
 				     freq);
 
+	ov9734->reset = devm_gpiod_get_optional(ov9734->dev, "reset",
+						GPIOD_OUT_HIGH);
+	if (IS_ERR(ov9734->reset))
+		return dev_err_probe(ov9734->dev, PTR_ERR(ov9734->reset),
+				     "failed to get reset gpio\n");
+
+	for (unsigned int i = 0; i < OV9734_NUM_SUPPLIES; i++)
+		ov9734->supplies[i].supply = ov9734_supply_names[i];
+
+	ret = devm_regulator_bulk_get(ov9734->dev, OV9734_NUM_SUPPLIES,
+				      ov9734->supplies);
+	if (ret)
+		return dev_err_probe(ov9734->dev, ret,
+				     "failed to get regulators\n");
+
 	v4l2_i2c_subdev_init(&ov9734->sd, client, &ov9734_subdev_ops);
+
+	ret = ov9734_power_on(ov9734->dev);
+	if (ret)
+		return ret;
+
 	ret = ov9734_identify_module(ov9734);
 	if (ret) {
 		dev_err(ov9734->dev, "failed to find sensor: %d", ret);
-		return ret;
+		goto probe_error_power_off;
 	}
 
 	mutex_init(&ov9734->mutex);
@@ -941,10 +1014,7 @@ static int ov9734_probe(struct i2c_client *client)
 		goto probe_error_v4l2_ctrl_handler_free;
 	}
 
-	/*
-	 * Device is already turned on by i2c-core with ACPI domain PM.
-	 * Enable runtime PM and turn off the device.
-	 */
+	/* Device is powered on above. Enable runtime PM and turn it off. */
 	pm_runtime_set_active(ov9734->dev);
 	pm_runtime_enable(ov9734->dev);
 	pm_runtime_idle(ov9734->dev);
@@ -960,15 +1030,27 @@ static int ov9734_probe(struct i2c_client *client)
 
 probe_error_media_entity_cleanup_pm:
 	pm_runtime_disable(ov9734->dev);
+	if (!pm_runtime_status_suspended(ov9734->dev))
+		ov9734_power_off(ov9734->dev);
 	pm_runtime_set_suspended(ov9734->dev);
 	media_entity_cleanup(&ov9734->sd.entity);
+	v4l2_ctrl_handler_free(ov9734->sd.ctrl_handler);
+	mutex_destroy(&ov9734->mutex);
+
+	return ret;
 
 probe_error_v4l2_ctrl_handler_free:
 	v4l2_ctrl_handler_free(ov9734->sd.ctrl_handler);
 	mutex_destroy(&ov9734->mutex);
 
+probe_error_power_off:
+	ov9734_power_off(ov9734->dev);
+
 	return ret;
 }
+
+static DEFINE_RUNTIME_DEV_PM_OPS(ov9734_pm_ops, ov9734_power_off,
+				 ov9734_power_on, NULL);
 
 static const struct acpi_device_id ov9734_acpi_ids[] = {
 	{ "OVTI9734", },
@@ -981,6 +1063,7 @@ static struct i2c_driver ov9734_i2c_driver = {
 	.driver = {
 		.name = "ov9734",
 		.acpi_match_table = ov9734_acpi_ids,
+		.pm = pm_ptr(&ov9734_pm_ops),
 	},
 	.probe = ov9734_probe,
 	.remove = ov9734_remove,
