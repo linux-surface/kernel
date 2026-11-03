@@ -111,9 +111,16 @@ static inline int ipts_control_refill_buffer(struct ipts_context *ipts, u32 buff
 #define IPTS_CONTROL_START_TIMEOUT_MS (4 * IPTS_RECEIVER_CMD_MS + IPTS_MEI_SEND_TIMEOUT_MS)
 
 /*
- * The longest a stop takes: the stop of the receiver thread.
+ * How long stopping waits for running HID callbacks. The longest of them, a GET_FEATURE
+ * request, is released at once by ipts_hid_quiesce().
  */
-#define IPTS_CONTROL_STOP_TIMEOUT_MS IPTS_RECEIVER_STOP_TIMEOUT_MS
+#define IPTS_HID_QUIESCE_TIMEOUT_MS 12000
+
+/*
+ * The longest a stop takes: the wait for running HID callbacks, then the stop of the receiver
+ * thread.
+ */
+#define IPTS_CONTROL_STOP_TIMEOUT_MS (IPTS_HID_QUIESCE_TIMEOUT_MS + IPTS_RECEIVER_STOP_TIMEOUT_MS)
 
 /**
  * ipts_control_start() - Initialized the device and starts the data flow.
@@ -127,7 +134,10 @@ int ipts_control_start(struct ipts_context *ipts);
  * ipts_control_stop() - Stops the data flow and resets the device.
  * @ipts: The IPTS driver context.
  *
- * Returns: 0 on success, <0 on error.
+ * Returns: 0 if the receiver thread stopped (the DMA buffers are leaked if the device did not
+ * confirm the stop, or a HID callback outlived the wait for it), -ETIMEDOUT if it is still
+ * running (the HID device is destroyed, the buffers are kept), -EBUSY if a HID callback did
+ * not return (everything is kept), <0 on other errors.
  */
 int ipts_control_stop(struct ipts_context *ipts);
 

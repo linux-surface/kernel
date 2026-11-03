@@ -48,6 +48,13 @@ struct ipts_context {
 	struct hid_device *hid;
 
 	/*
+	 * Number of HID callbacks currently running driver code. Stopping waits, bounded,
+	 * until it drops to 0.
+	 */
+	atomic_t hid_users;
+	wait_queue_head_t hid_users_wq;
+
+	/*
 	 * Serializes a restart with remove. Restarts requested from a HID callback (the EDS1
 	 * mode switch) run from restart_work, never inside the callback.
 	 */
@@ -72,6 +79,13 @@ struct ipts_context {
 
 	struct ipts_device_info info;
 	struct ipts_resources resources;
+
+	/*
+	 * Set by a stop whose wait for running HID callbacks timed out: a callback that outlived
+	 * the wait may have sent the device a command after it confirmed the stop. The buffers
+	 * are then leaked instead of freed, by that stop or, if it kept everything, by the next.
+	 */
+	bool buffers_unconfirmed;
 
 	struct ipts_thread receiver_loop;
 };

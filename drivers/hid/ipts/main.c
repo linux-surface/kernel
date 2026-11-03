@@ -134,6 +134,9 @@ static int ipts_probe(struct mei_cl_device *cldev, const struct mei_cl_device_id
 	init_completion(&ipts->feature_event);
 	ipts_control_init(ipts);
 
+	atomic_set(&ipts->hid_users, 0);
+	init_waitqueue_head(&ipts->hid_users_wq);
+
 	mei_cldev_set_drvdata(cldev, ipts);
 
 	ret = ipts_control_start(ipts);
