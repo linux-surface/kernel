@@ -189,6 +189,12 @@ int ipts_hid_init(struct ipts_context *ipts, struct ipts_device_info info)
 		return err;
 	}
 
+	/*
+	 * The HID device uses the context in its callbacks until it is destroyed: hold a
+	 * reference for its whole life.
+	 */
+	ipts_context_get(ipts);
+
 	ipts->hid->driver_data = ipts;
 	ipts->hid->dev.parent = ipts->dev;
 	ipts->hid->ll_driver = &ipts_hid_driver;
@@ -220,6 +226,11 @@ int ipts_hid_free(struct ipts_context *ipts)
 
 	hid_destroy_device(ipts->hid);
 	ipts->hid = NULL;
+
+	/*
+	 * Drop the reference taken by ipts_hid_init().
+	 */
+	ipts_context_put(ipts);
 
 	return 0;
 }

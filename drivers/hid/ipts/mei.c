@@ -12,6 +12,7 @@
 #include <linux/mei_cl_bus.h>
 #include <linux/printk.h>
 #include <linux/rwsem.h>
+#include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/wait.h>
 
@@ -43,7 +44,7 @@ static void ipts_mei_incoming(struct mei_cl_device *cldev)
 		return;
 	}
 
-	entry = devm_kzalloc(ipts->dev, sizeof(*entry), GFP_KERNEL);
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry)
 		return;
 
@@ -55,11 +56,13 @@ static void ipts_mei_incoming(struct mei_cl_device *cldev)
 
 	if (ret < 0) {
 		dev_err(ipts->dev, "Error while reading response: %ld\n", ret);
+		kfree(entry);
 		return;
 	}
 
 	if (ret == 0) {
 		dev_err(ipts->dev, "Received empty response\n");
+		kfree(entry);
 		return;
 	}
 
@@ -99,7 +102,7 @@ static int ipts_mei_search(struct ipts_mei *mei, enum ipts_command_code code,
 		up_write(&mei->message_lock);
 
 		*rsp = entry->rsp;
-		devm_kfree(&mei->cldev->dev, entry);
+		kfree(entry);
 
 		return 0;
 	}
@@ -161,6 +164,29 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length)
 		return ret;
 
 	return 0;
+}
+
+void ipts_mei_free_messages(struct ipts_mei *mei)
+{
+	struct ipts_mei_message *entry = NULL;
+	struct ipts_mei_message *tmp = NULL;
+
+	if (!mei)
+		return;
+
+	/*
+	 * Only called when the context is released. If the lock is still taken, its holder died
+	 * with it, and the messages are leaked rather than freed under it.
+	 */
+	if (!down_write_trylock(&mei->message_lock))
+		return;
+
+	list_for_each_entry_safe(entry, tmp, &mei->messages, list) {
+		list_del(&entry->list);
+		kfree(entry);
+	}
+
+	up_write(&mei->message_lock);
 }
 
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev)

@@ -8,13 +8,16 @@
 #ifndef IPTS_CONTEXT_H
 #define IPTS_CONTEXT_H
 
+#include <linux/atomic.h>
 #include <linux/completion.h>
 #include <linux/device.h>
 #include <linux/hid.h>
+#include <linux/kref.h>
 #include <linux/mei_cl_bus.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/types.h>
+#include <linux/wait.h>
 
 #include "mei.h"
 #include "resources.h"
@@ -43,10 +46,50 @@ struct ipts_context {
 	bool hid_active;
 	struct hid_device *hid;
 
+	/*
+	 * Freed when the last reference is dropped. Probe holds one (dropped by devres), and the
+	 * receiver thread and the HID device hold one each.
+	 */
+	struct kref refcount;
+
+	/*
+	 * Users other than probe. ipts_remove() waits, bounded, for this to reach zero. That
+	 * narrows the window in which the module code is freed under a user that is about to
+	 * return, but does not close it: the last user wakes remove from inside its own put.
+	 */
+	atomic_t users;
+	wait_queue_head_t users_wq;
+
 	struct ipts_device_info info;
 	struct ipts_resources resources;
 
 	struct ipts_thread receiver_loop;
 };
+
+void ipts_context_release(struct kref *refcount);
+
+/*
+ * Every user of the context (the receiver thread, the HID device) takes a reference, so the
+ * context is freed only after the last user is gone.
+ */
+static inline void ipts_context_get(struct ipts_context *ipts)
+{
+	if (!ipts)
+		return;
+
+	kref_get(&ipts->refcount);
+	atomic_inc(&ipts->users);
+}
+
+static inline void ipts_context_put(struct ipts_context *ipts)
+{
+	if (!ipts)
+		return;
+
+	if (atomic_dec_and_test(&ipts->users))
+		wake_up_all(&ipts->users_wq);
+
+	kref_put(&ipts->refcount, ipts_context_release);
+}
 
 #endif /* IPTS_CONTEXT_H */

@@ -231,6 +231,11 @@ int ipts_receiver_start(struct ipts_context *ipts)
 		return ret;
 	}
 
+	/*
+	 * The receiver thread uses the context until it stops: hold a reference for its whole run.
+	 */
+	ipts_context_get(ipts);
+
 	return 0;
 }
 
@@ -241,7 +246,19 @@ int ipts_receiver_stop(struct ipts_context *ipts)
 	if (!ipts)
 		return -EFAULT;
 
+	/*
+	 * A start that failed early never started the thread, so there is no reference to drop.
+	 */
+	if (!ipts->receiver_loop.thread)
+		return 0;
+
 	ret = ipts_thread_stop(&ipts->receiver_loop);
+
+	/*
+	 * The thread is gone, so drop its reference.
+	 */
+	ipts_context_put(ipts);
+
 	if (ret) {
 		dev_err(ipts->dev, "Failed to stop receiver loop: %d\n", ret);
 		return ret;

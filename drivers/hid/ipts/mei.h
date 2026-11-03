@@ -63,4 +63,12 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
  */
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev);
 
+/**
+ * ipts_mei_free_messages() - Free every message still queued.
+ * @mei: The MEI device context.
+ *
+ * Called from the context release function, once no user of the context is left.
+ */
+void ipts_mei_free_messages(struct ipts_mei *mei);
+
 #endif /* IPTS_MEI_H */
