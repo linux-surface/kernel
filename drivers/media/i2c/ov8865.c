@@ -2191,11 +2191,17 @@ static int ov8865_blue_balance_configure(struct ov8865_sensor *sensor,
 /* Flip */
 
 /*
- * On the Surface Pro 5 the rear OV8865 is mounted vertically mirrored: the
- * upright image needs the sensor's vertical flip enabled. Invert the VFLIP
+ * On the Surface Pro 4 and 5 the rear OV8865 is mounted vertically mirrored:
+ * the upright image needs the sensor's vertical flip enabled. Invert the VFLIP
  * control so that the default (0) gives an upright image.
  */
 static const struct dmi_system_id ov8865_vflip_inverted_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_4"),
+		},
+	},
 	{
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
