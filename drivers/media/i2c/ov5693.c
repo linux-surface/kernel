@@ -400,13 +400,19 @@ static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
 }
 
 /*
- * On the Surface Pro 5 the front OV5693 is mounted vertically mirrored: the
- * upright, unmirrored image needs the sensor's vertical flip and no horizontal
- * flip (the firmware reports a 180 degree rotation instead, which would leave
- * the image mirrored). Invert the VFLIP control so that its default (0) gives
- * the upright image; ipu-bridge reports 0 degrees for this sensor.
+ * On the Surface Pro 4 and 5 the front OV5693 is mounted vertically mirrored:
+ * the upright, unmirrored image needs the sensor's vertical flip and no
+ * horizontal flip (the firmware reports a 180 degree rotation instead, which
+ * would leave the image mirrored). Invert the VFLIP control so that its default
+ * (0) gives the upright image; ipu-bridge reports 0 degrees for this sensor.
  */
 static const struct dmi_system_id ov5693_vflip_inverted_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_4"),
+		},
+	},
 	{
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),

@@ -157,12 +157,26 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
 
 /*
  * DMI matches for devices whose SSDB reports a 180° rotation for sensors that
- * are not actually rotated. On the Surface Pro 5 the firmware reports 180° for
- * both the front (OV5693) and the rear (OV8865) camera. Measured on the
- * device, both need a vertical flip only and no mirroring, which is not a
+ * are not actually rotated. On the Surface Pro 4 and 5 the firmware reports
+ * 180° for both the front (OV5693) and the rear (OV8865) camera. Measured on
+ * the devices, both need a vertical flip only and no mirroring, which is not a
  * rotation: report 0 degrees and let the sensor drivers apply the flip.
  */
 static const struct dmi_system_id not_rotated_sensor_dmi_ids[] = {
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_4"),
+		},
+		.driver_data = "INT33BE",
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_4"),
+		},
+		.driver_data = "INT347A",
+	},
 	{
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
