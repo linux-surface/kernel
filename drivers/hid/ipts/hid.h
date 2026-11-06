@@ -16,6 +16,15 @@
 void ipts_hid_enable(struct ipts_context *ipts);
 void ipts_hid_disable(struct ipts_context *ipts);
 
+/**
+ * ipts_hid_quiesce() - Disables HID callbacks and waits for running ones to return.
+ * @ipts: The IPTS driver context.
+ * @timeout_ms: How long to wait at most.
+ *
+ * Returns: 0 when no callback is running anymore, -ETIMEDOUT if one did not return.
+ */
+int ipts_hid_quiesce(struct ipts_context *ipts, unsigned int timeout_ms);
+
 int ipts_hid_input_data(struct ipts_context *ipts, u32 buffer);
 
 int ipts_hid_init(struct ipts_context *ipts, struct ipts_device_info info);
