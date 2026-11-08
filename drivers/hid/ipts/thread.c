@@ -9,6 +9,7 @@
 #include <linux/err.h>
 #include <linux/kthread.h>
 #include <linux/mutex.h>
+#include <linux/sched/task.h>
 
 #include "thread.h"
 
@@ -40,6 +41,8 @@ static int ipts_thread_runner(void *data)
 int ipts_thread_start(struct ipts_thread *thread, int (*threadfn)(struct ipts_thread *thread),
 		      void *data, const char *name)
 {
+	struct task_struct *task = NULL;
+
 	if (!thread)
 		return -EFAULT;
 
@@ -52,8 +55,21 @@ int ipts_thread_start(struct ipts_thread *thread, int (*threadfn)(struct ipts_th
 	thread->should_stop = false;
 	thread->threadfn = threadfn;
 
-	thread->thread = kthread_run(ipts_thread_runner, thread, name);
-	return PTR_ERR_OR_ZERO(thread->thread);
+	task = kthread_create(ipts_thread_runner, thread, name);
+	if (IS_ERR(task)) {
+		thread->thread = NULL;
+		return PTR_ERR(task);
+	}
+
+	/*
+	 * The runner can return before ipts_thread_stop() calls kthread_stop(), and the task
+	 * goes away once it has exited. Keep a reference until the thread has been stopped.
+	 */
+	get_task_struct(task);
+	thread->thread = task;
+	wake_up_process(task);
+
+	return 0;
 }
 
 int ipts_thread_stop(struct ipts_thread *thread)
@@ -74,7 +90,7 @@ int ipts_thread_stop(struct ipts_thread *thread)
 	wmb();
 
 	wait_for_completion(&thread->done);
-	ret = kthread_stop(thread->thread);
+	ret = kthread_stop_put(thread->thread);
 
 	thread->thread = NULL;
 	thread->data = NULL;

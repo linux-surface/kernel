@@ -22,6 +22,9 @@
 #include "spec-data.h"
 #include "spec-device.h"
 
+#define IPTS_RESTART_DELAY_MS	  2000
+#define IPTS_RESTART_MAX_ATTEMPTS 5
+
 static int ipts_control_get_device_info(struct ipts_context *ipts, struct ipts_device_info *info)
 {
 	int ret = 0;
@@ -345,12 +348,22 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
 int ipts_control_start(struct ipts_context *ipts)
 {
 	int ret = 0;
+	size_t stale = 0;
 	struct ipts_device_info info = { 0 };
 
 	if (!ipts)
 		return -EFAULT;
 
 	dev_info(ipts->dev, "Starting IPTS\n");
+
+	/*
+	 * Responses to commands that were interrupted while sending (or that timed out) can
+	 * still arrive later. Drop them, so that they are not mistaken for responses to the
+	 * commands sent below.
+	 */
+	stale = ipts_mei_flush(&ipts->mei);
+	if (stale)
+		dev_dbg(ipts->dev, "Dropped %zu stale responses\n", stale);
 
 	ret = ipts_control_get_device_info(ipts, &info);
 	if (ret) {
@@ -433,11 +446,14 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 	ipts_hid_disable(ipts);
 	dev_info(ipts->dev, "Stopping IPTS\n");
 
+	/*
+	 * The receiver thread is gone even if this fails: the error only says that shutting
+	 * it down did not go cleanly. Bailing out here would leave the resources and the HID
+	 * device behind.
+	 */
 	ret = ipts_receiver_stop(ipts);
-	if (ret) {
+	if (ret)
 		dev_err(ipts->dev, "Failed to stop receiver: %d\n", ret);
-		return ret;
-	}
 
 	ret = ipts_resources_free(&ipts->resources);
 	if (ret) {
@@ -451,18 +467,19 @@ static int _ipts_control_stop(struct ipts_context *ipts)
 int ipts_control_stop(struct ipts_context *ipts)
 {
 	int ret = 0;
+	int hid_ret = 0;
 
+	/*
+	 * Always free the HID device. This is called when removing the device, so nothing
+	 * would free it later, and it would stay around when the device is probed again.
+	 */
 	ret = _ipts_control_stop(ipts);
-	if (ret)
-		return ret;
 
-	ret = ipts_hid_free(ipts);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to free HID device: %d\n", ret);
-		return ret;
-	}
+	hid_ret = ipts_hid_free(ipts);
+	if (hid_ret)
+		dev_err(ipts->dev, "Failed to free HID device: %d\n", hid_ret);
 
-	return 0;
+	return ret ?: hid_ret;
 }
 
 int ipts_control_restart(struct ipts_context *ipts)
@@ -483,4 +500,68 @@ int ipts_control_restart(struct ipts_context *ipts)
 		return ret;
 
 	return 0;
+}
+
+static void ipts_control_restart_work(struct work_struct *work)
+{
+	int ret = 0;
+	struct ipts_context *ipts =
+		container_of(to_delayed_work(work), struct ipts_context, restart_work);
+
+	mutex_lock(&ipts->control_lock);
+
+	dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
+	ret = _ipts_control_stop(ipts);
+	if (ret)
+		goto unlock;
+
+	/*
+	 * After a timeout, every response from the ME can arrive only when the next command is
+	 * sent, which makes all further commands time out as well. Waiting doesn't help, but
+	 * reconnecting does.
+	 */
+	ret = ipts_mei_reconnect(&ipts->mei);
+	if (ret) {
+		dev_err(ipts->dev, "Failed to reconnect to the ME: %d\n", ret);
+		goto unlock;
+	}
+
+	msleep(1000);
+
+	ret = ipts_control_start(ipts);
+
+unlock:
+	mutex_unlock(&ipts->control_lock);
+
+	if (!ret) {
+		ipts->restart_attempts = 0;
+		return;
+	}
+
+	if (++ipts->restart_attempts >= IPTS_RESTART_MAX_ATTEMPTS) {
+		dev_err(ipts->dev, "Giving up restarting IPTS: %d\n", ret);
+		ipts->restart_attempts = 0;
+		return;
+	}
+
+	queue_delayed_work(system_freezable_wq, &ipts->restart_work,
+			   msecs_to_jiffies(IPTS_RESTART_DELAY_MS));
+}
+
+void ipts_control_init_restart(struct ipts_context *ipts)
+{
+	mutex_init(&ipts->control_lock);
+	INIT_DELAYED_WORK(&ipts->restart_work, ipts_control_restart_work);
+	ipts->restart_attempts = 0;
+}
+
+void ipts_control_schedule_restart(struct ipts_context *ipts)
+{
+	queue_delayed_work(system_freezable_wq, &ipts->restart_work,
+			   msecs_to_jiffies(IPTS_RESTART_DELAY_MS));
+}
+
+void ipts_control_disable_restart(struct ipts_context *ipts)
+{
+	disable_delayed_work_sync(&ipts->restart_work);
 }
