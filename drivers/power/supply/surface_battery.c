@@ -45,6 +45,27 @@ enum sam_battery_power_unit {
 	SAM_BATTERY_POWER_UNIT_mA     = 1,
 };
 
+enum sam_battery_auth_status {
+	SAM_BATTERY_AUTH_STATUS_GENUINE = 0,
+	SAM_BATTERY_AUTH_STATUS_UNAUTHORIZED = 1,
+	SAM_BATTERY_AUTH_STATUS_ERROR = 2,
+};
+
+enum sam_battery_protection_policy {
+	SAM_BATTERY_PROTECTION_POLICY_CHARGE_LIMIT = BIT(4),
+};
+
+enum sam_battery_charge_limit_status {
+	SAM_BATTERY_CHARGE_LIMIT_DISABLED = 0x00,
+	SAM_BATTERY_CHARGE_LIMIT_ENFORCED = 0x01,
+};
+
+enum sam_battery_charge_limit_disengage_result {
+	SAM_BATTERY_CHARGE_LIMIT_DISENGAGE_OK = 0,
+	SAM_BATTERY_CHARGE_LIMIT_DISENGAGE_COUNTDOWN = 1,
+	SAM_BATTERY_CHARGE_LIMIT_DISENGAGE_NOT_ENGAGED = 2,
+};
+
 /* Equivalent to data returned in ACPI _BIX method, revision 0. */
 struct spwr_bix {
 	u8  revision;
@@ -108,6 +129,30 @@ SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
 	.command_id      = 0x04,
 });
 
+/* Get battery authentication status */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_auth, __le32, {
+	.target_category = SSAM_SSH_TC_SAM,
+	.command_id      = 0x1b,
+});
+
+/* Get battery protection policy */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_protection_policy, __u8, {
+	.target_category = SSAM_SSH_TC_SAM,
+	.command_id      = 0x3a,
+});
+
+/* Get smart charging status */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_charge_limit_status, __le16, {
+	.target_category = SSAM_SSH_TC_SAM,
+	.command_id      = 0x41,
+});
+
+/* Disengage smart charging */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_force_charge_limit_disengage, __le32, {
+	.target_category = SSAM_SSH_TC_SAM,
+	.command_id      = 0x43,
+});
+
 
 /* -- Device structures. ---------------------------------------------------- */
 
@@ -134,6 +179,11 @@ struct spwr_battery_device {
 	struct spwr_bix bix;
 	struct spwr_bst bst;
 	u32 alarm;
+
+	bool supports_smart_charging;
+	bool charge_limit_enforced;
+
+	bool authentic;
 };
 
 
@@ -186,6 +236,25 @@ static int spwr_battery_load_bix(struct spwr_battery_device *bat)
 	return status;
 }
 
+static int spwr_battery_load_auth(struct spwr_battery_device *bat)
+{
+	__le32 auth;
+	int status;
+
+	lockdep_assert_held(&bat->lock);
+
+	if (!spwr_battery_present(bat))
+		return 0;
+
+	status = ssam_retry(ssam_bat_get_auth, bat->sdev, &auth);
+	if (status)
+		return status;
+
+	bat->authentic = le32_to_cpu(auth) == SAM_BATTERY_AUTH_STATUS_GENUINE;
+
+	return 0;
+}
+
 static int spwr_battery_load_bst(struct spwr_battery_device *bat)
 {
 	lockdep_assert_held(&bat->lock);
@@ -194,6 +263,55 @@ static int spwr_battery_load_bst(struct spwr_battery_device *bat)
 		return 0;
 
 	return ssam_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
+}
+
+static int spwr_battery_load_protection_policy(struct spwr_battery_device *bat)
+{
+	__u8 bpp;
+	int status;
+
+	lockdep_assert_held(&bat->lock);
+
+	status = ssam_retry(ssam_bat_get_protection_policy, bat->sdev, &bpp);
+	if (status)
+		return status;
+
+	bat->supports_smart_charging = (le32_to_cpu(bpp) & SAM_BATTERY_PROTECTION_POLICY_CHARGE_LIMIT) == SAM_BATTERY_PROTECTION_POLICY_CHARGE_LIMIT;
+
+	return 0;
+}
+
+static int spwr_battery_load_charge_limit_status(struct spwr_battery_device *bat)
+{
+	__le16 bcl;
+	int status;
+
+	lockdep_assert_held(&bat->lock);
+
+	status = ssam_retry(ssam_bat_get_charge_limit_status, bat->sdev, &bcl);
+	if (status)
+		return status;
+
+	bat->charge_limit_enforced = le32_to_cpu(bcl) == SAM_BATTERY_CHARGE_LIMIT_ENFORCED;
+
+	return 0;
+}
+
+static int spwr_battery_force_charge_limit_disengage(struct spwr_battery_device *bat)
+{
+	__le32 sta;
+	int status;
+
+	lockdep_assert_held(&bat->lock);
+
+	status = ssam_retry(ssam_bat_force_charge_limit_disengage, bat->sdev, &sta);
+	if (status)
+		return status;
+
+	if (le32_to_cpu(sta) != SAM_BATTERY_CHARGE_LIMIT_DISENGAGE_OK)
+		dev_warn(&bat->sdev->dev, "failed to disengage charge limit\n");
+
+	return 0;
 }
 
 static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
@@ -224,6 +342,10 @@ static int spwr_battery_update_bst_unlocked(struct spwr_battery_device *bat, boo
 	if (status)
 		return status;
 
+	status = spwr_battery_load_charge_limit_status(bat);
+	if (status)
+		return status;
+
 	bat->timestamp = jiffies;
 	return 0;
 }
@@ -250,6 +372,10 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
 		return status;
 
 	status = spwr_battery_load_bix(bat);
+	if (status)
+		return status;
+
+	status = spwr_battery_load_auth(bat);
 	if (status)
 		return status;
 
@@ -441,6 +567,7 @@ static const enum power_supply_property spwr_battery_props_chg[] = {
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+	POWER_SUPPLY_PROP_AUTHENTIC,
 };
 
 static const enum power_supply_property spwr_battery_props_eng[] = {
@@ -459,6 +586,11 @@ static const enum power_supply_property spwr_battery_props_eng[] = {
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+	POWER_SUPPLY_PROP_AUTHENTIC,
+};
+
+static const enum power_supply_property spwr_smart_charge_props[] = {
+	POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD,
 };
 
 static int spwr_battery_prop_status(struct spwr_battery_device *bat)
@@ -652,6 +784,15 @@ static int spwr_battery_get_property(struct power_supply *psy, enum power_supply
 		val->strval = bat->bix.serial;
 		break;
 
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
+		val->intval = bat->charge_limit_enforced ? 80 : 100;
+		break;
+
+	case POWER_SUPPLY_PROP_AUTHENTIC:
+		val->intval = bat->authentic;
+		break;
+
+
 	default:
 		status = -EINVAL;
 		break;
@@ -660,6 +801,51 @@ static int spwr_battery_get_property(struct power_supply *psy, enum power_supply
 out:
 	mutex_unlock(&bat->lock);
 	return status;
+}
+
+static int spwr_battery_set_property(struct power_supply *psy, enum power_supply_property psp,
+				     const union power_supply_propval *val)
+{
+	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
+	int status;
+
+	mutex_lock(&bat->lock);
+
+	status = spwr_battery_update_bst_unlocked(bat, true);
+	if (status)
+		goto out;
+
+	/* Abort if battery is not present. */
+	if (!spwr_battery_present(bat) && psp != POWER_SUPPLY_PROP_PRESENT) {
+		status = -ENODEV;
+		goto out;
+	}
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
+		if (val->intval >= 100 && bat->charge_limit_enforced)
+			spwr_battery_force_charge_limit_disengage(bat);
+		break;
+
+
+	default:
+		status = -EINVAL;
+		break;
+	}
+
+out:
+	mutex_unlock(&bat->lock);
+	return status;
+}
+
+static int spwr_battery_property_is_writeable(struct power_supply *psy, enum power_supply_property psp)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
+		return true;
+	default:
+		return false;
+	}
 }
 
 
@@ -737,6 +923,8 @@ static void spwr_battery_init(struct spwr_battery_device *bat, struct ssam_devic
 	bat->psy_desc.name = bat->name;
 	bat->psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
 	bat->psy_desc.get_property = spwr_battery_get_property;
+	bat->psy_desc.set_property = spwr_battery_set_property;
+	bat->psy_desc.property_is_writeable = spwr_battery_property_is_writeable;
 
 	INIT_DELAYED_WORK(&bat->update_work, spwr_battery_update_bst_workfn);
 }
@@ -746,6 +934,10 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	struct power_supply_config psy_cfg = {};
 	__le32 sta;
 	int status;
+	const enum power_supply_property *base_properties;;
+	enum power_supply_property *properties;
+	int base_num_properties;
+	int num_properties;
 
 	/* Make sure the device is there and functioning properly. */
 	status = ssam_retry(ssam_bat_get_sta, bat->sdev, &sta);
@@ -759,6 +951,12 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	mutex_lock(&bat->lock);
 
 	status = spwr_battery_update_bix_unlocked(bat);
+	if (status) {
+		mutex_unlock(&bat->lock);
+		return status;
+	}
+
+	status = spwr_battery_load_protection_policy(bat);
 	if (status) {
 		mutex_unlock(&bat->lock);
 		return status;
@@ -780,13 +978,13 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 
 	switch (get_unaligned_le32(&bat->bix.power_unit)) {
 	case SAM_BATTERY_POWER_UNIT_mW:
-		bat->psy_desc.properties = spwr_battery_props_eng;
-		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_eng);
+		base_properties = spwr_battery_props_eng;
+		base_num_properties = ARRAY_SIZE(spwr_battery_props_eng);
 		break;
 
 	case SAM_BATTERY_POWER_UNIT_mA:
-		bat->psy_desc.properties = spwr_battery_props_chg;
-		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_chg);
+		base_properties = spwr_battery_props_chg;
+		base_num_properties = ARRAY_SIZE(spwr_battery_props_chg);
 		break;
 
 	default:
@@ -794,6 +992,25 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 			get_unaligned_le32(&bat->bix.power_unit));
 		return -EINVAL;
 	}
+
+	num_properties = base_num_properties + ARRAY_SIZE(spwr_smart_charge_props);
+
+	properties = devm_kcalloc(&bat->sdev->dev,
+		num_properties,
+		sizeof(*properties),
+		GFP_KERNEL);
+
+	if (!properties)
+		return -ENOMEM;
+
+	memcpy(properties, base_properties, base_num_properties * sizeof(*base_properties));
+
+	if (bat->supports_smart_charging) {
+		memcpy(properties + base_num_properties, spwr_smart_charge_props, sizeof(spwr_smart_charge_props));
+	}
+
+	bat->psy_desc.properties = properties;
+	bat->psy_desc.num_properties = num_properties;
 
 	psy_cfg.drv_data = bat;
 	psy_cfg.attr_grp = spwr_battery_groups;
