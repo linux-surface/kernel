@@ -6367,6 +6367,15 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Laptop Studio 2"),
 		},
 	},
+	{
+		.ident = "Microsoft Surface Pro 11 (Intel)",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro"),
+			DMI_MATCH(DMI_PRODUCT_SKU,
+				  "Surface_Pro_11th_Edition_With_Intel"),
+		},
+	},
 	{}
 };
 
@@ -6390,3 +6399,10 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa71e, quirk_no_shutdown);  // Thu
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa73f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa73e, quirk_no_shutdown);  // Thunderbolt 4 NHI
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa7a0, quirk_no_shutdown);  // GPU
+
+/* Lunar Lake (Surface Pro 11 Business) */
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa831, quirk_no_shutdown);  // Thunderbolt 4 USB Controller
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa833, quirk_no_shutdown);  // Thunderbolt 4 NHI
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa84e, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port #0
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa84f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port #1
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x64a0, quirk_no_shutdown);  // GPU (Arc Graphics 130V/140V)

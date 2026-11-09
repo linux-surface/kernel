@@ -196,6 +196,16 @@ config VIDEO_IMX283
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx283.
 
+config VIDEO_IMX681
+	tristate "Sony IMX681 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a V4L2 sensor driver for the Sony IMX681
+	  CMOS image sensor (front camera on Surface Pro 11).
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called imx681.
+
 config VIDEO_IMX290
 	tristate "Sony IMX290 sensor support"
 	select REGMAP_I2C
@@ -744,6 +754,18 @@ config VIDEO_S5K6A3
 	help
 	  This is a V4L2 sensor driver for Samsung S5K6A3 raw
 	  camera sensor.
+
+config VIDEO_VD55G0
+	tristate "ST VD55G0 IR sensor support"
+	select V4L2_CCI_I2C
+	depends on GPIOLIB
+	help
+	  This is a Video4Linux2 sensor driver for the ST VD55G0
+	  IR global shutter camera sensor, used in the Surface Pro 11
+	  for Windows Hello face authentication.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called vd55g0.
 
 config VIDEO_VD55G1
 	tristate "ST VD55G1 sensor support"
