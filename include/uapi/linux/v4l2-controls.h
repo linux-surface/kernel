@@ -1227,6 +1227,7 @@ enum v4l2_jpeg_chroma_subsampling {
 #define V4L2_CID_UNIT_CELL_SIZE			(V4L2_CID_IMAGE_SOURCE_CLASS_BASE + 8)
 #define V4L2_CID_NOTIFY_GAINS			(V4L2_CID_IMAGE_SOURCE_CLASS_BASE + 9)
 
+#define V4L2_CID_MIPI_LANES			(V4L2_CID_IMAGE_SOURCE_CLASS_BASE + 64)
 
 /* Image processing controls */
 
