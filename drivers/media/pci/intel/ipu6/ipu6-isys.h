@@ -39,7 +39,8 @@ struct ipu6_bus_device;
 #define IPU6_ISYS_SIZE_PROXY_SEND_QUEUE 5
 #define IPU6_ISYS_NUM_RECV_QUEUE 1
 
-#define IPU6_ISYS_MIN_WIDTH		2U
+/* Work around stream failing with low bytes per line */
+#define IPU6_ISYS_MIN_WIDTH		392U
 #define IPU6_ISYS_MIN_HEIGHT		1U
 #define IPU6_ISYS_MAX_WIDTH		4672U
 #define IPU6_ISYS_MAX_HEIGHT		3416U
