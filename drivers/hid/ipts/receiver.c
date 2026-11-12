@@ -7,6 +7,7 @@
 
 #include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/jiffies.h>
 #include <linux/kthread.h>
 #include <linux/time64.h>
 #include <linux/timekeeping.h>
@@ -33,6 +34,21 @@ static u32 ipts_receiver_current_doorbell(struct ipts_context *ipts)
 	return *doorbell;
 }
 
+/*
+ * Only the last IPTS_BUFFERS buffers can hold new data, so never walk further back than that,
+ * whatever value the doorbell has. Returns the first buffer to look at.
+ */
+static u32 ipts_receiver_first_new(u32 doorbell, u32 lastdb)
+{
+	if ((s32)(doorbell - lastdb) < 0)
+		return doorbell;
+
+	if (doorbell - lastdb > IPTS_BUFFERS)
+		return doorbell - IPTS_BUFFERS;
+
+	return lastdb;
+}
+
 static void ipts_receiver_backoff(time64_t last, u32 n)
 {
 	/*
@@ -45,6 +61,62 @@ static void ipts_receiver_backoff(time64_t last, u32 n)
 		usleep_range(1 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
 	else
 		msleep(200);
+}
+
+/*
+ * End of a receiver loop, after QUIESCE_IO was sent: collect the last READY_FOR_DATA reply,
+ * then wait for the QUIESCE_IO confirmation, even if that reply was lost. Starting the
+ * device again before it has stopped can leave its firmware unresponsive until the next
+ * boot.
+ *
+ * Returns: 0 only if the device confirmed the stop. Otherwise the device may still write to
+ * its buffers, and the caller must not free them.
+ */
+static int ipts_receiver_finish(struct ipts_context *ipts)
+{
+	int ret = 0;
+	unsigned long end = 0;
+
+	ret = ipts_control_wait_data(ipts, true);
+	if (ret && ret != -EAGAIN)
+		dev_err(ipts->dev, "Failed to wait for data: %d\n", ret);
+
+	end = jiffies + msecs_to_jiffies(IPTS_RECEIVER_STOP_CONFIRM_MS);
+
+	do {
+		ret = ipts_control_wait_flush(ipts);
+	} while (ret == -EAGAIN && time_before(jiffies, end));
+
+	if (ret) {
+		dev_err(ipts->dev, "Device did not confirm the stop: %d\n", ret);
+		return ret == -EAGAIN ? -ETIMEDOUT : ret;
+	}
+
+	return 0;
+}
+
+/*
+ * In poll mode, the device confirms QUIESCE_IO only after every buffer it filled was given
+ * back. Give back the ones the loop did not get to, without passing their data on: HID input
+ * is already disabled. The time is bounded, and the first failed feedback ends it.
+ */
+static void ipts_receiver_return_buffers(struct ipts_context *ipts, u32 lastdb)
+{
+	int ret = 0;
+	u32 doorbell = ipts_receiver_current_doorbell(ipts);
+	unsigned long end = jiffies + msecs_to_jiffies(IPTS_RECEIVER_STOP_CONFIRM_MS);
+
+	lastdb = ipts_receiver_first_new(doorbell, lastdb);
+
+	while (lastdb != doorbell && time_before(jiffies, end)) {
+		ret = ipts_control_refill_buffer(ipts, lastdb % IPTS_BUFFERS);
+		if (ret) {
+			dev_err(ipts->dev, "Failed to send feedback: %d\n", ret);
+			return;
+		}
+
+		lastdb++;
+	}
 }
 
 static int ipts_receiver_event_loop(struct ipts_thread *thread)
@@ -68,7 +140,7 @@ static int ipts_receiver_event_loop(struct ipts_thread *thread)
 	while (!ipts_thread_should_stop(thread)) {
 		int i = 0;
 
-		for (i = 0; i < IPTS_BUFFERS; i++) {
+		for (i = 0; i < IPTS_BUFFERS && !ipts_thread_should_stop(thread); i++) {
 			ret = ipts_control_wait_data(ipts, false);
 			if (ret == -EAGAIN)
 				break;
@@ -105,27 +177,7 @@ static int ipts_receiver_event_loop(struct ipts_thread *thread)
 		return ret;
 	}
 
-	ret = ipts_control_wait_data(ipts, true);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to wait for data: %d\n", ret);
-
-		if (ret != -EAGAIN)
-			return ret;
-		else
-			return 0;
-	}
-
-	ret = ipts_control_wait_flush(ipts);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to wait for flush: %d\n", ret);
-
-		if (ret != -EAGAIN)
-			return ret;
-		else
-			return 0;
-	}
-
-	return 0;
+	return ipts_receiver_finish(ipts);
 }
 
 static int ipts_receiver_poll_loop(struct ipts_thread *thread)
@@ -149,23 +201,16 @@ static int ipts_receiver_poll_loop(struct ipts_thread *thread)
 
 	dev_info(ipts->dev, "IPTS running in poll mode\n");
 
-	while (true) {
-		if (ipts_thread_should_stop(thread)) {
-			ret = ipts_control_request_flush(ipts);
-			if (ret) {
-				dev_err(ipts->dev, "Failed to request flush: %d\n", ret);
-				return ret;
-			}
-		}
-
+	while (!ipts_thread_should_stop(thread)) {
 		doorbell = ipts_receiver_current_doorbell(ipts);
+		lastdb = ipts_receiver_first_new(doorbell, lastdb);
 
 		/*
 		 * After filling up one of the data buffers, IPTS will increment
 		 * the doorbell. The value of the doorbell stands for the *next*
 		 * buffer that IPTS is going to fill.
 		 */
-		while (lastdb != doorbell) {
+		while (lastdb != doorbell && !ipts_thread_should_stop(thread)) {
 			buffer = lastdb % IPTS_BUFFERS;
 
 			ret = ipts_hid_input_data(ipts, buffer);
@@ -186,27 +231,15 @@ static int ipts_receiver_poll_loop(struct ipts_thread *thread)
 		ipts_receiver_backoff(last, 5);
 	}
 
-	ret = ipts_control_wait_data(ipts, true);
+	ret = ipts_control_request_flush(ipts);
 	if (ret) {
-		dev_err(ipts->dev, "Failed to wait for data: %d\n", ret);
-
-		if (ret != -EAGAIN)
-			return ret;
-		else
-			return 0;
+		dev_err(ipts->dev, "Failed to request flush: %d\n", ret);
+		return ret;
 	}
 
-	ret = ipts_control_wait_flush(ipts);
-	if (ret) {
-		dev_err(ipts->dev, "Failed to wait for flush: %d\n", ret);
+	ipts_receiver_return_buffers(ipts, lastdb);
 
-		if (ret != -EAGAIN)
-			return ret;
-		else
-			return 0;
-	}
-
-	return 0;
+	return ipts_receiver_finish(ipts);
 }
 
 int ipts_receiver_start(struct ipts_context *ipts)
@@ -231,6 +264,11 @@ int ipts_receiver_start(struct ipts_context *ipts)
 		return ret;
 	}
 
+	/*
+	 * The receiver thread uses the context until it stops: hold a reference for its whole run.
+	 */
+	ipts_context_get(ipts);
+
 	return 0;
 }
 
@@ -241,7 +279,29 @@ int ipts_receiver_stop(struct ipts_context *ipts)
 	if (!ipts)
 		return -EFAULT;
 
-	ret = ipts_thread_stop(&ipts->receiver_loop);
+	/*
+	 * A start that failed early never started the thread: there is no reference to drop,
+	 * and the exit code of an earlier thread must not be reported again.
+	 */
+	if (!ipts->receiver_loop.thread) {
+		ipts->receiver_loop.exit_code = 0;
+		return 0;
+	}
+
+	ret = ipts_thread_stop(&ipts->receiver_loop, IPTS_RECEIVER_STOP_TIMEOUT_MS);
+	if (ret == -ETIMEDOUT) {
+		/*
+		 * Still running: the thread keeps its reference, and everything it uses.
+		 */
+		dev_err(ipts->dev, "Failed to stop receiver loop: %d\n", ret);
+		return ret;
+	}
+
+	/*
+	 * The thread is gone (it returned or died), so drop its reference.
+	 */
+	ipts_context_put(ipts);
+
 	if (ret) {
 		dev_err(ipts->dev, "Failed to stop receiver loop: %d\n", ret);
 		return ret;
