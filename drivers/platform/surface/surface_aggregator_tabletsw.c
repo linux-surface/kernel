@@ -327,7 +327,7 @@ module_param(tablet_mode_in_slate_state, bool, 0644);
 MODULE_PARM_DESC(tablet_mode_in_slate_state, "Enable tablet mode in slate device posture, default is 'true'");
 
 #define SSAM_EVENT_POS_CID_POSTURE_CHANGED	0x03
-#define SSAM_POS_MAX_SOURCES			4
+#define SSAM_POS_MAX_SOURCES			5
 
 enum ssam_pos_source_id {
 	SSAM_POS_SOURCE_COVER = 0x00,
@@ -477,6 +477,8 @@ static int ssam_pos_get_sources_list(struct ssam_tablet_sw *sw, struct ssam_sour
 {
 	struct ssam_request rqst;
 	struct ssam_response rsp;
+	u32 count;
+	size_t expected;
 	int status;
 
 	rqst.target_category = SSAM_SSH_TC_POS;
@@ -501,9 +503,17 @@ static int ssam_pos_get_sources_list(struct ssam_tablet_sw *sw, struct ssam_sour
 		return -EPROTO;
 	}
 
-	/* Make sure 'sources->count' matches with the response length. */
-	if (get_unaligned_le32(&sources->count) * sizeof(__le32) + sizeof(__le32) != rsp.length) {
-		dev_err(&sw->sdev->dev, "mismatch between number of sources and response size\n");
+	count = get_unaligned_le32(&sources->count);
+	if (count > ARRAY_SIZE(sources->id)) {
+		dev_err(&sw->sdev->dev, "too many posture sources: got %u, expected at most %zu\n",
+			count, ARRAY_SIZE(sources->id));
+		return -EPROTO;
+	}
+
+	expected = sizeof(sources->count) + count * sizeof(sources->id[0]);
+	if (rsp.length < expected) {
+		dev_err(&sw->sdev->dev, "source list response too short: got %zu bytes, expected at least %zu\n",
+			rsp.length, expected);
 		return -EPROTO;
 	}
 
