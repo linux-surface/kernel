@@ -8,12 +8,14 @@
 #include <linux/delay.h>
 #include <linux/dev_printk.h>
 #include <linux/errno.h>
+#include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/mutex.h>
 #include <linux/types.h>
+#include <linux/unaligned.h>
 #include <linux/workqueue.h>
 
 #include "cmd.h"
@@ -280,14 +282,28 @@ int ipts_control_wait_data(struct ipts_context *ipts, bool shutdown)
 	return 0;
 }
 
-int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer)
+static int ipts_control_send_feedback_locked(struct ipts_context *ipts, u32 buffer)
 {
 	int ret = 0;
+	int late = 0;
+	long left = 0;
+	u32 answered = 0;
+	unsigned long end = 0;
 	struct ipts_feedback cmd = { 0 };
 	struct ipts_response rsp = { 0 };
 
-	if (!ipts)
-		return -EFAULT;
+	lockdep_assert_held(&ipts->feedback_lock);
+
+	/*
+	 * No other FEEDBACK is in flight while the lock is held, so a FEEDBACK reply that is
+	 * already queued answers one whose sender gave up waiting. Drop it, or this send would
+	 * take it as its own.
+	 */
+	while (!ipts_cmd_recv_timeout(ipts, IPTS_CMD_FEEDBACK, &rsp, 0))
+		late++;
+
+	if (late)
+		dev_warn(ipts->dev, "FEEDBACK: dropped %d late replies\n", late);
 
 	cmd.buffer = buffer;
 
@@ -297,11 +313,29 @@ int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer)
 		return ret;
 	}
 
-	ret = ipts_cmd_recv(ipts, IPTS_CMD_FEEDBACK, &rsp);
-	if (ret) {
-		dev_err(ipts->dev, "FEEDBACK: recv failed: %d\n", ret);
-		return ret;
-	}
+	/*
+	 * The first word of a FEEDBACK reply's payload echoes the buffer index of the command it
+	 * answers. A reply for another buffer answers a sender that gave up after the drop above
+	 * ran: drop it too and keep waiting for ours, within the usual time limit. Two hid2me
+	 * replies look alike, but the lock allows one hid2me FEEDBACK at a time.
+	 */
+	end = jiffies + msecs_to_jiffies(IPTS_CMD_DEFAULT_TIMEOUT);
+
+	do {
+		left = (long)(end - jiffies);
+
+		ret = ipts_cmd_recv_timeout(ipts, IPTS_CMD_FEEDBACK, &rsp,
+					    left > 0 ? jiffies_to_msecs(left) : 0);
+		if (ret) {
+			dev_err(ipts->dev, "FEEDBACK: recv failed: %d\n", ret);
+			return ret;
+		}
+
+		answered = get_unaligned_le32(rsp.payload);
+		if (answered != buffer)
+			dev_warn(ipts->dev, "FEEDBACK: dropped a reply for buffer %u, waiting for %u\n",
+				 answered, buffer);
+	} while (answered != buffer);
 
 	/*
 	 * We don't know what feedback data looks like so we are sending zeros.
@@ -318,9 +352,34 @@ int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer)
 	return 0;
 }
 
+/*
+ * The receiver loop and HID feature requests both send FEEDBACK, and a reply is matched to
+ * its sender by the command code only. With several FEEDBACKs in flight, a sender can take
+ * the reply to another one and return while its own command is still pending. The device
+ * then stays a reply behind, holding its newest reply until the next command, and never
+ * confirms a QUIESCE_IO sent in that state. One FEEDBACK at a time, dropping a reply that
+ * arrived after its sender gave up, and taking only the reply that names the sender's buffer
+ * keep each reply with its sender. The lock is held for a bounded time: the send and the
+ * reply wait are both bounded.
+ */
+int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer)
+{
+	int ret = 0;
+
+	if (!ipts)
+		return -EFAULT;
+
+	mutex_lock(&ipts->feedback_lock);
+	ret = ipts_control_send_feedback_locked(ipts, buffer);
+	mutex_unlock(&ipts->feedback_lock);
+
+	return ret;
+}
+
 int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_cmd_type cmd,
 				 enum ipts_feedback_data_type type, void *data, size_t size)
 {
+	int ret = 0;
 	struct ipts_feedback_header *header = NULL;
 
 	if (!ipts)
@@ -328,6 +387,15 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
 
 	if (!ipts->resources.hid2me.address)
 		return -EFAULT;
+
+	/*
+	 * There is one hid2me buffer. Fill it under the lock, which is held until the device
+	 * answered this FEEDBACK, so a second request cannot overwrite it before then. (That the
+	 * device is done reading the buffer once it answered is assumed, not known.)
+	 * GET_FEATURE waits for its report only after this returns, with the lock released,
+	 * because the receiver loop needs the lock to give back the buffer the report is in.
+	 */
+	mutex_lock(&ipts->feedback_lock);
 
 	memset(ipts->resources.hid2me.address, 0, ipts->resources.hid2me.size);
 	header = (struct ipts_feedback_header *)ipts->resources.hid2me.address;
@@ -337,13 +405,19 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
 	header->size = size;
 	header->buffer = IPTS_HID2ME_BUFFER;
 
-	if (size + sizeof(*header) > ipts->resources.hid2me.size)
-		return -EINVAL;
+	if (size + sizeof(*header) > ipts->resources.hid2me.size) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	if (data && size > 0)
 		memcpy(header->payload, data, size);
 
-	return ipts_control_send_feedback(ipts, IPTS_HID2ME_BUFFER);
+	ret = ipts_control_send_feedback_locked(ipts, IPTS_HID2ME_BUFFER);
+
+out:
+	mutex_unlock(&ipts->feedback_lock);
+	return ret;
 }
 
 /*

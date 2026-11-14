@@ -38,6 +38,13 @@ struct ipts_context {
 	struct completion feature_event;
 
 	/*
+	 * Allows one FEEDBACK command at a time, held from the send until its reply is taken,
+	 * and guards the hid2me buffer a hid2me FEEDBACK hands to the device. GET_FEATURE takes
+	 * it while holding feature_lock; never take feature_lock while holding it.
+	 */
+	struct mutex feedback_lock;
+
+	/*
 	 * These are not inside of struct ipts_resources
 	 * because they don't own the memory they point to.
 	 */
