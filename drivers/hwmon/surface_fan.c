@@ -64,6 +64,8 @@ static int surface_fan_probe(struct ssam_device *sdev)
 
 static const struct ssam_device_id ssam_fan_match[] = {
 	{ SSAM_SDEV(FAN, SAM, 0x01, 0x01) },
+	{ SSAM_SDEV(FAN, KIP, 0x01, 0x01) },
+	{ SSAM_SDEV(FAN, KIP, 0x02, 0x01) },
 	{},
 };
 MODULE_DEVICE_TABLE(ssam, ssam_fan_match);
