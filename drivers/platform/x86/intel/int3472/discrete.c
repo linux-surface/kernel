@@ -149,6 +149,11 @@ static const char * const power_enable_hids_vdda[] = {
 	NULL
 };
 
+static const char * const power1_hids_dvdd[] = {
+	"INT347A", /* ov8865 on Surface Pro 7+ */
+	NULL
+};
+
 /**
  * struct int3472_gpio_map - Map GPIOs to whatever is expected by the
  * sensor driver (as in DT bindings)
@@ -196,6 +201,13 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
 		.type_from = INT3472_GPIO_TYPE_POWER_ENABLE,
 		.type_to = INT3472_GPIO_TYPE_POWER_ENABLE,
 		.con_id = "vana",
+		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
+	},
+	{	/* Sensors which expect "dvdd" for the 0x08 (POWER1) rail */
+		.hids = power1_hids_dvdd,
+		.type_from = 0x08,
+		.type_to = 0x08,
+		.con_id = "dvdd",
 		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
 	},
 };
