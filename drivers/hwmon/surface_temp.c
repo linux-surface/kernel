@@ -216,6 +216,7 @@ static int ssam_temp_probe(struct ssam_device *sdev)
 
 static const struct ssam_device_id ssam_temp_match[] = {
 	{ SSAM_SDEV(TMP, SAM, 0x00, 0x02) },
+	{ SSAM_SDEV(TMP, KIP, 0x00, 0x02) },
 	{ },
 };
 MODULE_DEVICE_TABLE(ssam, ssam_temp_match);
