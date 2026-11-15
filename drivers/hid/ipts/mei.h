@@ -44,6 +44,11 @@ struct ipts_mei {
 #define IPTS_MEI_LOCK_POLL_US	 200
 #define IPTS_MEI_SEND_TIMEOUT_MS 2000
 
+/*
+ * How long the receive callback waits for one more response before it returns.
+ */
+#define IPTS_MEI_RECV_MORE_MS 1
+
 /**
  * ipts_mei_recv() - Receive data from a MEI device.
  * @mei: The IPTS MEI device context.

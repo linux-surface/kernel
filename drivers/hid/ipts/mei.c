@@ -68,10 +68,59 @@ static void ipts_mei_unlock(struct ipts_mei *mei)
 	ipts_context_put(ipts);
 }
 
-static void ipts_mei_incoming(struct mei_cl_device *cldev)
+/*
+ * Read one response from the bus and queue it. Returns false if none was ready within
+ * IPTS_MEI_RECV_MORE_MS or reading it failed.
+ */
+static bool ipts_mei_receive(struct ipts_context *ipts, struct mei_cl_device *cldev)
 {
 	ssize_t ret = 0;
 	struct ipts_mei_message *entry = NULL;
+
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return false;
+
+	INIT_LIST_HEAD(&entry->list);
+
+	do {
+		ret = mei_cldev_recv_timeout(cldev, (u8 *)&entry->rsp, sizeof(entry->rsp),
+					     IPTS_MEI_RECV_MORE_MS);
+	} while (ret == -EINTR);
+
+	if (ret == -ETIME) {
+		kfree(entry);
+		return false;
+	}
+
+	if (ret < 0) {
+		dev_err(ipts->dev, "Error while reading response: %ld\n", ret);
+		kfree(entry);
+		return false;
+	}
+
+	if (ret == 0) {
+		dev_err(ipts->dev, "Received empty response\n");
+		kfree(entry);
+		return false;
+	}
+
+	if (!ipts_mei_lock_timeout(&ipts->mei, IPTS_MEI_LOCK_TIMEOUT_MS)) {
+		dev_err_ratelimited(ipts->dev, "Message lock is busy, dropping a response\n");
+		kfree(entry);
+		return true;
+	}
+
+	list_add(&entry->list, &ipts->mei.messages);
+	WRITE_ONCE(ipts->mei.seq, ipts->mei.seq + 1);
+	ipts_mei_unlock(&ipts->mei);
+
+	wake_up_all(&ipts->mei.message_queue);
+	return true;
+}
+
+static void ipts_mei_incoming(struct mei_cl_device *cldev)
+{
 	struct ipts_context *ipts = NULL;
 
 	if (!cldev) {
@@ -85,39 +134,17 @@ static void ipts_mei_incoming(struct mei_cl_device *cldev)
 		return;
 	}
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry)
-		return;
-
-	INIT_LIST_HEAD(&entry->list);
-
-	do {
-		ret = mei_cldev_recv(cldev, (u8 *)&entry->rsp, sizeof(entry->rsp));
-	} while (ret == -EINTR);
-
-	if (ret < 0) {
-		dev_err(ipts->dev, "Error while reading response: %ld\n", ret);
-		kfree(entry);
-		return;
-	}
-
-	if (ret == 0) {
-		dev_err(ipts->dev, "Received empty response\n");
-		kfree(entry);
-		return;
-	}
-
-	if (!ipts_mei_lock_timeout(&ipts->mei, IPTS_MEI_LOCK_TIMEOUT_MS)) {
-		dev_err_ratelimited(ipts->dev, "Message lock is busy, dropping a response\n");
-		kfree(entry);
-		return;
-	}
-
-	list_add(&entry->list, &ipts->mei.messages);
-	WRITE_ONCE(ipts->mei.seq, ipts->mei.seq + 1);
-	ipts_mei_unlock(&ipts->mei);
-
-	wake_up_all(&ipts->mei.message_queue);
+	/*
+	 * The bus calls this from a work item that it schedules when a response arrives. IPTS
+	 * is a fixed-address client, so the ME can send the next response before that work has
+	 * run, and scheduling it again then does nothing: one call, two responses ready. If
+	 * only one was read, the other would wait with the bus until a later response arrives.
+	 * When stopping, that is the QUIESCE_IO response, right behind the one for the pending
+	 * READY_FOR_DATA, and the stop is never confirmed. So read until none is ready. The
+	 * wait for each is bounded, so a call whose response an earlier call took returns too.
+	 */
+	while (ipts_mei_receive(ipts, cldev))
+		;
 }
 
 static int ipts_mei_search(struct ipts_mei *mei, enum ipts_command_code code,
