@@ -95,6 +95,12 @@ static const struct software_node ssam_node_tmp_sensors = {
 	.parent = &ssam_node_root,
 };
 
+/* Thermal sensors of the Surface Book 3 base (KIP). */
+static const struct software_node ssam_node_tmp_sensors_sb3base = {
+	.name = "ssam:01:03:02:00:02",
+	.parent = &ssam_node_hub_base,
+};
+
 /* Fan speed function. */
 static const struct software_node ssam_node_fan_speed = {
 	.name = "ssam:01:05:01:01:01",
@@ -242,6 +248,7 @@ static const struct software_node *ssam_node_group_sb3[] = {
 	&ssam_node_bat_sb3base,
 	&ssam_node_tmp_perf_profile,
 	&ssam_node_tmp_sensors,
+	&ssam_node_tmp_sensors_sb3base,
 	&ssam_node_fan_speed,
 	&ssam_node_bas_dtx,
 	&ssam_node_hid_base_keyboard,
