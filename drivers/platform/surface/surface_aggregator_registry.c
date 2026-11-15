@@ -107,6 +107,17 @@ static const struct software_node ssam_node_fan_speed = {
 	.parent = &ssam_node_root,
 };
 
+/* Fan speed functions of the Surface Book 3 base (KIP, two fans). */
+static const struct software_node ssam_node_fan_speed_sb3base_1 = {
+	.name = "ssam:01:05:02:01:01",
+	.parent = &ssam_node_hub_base,
+};
+
+static const struct software_node ssam_node_fan_speed_sb3base_2 = {
+	.name = "ssam:01:05:02:02:01",
+	.parent = &ssam_node_hub_base,
+};
+
 /* Tablet-mode switch via KIP subsystem. */
 static const struct software_node ssam_node_kip_tablet_switch = {
 	.name = "ssam:01:0e:01:00:01",
@@ -250,6 +261,8 @@ static const struct software_node *ssam_node_group_sb3[] = {
 	&ssam_node_tmp_sensors,
 	&ssam_node_tmp_sensors_sb3base,
 	&ssam_node_fan_speed,
+	&ssam_node_fan_speed_sb3base_1,
+	&ssam_node_fan_speed_sb3base_2,
 	&ssam_node_bas_dtx,
 	&ssam_node_hid_base_keyboard,
 	&ssam_node_hid_base_touchpad,
