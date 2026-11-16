@@ -13,3 +13,95 @@ Description:
 
 		Valid values: In micro-Wh or micro-Ah, depending on the power unit
 		of the battery
+
+What:		/sys/class/power_supply/<supply_name>/dptf/max_platform_power_mw
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		Maximum peak power the battery can deliver, in mW (DPTF PMAX).
+
+		The embedded controller provides this value for platform power
+		management (DPTF) and updates it when the power source changes
+		and on resume from suspend.
+		The attribute is only present on devices whose embedded
+		controller is known to provide the data.
+
+		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/dptf/max_steady_state_power_mw
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		Maximum sustained power the battery can deliver, in mW (DPTF PBSS).
+
+		The embedded controller provides this value for platform power
+		management (DPTF) and updates it when the power source changes
+		and on resume from suspend.
+		The attribute is only present on devices whose embedded
+		controller is known to provide the data.
+
+		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/dptf/high_freq_impedance_mohm
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		High-frequency impedance of the battery, in mOhm (DPTF RBHF).
+
+		The embedded controller provides this value for platform power
+		management (DPTF) and updates it when the power source changes
+		and on resume from suspend.
+		The attribute is only present on devices whose embedded
+		controller is known to provide the data.
+
+		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/dptf/no_load_voltage_mv
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		No-load voltage of the battery, in mV (DPTF VBNL).
+
+		The embedded controller provides this value for platform power
+		management (DPTF) and updates it when the power source changes
+		and on resume from suspend.
+		The attribute is only present on devices whose embedded
+		controller is known to provide the data.
+
+		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/dptf/available_input_power_mw
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		Power available to the platform from the connected power sources,
+		in mW, as reported by the embedded controller.
+
+		The embedded controller provides this value for platform power
+		management (DPTF) and updates it when the power source changes
+		and on resume from suspend.
+		The attribute is only present on devices whose embedded
+		controller is known to provide the data.
+
+		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/dptf/rest_of_platform_power_mw
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		Power of the rest of the platform, in mW (DPTF PROP), as reported
+		by the embedded controller.
+
+		The embedded controller provides this value for platform power
+		management (DPTF) and updates it when the power source changes
+		and on resume from suspend.
+		The attribute is only present on devices whose embedded
+		controller is known to provide the data.
+
+		Access: Read
