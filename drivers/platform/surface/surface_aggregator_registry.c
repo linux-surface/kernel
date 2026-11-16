@@ -51,6 +51,12 @@ static const struct software_node ssam_node_hub_base = {
 	.parent = &ssam_node_root,
 };
 
+/* Property of the battery and AC adapter devices of an EC with DPTF support. */
+static const struct property_entry ssam_node_has_dptf[] = {
+	PROPERTY_ENTRY_BOOL("has_dptf"),
+	{ }
+};
+
 /* AC adapter. */
 static const struct software_node ssam_node_bat_ac = {
 	.name = "ssam:01:02:01:01:01",
@@ -67,6 +73,25 @@ static const struct software_node ssam_node_bat_main = {
 static const struct software_node ssam_node_bat_sb3base = {
 	.name = "ssam:01:02:02:01:00",
 	.parent = &ssam_node_hub_base,
+	.properties = ssam_node_has_dptf,
+};
+
+/*
+ * AC adapter and primary battery of devices whose EC answers the DPTF
+ * requests (battery data, adapter rating). Sending these requests to an EC
+ * that does not support them runs into a timeout, so the drivers only send
+ * them if the device has the "has_dptf" property.
+ */
+static const struct software_node ssam_node_bat_ac_dptf = {
+	.name = "ssam:01:02:01:01:01",
+	.parent = &ssam_node_root,
+	.properties = ssam_node_has_dptf,
+};
+
+static const struct software_node ssam_node_bat_main_dptf = {
+	.name = "ssam:01:02:01:01:00",
+	.parent = &ssam_node_root,
+	.properties = ssam_node_has_dptf,
 };
 
 /* Platform profile / performance-mode device without a fan. */
@@ -254,8 +279,8 @@ static const struct software_node *ssam_node_group_gen5[] = {
 static const struct software_node *ssam_node_group_sb3[] = {
 	&ssam_node_root,
 	&ssam_node_hub_base,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_bat_sb3base,
 	&ssam_node_tmp_perf_profile,
 	&ssam_node_tmp_sensors,
@@ -271,7 +296,7 @@ static const struct software_node *ssam_node_group_sb3[] = {
 	NULL,
 };
 
-/* Devices for Surface Laptop 3 and 4. */
+/* Devices for Surface Laptop 3 (13", Intel), without DPTF. */
 static const struct software_node *ssam_node_group_sl3[] = {
 	&ssam_node_root,
 	&ssam_node_bat_ac,
@@ -283,11 +308,23 @@ static const struct software_node *ssam_node_group_sl3[] = {
 	NULL,
 };
 
+/* Devices for Surface Laptop 3 (15", AMD) and 4 (13", Intel; 15", AMD), with DPTF. */
+static const struct software_node *ssam_node_group_sl3_dptf[] = {
+	&ssam_node_root,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
+	&ssam_node_tmp_perf_profile,
+	&ssam_node_hid_main_keyboard,
+	&ssam_node_hid_main_touchpad,
+	&ssam_node_hid_main_iid5,
+	NULL,
+};
+
 /* Devices for Surface Laptop 5. */
 static const struct software_node *ssam_node_group_sl5[] = {
 	&ssam_node_root,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile_with_fan,
 	&ssam_node_tmp_sensors,
 	&ssam_node_fan_speed,
@@ -301,8 +338,8 @@ static const struct software_node *ssam_node_group_sl5[] = {
 /* Devices for Surface Laptop 6. */
 static const struct software_node *ssam_node_group_sl6[] = {
 	&ssam_node_root,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile_with_fan,
 	&ssam_node_tmp_sensors,
 	&ssam_node_fan_speed,
@@ -327,8 +364,8 @@ static const struct software_node *ssam_node_group_sl7[] = {
 /* Devices for Surface Laptop Studio 1. */
 static const struct software_node *ssam_node_group_sls1[] = {
 	&ssam_node_root,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile,
 	&ssam_node_pos_tablet_switch,
 	&ssam_node_hid_sam_keyboard,
@@ -343,8 +380,8 @@ static const struct software_node *ssam_node_group_sls1[] = {
 /* Devices for Surface Laptop Studio 2. */
 static const struct software_node *ssam_node_group_sls2[] = {
 	&ssam_node_root,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile_with_fan,
 	&ssam_node_tmp_sensors,
 	&ssam_node_fan_speed,
@@ -359,13 +396,13 @@ static const struct software_node *ssam_node_group_sls2[] = {
 /* Devices for Surface Laptop Go. */
 static const struct software_node *ssam_node_group_slg1[] = {
 	&ssam_node_root,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile,
 	NULL,
 };
 
-/* Devices for Surface Pro 7 and Surface Pro 7+. */
+/* Devices for Surface Pro 7, without DPTF. */
 static const struct software_node *ssam_node_group_sp7[] = {
 	&ssam_node_root,
 	&ssam_node_bat_ac,
@@ -374,12 +411,21 @@ static const struct software_node *ssam_node_group_sp7[] = {
 	NULL,
 };
 
+/* Devices for Surface Pro 7+, with DPTF. */
+static const struct software_node *ssam_node_group_sp7_dptf[] = {
+	&ssam_node_root,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
+	&ssam_node_tmp_perf_profile,
+	NULL,
+};
+
 /* Devices for Surface Pro 8 */
 static const struct software_node *ssam_node_group_sp8[] = {
 	&ssam_node_root,
 	&ssam_node_hub_kip,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile,
 	&ssam_node_kip_tablet_switch,
 	&ssam_node_hid_kip_keyboard,
@@ -391,7 +437,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
 	NULL,
 };
 
-/* Devices for Surface Pro 9, 10 and 11 (Intel/x86) */
+/* Devices for Surface Pro 12 (Intel/x86), without DPTF. */
 static const struct software_node *ssam_node_group_sp9[] = {
 	&ssam_node_root,
 	&ssam_node_hub_kip,
@@ -410,12 +456,31 @@ static const struct software_node *ssam_node_group_sp9[] = {
 	NULL,
 };
 
+/* Devices for Surface Pro 9, 10 and 11 (Intel/x86), with DPTF. */
+static const struct software_node *ssam_node_group_sp9_dptf[] = {
+	&ssam_node_root,
+	&ssam_node_hub_kip,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
+	&ssam_node_tmp_perf_profile_with_fan,
+	&ssam_node_tmp_sensors,
+	&ssam_node_fan_speed,
+	&ssam_node_pos_tablet_switch,
+	&ssam_node_hid_kip_keyboard,
+	&ssam_node_hid_kip_penstash,
+	&ssam_node_hid_kip_touchpad,
+	&ssam_node_hid_kip_fwupd,
+	&ssam_node_hid_sam_sensors,
+	&ssam_node_hid_sam_ucm_ucsi,
+	NULL,
+};
+
 /* Devices for Surface Pro 9 5G (ARM/QCOM) */
 static const struct software_node *ssam_node_group_sp9_5g[] = {
 	&ssam_node_root,
 	&ssam_node_hub_kip,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_sensors,
 	&ssam_node_hid_kip_keyboard,
 	&ssam_node_hid_kip_penstash,
@@ -430,8 +495,8 @@ static const struct software_node *ssam_node_group_sp9_5g[] = {
 static const struct software_node *ssam_node_group_sp11[] = {
 	&ssam_node_root,
 	&ssam_node_hub_kip,
-	&ssam_node_bat_ac,
-	&ssam_node_bat_main,
+	&ssam_node_bat_ac_dptf,
+	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_sensors,
 	&ssam_node_hid_kip_keyboard,
 	&ssam_node_hid_kip_penstash,
@@ -468,19 +533,19 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
 	{ "MSHW0116", (unsigned long)ssam_node_group_sp7 },
 
 	/* Surface Pro 7+ */
-	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
+	{ "MSHW0119", (unsigned long)ssam_node_group_sp7_dptf },
 
 	/* Surface Pro 8 */
 	{ "MSHW0263", (unsigned long)ssam_node_group_sp8 },
 
 	/* Surface Pro 9 */
-	{ "MSHW0343", (unsigned long)ssam_node_group_sp9 },
+	{ "MSHW0343", (unsigned long)ssam_node_group_sp9_dptf },
 
 	/* Surface Pro 10 */
-	{ "MSHW0510", (unsigned long)ssam_node_group_sp9 },
+	{ "MSHW0510", (unsigned long)ssam_node_group_sp9_dptf },
 
 	/* Surface Pro 11 */
-	{ "MSHW0583", (unsigned long)ssam_node_group_sp9 },
+	{ "MSHW0583", (unsigned long)ssam_node_group_sp9_dptf },
 
 	/* Surface Pro 12 (Intel) */
 	{ "MSHW0743", (unsigned long)ssam_node_group_sp9 },
@@ -501,10 +566,10 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
 	{ "MSHW0114", (unsigned long)ssam_node_group_sl3 },
 
 	/* Surface Laptop 3 (15", AMD) and 4 (15", AMD) */
-	{ "MSHW0110", (unsigned long)ssam_node_group_sl3 },
+	{ "MSHW0110", (unsigned long)ssam_node_group_sl3_dptf },
 
 	/* Surface Laptop 4 (13", Intel) */
-	{ "MSHW0250", (unsigned long)ssam_node_group_sl3 },
+	{ "MSHW0250", (unsigned long)ssam_node_group_sl3_dptf },
 
 	/* Surface Laptop 5 */
 	{ "MSHW0350", (unsigned long)ssam_node_group_sl5 },
