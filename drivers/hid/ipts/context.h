@@ -70,10 +70,9 @@ struct ipts_context {
 	bool removing;
 
 	/*
-	 * When a restart fails to start the device again: the mode to go back to, and how many
-	 * restarts were tried. Retries run from restart_work, too.
+	 * When a restart fails to start the device again: how many restarts were tried.
+	 * Retries run from restart_work, too.
 	 */
-	enum ipts_mode restart_old_mode;
 	unsigned int restart_attempts;
 
 	/*

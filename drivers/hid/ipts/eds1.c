@@ -57,7 +57,6 @@ static int ipts_eds1_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
 	if (ipts->mode == mode)
 		return 0;
 
-	ipts->restart_old_mode = ipts->mode;
 	ipts->mode = mode;
 
 	ret = ipts_control_restart(ipts);

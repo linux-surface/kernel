@@ -750,11 +750,10 @@ failed:
 
 	/*
 	 * The device is stopped, and the HID device is inactive, so userspace cannot retry.
-	 * Restart the device in the previous mode, which works without iptsd, and iptsd can
-	 * switch modes again once it is restarted. The retry holds its own reference.
+	 * Retry in the mode that was asked for: the HID request that asked for it returned
+	 * before the restart ran, so its sender expects that mode. The retry holds its own
+	 * reference.
 	 */
-	ipts->mode = ipts->restart_old_mode;
-
 	ipts_context_get(ipts);
 	if (!schedule_delayed_work(&ipts->restart_work, msecs_to_jiffies(IPTS_RESTART_DELAY_MS)))
 		ipts_context_put(ipts);
