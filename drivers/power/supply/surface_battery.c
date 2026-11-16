@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/power_supply.h>
+#include <linux/property.h>
 #include <linux/sysfs.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
@@ -81,6 +82,26 @@ struct spwr_bst {
 
 static_assert(sizeof(struct spwr_bst) == 16);
 
+/*
+ * Battery data for platform power management (DPTF), command 0x53. The EC
+ * also sends it as an event when the power source changes. The field names
+ * follow the DPTF battery participant (see drivers/acpi/dptf/dptf_power.c).
+ */
+struct spwr_dptf {
+	__u8 version;
+	__le32 max_platform_power;	/* mW, peak power the battery can deliver (PMAX) */
+	__le32 max_steady_state_power;	/* mW, sustained battery power (PBSS) */
+	__le16 high_freq_impedance;	/* mOhm (RBHF) */
+	__le16 no_load_voltage;		/* mV (VBNL) */
+	__le32 available_input_power;	/* mW, power available from all sources */
+	__le32 rest_of_platform_power;	/* mW (PROP) */
+} __packed;
+
+static_assert(sizeof(struct spwr_dptf) == 21);
+
+/* The only DPTF data version seen on devices so far (Surface Book 3). */
+#define SPWR_DPTF_VERSION		1
+
 #define SPWR_BIX_REVISION		0
 #define SPWR_BATTERY_VALUE_UNKNOWN	0xffffffff
 
@@ -100,6 +121,12 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bix, struct spwr_bix, {
 SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
 	.target_category = SSAM_SSH_TC_BAT,
 	.command_id      = 0x03,
+});
+
+/* Get battery data for platform power management (DPTF). */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_dptf, struct spwr_dptf, {
+	.target_category = SSAM_SSH_TC_BAT,
+	.command_id      = 0x53,
 });
 
 /* Set battery trip point (_BTP). */
@@ -134,6 +161,10 @@ struct spwr_battery_device {
 	struct spwr_bix bix;
 	struct spwr_bst bst;
 	u32 alarm;
+
+	bool has_dptf;		/* the device supports the DPTF request (device property) */
+	bool dptf_version_warned;
+	struct spwr_dptf dptf;
 };
 
 
@@ -194,6 +225,47 @@ static int spwr_battery_load_bst(struct spwr_battery_device *bat)
 		return 0;
 
 	return ssam_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
+}
+
+static void spwr_battery_check_dptf_version(struct spwr_battery_device *bat)
+{
+	lockdep_assert_held(&bat->lock);
+
+	if (bat->dptf.version == SPWR_DPTF_VERSION || bat->dptf_version_warned)
+		return;
+
+	bat->dptf_version_warned = true;
+	dev_warn(&bat->sdev->dev, "unexpected DPTF data version %u, the values may be wrong\n",
+		 bat->dptf.version);
+}
+
+static int spwr_battery_load_dptf_unlocked(struct spwr_battery_device *bat)
+{
+	int status;
+
+	lockdep_assert_held(&bat->lock);
+
+	status = ssam_retry(ssam_bat_get_dptf, bat->sdev, &bat->dptf);
+	if (!status)
+		spwr_battery_check_dptf_version(bat);
+
+	return status;
+}
+
+/* Reload the DPTF data, which can go stale while the driver is not notified. */
+static void spwr_battery_reload_dptf(struct spwr_battery_device *bat)
+{
+	int status;
+
+	if (!bat->has_dptf)
+		return;
+
+	mutex_lock(&bat->lock);
+	status = spwr_battery_load_dptf_unlocked(bat);
+	mutex_unlock(&bat->lock);
+
+	if (status)
+		dev_warn(&bat->sdev->dev, "failed to update DPTF data: %d\n", status);
 }
 
 static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
@@ -340,6 +412,23 @@ static int spwr_battery_recheck_status(struct spwr_battery_device *bat)
 	return status;
 }
 
+static int spwr_battery_update_dptf(struct spwr_battery_device *bat, const struct ssam_event *event)
+{
+	if (!bat->has_dptf)
+		return 0;
+
+	if (event->length < sizeof(bat->dptf))
+		return -EPROTO;
+
+	mutex_lock(&bat->lock);
+	memcpy(&bat->dptf, event->data, sizeof(bat->dptf));
+	spwr_battery_check_dptf_version(bat);
+	mutex_unlock(&bat->lock);
+
+	power_supply_changed(bat->psy);
+	return 0;
+}
+
 static u32 spwr_notify_bat(struct ssam_event_notifier *nf, const struct ssam_event *event)
 {
 	struct spwr_battery_device *bat = container_of(nf, struct spwr_battery_device, notif);
@@ -376,10 +465,7 @@ static u32 spwr_notify_bat(struct ssam_event_notifier *nf, const struct ssam_eve
 		break;
 
 	case SAM_EVENT_CID_BAT_DPTF:
-		/*
-		 * TODO: Implement support for DPTF event.
-		 */
-		status = 0;
+		status = spwr_battery_update_dptf(bat, event);
 		break;
 
 	default:
@@ -396,6 +482,9 @@ static void spwr_battery_update_bst_workfn(struct work_struct *work)
 	int status;
 
 	bat = container_of(dwork, struct spwr_battery_device, update_work);
+
+	/* The EC does not send the DPTF event for every power source change. */
+	spwr_battery_reload_dptf(bat);
 
 	status = spwr_battery_update_bst(bat, false);
 	if (status) {
@@ -713,7 +802,62 @@ static struct attribute *spwr_battery_attrs[] = {
 	&dev_attr_alarm.attr,
 	NULL,
 };
-ATTRIBUTE_GROUPS(spwr_battery);
+
+static const struct attribute_group spwr_battery_group = {
+	.attrs = spwr_battery_attrs,
+};
+
+/* -- DPTF attributes. ------------------------------------------------------ */
+
+#define SPWR_DPTF_SHOW(_name, _field, _get)						\
+static ssize_t _name##_show(struct device *dev, struct device_attribute *attr, char *buf)	\
+{											\
+	struct spwr_battery_device *bat = power_supply_get_drvdata(dev_to_psy(dev));	\
+	u32 value;									\
+											\
+	mutex_lock(&bat->lock);								\
+	value = _get(&bat->dptf._field);						\
+	mutex_unlock(&bat->lock);							\
+											\
+	return sysfs_emit(buf, "%u\n", value);						\
+}											\
+static DEVICE_ATTR_RO(_name)
+
+SPWR_DPTF_SHOW(max_platform_power_mw, max_platform_power, get_unaligned_le32);
+SPWR_DPTF_SHOW(max_steady_state_power_mw, max_steady_state_power, get_unaligned_le32);
+SPWR_DPTF_SHOW(high_freq_impedance_mohm, high_freq_impedance, get_unaligned_le16);
+SPWR_DPTF_SHOW(no_load_voltage_mv, no_load_voltage, get_unaligned_le16);
+SPWR_DPTF_SHOW(available_input_power_mw, available_input_power, get_unaligned_le32);
+SPWR_DPTF_SHOW(rest_of_platform_power_mw, rest_of_platform_power, get_unaligned_le32);
+
+static struct attribute *spwr_dptf_attrs[] = {
+	&dev_attr_max_platform_power_mw.attr,
+	&dev_attr_max_steady_state_power_mw.attr,
+	&dev_attr_high_freq_impedance_mohm.attr,
+	&dev_attr_no_load_voltage_mv.attr,
+	&dev_attr_available_input_power_mw.attr,
+	&dev_attr_rest_of_platform_power_mw.attr,
+	NULL,
+};
+
+static umode_t spwr_dptf_is_visible(struct kobject *kobj, struct attribute *attr, int n)
+{
+	struct spwr_battery_device *bat = power_supply_get_drvdata(dev_to_psy(kobj_to_dev(kobj)));
+
+	return bat->has_dptf ? attr->mode : 0;
+}
+
+static const struct attribute_group spwr_dptf_group = {
+	.name = "dptf",
+	.attrs = spwr_dptf_attrs,
+	.is_visible = spwr_dptf_is_visible,
+};
+
+static const struct attribute_group *spwr_battery_groups[] = {
+	&spwr_battery_group,
+	&spwr_dptf_group,
+	NULL,
+};
 
 
 /* -- Device setup. --------------------------------------------------------- */
@@ -755,6 +899,12 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
 		return -ENODEV;
 
+	/*
+	 * The EC does not answer the DPTF request if it does not support it,
+	 * so only send it if the device is marked as supporting it.
+	 */
+	bat->has_dptf = device_property_read_bool(&bat->sdev->dev, "has_dptf");
+
 	/* Satisfy lockdep although we are in an exclusive context here. */
 	mutex_lock(&bat->lock);
 
@@ -762,6 +912,14 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 	if (status) {
 		mutex_unlock(&bat->lock);
 		return status;
+	}
+
+	if (bat->has_dptf) {
+		status = spwr_battery_load_dptf_unlocked(bat);
+		if (status) {
+			dev_warn(&bat->sdev->dev, "failed to load DPTF data: %d\n", status);
+			bat->has_dptf = false;
+		}
 	}
 
 	if (spwr_battery_present(bat)) {
@@ -810,7 +968,12 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
 
 static int __maybe_unused surface_battery_resume(struct device *dev)
 {
-	return spwr_battery_recheck_full(dev_get_drvdata(dev));
+	struct spwr_battery_device *bat = dev_get_drvdata(dev);
+
+	/* The power source can have changed while suspended. */
+	spwr_battery_reload_dptf(bat);
+
+	return spwr_battery_recheck_full(bat);
 }
 static SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 
