@@ -130,6 +130,32 @@ static int ipts_hid_parse(struct hid_device *hid)
 	return 0;
 }
 
+/*
+ * On EDS1, a mode switch restarts the device from a work item, and the HID device is inactive
+ * until the restart is done. When iptsd is restarted, the old instance switches back to event
+ * mode as it exits, and the switch of the new one arrives during that restart. Refusing it
+ * would make the new iptsd exit, with touch input left in event mode. The EDS1 mode report
+ * only records the requested mode and queues a restart, and touches neither the device nor
+ * its buffers, so it is let through while the device restarts. It is still counted, so that a
+ * stop waits for it, and refused once remove started or after a failed stop.
+ */
+static bool ipts_hid_enter_restarting(struct ipts_context *ipts)
+{
+	atomic_inc(&ipts->hid_users);
+	/*
+	 * Order the count above before reading removing, so a remove that set it cannot miss
+	 * this callback: its stop orders that write before reading the count.
+	 */
+	smp_mb__after_atomic();
+
+	if (READ_ONCE(ipts->removing) || READ_ONCE(ipts->restart_blocked)) {
+		ipts_hid_exit(ipts);
+		return false;
+	}
+
+	return true;
+}
+
 static int ipts_hid_raw_request(struct hid_device *hid, unsigned char report_id, __u8 *buffer,
 				size_t size, unsigned char report_type, int request_type)
 {
@@ -144,7 +170,8 @@ static int ipts_hid_raw_request(struct hid_device *hid, unsigned char report_id,
 	if (!ipts)
 		return -EFAULT;
 
-	if (!ipts_hid_enter(ipts))
+	if (!ipts_hid_enter(ipts) &&
+	    (ipts->info.intf_eds != 1 || !ipts_hid_enter_restarting(ipts)))
 		return -ENODEV;
 
 	if (ipts->info.intf_eds == 1) {

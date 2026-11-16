@@ -683,6 +683,16 @@ static void ipts_control_restart_work(struct work_struct *work)
 		goto out;
 
 	/*
+	 * A mode switch that arrived while the previous restart ran queues another one. If that
+	 * restart already applied the mode and the device runs, there is nothing to do.
+	 */
+	if (!ipts->restart_attempts && READ_ONCE(ipts->hid_active) &&
+	    ipts->mode == READ_ONCE(ipts->requested_mode))
+		goto out;
+
+	ipts->mode = READ_ONCE(ipts->requested_mode);
+
+	/*
 	 * Also on a retry, although the failed start left the device stopped: on a stopped device
 	 * this does nothing, but if the start failed after it started the receiver and that did
 	 * not stop, or the device did not confirm its stop, it keeps the device from being
@@ -696,12 +706,12 @@ static void ipts_control_restart_work(struct work_struct *work)
 		 * until the next boot.
 		 */
 		dev_err(ipts->dev, "Device may not have stopped, not restarting IPTS\n");
-		goto out;
+		goto blocked;
 	}
 
 	if (ret) {
 		dev_err(ipts->dev, "Failed to stop IPTS for a restart: %d\n", ret);
-		goto out;
+		goto blocked;
 	}
 
 	if (ipts->restart_attempts) {
@@ -758,6 +768,15 @@ failed:
 	if (!schedule_delayed_work(&ipts->restart_work, msecs_to_jiffies(IPTS_RESTART_DELAY_MS)))
 		ipts_context_put(ipts);
 
+	goto out;
+
+blocked:
+	/*
+	 * Refuse further mode switches, which would only queue another restart.
+	 */
+	WRITE_ONCE(ipts->restart_blocked, true);
+	ipts->restart_attempts = 0;
+
 out:
 	mutex_unlock(&ipts->ctl_lock);
 
@@ -772,6 +791,7 @@ void ipts_control_init(struct ipts_context *ipts)
 	mutex_init(&ipts->ctl_lock);
 	INIT_DELAYED_WORK(&ipts->restart_work, ipts_control_restart_work);
 	ipts->restart_attempts = 0;
+	ipts->restart_blocked = false;
 	ipts->removing = false;
 }
 

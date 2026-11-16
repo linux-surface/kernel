@@ -76,6 +76,19 @@ struct ipts_context {
 	unsigned int restart_attempts;
 
 	/*
+	 * EDS1: the mode that the last mode switch asked for. restart_work applies it to mode
+	 * under ctl_lock, so a switch that arrives during a restart does not change the mode
+	 * under a start that is running.
+	 */
+	enum ipts_mode requested_mode;
+
+	/*
+	 * Set when a stop for a restart failed or leaked the buffers: the device must not be
+	 * started again, and mode switches are refused, until the next probe.
+	 */
+	bool restart_blocked;
+
+	/*
 	 * Freed when the last reference is dropped. Probe holds one (dropped by devres), and the
 	 * receiver thread, the HID device, every holder of message_lock and a queued restart
 	 * hold one each.

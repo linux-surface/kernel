@@ -54,10 +54,15 @@ static int ipts_eds1_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
 	if (!ipts)
 		return -EFAULT;
 
-	if (ipts->mode == mode)
+	/*
+	 * Only recorded here: restart_work applies it, also when this arrives during a restart.
+	 * The same mode again restarts a device that is not running, for example after the
+	 * restart retries gave up; restart_work does nothing if it runs by then.
+	 */
+	if (READ_ONCE(ipts->requested_mode) == mode && READ_ONCE(ipts->hid_active))
 		return 0;
 
-	ipts->mode = mode;
+	WRITE_ONCE(ipts->requested_mode, mode);
 
 	ret = ipts_control_restart(ipts);
 	if (ret)
@@ -93,7 +98,7 @@ int ipts_eds1_raw_request(struct ipts_context *ipts, u8 *buffer, size_t size, u8
 	if (request_type == HID_REQ_GET_REPORT) {
 		memset(buffer, 0, size);
 		buffer[0] = report_id;
-		buffer[1] = ipts->mode;
+		buffer[1] = READ_ONCE(ipts->requested_mode);
 	} else if (request_type == HID_REQ_SET_REPORT) {
 		return ipts_eds1_switch_mode(ipts, buffer[1]);
 	} else {
