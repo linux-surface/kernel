@@ -683,30 +683,11 @@ static void ipts_control_restart_work(struct work_struct *work)
 		goto out;
 
 	/*
-	 * A retry: the start failed, so the device is stopped already.
+	 * Also on a retry, although the failed start left the device stopped: on a stopped device
+	 * this does nothing, but if the start failed after it started the receiver and that did
+	 * not stop, or the device did not confirm its stop, it keeps the device from being
+	 * started again, as for any other restart.
 	 */
-	if (ipts->restart_attempts) {
-		dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
-
-		/*
-		 * After a timeout, every response from the ME can arrive only when the next
-		 * command is sent, which makes all further commands time out as well. Waiting
-		 * doesn't help, but reconnecting does.
-		 */
-		ret = ipts_mei_reconnect(&ipts->mei);
-		if (ret) {
-			dev_err(ipts->dev, "Failed to reconnect to the ME: %d\n", ret);
-			goto failed;
-		}
-
-		msleep(1000);
-
-		if (READ_ONCE(ipts->removing))
-			goto out;
-
-		goto start;
-	}
-
 	ret = _ipts_control_stop(ipts);
 	if (ret == IPTS_STOP_LEAKED) {
 		/*
@@ -723,6 +704,21 @@ static void ipts_control_restart_work(struct work_struct *work)
 		goto out;
 	}
 
+	if (ipts->restart_attempts) {
+		dev_info(ipts->dev, "Restarting IPTS after a failed mode switch\n");
+
+		/*
+		 * After a timeout, every response from the ME can arrive only when the next
+		 * command is sent, which makes all further commands time out as well. Waiting
+		 * doesn't help, but reconnecting does.
+		 */
+		ret = ipts_mei_reconnect(&ipts->mei);
+		if (ret) {
+			dev_err(ipts->dev, "Failed to reconnect to the ME: %d\n", ret);
+			goto failed;
+		}
+	}
+
 	/*
 	 * Wait a second to give the sensor time to fully shut down.
 	 */
@@ -734,7 +730,6 @@ static void ipts_control_restart_work(struct work_struct *work)
 	if (READ_ONCE(ipts->removing))
 		goto out;
 
-start:
 	ret = ipts_control_start(ipts);
 	if (!ret) {
 		ipts->restart_attempts = 0;
