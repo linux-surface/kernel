@@ -888,6 +888,14 @@ static void hid_scan_collection(struct hid_parser *parser, unsigned type)
 					(HID_UP_GOOGLEVENDOR | 0x0001))
 				parser->device->group =
 					HID_GROUP_VIVALDI;
+
+	if (hid->vendor == USB_VENDOR_ID_MICROSOFT &&
+	    type == HID_COLLECTION_APPLICATION &&
+	    (parser->global.usage_page << 16) == HID_UP_MSVENDOR)
+		for (i = 0; i < parser->local.usage_index; i++)
+			if (parser->local.usage[i] ==
+					(HID_UP_MSVENDOR | 0xf900))
+				hid->group = HID_GROUP_SURFACE_UCSI;
 }
 
 static int hid_scan_main(struct hid_parser *parser, struct hid_item *item)

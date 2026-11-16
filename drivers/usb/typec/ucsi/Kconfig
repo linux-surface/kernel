@@ -104,4 +104,17 @@ config UCSI_HUAWEI_GAOKUN
 	  To compile the driver as a module, choose M here: the module will be
 	  called ucsi_huawei_gaokun.
 
+config UCSI_SURFACE_HID
+	tristate "UCSI HID Interface Driver for Microsoft Surface"
+	depends on HID
+	default SURFACE_HID
+	help
+	  This driver enables UCSI support on Microsoft Surface platforms that
+	  expose a UCSI Platform Policy Manager (PPM) over the Surface System
+	  Aggregator Module (SSAM) HID transport (application collection
+	  0xFF00:0xF900), such as Surface Book 3 and Surface Pro X.
+
+	  To compile the driver as a module, choose M here: the module will be
+	  called ucsi_surface_hid.
+
 endif
