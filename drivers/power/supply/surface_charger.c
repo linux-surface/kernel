@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/power_supply.h>
+#include <linux/property.h>
 #include <linux/types.h>
 
 #include <linux/surface_aggregator/device.h>
@@ -40,6 +41,15 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
 });
 
 
+/* Get the power rating of the connected adapter (DPTF ARTG), in mW. */
+SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_artg, __le32, {
+	.target_category = SSAM_SSH_TC_BAT,
+	.command_id      = 0x0f,
+});
+
+/* ARTG value while no rating is known (e.g. no adapter connected). */
+#define SPWR_AC_ARTG_UNKNOWN		0x80000000
+
 /* -- Device structures. ---------------------------------------------------- */
 
 struct spwr_psy_properties {
@@ -59,6 +69,7 @@ struct spwr_ac_device {
 	struct mutex lock;  /* Guards access to state below. */
 
 	__le32 state;
+	bool has_artg;	/* the device supports the ARTG request (device property) */
 };
 
 
@@ -164,6 +175,48 @@ out:
 }
 
 
+/* -- DPTF attributes. ------------------------------------------------------ */
+
+static ssize_t adapter_rating_mw_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct spwr_ac_device *ac = power_supply_get_drvdata(dev_to_psy(dev));
+	__le32 artg;
+	int status;
+
+	status = ssam_retry(ssam_bat_get_artg, ac->sdev, &artg);
+	if (status)
+		return status;
+
+	if (le32_to_cpu(artg) == SPWR_AC_ARTG_UNKNOWN)
+		return -ENODATA;
+
+	return sysfs_emit(buf, "%u\n", le32_to_cpu(artg));
+}
+static DEVICE_ATTR_RO(adapter_rating_mw);
+
+static struct attribute *spwr_ac_dptf_attrs[] = {
+	&dev_attr_adapter_rating_mw.attr,
+	NULL,
+};
+
+static umode_t spwr_ac_dptf_is_visible(struct kobject *kobj, struct attribute *attr, int n)
+{
+	struct spwr_ac_device *ac = power_supply_get_drvdata(dev_to_psy(kobj_to_dev(kobj)));
+
+	return ac->has_artg ? attr->mode : 0;
+}
+
+static const struct attribute_group spwr_ac_dptf_group = {
+	.name = "dptf",
+	.attrs = spwr_ac_dptf_attrs,
+	.is_visible = spwr_ac_dptf_is_visible,
+};
+
+static const struct attribute_group *spwr_ac_groups[] = {
+	&spwr_ac_dptf_group,
+	NULL,
+};
+
 /* -- Device setup. --------------------------------------------------------- */
 
 static char *battery_supplied_to[] = {
@@ -208,7 +261,14 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
 	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
 		return -ENODEV;
 
+	/*
+	 * An EC that does not support the ARTG request does not answer it, so
+	 * only send it on devices marked as supporting it.
+	 */
+	ac->has_artg = device_property_read_bool(&ac->sdev->dev, "has_dptf");
+
 	psy_cfg.drv_data = ac;
+	psy_cfg.attr_grp = spwr_ac_groups;
 	psy_cfg.supplied_to = battery_supplied_to;
 	psy_cfg.num_supplicants = ARRAY_SIZE(battery_supplied_to);
 

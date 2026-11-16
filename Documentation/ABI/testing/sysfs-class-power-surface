@@ -105,3 +105,16 @@ Description:
 		controller is known to provide the data.
 
 		Access: Read
+
+What:		/sys/class/power_supply/<supply_name>/dptf/adapter_rating_mw
+Date:		November 2026
+KernelVersion:	7.4
+Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Description:
+		Power rating of the connected adapter, in mW (DPTF ARTG), as
+		reported by the embedded controller. Reading it fails with
+		ENODATA while no rating is known. The attribute is only present
+		on devices whose embedded controller is known to provide the
+		value.
+
+		Access: Read
