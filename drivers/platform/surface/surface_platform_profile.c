@@ -260,7 +260,7 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
 static int surface_platform_profile_pm_prepare(struct device *dev)
 {
 	struct ssam_platform_profile_device *tpd;
-	int status;
+	int status = 0;
 
 	tpd = dev_get_drvdata(dev);
 
