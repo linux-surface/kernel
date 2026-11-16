@@ -73,6 +73,12 @@ int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts
  */
 int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
 
+/*
+ * The longest ipts_mei_reconnect() takes: the MEI core waits for the disconnect and for the
+ * connect up to its client connect timeout each, which is 30 seconds for slow firmware.
+ */
+#define IPTS_MEI_RECONNECT_TIMEOUT_MS (2 * 30000)
+
 /**
  * ipts_mei_reconnect() - Disconnects from the ME client and connects again.
  * @mei: The MEI device context.
