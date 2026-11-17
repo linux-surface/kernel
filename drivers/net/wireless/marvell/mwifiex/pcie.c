@@ -2849,6 +2849,9 @@ static void mwifiex_pcie_work(struct work_struct *work)
 	struct pcie_service_card *card =
 		container_of(work, struct pcie_service_card, work);
 
+	if (!card->adapter)
+		return;
+
 	if (test_and_clear_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP,
 			       &card->work_flags))
 		mwifiex_pcie_device_dump_work(card->adapter);
@@ -3221,6 +3224,8 @@ static void mwifiex_unregister_dev(struct mwifiex_adapter *adapter)
 		if (card->msi_enable)
 			pci_disable_msi(pdev);
 	}
+	if (!card->pci_reset_ongoing)
+		cancel_work_sync(&card->work);
 	card->adapter = NULL;
 }
 
