@@ -438,7 +438,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
 };
 
 /* Devices for Surface Pro 12 (Intel/x86), without DPTF. */
-static const struct software_node *ssam_node_group_sp9[] = {
+static const struct software_node *ssam_node_group_sp12[] = {
 	&ssam_node_root,
 	&ssam_node_hub_kip,
 	&ssam_node_bat_ac,
@@ -548,7 +548,7 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
 	{ "MSHW0583", (unsigned long)ssam_node_group_sp9_dptf },
 
 	/* Surface Pro 12 (Intel) */
-	{ "MSHW0743", (unsigned long)ssam_node_group_sp9 },
+	{ "MSHW0743", (unsigned long)ssam_node_group_sp12 },
 
 	/* Surface Book 2 */
 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
