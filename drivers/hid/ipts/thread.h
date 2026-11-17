@@ -24,6 +24,11 @@ struct ipts_thread {
 	bool should_stop;
 	struct completion done;
 
+	/*
+	 * Return value of the thread function, valid after ipts_thread_stop() returned 0.
+	 */
+	int exit_code;
+
 	void *data;
 	int (*threadfn)(struct ipts_thread *thread);
 };
@@ -48,12 +53,24 @@ bool ipts_thread_should_stop(struct ipts_thread *thread);
 int ipts_thread_start(struct ipts_thread *thread, int (*threadfn)(struct ipts_thread *thread),
 		      void *data, const char name[]);
 
+/*
+ * How often ipts_thread_stop() checks whether the thread died while it waits.
+ */
+#define IPTS_THREAD_STOP_POLL_MS 100
+
 /**
  * ipts_thread_stop() - Asks the thread to terminate and waits until it has finished.
  * @thread: The thread that should stop.
+ * @timeout_ms: How long to wait for the thread function to return.
  *
- * Returns: The return value of the thread function.
+ * The wait is bounded. A thread that died (oops) without finishing runs no driver code
+ * anymore and is treated as stopped. A thread that is still running after the timeout is
+ * left alone, and nothing it uses may be freed.
+ *
+ * Returns: 0 if the thread function returned (its return value is in thread->exit_code),
+ * -EOWNERDEAD if the thread died without returning, -ETIMEDOUT if it is still running,
+ * <0 on other errors.
  */
-int ipts_thread_stop(struct ipts_thread *thread);
+int ipts_thread_stop(struct ipts_thread *thread, unsigned int timeout_ms);
 
 #endif /* IPTS_THREAD_H */

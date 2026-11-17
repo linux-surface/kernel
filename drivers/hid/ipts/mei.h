@@ -28,7 +28,26 @@ struct ipts_mei {
 
 	wait_queue_head_t message_queue;
 	struct rw_semaphore message_lock;
+
+	/*
+	 * Bumped under message_lock whenever a message is queued, so that waiters can sleep
+	 * without taking the lock inside the wait condition.
+	 */
+	unsigned long seq;
 };
+
+/*
+ * Upper bounds for taking the message lock to queue a response, and for one send. While
+ * the lock is busy, it is tried again every IPTS_MEI_LOCK_POLL_US.
+ */
+#define IPTS_MEI_LOCK_TIMEOUT_MS 1000
+#define IPTS_MEI_LOCK_POLL_US	 200
+#define IPTS_MEI_SEND_TIMEOUT_MS 2000
+
+/*
+ * How long the receive callback waits for one more response before it returns.
+ */
+#define IPTS_MEI_RECV_MORE_MS 1
 
 /**
  * ipts_mei_recv() - Receive data from a MEI device.
@@ -37,7 +56,7 @@ struct ipts_mei {
  * @rsp: The address that the received data will be copied to.
  * @timeout: How many milliseconds the function will wait at most.
  *
- * A negative timeout means to wait forever.
+ * A timeout of 0 means to check once and return.
  *
  * Returns: 0 on success, <0 on error, -EAGAIN if no response has been received.
  */
@@ -55,6 +74,14 @@ int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts
 int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
 
 /**
+ * ipts_mei_reconnect() - Disconnects from the ME client and connects again.
+ * @mei: The MEI device context.
+ *
+ * Return: 0 on success, <0 on error.
+ */
+int ipts_mei_reconnect(struct ipts_mei *mei);
+
+/**
  * ipts_mei_init() - Initialize the MEI device context.
  * @mei: The MEI device context to initialize.
  * @cldev: The MEI device the context will be bound to.
@@ -62,5 +89,21 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
  * Returns: 0 on success, <0 on error.
  */
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev);
+
+/**
+ * ipts_mei_free_messages() - Free every message still queued.
+ * @mei: The MEI device context.
+ *
+ * Called from the context release function, once no user of the context is left.
+ */
+void ipts_mei_free_messages(struct ipts_mei *mei);
+
+/**
+ * ipts_mei_flush() - Drops all received messages that have not been consumed.
+ * @mei: The IPTS MEI device context.
+ *
+ * Returns: The number of dropped messages.
+ */
+size_t ipts_mei_flush(struct ipts_mei *mei);
 
 #endif /* IPTS_MEI_H */
