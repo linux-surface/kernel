@@ -28,7 +28,21 @@ struct ipts_mei {
 
 	wait_queue_head_t message_queue;
 	struct rw_semaphore message_lock;
+
+	/*
+	 * Bumped under message_lock whenever a message is queued, so that waiters can sleep
+	 * without taking the lock inside the wait condition.
+	 */
+	unsigned long seq;
 };
+
+/*
+ * Upper bounds for taking the message lock to queue a response, and for one send. While
+ * the lock is busy, it is tried again every IPTS_MEI_LOCK_POLL_US.
+ */
+#define IPTS_MEI_LOCK_TIMEOUT_MS 1000
+#define IPTS_MEI_LOCK_POLL_US	 200
+#define IPTS_MEI_SEND_TIMEOUT_MS 2000
 
 /**
  * ipts_mei_recv() - Receive data from a MEI device.
@@ -37,7 +51,7 @@ struct ipts_mei {
  * @rsp: The address that the received data will be copied to.
  * @timeout: How many milliseconds the function will wait at most.
  *
- * A negative timeout means to wait forever.
+ * A timeout of 0 means to check once and return.
  *
  * Returns: 0 on success, <0 on error, -EAGAIN if no response has been received.
  */
@@ -62,5 +76,13 @@ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
  * Returns: 0 on success, <0 on error.
  */
 int ipts_mei_init(struct ipts_mei *mei, struct mei_cl_device *cldev);
+
+/**
+ * ipts_mei_free_messages() - Free every message still queued.
+ * @mei: The MEI device context.
+ *
+ * Called from the context release function, once no user of the context is left.
+ */
+void ipts_mei_free_messages(struct ipts_mei *mei);
 
 #endif /* IPTS_MEI_H */

@@ -25,7 +25,7 @@
  * @rsp: The address that the received response will be copied to.
  * @timeout: How many milliseconds the function will wait at most.
  *
- * A negative timeout means to wait forever.
+ * A timeout of 0 means to check once and return.
  *
  * Returns: 0 on success, <0 on error, -EAGAIN if no response has been received.
  */
