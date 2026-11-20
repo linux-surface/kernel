@@ -8,7 +8,10 @@
 #include <linux/bitops.h>
 #include <linux/hwmon.h>
 #include <linux/kernel.h>
+#include <linux/math.h>
+#include <linux/minmax.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
 
 #include <linux/surface_aggregator/controller.h>
@@ -37,6 +40,18 @@ struct ssam_tmp_get_name_rsp {
 
 static_assert(sizeof(struct ssam_tmp_get_name_rsp) == 21);
 
+/*
+ * Command 0x24 takes the 1-based sensor index in the payload rather than
+ * in the SSAM instance ID header field, followed by an IEEE 754 float
+ * offset in degrees Celsius.
+ */
+struct ssam_tmp_set_offset_req {
+	__u8 iid;
+	__le32 offset_f32;
+} __packed;
+
+static_assert(sizeof(struct ssam_tmp_set_offset_req) == 5);
+
 SSAM_DEFINE_SYNC_REQUEST_CL_R(__ssam_tmp_get_available_sensors, __le16, {
 	.target_category = SSAM_SSH_TC_TMP,
 	.command_id      = 0x04,
@@ -50,6 +65,11 @@ SSAM_DEFINE_SYNC_REQUEST_MD_R(__ssam_tmp_get_temperature, __le16, {
 SSAM_DEFINE_SYNC_REQUEST_MD_R(__ssam_tmp_get_name, struct ssam_tmp_get_name_rsp, {
 	.target_category = SSAM_SSH_TC_TMP,
 	.command_id      = 0x0e,
+});
+
+SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_set_offset, struct ssam_tmp_set_offset_req, {
+	.target_category = SSAM_SSH_TC_TMP,
+	.command_id      = 0x24,
 });
 
 static int ssam_tmp_get_available_sensors(struct ssam_device *sdev, s16 *sensors)
@@ -106,12 +126,52 @@ static int ssam_tmp_get_name(struct ssam_device *sdev, u8 iid, char *buf, size_t
 	return 0;
 }
 
+static u32 ssam_tmp_mc_to_f32(long mc)
+{
+	u32 sign = 0;
+	u64 scaled;
+	u32 mant;
+	int shift;
+	int msb;
+
+	if (mc == 0)
+		return 0;
+
+	if (mc < 0) {
+		sign = BIT(31);
+		mc = -mc;
+	}
+
+	scaled = DIV_ROUND_CLOSEST_ULL((u64)mc << 34, 1000);
+	msb = fls64(scaled) - 1;
+	shift = msb - 23;
+	mant = (scaled + BIT_ULL(shift - 1)) >> shift;
+	if (mant >= BIT(24)) {
+		mant >>= 1;
+		msb++;
+	}
+
+	return sign | ((127 + msb - 34) << 23) | (mant & GENMASK(22, 0));
+}
+
+static int ssam_tmp_set_offset(struct ssam_device *sdev, u8 iid, long offset_mc)
+{
+	struct ssam_tmp_set_offset_req req = {
+		.iid = iid,
+		.offset_f32 = cpu_to_le32(ssam_tmp_mc_to_f32(offset_mc)),
+	};
+
+	return __ssam_tmp_set_offset(sdev, &req);
+}
+
 /* -- Driver.---------------------------------------------------------------- */
 
 struct ssam_temp {
 	struct ssam_device *sdev;
 	s16 sensors;
 	char names[SSAM_TMP_SENSOR_MAX_COUNT][SSAM_TMP_SENSOR_NAME_LENGTH];
+	struct mutex lock; /* Guards offsets[] and EC offset updates. */
+	long offsets[SSAM_TMP_SENSOR_MAX_COUNT];
 };
 
 static umode_t ssam_temp_hwmon_is_visible(const void *data,
@@ -123,6 +183,9 @@ static umode_t ssam_temp_hwmon_is_visible(const void *data,
 	if (!(ssam_temp->sensors & BIT(channel)))
 		return 0;
 
+	if (type == hwmon_temp && attr == hwmon_temp_offset)
+		return 0644;
+
 	return 0444;
 }
 
@@ -130,9 +193,40 @@ static int ssam_temp_hwmon_read(struct device *dev,
 				enum hwmon_sensor_types type,
 				u32 attr, int channel, long *value)
 {
-	const struct ssam_temp *ssam_temp = dev_get_drvdata(dev);
+	struct ssam_temp *ssam_temp = dev_get_drvdata(dev);
 
-	return ssam_tmp_get_temperature(ssam_temp->sdev, channel + 1, value);
+	switch (attr) {
+	case hwmon_temp_input:
+		return ssam_tmp_get_temperature(ssam_temp->sdev, channel + 1, value);
+	case hwmon_temp_offset:
+		mutex_lock(&ssam_temp->lock);
+		*value = ssam_temp->offsets[channel];
+		mutex_unlock(&ssam_temp->lock);
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int ssam_temp_hwmon_write(struct device *dev,
+				 enum hwmon_sensor_types type,
+				 u32 attr, int channel, long value)
+{
+	struct ssam_temp *ssam_temp = dev_get_drvdata(dev);
+	int status;
+
+	if (type != hwmon_temp || attr != hwmon_temp_offset)
+		return -EOPNOTSUPP;
+
+	value = clamp_val(value, -100000L, 100000L);
+
+	mutex_lock(&ssam_temp->lock);
+	status = ssam_tmp_set_offset(ssam_temp->sdev, channel + 1, value);
+	if (!status)
+		ssam_temp->offsets[channel] = value;
+	mutex_unlock(&ssam_temp->lock);
+
+	return status;
 }
 
 static int ssam_temp_hwmon_read_string(struct device *dev,
@@ -149,28 +243,29 @@ static const struct hwmon_channel_info * const ssam_temp_hwmon_info[] = {
 	HWMON_CHANNEL_INFO(chip,
 			   HWMON_C_REGISTER_TZ),
 	HWMON_CHANNEL_INFO(temp,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL,
-			   HWMON_T_INPUT | HWMON_T_LABEL),
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET,
+			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_OFFSET),
 	NULL
 };
 
 static const struct hwmon_ops ssam_temp_hwmon_ops = {
 	.is_visible = ssam_temp_hwmon_is_visible,
 	.read = ssam_temp_hwmon_read,
+	.write = ssam_temp_hwmon_write,
 	.read_string = ssam_temp_hwmon_read_string,
 };
 
@@ -178,6 +273,17 @@ static const struct hwmon_chip_info ssam_temp_hwmon_chip_info = {
 	.ops = &ssam_temp_hwmon_ops,
 	.info = ssam_temp_hwmon_info,
 };
+
+static void ssam_temp_reset_offsets(void *data)
+{
+	struct ssam_temp *ssam_temp = data;
+	int channel;
+
+	for (channel = 0; channel < SSAM_TMP_SENSOR_MAX_COUNT; channel++) {
+		if ((ssam_temp->sensors & BIT(channel)) && ssam_temp->offsets[channel] != 0)
+			ssam_tmp_set_offset(ssam_temp->sdev, channel + 1, 0);
+	}
+}
 
 static int ssam_temp_probe(struct ssam_device *sdev)
 {
@@ -197,6 +303,7 @@ static int ssam_temp_probe(struct ssam_device *sdev)
 
 	ssam_temp->sdev = sdev;
 	ssam_temp->sensors = sensors;
+	mutex_init(&ssam_temp->lock);
 
 	/* Retrieve the name for each available sensor. */
 	for (channel = 0; channel < SSAM_TMP_SENSOR_MAX_COUNT; channel++) {
@@ -208,6 +315,10 @@ static int ssam_temp_probe(struct ssam_device *sdev)
 		if (status)
 			return status;
 	}
+
+	status = devm_add_action_or_reset(&sdev->dev, ssam_temp_reset_offsets, ssam_temp);
+	if (status)
+		return status;
 
 	hwmon_dev = devm_hwmon_device_register_with_info(&sdev->dev, "surface_thermal", ssam_temp,
 							 &ssam_temp_hwmon_chip_info, NULL);
