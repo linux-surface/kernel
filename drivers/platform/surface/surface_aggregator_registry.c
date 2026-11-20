@@ -399,6 +399,8 @@ static const struct software_node *ssam_node_group_slg1[] = {
 	&ssam_node_bat_ac_dptf,
 	&ssam_node_bat_main_dptf,
 	&ssam_node_tmp_perf_profile,
+	&ssam_node_tmp_sensors,
+	&ssam_node_fan_speed,
 	NULL,
 };
 
