@@ -1135,6 +1135,16 @@ unsigned long dpu_kms_get_clk_rate(struct dpu_kms *dpu_kms, char *clock_name)
 
 #define	DPU_PERF_DEFAULT_MAX_CORE_CLK_RATE	412500000
 
+static void dpu_kms_setup_dp_phy_intf_sel(struct dpu_kms *dpu_kms)
+{
+	if (!dpu_kms || !dpu_kms->hw_mdp || !dpu_kms->hw_mdp->ops.dp_phy_intf_sel)
+		return;
+
+	if (of_device_is_compatible(dpu_kms->pdev->dev.of_node, "qcom,sc8180x-dpu"))
+		dpu_kms->hw_mdp->ops.dp_phy_intf_sel(dpu_kms->hw_mdp,
+						     (unsigned int[]){ 1, 2, });
+}
+
 static int dpu_kms_hw_init(struct msm_kms *kms)
 {
 	struct dpu_kms *dpu_kms;
@@ -1246,8 +1256,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 	 * the INTF <->DP relationship isn't static anymore, this needs to be
 	 * configured through the DT.
 	 */
-	if (of_device_is_compatible(dpu_kms->pdev->dev.of_node, "qcom,sc8180x-dpu"))
-		dpu_kms->hw_mdp->ops.dp_phy_intf_sel(dpu_kms->hw_mdp, (unsigned int[]){ 1, 2, });
+	dpu_kms_setup_dp_phy_intf_sel(dpu_kms);
 
 	dpu_kms->hw_intr = dpu_hw_intr_init(dev, dpu_kms->mmio, dpu_kms->catalog);
 	if (IS_ERR(dpu_kms->hw_intr)) {
@@ -1464,6 +1473,7 @@ static int __maybe_unused dpu_runtime_resume(struct device *dev)
 	}
 
 	dpu_vbif_init_memtypes(dpu_kms);
+	dpu_kms_setup_dp_phy_intf_sel(dpu_kms);
 
 	drm_for_each_encoder(encoder, ddev)
 		dpu_encoder_virt_runtime_resume(encoder);
