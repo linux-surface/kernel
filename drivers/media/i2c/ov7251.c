@@ -14,6 +14,7 @@
 #include <linux/i2c.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
@@ -25,6 +26,40 @@
 #define OV7251_SC_MODE_SELECT		0x0100
 #define OV7251_SC_MODE_SELECT_SW_STANDBY	0x0
 #define OV7251_SC_MODE_SELECT_STREAMING		0x1
+
+#define OV7251_SC_IO_CTRL1		0x3005
+#define OV7251_IO_CTRL1_STROBE_EN	BIT(3)
+#define OV7251_SC_GP_IO_OUT1		0x3009
+#define OV7251_SC_GP_IO_SEL1		0x3027
+#define OV7251_STROBE_PATTERN		0x3b81
+#define OV7251_STROBE_SPAN_H		0x3b8e
+#define OV7251_STROBE_SPAN_L		0x3b8f
+#define OV7251_MIPI_CTRL00		0x4800
+#define OV7251_MIPI_CTRL00_LP11_GATE	0x24
+
+static int ir_strobe = -1;
+module_param(ir_strobe, int, 0644);
+MODULE_PARM_DESC(ir_strobe,
+		 "Drive hardware IR strobe pin during streaming (-1 auto, 0 off, 1 on)");
+
+static int strobe_pattern = 0xff;
+module_param(strobe_pattern, int, 0644);
+MODULE_PARM_DESC(strobe_pattern,
+		 "OV7251 reg 0x3b81 frame pattern mask (default 0xff)");
+
+static int strobe_span = 0x0200;
+module_param(strobe_span, int, 0644);
+MODULE_PARM_DESC(strobe_span,
+		 "OV7251 reg 0x3b8e..0x3b8f strobe frame span (default 0x0200)");
+
+static bool ov7251_use_ir_strobe(struct device *dev)
+{
+	if (ir_strobe >= 0)
+		return ir_strobe > 0;
+
+	return device_property_read_bool(dev, "ovti,ir-strobe") ||
+	       of_machine_is_compatible("microsoft,surface-pro-x");
+}
 
 #define OV7251_CHIP_ID_HIGH		0x300a
 #define OV7251_CHIP_ID_HIGH_BYTE	0x77
@@ -941,6 +976,8 @@ static int ov7251_set_power_on(struct device *dev)
 		return ret;
 	}
 
+	usleep_range(5000, 10000);
+
 	return ret;
 }
 
@@ -1072,7 +1109,8 @@ static int ov7251_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	}
 
-	pm_runtime_put(ov7251->dev);
+	pm_runtime_mark_last_busy(ov7251->dev);
+	pm_runtime_put_autosuspend(ov7251->dev);
 
 	return ret;
 }
@@ -1367,21 +1405,54 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
 			dev_err(ov7251->dev, "could not sync v4l2 controls\n");
 			goto err_power_down;
 		}
+
+		if (of_machine_is_compatible("qcom,sc8180x")) {
+			ret = ov7251_write_reg(ov7251, OV7251_MIPI_CTRL00,
+					       OV7251_MIPI_CTRL00_LP11_GATE);
+			if (ret) {
+				dev_err(ov7251->dev,
+					"could not set MIPI_CTRL00: %d\n", ret);
+				goto err_power_down;
+			}
+		}
+
+		if (ov7251_use_ir_strobe(ov7251->dev)) {
+			if (strobe_pattern >= 0)
+				ov7251_write_reg(ov7251, OV7251_STROBE_PATTERN,
+						 strobe_pattern & 0xff);
+			if (strobe_span >= 0) {
+				ov7251_write_reg(ov7251, OV7251_STROBE_SPAN_H,
+						 (strobe_span >> 8) & 0xff);
+				ov7251_write_reg(ov7251, OV7251_STROBE_SPAN_L,
+						 strobe_span & 0xff);
+			}
+			ov7251_write_reg(ov7251, OV7251_SC_GP_IO_SEL1, 0x00);
+			ov7251_write_reg(ov7251, OV7251_SC_IO_CTRL1,
+					 OV7251_IO_CTRL1_STROBE_EN);
+		}
+
 		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
 				       OV7251_SC_MODE_SELECT_STREAMING);
 		if (ret)
 			goto err_power_down;
 	} else {
+		if (ov7251_use_ir_strobe(ov7251->dev)) {
+			ov7251_write_reg(ov7251, OV7251_SC_IO_CTRL1, 0x00);
+			ov7251_write_reg(ov7251, OV7251_SC_GP_IO_SEL1, 0x00);
+			ov7251_write_reg(ov7251, OV7251_SC_GP_IO_OUT1, 0x00);
+		}
 		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
 				       OV7251_SC_MODE_SELECT_SW_STANDBY);
-		pm_runtime_put(ov7251->dev);
+		pm_runtime_mark_last_busy(ov7251->dev);
+		pm_runtime_put_autosuspend(ov7251->dev);
 	}
 
 	mutex_unlock(&ov7251->lock);
 	return ret;
 
 err_power_down:
-	pm_runtime_put(ov7251->dev);
+	pm_runtime_mark_last_busy(ov7251->dev);
+	pm_runtime_put_autosuspend(ov7251->dev);
 	mutex_unlock(&ov7251->lock);
 	return ret;
 }
