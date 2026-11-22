@@ -3,8 +3,11 @@
 
 #include <linux/acpi.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/pm_runtime.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
@@ -58,22 +61,22 @@
 #define OV13858_REG_EXPOSURE		0x3500
 #define OV13858_EXPOSURE_MIN		4
 #define OV13858_EXPOSURE_STEP		1
-#define OV13858_EXPOSURE_DEFAULT	0x640
+#define OV13858_EXPOSURE_DEFAULT	0xbb8
 
 /* Analog gain control */
 #define OV13858_REG_ANALOG_GAIN		0x3508
-#define OV13858_ANA_GAIN_MIN		0
+#define OV13858_ANA_GAIN_MIN		0x80
 #define OV13858_ANA_GAIN_MAX		0x1fff
 #define OV13858_ANA_GAIN_STEP		1
-#define OV13858_ANA_GAIN_DEFAULT	0x80
+#define OV13858_ANA_GAIN_DEFAULT	0x400
 
 /* Digital gain control */
 #define OV13858_REG_B_MWB_GAIN		0x5100
 #define OV13858_REG_G_MWB_GAIN		0x5102
 #define OV13858_REG_R_MWB_GAIN		0x5104
-#define OV13858_DGTL_GAIN_MIN		0
+#define OV13858_DGTL_GAIN_MIN		0x400
 #define OV13858_DGTL_GAIN_MAX		16384	/* Max = 16 X */
-#define OV13858_DGTL_GAIN_DEFAULT	1024	/* Default gain = 1 X */
+#define OV13858_DGTL_GAIN_DEFAULT	3072	/* Default gain = 3 X */
 #define OV13858_DGTL_GAIN_STEP		1	/* Each step = 1/1024 */
 
 /* Test Pattern Control */
@@ -1031,6 +1034,7 @@ static const struct ov13858_mode supported_modes[] = {
 struct ov13858 {
 	struct device *dev;
 	struct clk *clk;
+	struct gpio_desc *reset_gpio;
 
 	struct v4l2_subdev sd;
 	struct media_pad pad;
@@ -1421,6 +1425,7 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
 			__func__);
 		return ret;
 	}
+	usleep_range(5000, 6000);
 
 	/* Setup PLL */
 	link_freq_index = ov13858->cur_mode->link_freq_index;
@@ -1674,9 +1679,25 @@ static int ov13858_probe(struct i2c_client *client)
 
 	freq = clk_get_rate(ov13858->clk);
 	if (freq != 19200000)
-		return dev_err_probe(ov13858->dev, -EINVAL,
-				     "external clock %lu is not supported\n",
-				     freq);
+		dev_warn(ov13858->dev,
+			 "external clock %lu differs from expected 19200000\n",
+			 freq);
+
+	ov13858->reset_gpio = devm_gpiod_get_optional(ov13858->dev, "reset",
+						      GPIOD_OUT_LOW);
+	if (IS_ERR(ov13858->reset_gpio))
+		return dev_err_probe(ov13858->dev, PTR_ERR(ov13858->reset_gpio),
+				     "failed to get reset gpio\n");
+	if (ov13858->reset_gpio) {
+		gpiod_set_value_cansleep(ov13858->reset_gpio, 1);
+		usleep_range(2000, 3000);
+	}
+
+	ret = clk_prepare_enable(ov13858->clk);
+	if (ret)
+		return dev_err_probe(ov13858->dev, ret,
+				     "failed to enable external clock\n");
+	usleep_range(5000, 6000);
 
 	/* Initialize subdev */
 	v4l2_i2c_subdev_init(&ov13858->sd, client, &ov13858_subdev_ops);
@@ -1685,7 +1706,7 @@ static int ov13858_probe(struct i2c_client *client)
 	ret = ov13858_identify_module(ov13858);
 	if (ret) {
 		dev_err(ov13858->dev, "failed to find sensor: %d\n", ret);
-		return ret;
+		goto error_clk_disable;
 	}
 
 	/* Set default mode to max resolution */
@@ -1693,7 +1714,7 @@ static int ov13858_probe(struct i2c_client *client)
 
 	ret = ov13858_init_controls(ov13858);
 	if (ret)
-		return ret;
+		goto error_clk_disable;
 
 	/* Initialize subdev */
 	ov13858->sd.internal_ops = &ov13858_internal_ops;
@@ -1729,6 +1750,9 @@ error_media_entity:
 
 error_handler_free:
 	ov13858_free_controls(ov13858);
+
+error_clk_disable:
+	clk_disable_unprepare(ov13858->clk);
 	dev_err(ov13858->dev, "%s failed:%d\n", __func__, ret);
 
 	return ret;
@@ -1744,6 +1768,7 @@ static void ov13858_remove(struct i2c_client *client)
 	ov13858_free_controls(ov13858);
 
 	pm_runtime_disable(ov13858->dev);
+	clk_disable_unprepare(ov13858->clk);
 }
 
 static const struct i2c_device_id ov13858_id_table[] = {
@@ -1752,6 +1777,12 @@ static const struct i2c_device_id ov13858_id_table[] = {
 };
 
 MODULE_DEVICE_TABLE(i2c, ov13858_id_table);
+
+static const struct of_device_id ov13858_of_match[] = {
+	{ .compatible = "ovti,ov13858" },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, ov13858_of_match);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id ov13858_acpi_ids[] = {
@@ -1765,6 +1796,7 @@ MODULE_DEVICE_TABLE(acpi, ov13858_acpi_ids);
 static struct i2c_driver ov13858_i2c_driver = {
 	.driver = {
 		.name = "ov13858",
+		.of_match_table = of_match_ptr(ov13858_of_match),
 		.acpi_match_table = ACPI_PTR(ov13858_acpi_ids),
 	},
 	.probe = ov13858_probe,
