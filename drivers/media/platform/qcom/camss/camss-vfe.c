@@ -10,6 +10,7 @@
 #include <linux/clk.h>
 #include <linux/completion.h>
 #include <linux/ctype.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
 #include <linux/mutex.h>
@@ -347,6 +348,7 @@ static u32 vfe_src_pad_code(struct vfe_line *line, u32 sink_code,
 	case CAMSS_6350:
 	case CAMSS_7280:
 	case CAMSS_8x96:
+	case CAMSS_8150:
 	case CAMSS_8250:
 	case CAMSS_8280XP:
 	case CAMSS_8300:
@@ -837,6 +839,11 @@ static int vfe_disable_output(struct vfe_line *line)
 	output->gen2.active_num = 0;
 	spin_unlock_irqrestore(&vfe->output_lock, flags);
 
+	if (vfe->camss->res->version == CAMSS_8150) {
+		vfe->res->hw_ops->reg_update(vfe, line->id);
+		return 0;
+	}
+
 	return vfe_reset(vfe);
 }
 
@@ -855,13 +862,31 @@ int vfe_disable(struct vfe_line *line)
 	if (ret)
 		goto error;
 
+	if (vfe->camss->res->version == CAMSS_8150) {
+		/*
+		 * Wait for the next frame boundary while CSID/CSIPHY/sensor
+		 * are still streaming so VFE latches WM_CFG = 0 and completes
+		 * any in-flight AXI burst cleanly without a post-stream
+		 * GLOBAL_RESET_CMD_BUS (which deadlocks the SC8180X NoC).
+		 */
+		msleep(50);
+	}
+
 	vfe_put_output(line);
 
 	mutex_lock(&vfe->stream_lock);
 
 	vfe->stream_count--;
+	if (vfe->camss->res->version == CAMSS_8150 && !vfe->stream_count) {
+		if (vfe->res->hw_ops->vfe_halt)
+			vfe->res->hw_ops->vfe_halt(vfe);
+		vfe_reset_output_maps(vfe);
+	}
 
 	mutex_unlock(&vfe->stream_lock);
+
+	if (vfe->camss->res->version == CAMSS_8150)
+		synchronize_irq(vfe->irq);
 
 error:
 	return ret;
@@ -1016,9 +1041,14 @@ static int vfe_set_clock_rates(struct vfe_device *vfe)
 			}
 
 			/* if sensor pixel clock is not available */
-			/* set highest possible VFE clock rate */
-			if (min_rate == 0)
+			if (min_rate == 0 &&
+			    vfe->camss->res->version == CAMSS_8150) {
+				for (j = 0; j < clock->nfreqs - 1; j++)
+					if (clock->freq[j] >= 400000000)
+						break;
+			} else if (min_rate == 0) {
 				j = clock->nfreqs - 1;
+			}
 
 			rate = clk_round_rate(clock->clk, clock->freq[j]);
 			if (rate < 0) {
@@ -1108,34 +1138,48 @@ int vfe_get(struct vfe_device *vfe)
 	mutex_lock(&vfe->power_lock);
 
 	if (vfe->power_count == 0) {
-		ret = vfe->res->hw_ops->pm_domain_on(vfe);
-		if (ret < 0)
-			goto error_pm_domain;
+		if (!vfe->powered_on) {
+			ret = vfe->res->hw_ops->pm_domain_on(vfe);
+			if (ret < 0)
+				goto error_pm_domain;
 
-		ret = pm_runtime_resume_and_get(vfe->camss->dev);
-		if (ret < 0)
-			goto error_domain_off;
+			ret = pm_runtime_resume_and_get(vfe->camss->dev);
+			if (ret < 0)
+				goto error_domain_off;
 
-		ret = vfe_set_clock_rates(vfe);
-		if (ret < 0)
-			goto error_pm_runtime_get;
+			ret = vfe_set_clock_rates(vfe);
+			if (ret < 0)
+				goto error_pm_runtime_get;
 
-		ret = camss_enable_clocks(vfe->nclocks, vfe->clock,
-					  vfe->camss->dev);
-		if (ret < 0)
-			goto error_pm_runtime_get;
+			ret = camss_enable_clocks(vfe->nclocks, vfe->clock,
+						  vfe->camss->dev);
+			if (ret < 0)
+				goto error_pm_runtime_get;
 
-		enable_irq(vfe->irq);
+			enable_irq(vfe->irq);
 
-		ret = vfe_reset(vfe);
-		if (ret < 0)
-			goto error_reset;
+			ret = vfe_reset(vfe);
+			if (ret < 0)
+				goto error_reset;
 
-		vfe_reset_output_maps(vfe);
+			vfe_reset_output_maps(vfe);
+			vfe_init_outputs(vfe);
+			vfe->res->hw_ops->hw_version(vfe);
 
-		vfe_init_outputs(vfe);
+			if (vfe->camss->res->version == CAMSS_8150)
+				vfe->powered_on = true;
+		} else {
+			ret = vfe_set_clock_rates(vfe);
+			if (ret < 0)
+				goto error_pm_domain;
 
-		vfe->res->hw_ops->hw_version(vfe);
+			ret = vfe_reset(vfe);
+			if (ret < 0)
+				goto error_pm_domain;
+
+			vfe_reset_output_maps(vfe);
+			vfe_init_outputs(vfe);
+		}
 	} else {
 		ret = vfe_check_clock_rates(vfe);
 		if (ret < 0)
@@ -1178,10 +1222,12 @@ void vfe_put(struct vfe_device *vfe)
 			vfe->was_streaming = 0;
 			vfe->res->hw_ops->vfe_halt(vfe);
 		}
-		disable_irq(vfe->irq);
-		camss_disable_clocks(vfe->nclocks, vfe->clock);
-		pm_runtime_put_sync(vfe->camss->dev);
-		vfe->res->hw_ops->pm_domain_off(vfe);
+		if (!vfe->powered_on) {
+			disable_irq(vfe->irq);
+			camss_disable_clocks(vfe->nclocks, vfe->clock);
+			pm_runtime_put_sync(vfe->camss->dev);
+			vfe->res->hw_ops->pm_domain_off(vfe);
+		}
 	}
 
 	vfe->power_count--;
@@ -2054,6 +2100,7 @@ static int vfe_bpl_align_rdi(struct vfe_device *vfe)
 	case CAMSS_6150:
 	case CAMSS_6350:
 	case CAMSS_7280:
+	case CAMSS_8150:
 	case CAMSS_8250:
 	case CAMSS_8280XP:
 	case CAMSS_8300:
@@ -2228,9 +2275,10 @@ void msm_vfe_unregister_entities(struct vfe_device *vfe)
 		media_entity_cleanup(&sd->entity);
 	}
 
-	if (vfe->power_count > 0) {
+	if (vfe->power_count > 0 || vfe->powered_on) {
 		disable_irq(vfe->irq);
 		vfe->power_count = 0;
+		vfe->powered_on = false;
 	}
 
 	mutex_destroy(&vfe->power_lock);
