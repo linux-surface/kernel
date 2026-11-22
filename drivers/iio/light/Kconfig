@@ -609,6 +609,16 @@ config TCS3414
 	  This driver can also be built as a module.  If so, the module
 	  will be called tcs3414.
 
+config TCS3430
+	tristate "ams OSRAM TCS3430 ambient light and XYZ color sensor"
+	depends on I2C
+	help
+	  If you say yes here you get support for the ams OSRAM TCS3430
+	  ambient light and CIE 1931 XYZ tristimulus color sensor.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called tcs3430.
+
 config TCS3472
 	tristate "TAOS TCS3472 color light-to-digital converter"
 	depends on I2C
