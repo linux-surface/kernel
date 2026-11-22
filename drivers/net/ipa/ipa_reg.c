@@ -114,6 +114,8 @@ static const struct regs *ipa_regs(enum ipa_version version)
 		return &ipa_regs_v3_1;
 	case IPA_VERSION_3_5_1:
 		return &ipa_regs_v3_5_1;
+	case IPA_VERSION_4_1:
+		return &ipa_regs_v4_1;
 	case IPA_VERSION_4_2:
 		return &ipa_regs_v4_2;
 	case IPA_VERSION_4_5:
