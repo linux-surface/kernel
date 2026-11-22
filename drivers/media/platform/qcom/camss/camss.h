@@ -11,6 +11,7 @@
 #define QC_MSM_CAMSS_H
 
 #include <linux/device.h>
+#include <linux/dma-mapping.h>
 #include <linux/types.h>
 #include <media/v4l2-async.h>
 #include <media/v4l2-device.h>
@@ -139,6 +140,9 @@ struct camss {
 	struct icc_path *icc_path[ICC_SM8250_COUNT];
 	const struct camss_resources *res;
 	bool legacy_phy;
+	void *dummy_buf;
+	dma_addr_t dummy_buf_iova;
+	size_t dummy_buf_size;
 };
 
 struct camss_camera_interface {

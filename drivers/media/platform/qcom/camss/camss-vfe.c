@@ -9,6 +9,7 @@
  */
 #include <linux/clk.h>
 #include <linux/completion.h>
+#include <linux/ctype.h>
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
 #include <linux/mutex.h>
@@ -447,9 +448,11 @@ u32 vfe_hw_version(struct vfe_device *vfe)
  * @vfe: VFE Device
  * @wm: Write master id
  */
+#define VFE_DUMMY_BUF ((struct camss_buffer *)1UL)
+
 void vfe_buf_done(struct vfe_device *vfe, int wm)
 {
-	struct vfe_line *line = &vfe->line[vfe->wm_output_map[wm]];
+	struct vfe_line *line;
 	const struct vfe_hw_ops *ops = vfe->res->hw_ops;
 	struct camss_buffer *ready_buf;
 	struct vfe_output *output;
@@ -457,44 +460,64 @@ void vfe_buf_done(struct vfe_device *vfe, int wm)
 	u32 index;
 	u64 ts = ktime_get_ns();
 
+	if (wm < 0 || wm >= MSM_VFE_IMAGE_MASTERS_NUM)
+		return;
+
 	spin_lock_irqsave(&vfe->output_lock, flags);
 
-	if (vfe->wm_output_map[wm] == VFE_LINE_NONE) {
+	if (vfe->wm_output_map[wm] == VFE_LINE_NONE ||
+	    vfe->wm_output_map[wm] >= vfe->res->line_num) {
 		dev_err_ratelimited(vfe->camss->dev,
 				    "Received wm done for unmapped index\n");
 		goto out_unlock;
 	}
-	output = &vfe->line[vfe->wm_output_map[wm]].output;
+	line = &vfe->line[vfe->wm_output_map[wm]];
+	output = &line->output;
 
 	ready_buf = output->buf[0];
-	if (!ready_buf) {
-		dev_err_ratelimited(vfe->camss->dev,
-				    "Missing ready buf %d!\n", output->state);
+	if (!ready_buf)
 		goto out_unlock;
+
+	if (ready_buf != VFE_DUMMY_BUF) {
+		ready_buf->vb.vb2_buf.timestamp = ts;
+		ready_buf->vb.sequence = output->sequence++;
 	}
 
-	ready_buf->vb.vb2_buf.timestamp = ts;
-	ready_buf->vb.sequence = output->sequence++;
-
+	/*
+	 * Titan 17x VFE_BUS_WM_IMAGE_ADDR is a 2-deep hardware FIFO:
+	 * buf[0] just completed; buf[1] is now active in hardware for the next
+	 * frame, so shift buf[1] -> buf[0] and push the next pending buffer
+	 * into FIFO slot 1. Fall back to VFE_DUMMY_BUF only on total underrun.
+	 */
 	index = 0;
 	output->buf[0] = output->buf[1];
+	output->buf[1] = NULL;
 	if (output->buf[0])
 		index = 1;
 
 	output->buf[index] = vfe_buf_get_pending(output);
 
 	if (output->buf[index]) {
+		output->gen2.active_num = index + 1;
 		ops->vfe_wm_update(vfe, output->wm_idx[0],
 				   output->buf[index]->addr[0],
 				   line);
 		ops->reg_update(vfe, line->id);
+	} else if (!output->buf[0] && vfe->camss->dummy_buf_iova) {
+		output->buf[0] = VFE_DUMMY_BUF;
+		output->gen2.active_num = 1;
+		ops->vfe_wm_update(vfe, output->wm_idx[0],
+				   vfe->camss->dummy_buf_iova,
+				   line);
+		ops->reg_update(vfe, line->id);
 	} else {
-		output->gen2.active_num--;
+		output->gen2.active_num = output->buf[0] ? 1 : 0;
 	}
 
 	spin_unlock_irqrestore(&vfe->output_lock, flags);
 
-	vb2_buffer_done(&ready_buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+	if (ready_buf != VFE_DUMMY_BUF)
+		vb2_buffer_done(&ready_buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
 
 	return;
 
@@ -545,6 +568,8 @@ int vfe_enable_output_v2(struct vfe_line *line)
 
 	ops->vfe_wm_start(vfe, output->wm_idx[0], line);
 
+	output->buf[0] = NULL;
+	output->buf[1] = NULL;
 	for (i = 0; i < CAMSS_INIT_BUF_COUNT; i++) {
 		output->buf[i] = vfe_buf_get_pending(output);
 		if (!output->buf[i])
@@ -552,6 +577,14 @@ int vfe_enable_output_v2(struct vfe_line *line)
 		output->gen2.active_num++;
 		ops->vfe_wm_update(vfe, output->wm_idx[0],
 				   output->buf[i]->addr[0], line);
+		ops->reg_update(vfe, line->id);
+	}
+
+	if (output->gen2.active_num == 0 && vfe->camss->dummy_buf_iova) {
+		output->buf[0] = VFE_DUMMY_BUF;
+		output->gen2.active_num = 1;
+		ops->vfe_wm_update(vfe, output->wm_idx[0],
+				   vfe->camss->dummy_buf_iova, line);
 		ops->reg_update(vfe, line->id);
 	}
 
@@ -773,23 +806,6 @@ void vfe_buf_add_pending(struct vfe_output *output,
 	list_add_tail(&buffer->queue, &output->pending_bufs);
 }
 
-/*
- * vfe_buf_flush_pending - Flush all pending buffers.
- * @output: VFE output
- * @state: vb2 buffer state
- */
-static void vfe_buf_flush_pending(struct vfe_output *output,
-				  enum vb2_buffer_state state)
-{
-	struct camss_buffer *buf;
-	struct camss_buffer *t;
-
-	list_for_each_entry_safe(buf, t, &output->pending_bufs, queue) {
-		vb2_buffer_done(&buf->vb.vb2_buf, state);
-		list_del(&buf->queue);
-	}
-}
-
 int vfe_put_output(struct vfe_line *line)
 {
 	struct vfe_device *vfe = to_vfe(line);
@@ -861,7 +877,7 @@ void vfe_isr_comp_done(struct vfe_device *vfe, u8 comp)
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(vfe->wm_output_map); i++)
-		if (vfe->wm_output_map[i] == VFE_LINE_PIX) {
+		if (vfe->wm_output_map[i] != VFE_LINE_NONE) {
 			vfe->isr_ops.wm_done(vfe, i);
 			break;
 		}
@@ -918,6 +934,9 @@ static int vfe_match_clock_names(struct vfe_device *vfe,
 	return (!strcmp(clock->name, vfe_name) ||
 		!strcmp(clock->name, vfe_lite_name) ||
 		!strcmp(clock->name, "vfe_lite") ||
+		(vfe->res->is_lite &&
+		 !strncmp(clock->name, "vfe_lite", 8) &&
+		 isdigit((unsigned char)clock->name[8])) ||
 		!strcmp(clock->name, "camnoc_axi") ||
 		!strcmp(clock->name, "camnoc_rt_axi"));
 }
@@ -1106,6 +1125,8 @@ int vfe_get(struct vfe_device *vfe)
 		if (ret < 0)
 			goto error_pm_runtime_get;
 
+		enable_irq(vfe->irq);
+
 		ret = vfe_reset(vfe);
 		if (ret < 0)
 			goto error_reset;
@@ -1127,6 +1148,7 @@ int vfe_get(struct vfe_device *vfe)
 	return 0;
 
 error_reset:
+	disable_irq(vfe->irq);
 	camss_disable_clocks(vfe->nclocks, vfe->clock);
 
 error_pm_runtime_get:
@@ -1156,6 +1178,7 @@ void vfe_put(struct vfe_device *vfe)
 			vfe->was_streaming = 0;
 			vfe->res->hw_ops->vfe_halt(vfe);
 		}
+		disable_irq(vfe->irq);
 		camss_disable_clocks(vfe->nclocks, vfe->clock);
 		pm_runtime_put_sync(vfe->camss->dev);
 		vfe->res->hw_ops->pm_domain_off(vfe);
@@ -1183,26 +1206,50 @@ int vfe_flush_buffers(struct camss_video *vid,
 	struct vfe_line *line = container_of(vid, struct vfe_line, video_out);
 	struct vfe_device *vfe = to_vfe(line);
 	struct vfe_output *output;
+	struct camss_buffer *buf, *t;
+	struct camss_buffer *b0 = NULL, *b1 = NULL, *blast = NULL;
+	struct list_head local_pending;
 	unsigned long flags;
 
 	output = &line->output;
+	INIT_LIST_HEAD(&local_pending);
 
 	spin_lock_irqsave(&vfe->output_lock, flags);
 
-	vfe_buf_flush_pending(output, state);
+	list_splice_init(&output->pending_bufs, &local_pending);
 
-	if (output->buf[0])
-		vb2_buffer_done(&output->buf[0]->vb.vb2_buf, state);
+	if (output->buf[0]) {
+		b0 = output->buf[0];
+		output->buf[0] = NULL;
+	}
 
-	if (output->buf[1])
-		vb2_buffer_done(&output->buf[1]->vb.vb2_buf, state);
+	if (output->buf[1]) {
+		b1 = output->buf[1];
+		output->buf[1] = NULL;
+	}
 
 	if (output->last_buffer) {
-		vb2_buffer_done(&output->last_buffer->vb.vb2_buf, state);
+		blast = output->last_buffer;
 		output->last_buffer = NULL;
 	}
 
+	output->gen2.active_num = 0;
+
 	spin_unlock_irqrestore(&vfe->output_lock, flags);
+
+	list_for_each_entry_safe(buf, t, &local_pending, queue) {
+		vb2_buffer_done(&buf->vb.vb2_buf, state);
+		list_del(&buf->queue);
+	}
+
+	if (b0 && b0 != VFE_DUMMY_BUF)
+		vb2_buffer_done(&b0->vb.vb2_buf, state);
+
+	if (b1 && b1 != VFE_DUMMY_BUF)
+		vb2_buffer_done(&b1->vb.vb2_buf, state);
+
+	if (blast && blast != VFE_DUMMY_BUF)
+		vb2_buffer_done(&blast->vb.vb2_buf, state);
 
 	return 0;
 }
@@ -1851,7 +1898,8 @@ int msm_vfe_subdev_init(struct camss *camss, struct vfe_device *vfe,
 	snprintf(vfe->irq_name, sizeof(vfe->irq_name), "%s_%s%d",
 		 dev_name(dev), MSM_VFE_NAME, id);
 	ret = devm_request_irq(dev, vfe->irq, vfe->res->hw_ops->isr,
-			       IRQF_TRIGGER_RISING, vfe->irq_name, vfe);
+			       IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN,
+			       vfe->irq_name, vfe);
 	if (ret < 0) {
 		dev_err(dev, "request_irq failed: %d\n", ret);
 		return ret;
@@ -2171,9 +2219,6 @@ void msm_vfe_unregister_entities(struct vfe_device *vfe)
 {
 	int i;
 
-	mutex_destroy(&vfe->power_lock);
-	mutex_destroy(&vfe->stream_lock);
-
 	for (i = 0; i < vfe->res->line_num; i++) {
 		struct v4l2_subdev *sd = &vfe->line[i].subdev;
 		struct camss_video *video_out = &vfe->line[i].video_out;
@@ -2182,6 +2227,14 @@ void msm_vfe_unregister_entities(struct vfe_device *vfe)
 		v4l2_device_unregister_subdev(sd);
 		media_entity_cleanup(&sd->entity);
 	}
+
+	if (vfe->power_count > 0) {
+		disable_irq(vfe->irq);
+		vfe->power_count = 0;
+	}
+
+	mutex_destroy(&vfe->power_lock);
+	mutex_destroy(&vfe->stream_lock);
 }
 
 bool vfe_is_lite(struct vfe_device *vfe)

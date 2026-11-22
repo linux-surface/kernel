@@ -115,7 +115,11 @@
 #define		STATUS0_COMP_OVERWRITE		BIT(12)
 #define		STATUS0_OVERFLOW		BIT(13)
 #define		STATUS0_VIOLATION		BIT(14)
-/* WM_CLIENT_BUF_DONE defined for buffers 0:19 */
+#define		STATUS0_BUS_ERROR_MASK		(STATUS0_COMP_ERROR | \
+						 STATUS0_COMP_OVERWRITE | \
+						 STATUS0_OVERFLOW | \
+						 STATUS0_VIOLATION)
+/* WM_CLIENT_BUF_DONE defined for buffers 0:23 on Full VFE175, 0:3 on VFE Lite */
 #define		STATUS1_WM_CLIENT_BUF_DONE(n)		BIT(n)
 #define		STATUS1_EARLY_DONE			BIT(24)
 #define		STATUS2_DUAL_COMP0_BUF_DONE		BIT(0)
@@ -137,9 +141,12 @@
 #define VFE_BUS_WM_ADDR_SYNC_FRAME_HEADER	(0x2080)
 
 #define VFE_BUS_WM_ADDR_SYNC_NO_SYNC		(0x2084)
-#define		BUS_VER2_MAX_CLIENTS (24)
+#define		BUS_VER2_MAX_CLIENTS		(20)
+#define		BUS_VER2_LITE_MAX_CLIENTS	(4)
 #define		WM_ADDR_NO_SYNC_DEFAULT_VAL \
 				((1 << BUS_VER2_MAX_CLIENTS) - 1)
+#define		WM_ADDR_NO_SYNC_LITE_VAL \
+				((1 << BUS_VER2_LITE_MAX_CLIENTS) - 1)
 
 #define VFE_BUS_WM_CGC_OVERRIDE			(0x200c)
 #define		WM_CGC_OVERRIDE_ALL		(0xFFFFF)
@@ -183,18 +190,31 @@ static inline void vfe_reg_set(struct vfe_device *vfe, u32 reg, u32 set_bits)
 
 static void vfe_global_reset(struct vfe_device *vfe)
 {
-	u32 reset_bits = GLOBAL_RESET_CMD_CORE		|
-			 GLOBAL_RESET_CMD_CAMIF		|
-			 GLOBAL_RESET_CMD_BUS		|
-			 GLOBAL_RESET_CMD_BUS_BDG	|
-			 GLOBAL_RESET_CMD_REGISTER	|
-			 GLOBAL_RESET_CMD_TESTGEN	|
-			 GLOBAL_RESET_CMD_DSP		|
-			 GLOBAL_RESET_CMD_IDLE_CGC	|
-			 GLOBAL_RESET_CMD_RDI0		|
-			 GLOBAL_RESET_CMD_RDI1		|
-			 GLOBAL_RESET_CMD_RDI2		|
-			 GLOBAL_RESET_CMD_RDI3;
+	u32 reset_bits;
+
+	if (vfe_is_lite(vfe)) {
+		reset_bits = GLOBAL_RESET_CMD_CORE	|
+			     GLOBAL_RESET_CMD_BUS	|
+			     GLOBAL_RESET_CMD_REGISTER	|
+			     GLOBAL_RESET_CMD_IDLE_CGC	|
+			     GLOBAL_RESET_CMD_RDI0	|
+			     GLOBAL_RESET_CMD_RDI1	|
+			     GLOBAL_RESET_CMD_RDI2	|
+			     GLOBAL_RESET_CMD_RDI3;
+	} else {
+		reset_bits = GLOBAL_RESET_CMD_CORE	|
+			     GLOBAL_RESET_CMD_CAMIF	|
+			     GLOBAL_RESET_CMD_BUS	|
+			     GLOBAL_RESET_CMD_BUS_BDG	|
+			     GLOBAL_RESET_CMD_REGISTER	|
+			     GLOBAL_RESET_CMD_TESTGEN	|
+			     GLOBAL_RESET_CMD_DSP	|
+			     GLOBAL_RESET_CMD_IDLE_CGC	|
+			     GLOBAL_RESET_CMD_RDI0	|
+			     GLOBAL_RESET_CMD_RDI1	|
+			     GLOBAL_RESET_CMD_RDI2	|
+			     GLOBAL_RESET_CMD_RDI3;
+	}
 
 	writel_relaxed(BIT(31), vfe->base + VFE_IRQ_MASK_0);
 
@@ -206,12 +226,19 @@ static void vfe_global_reset(struct vfe_device *vfe)
 
 static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 {
+	struct v4l2_pix_format_mplane *pix =
+		&line->video_out.active_fmt.fmt.pix_mp;
+	u32 stride = pix->plane_fmt[0].bytesperline ?
+		     pix->plane_fmt[0].bytesperline : pix->width;
+	u32 height = pix->height;
 	u32 val;
 
-	/*Set Debug Registers*/
-	val = DEBUG_STATUS_CFG_STATUS0(1) |
-	      DEBUG_STATUS_CFG_STATUS0(7);
-	writel_relaxed(val, vfe->base + VFE_BUS_WM_DEBUG_STATUS_CFG);
+	/* Set Debug Registers (Full VFE only; VFE Lite does not have 0x226c) */
+	if (!vfe_is_lite(vfe)) {
+		val = DEBUG_STATUS_CFG_STATUS0(1) |
+		      DEBUG_STATUS_CFG_STATUS0(7);
+		writel_relaxed(val, vfe->base + VFE_BUS_WM_DEBUG_STATUS_CFG);
+	}
 
 	/* BUS_WM_INPUT_IF_ADDR_SYNC_FRAME_HEADER */
 	writel_relaxed(0, vfe->base + VFE_BUS_WM_ADDR_SYNC_FRAME_HEADER);
@@ -223,34 +250,60 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 	writel_relaxed(0x0, vfe->base + VFE_BUS_WM_TEST_BUS_CTRL);
 
 	/* if addr_no_sync has default value then config the addr no sync reg */
-	val = WM_ADDR_NO_SYNC_DEFAULT_VAL;
+	val = vfe_is_lite(vfe) ? WM_ADDR_NO_SYNC_LITE_VAL :
+				 WM_ADDR_NO_SYNC_DEFAULT_VAL;
 	writel_relaxed(val, vfe->base + VFE_BUS_WM_ADDR_SYNC_NO_SYNC);
 
 	writel_relaxed(0xf, vfe->base + VFE_BUS_WM_BURST_LIMIT(wm));
+	writel_relaxed(stride * height, vfe->base + VFE_BUS_WM_FRAME_INC(wm));
 
-	val = WM_BUFFER_DEFAULT_WIDTH;
-	writel_relaxed(val, vfe->base + VFE_BUS_WM_BUFFER_WIDTH_CFG(wm));
+	/* Qualcomm RDI bus defaults: width and stride = 0xFF01, height = 0, packer = 0 */
+	writel_relaxed(WM_BUFFER_DEFAULT_WIDTH,
+		       vfe->base + VFE_BUS_WM_BUFFER_WIDTH_CFG(wm));
+	writel_relaxed(0, vfe->base + VFE_BUS_WM_BUFFER_HEIGHT_CFG(wm));
+	writel_relaxed(0, vfe->base + VFE_BUS_WM_PACKER_CFG(wm));
+	writel_relaxed(WM_STRIDE_DEFAULT_STRIDE,
+		       vfe->base + VFE_BUS_WM_STRIDE(wm));
 
-	val = 0;
-	writel_relaxed(val, vfe->base + VFE_BUS_WM_BUFFER_HEIGHT_CFG(wm));
+	/* No dropped frames, one IRQ per frame */
+	writel_relaxed(0, vfe->base + VFE_BUS_WM_FRAMEDROP_PERIOD(wm));
+	writel_relaxed(1, vfe->base + VFE_BUS_WM_FRAMEDROP_PATTERN(wm));
+	writel_relaxed(0, vfe->base + VFE_BUS_WM_IRQ_SUBSAMPLE_PERIOD(wm));
+	writel_relaxed(1, vfe->base + VFE_BUS_WM_IRQ_SUBSAMPLE_PATTERN(wm));
 
-	val = 0;
-	writel_relaxed(val, vfe->base + VFE_BUS_WM_PACKER_CFG(wm)); // XXX 1 for PLAIN8?
+	/*
+	 * Subscribe only to WM_CLIENT_BUF_DONE(wm) in Bus IRQ Mask 1 (keeping
+	 * Bus IRQ Mask 0 for hardware error reporting) so vfe_buf_done() fires
+	 * once per frame. Defer enabling WM_CFG until vfe_wm_update() writes
+	 * the first buffer IOVA into the 2-deep IMAGE_ADDR FIFO.
+	 */
+	val = readl_relaxed(vfe->base + VFE_BUS_IRQ_MASK(0));
+	val |= STATUS0_BUS_ERROR_MASK;
+	writel_relaxed(val, vfe->base + VFE_BUS_IRQ_MASK(0));
 
-	/* Configure stride for RDIs */
-	val = WM_STRIDE_DEFAULT_STRIDE;
-	writel_relaxed(val, vfe->base + VFE_BUS_WM_STRIDE(wm));
+	val = readl_relaxed(vfe->base + VFE_BUS_IRQ_MASK(1));
+	val |= STATUS1_WM_CLIENT_BUF_DONE(wm);
+	writel_relaxed(val, vfe->base + VFE_BUS_IRQ_MASK(1));
 
-	/* Enable WM */
-	val = 1 << WM_CFG_EN |
-	      MODE_MIPI_RAW << WM_CFG_MODE;
-	writel_relaxed(val, vfe->base + VFE_BUS_WM_CFG(wm));
+	/* Ensure WM configuration writes complete before buffer enqueue */
+	wmb();
 }
 
 static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
 {
+	u32 val;
+
+	/* Unsubscribe WM IRQ in Bus IRQ Mask 1 */
+	val = readl_relaxed(vfe->base + VFE_BUS_IRQ_MASK(1));
+	val &= ~STATUS1_WM_CLIENT_BUF_DONE(wm);
+	writel_relaxed(val, vfe->base + VFE_BUS_IRQ_MASK(1));
+	/* Ensure IRQ mask update completes before disabling WM */
+	wmb();
+
 	/* Disable WM */
 	writel_relaxed(0, vfe->base + VFE_BUS_WM_CFG(wm));
+	/* Ensure WM disable write reaches hardware */
+	wmb();
 }
 
 static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
@@ -259,9 +312,20 @@ static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
 	struct v4l2_pix_format_mplane *pix =
 		&line->video_out.active_fmt.fmt.pix_mp;
 	u32 stride = pix->plane_fmt[0].bytesperline;
+	u32 dummy_iova = (u32)vfe->camss->dummy_buf_iova;
+
+	if (!addr)
+		addr = dummy_iova;
 
 	writel_relaxed(addr, vfe->base + VFE_BUS_WM_IMAGE_ADDR(wm));
-	writel_relaxed(stride * pix->height, vfe->base + VFE_BUS_WM_FRAME_INC(wm));
+	writel_relaxed(addr == dummy_iova ? 0 : (stride * pix->height),
+		       vfe->base + VFE_BUS_WM_FRAME_INC(wm));
+	/* Ensure IMAGE_ADDR and FRAME_INC land before enabling WM_CFG */
+	wmb();
+	writel_relaxed((1 << WM_CFG_EN) | (MODE_MIPI_RAW << WM_CFG_MODE),
+		       vfe->base + VFE_BUS_WM_CFG(wm));
+	/* Ensure WM enable write reaches hardware before REG_UPDATE */
+	wmb();
 }
 
 static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
@@ -285,12 +349,33 @@ static inline void vfe_reg_update_clear(struct vfe_device *vfe,
 
 static void vfe_enable_irq_common(struct vfe_device *vfe)
 {
-	vfe_reg_set(vfe, VFE_IRQ_MASK_0, ~0u);
-	vfe_reg_set(vfe, VFE_IRQ_MASK_1, ~0u);
+	/*
+	 * Bit 31: STATUS_0_RESET_ACK
+	 * Bits 27-30: RDI0-3 SOF
+	 * Bits 4, 7, 9: BUS_TOP_IRQ (routes VFE_BUS_IRQ_STATUS[0..2] to top IRQ)
+	 * Bits 5-8: RDI0-3 REG_UPDATE
+	 */
+	writel_relaxed(STATUS_0_RESET_ACK | 0x780001e0 | BIT(4) | BIT(7) | BIT(9),
+		       vfe->base + VFE_IRQ_MASK_0);
+	writel_relaxed(MASK_1_CAMIF_ERROR | MASK_1_VIOLATION |
+		       MASK_1_BUS_BDG_HALT_ACK,
+		       vfe->base + VFE_IRQ_MASK_1);
 
-	writel_relaxed(~0u, vfe->base + VFE_BUS_IRQ_MASK(0));
-	writel_relaxed(~0u, vfe->base + VFE_BUS_IRQ_MASK(1));
-	writel_relaxed(~0u, vfe->base + VFE_BUS_IRQ_MASK(2));
+	/*
+	 * VFE_CORE_CFG (0x050): keep 0 so local SOF latches registers
+	 * (BIT(4) selects extern_reg_update slave mode).
+	 */
+	writel_relaxed(0, vfe->base + VFE_CORE_CFG);
+
+	/* Override clock gating for bus bridge (VFE TOP 0x3C) */
+	writel_relaxed(0xffffffff, vfe->base + 0x03c);
+	/* Ensure core/bridge configuration lands before bus IRQ masks */
+	wmb();
+
+	/* Enable bus error IRQs only */
+	writel_relaxed(STATUS0_BUS_ERROR_MASK, vfe->base + VFE_BUS_IRQ_MASK(0));
+	writel_relaxed(0, vfe->base + VFE_BUS_IRQ_MASK(1));
+	writel_relaxed(STATUS2_DUAL_COMP_ERROR, vfe->base + VFE_BUS_IRQ_MASK(2));
 }
 
 static void vfe_isr_halt_ack(struct vfe_device *vfe)
@@ -337,7 +422,7 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 	writel_relaxed(status0, vfe->base + VFE_IRQ_CLEAR_0);
 	writel_relaxed(status1, vfe->base + VFE_IRQ_CLEAR_1);
 
-	for (i = VFE_LINE_RDI0; i < vfe->res->line_num; i++) {
+	for (i = 0; i < 3; i++) {
 		vfe_bus_status[i] = readl_relaxed(vfe->base + VFE_BUS_IRQ_STATUS(i));
 		writel_relaxed(vfe_bus_status[i], vfe->base + VFE_BUS_IRQ_CLEAR(i));
 	}
@@ -348,15 +433,24 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 	writel_relaxed(CMD_GLOBAL_CLEAR, vfe->base + VFE_IRQ_CMD);
 	writel_relaxed(1, vfe->base + VFE_BUS_IRQ_CLEAR_GLOBAL);
 
+	if (vfe_bus_status[0] & STATUS0_BUS_ERROR_MASK)
+		dev_err_ratelimited(vfe->camss->dev,
+				    "vfe%d bus error: bus0=0x%08x st0=0x%08x st1=0x%08x\n",
+				    vfe->id, vfe_bus_status[0], status0, status1);
+
 	if (status0 & STATUS_0_RESET_ACK)
 		vfe->isr_ops.reset_ack(vfe);
+
+	if (status1 & STATUS_1_VIOLATION)
+		vfe_violation_read(vfe);
 
 	for (i = VFE_LINE_RDI0; i < vfe->res->line_num; i++)
 		if (status0 & STATUS_0_RDI_REG_UPDATE(i))
 			vfe->isr_ops.reg_update(vfe, i);
 
 	for (i = VFE_LINE_RDI0; i < vfe->res->line_num; i++)
-		if (status0 & STATUS_1_RDI_SOF(i))
+		if ((status1 & STATUS_1_RDI_SOF(i)) ||
+		    (status0 & BIT(27 + i)))
 			vfe->isr_ops.sof(vfe, i);
 
 	for (i = 0; i < MSM_VFE_COMPOSITE_IRQ_NUM; i++)
@@ -364,62 +458,38 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 			vfe->isr_ops.comp_done(vfe, i);
 
 	for (wm = 0; wm < MSM_VFE_IMAGE_MASTERS_NUM; wm++)
-		if (status0 & BIT(9))
-			if (vfe_bus_status[1] & STATUS1_WM_CLIENT_BUF_DONE(wm))
-				vfe->isr_ops.wm_done(vfe, wm);
+		if (vfe_bus_status[1] & STATUS1_WM_CLIENT_BUF_DONE(wm))
+			vfe->isr_ops.wm_done(vfe, wm);
 
 	return IRQ_HANDLED;
 }
 
 /*
- * vfe_halt - Trigger halt on VFE module and wait to complete
+ * vfe_halt - Mask and clear pending interrupts on VFE module
  * @vfe: VFE device
  *
  * Return 0 on success or a negative error code otherwise
  */
 static int vfe_halt(struct vfe_device *vfe)
 {
-	/* rely on vfe_disable_output() to stop the VFE */
-	return 0;
-}
+	writel_relaxed(0, vfe->base + VFE_IRQ_MASK_0);
+	writel_relaxed(0, vfe->base + VFE_IRQ_MASK_1);
+	writel_relaxed(~0u, vfe->base + VFE_IRQ_CLEAR_0);
+	writel_relaxed(~0u, vfe->base + VFE_IRQ_CLEAR_1);
+	writel_relaxed(CMD_GLOBAL_CLEAR, vfe->base + VFE_IRQ_CMD);
 
-static int vfe_get_output(struct vfe_line *line)
-{
-	struct vfe_device *vfe = to_vfe(line);
-	struct vfe_output *output;
-	unsigned long flags;
-	int wm_idx;
-
-	spin_lock_irqsave(&vfe->output_lock, flags);
-
-	output = &line->output;
-	if (output->state > VFE_OUTPUT_RESERVED) {
-		dev_err(vfe->camss->dev, "Output is running\n");
-		goto error;
-	}
-
-	output->wm_num = 1;
-
-	wm_idx = vfe_reserve_wm(vfe, line->id);
-	if (wm_idx < 0) {
-		dev_err(vfe->camss->dev, "Can not reserve wm\n");
-		goto error_get_wm;
-	}
-	output->wm_idx[0] = wm_idx;
-
-	output->drop_update_idx = 0;
-
-	spin_unlock_irqrestore(&vfe->output_lock, flags);
+	writel_relaxed(0, vfe->base + VFE_BUS_IRQ_MASK(0));
+	writel_relaxed(0, vfe->base + VFE_BUS_IRQ_MASK(1));
+	writel_relaxed(0, vfe->base + VFE_BUS_IRQ_MASK(2));
+	writel_relaxed(~0u, vfe->base + VFE_BUS_IRQ_CLEAR(0));
+	writel_relaxed(~0u, vfe->base + VFE_BUS_IRQ_CLEAR(1));
+	writel_relaxed(~0u, vfe->base + VFE_BUS_IRQ_CLEAR(2));
+	writel_relaxed(1, vfe->base + VFE_BUS_IRQ_CLEAR_GLOBAL);
+	vfe->reg_update = 0;
+	/* Ensure IRQ mask/clear writes reach hardware before halt completes */
+	wmb();
 
 	return 0;
-
-error_get_wm:
-	vfe_release_wm(vfe, output->wm_idx[0]);
-	output->state = VFE_OUTPUT_OFF;
-error:
-	spin_unlock_irqrestore(&vfe->output_lock, flags);
-
-	return -EINVAL;
 }
 
 /*
@@ -442,7 +512,7 @@ static int vfe_enable(struct vfe_line *line)
 
 	mutex_unlock(&vfe->stream_lock);
 
-	ret = vfe_get_output(line);
+	ret = vfe_get_output_v2(line);
 	if (ret < 0)
 		goto error_get_output;
 
@@ -507,52 +577,7 @@ static void vfe_isr_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
  */
 static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
 {
-	struct vfe_line *line = &vfe->line[vfe->wm_output_map[wm]];
-	struct camss_buffer *ready_buf;
-	struct vfe_output *output;
-	unsigned long flags;
-	u32 index;
-	u64 ts = ktime_get_ns();
-
-	spin_lock_irqsave(&vfe->output_lock, flags);
-
-	if (vfe->wm_output_map[wm] == VFE_LINE_NONE) {
-		dev_err_ratelimited(vfe->camss->dev,
-				    "Received wm done for unmapped index\n");
-		goto out_unlock;
-	}
-	output = &vfe->line[vfe->wm_output_map[wm]].output;
-
-	ready_buf = output->buf[0];
-	if (!ready_buf) {
-		dev_err_ratelimited(vfe->camss->dev,
-				    "Missing ready buf %d!\n", output->state);
-		goto out_unlock;
-	}
-
-	ready_buf->vb.vb2_buf.timestamp = ts;
-	ready_buf->vb.sequence = output->sequence++;
-
-	index = 0;
-	output->buf[0] = output->buf[1];
-	if (output->buf[0])
-		index = 1;
-
-	output->buf[index] = vfe_buf_get_pending(output);
-
-	if (output->buf[index])
-		vfe_wm_update(vfe, output->wm_idx[0], output->buf[index]->addr[0], line);
-	else
-		output->gen2.active_num--;
-
-	spin_unlock_irqrestore(&vfe->output_lock, flags);
-
-	vb2_buffer_done(&ready_buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
-
-	return;
-
-out_unlock:
-	spin_unlock_irqrestore(&vfe->output_lock, flags);
+	vfe_buf_done(vfe, wm);
 }
 
 static const struct vfe_isr_ops vfe_isr_ops_170 = {

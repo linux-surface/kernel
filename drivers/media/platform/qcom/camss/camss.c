@@ -5546,9 +5546,37 @@ static int camss_probe(struct platform_device *pdev)
 		goto err_media_device_unregister;
 	}
 
+	if (camss->res->vfe_num &&
+	    camss->res->vfe_res[0].vfe.hw_ops == &vfe_ops_170) {
+		camss->dummy_buf_size = 18 * 1024 * 1024;
+		camss->dummy_buf = dma_alloc_coherent(camss->dev,
+						      camss->dummy_buf_size,
+						      &camss->dummy_buf_iova,
+						      GFP_KERNEL | __GFP_NOWARN);
+		if (!camss->dummy_buf) {
+			camss->dummy_buf_size = 4 * 1024 * 1024;
+			camss->dummy_buf = dma_alloc_coherent(camss->dev,
+							      camss->dummy_buf_size,
+							      &camss->dummy_buf_iova,
+							      GFP_KERNEL);
+		}
+		if (camss->dummy_buf)
+			dev_dbg(camss->dev,
+				"Allocated dummy DMA buffer %zu MB at IOVA %pad\n",
+				camss->dummy_buf_size / (1024 * 1024),
+				&camss->dummy_buf_iova);
+	}
+
 	return 0;
 
 err_media_device_unregister:
+	if (camss->dummy_buf) {
+		dma_free_coherent(camss->dev,
+				  camss->dummy_buf_size,
+				  camss->dummy_buf,
+				  camss->dummy_buf_iova);
+		camss->dummy_buf = NULL;
+	}
 	media_device_unregister(&camss->media_dev);
 err_register_subdevs:
 	camss_unregister_entities(camss);
@@ -5566,6 +5594,14 @@ err_genpd_cleanup:
 
 void camss_delete(struct camss *camss)
 {
+	if (camss->dummy_buf) {
+		dma_free_coherent(camss->dev,
+				  camss->dummy_buf_size,
+				  camss->dummy_buf,
+				  camss->dummy_buf_iova);
+		camss->dummy_buf = NULL;
+	}
+
 	v4l2_device_unregister(&camss->v4l2_dev);
 	media_device_unregister(&camss->media_dev);
 	media_device_cleanup(&camss->media_dev);
