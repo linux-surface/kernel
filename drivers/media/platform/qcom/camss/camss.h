@@ -12,6 +12,8 @@
 
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
+#include <linux/gpio/consumer.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
 #include <media/v4l2-async.h>
 #include <media/v4l2-device.h>
@@ -144,6 +146,11 @@ struct camss {
 	void *dummy_buf;
 	dma_addr_t dummy_buf_iova;
 	size_t dummy_buf_size;
+	struct gpio_desc *privacy_led_front;
+	struct gpio_desc *privacy_led_rear;
+	struct mutex privacy_led_lock;
+	int front_led_refcnt;
+	int rear_led_refcnt;
 };
 
 struct camss_camera_interface {
@@ -185,5 +192,6 @@ void camss_delete(struct camss *camss);
 void camss_buf_done(struct camss *camss, int hw_id, int port_id);
 void camss_reg_update(struct camss *camss, int hw_id,
 		      int port_id, bool is_clear);
+void camss_set_privacy_led(struct camss *camss, u8 csiphy_id, bool on);
 
 #endif /* QC_MSM_CAMSS_H */

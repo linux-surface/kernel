@@ -385,10 +385,14 @@ static int csiphy_set_stream_legacy(struct v4l2_subdev *sd, int enable)
 	struct csiphy_device *csiphy = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
-	if (enable)
+	if (enable) {
 		ret = csiphy_stream_on_legacy(csiphy);
-	else
+		if (!ret)
+			camss_set_privacy_led(csiphy->camss, csiphy->id, true);
+	} else {
+		camss_set_privacy_led(csiphy->camss, csiphy->id, false);
 		csiphy_stream_off_legacy(csiphy);
+	}
 
 	return ret;
 }
@@ -405,10 +409,14 @@ static int csiphy_set_stream(struct v4l2_subdev *sd, int enable)
 	struct csiphy_device *csiphy = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
-	if (enable)
+	if (enable) {
 		ret = csiphy_stream_on(csiphy);
-	else
+		if (!ret)
+			camss_set_privacy_led(csiphy->camss, csiphy->id, true);
+	} else {
+		camss_set_privacy_led(csiphy->camss, csiphy->id, false);
 		csiphy_stream_off(csiphy);
+	}
 
 	return ret;
 }

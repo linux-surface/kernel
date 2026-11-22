@@ -5659,6 +5659,33 @@ static void camss_genpd_cleanup(struct camss *camss)
 	dev_pm_domain_detach(camss->genpd, true);
 }
 
+void camss_set_privacy_led(struct camss *camss, u8 csiphy_id, bool on)
+{
+	mutex_lock(&camss->privacy_led_lock);
+
+	if (csiphy_id == 0 || csiphy_id == 3) {
+		if (on)
+			camss->front_led_refcnt++;
+		else if (camss->front_led_refcnt > 0)
+			camss->front_led_refcnt--;
+
+		if (camss->privacy_led_front)
+			gpiod_set_value_cansleep(camss->privacy_led_front,
+						 camss->front_led_refcnt > 0 ? 1 : 0);
+	} else if (csiphy_id == 2) {
+		if (on)
+			camss->rear_led_refcnt++;
+		else if (camss->rear_led_refcnt > 0)
+			camss->rear_led_refcnt--;
+
+		if (camss->privacy_led_rear)
+			gpiod_set_value_cansleep(camss->privacy_led_rear,
+						 camss->rear_led_refcnt > 0 ? 1 : 0);
+	}
+
+	mutex_unlock(&camss->privacy_led_lock);
+}
+
 /*
  * camss_probe - Probe CAMSS platform device
  * @pdev: Pointer to CAMSS platform device
@@ -5680,6 +5707,23 @@ static int camss_probe(struct platform_device *pdev)
 	atomic_set(&camss->ref_count, 0);
 	camss->dev = dev;
 	platform_set_drvdata(pdev, camss);
+	mutex_init(&camss->privacy_led_lock);
+
+	camss->privacy_led_front =
+		devm_gpiod_get_optional(dev, "privacy-led-front", GPIOD_OUT_LOW);
+	if (IS_ERR(camss->privacy_led_front)) {
+		dev_warn(dev, "Failed to get front privacy LED GPIO: %ld\n",
+			 PTR_ERR(camss->privacy_led_front));
+		camss->privacy_led_front = NULL;
+	}
+
+	camss->privacy_led_rear =
+		devm_gpiod_get_optional(dev, "privacy-led-rear", GPIOD_OUT_LOW);
+	if (IS_ERR(camss->privacy_led_rear)) {
+		dev_warn(dev, "Failed to get rear privacy LED GPIO: %ld\n",
+			 PTR_ERR(camss->privacy_led_rear));
+		camss->privacy_led_rear = NULL;
+	}
 
 	camss->csiphy = devm_kcalloc(dev, camss->res->csiphy_num,
 				     sizeof(*camss->csiphy), GFP_KERNEL);
@@ -5857,6 +5901,11 @@ void camss_delete(struct camss *camss)
 static void camss_remove(struct platform_device *pdev)
 {
 	struct camss *camss = platform_get_drvdata(pdev);
+
+	if (camss->privacy_led_front)
+		gpiod_set_value_cansleep(camss->privacy_led_front, 0);
+	if (camss->privacy_led_rear)
+		gpiod_set_value_cansleep(camss->privacy_led_rear, 0);
 
 	v4l2_async_nf_unregister(&camss->notifier);
 	v4l2_async_nf_cleanup(&camss->notifier);
