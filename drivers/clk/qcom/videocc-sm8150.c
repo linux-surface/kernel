@@ -233,6 +233,7 @@ static const struct qcom_cc_desc video_cc_sm8150_desc = {
 };
 
 static const struct of_device_id video_cc_sm8150_match_table[] = {
+	{ .compatible = "qcom,sc8180x-videocc" },
 	{ .compatible = "qcom,sm8150-videocc" },
 	{ }
 };
