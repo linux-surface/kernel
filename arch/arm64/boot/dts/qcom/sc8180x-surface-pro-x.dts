@@ -1134,6 +1134,12 @@
 	firmware-name = "qcom/msft/surface/pro-x-sq2/qcmpss8180.mbn";
 };
 
+&remoteproc_slpi {
+	status = "okay";
+	memory-region = <&scss_mem>;
+	firmware-name = "qcom/msft/surface/pro-x-sq2/qcslpi8180.mbn";
+};
+
 
 &qupv3_id_0 {
 	status = "okay";
