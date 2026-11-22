@@ -221,6 +221,8 @@ struct qcom_swrm_ctrl {
 	u32 slave_status;
 	u32 wr_fifo_depth;
 	bool clock_stop_not_supported;
+	/* Serialize each complete WCD AHB address/data transaction. */
+	struct mutex ahb_lock;
 };
 
 struct qcom_swrm_data {
@@ -333,18 +335,21 @@ static int qcom_swrm_ahb_reg_read(struct qcom_swrm_ctrl *ctrl, int reg,
 	struct regmap *wcd_regmap = ctrl->regmap;
 	int ret;
 
+	mutex_lock(&ctrl->ahb_lock);
 	/* pg register + offset */
 	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_RD_ADDR_0,
-			  (u8 *)&reg, 4);
+				(u8 *)&reg, 4);
 	if (ret < 0)
-		return SDW_CMD_FAIL;
+		goto out;
 
 	ret = regmap_bulk_read(wcd_regmap, SWRM_AHB_BRIDGE_RD_DATA_0,
 			       val, 4);
 	if (ret < 0)
-		return SDW_CMD_FAIL;
+		goto out;
 
-	return SDW_CMD_OK;
+out:
+	mutex_unlock(&ctrl->ahb_lock);
+	return ret < 0 ? SDW_CMD_FAIL : SDW_CMD_OK;
 }
 
 static int qcom_swrm_ahb_reg_write(struct qcom_swrm_ctrl *ctrl,
@@ -352,19 +357,23 @@ static int qcom_swrm_ahb_reg_write(struct qcom_swrm_ctrl *ctrl,
 {
 	struct regmap *wcd_regmap = ctrl->regmap;
 	int ret;
+
+	mutex_lock(&ctrl->ahb_lock);
 	/* pg register + offset */
 	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_WR_DATA_0,
-			  (u8 *)&val, 4);
+				(u8 *)&val, 4);
 	if (ret)
-		return SDW_CMD_FAIL;
+		goto out;
 
 	/* write address register */
 	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_WR_ADDR_0,
-			  (u8 *)&reg, 4);
+				(u8 *)&reg, 4);
 	if (ret)
-		return SDW_CMD_FAIL;
+		goto out;
 
-	return SDW_CMD_OK;
+out:
+	mutex_unlock(&ctrl->ahb_lock);
+	return ret ? SDW_CMD_FAIL : SDW_CMD_OK;
 }
 
 static int qcom_swrm_cpu_reg_read(struct qcom_swrm_ctrl *ctrl, int reg,
@@ -1610,6 +1619,7 @@ static int qcom_swrm_probe(struct platform_device *pdev)
 	ctrl->dev = dev;
 	dev_set_drvdata(&pdev->dev, ctrl);
 	mutex_init(&ctrl->port_lock);
+	mutex_init(&ctrl->ahb_lock);
 	init_completion(&ctrl->broadcast);
 	init_completion(&ctrl->enumeration);
 
@@ -1641,6 +1651,22 @@ static int qcom_swrm_probe(struct platform_device *pdev)
 	prop->default_row = data->default_rows;
 
 	ctrl->reg_read(ctrl, SWRM_COMP_HW_VERSION, &ctrl->version);
+
+	/* Ensure the hardware FIFO capacity is valid before enabling the IRQ. */
+	ret = ctrl->reg_read(ctrl, SWRM_COMP_PARAMS, &val);
+	if (ret != SDW_CMD_OK) {
+		ret = -EIO;
+		goto err_clk;
+	}
+	if (ctrl->version >= SWRM_VERSION_3_1_0)
+		ctrl->wr_fifo_depth = FIELD_GET(SWRM_V3_COMP_PARAMS_WR_FIFO_DEPTH, val);
+	else
+		ctrl->wr_fifo_depth = FIELD_GET(SWRM_COMP_PARAMS_WR_FIFO_DEPTH, val);
+	if (!ctrl->wr_fifo_depth) {
+		dev_err(dev, "Invalid command FIFO capacity: %#x\n", val);
+		ret = -EINVAL;
+		goto err_clk;
+	}
 
 	ret = devm_request_threaded_irq(dev, ctrl->irq, NULL,
 					qcom_swrm_irq_handler,
