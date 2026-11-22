@@ -1173,8 +1173,7 @@
 	pinctrl-0 = <&i2c2_active>, <&i2c2_als_active>;
 
 	als@39 {
-		// TODO: this should actually be a TCS3430
-		compatible = "avago,apds9960";
+		compatible = "ams,tcs3430";
 		reg = <0x39>;
 
 		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
