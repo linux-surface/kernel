@@ -173,6 +173,20 @@ static const struct csid_format_info formats_4_1[] = {
 		10,
 		1,
 	},
+	{
+		MEDIA_BUS_FMT_Y10_2X8_PADHI_LE,
+		MIPI_CSI2_DT_RAW10,
+		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
+		16,
+		1,
+	},
+	{
+		MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_LE,
+		MIPI_CSI2_DT_RAW10,
+		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
+		16,
+		1,
+	},
 };
 
 static const struct csid_format_info formats_4_7[] = {
@@ -323,6 +337,20 @@ static const struct csid_format_info formats_4_7[] = {
 		10,
 		1,
 	},
+	{
+		MEDIA_BUS_FMT_Y10_2X8_PADHI_LE,
+		MIPI_CSI2_DT_RAW10,
+		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
+		16,
+		1,
+	},
+	{
+		MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_LE,
+		MIPI_CSI2_DT_RAW10,
+		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
+		16,
+		1,
+	},
 };
 
 static const struct csid_format_info formats_gen2[] = {
@@ -422,6 +450,20 @@ static const struct csid_format_info formats_gen2[] = {
 		MIPI_CSI2_DT_RAW10,
 		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
 		10,
+		1,
+	},
+	{
+		MEDIA_BUS_FMT_Y10_2X8_PADHI_LE,
+		MIPI_CSI2_DT_RAW10,
+		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
+		16,
+		1,
+	},
+	{
+		MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_LE,
+		MIPI_CSI2_DT_RAW10,
+		DECODE_FORMAT_UNCOMPRESSED_10_BIT,
+		16,
 		1,
 	},
 	{
@@ -694,53 +736,80 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		if (ret < 0)
 			return ret;
 
-		ret = pm_runtime_resume_and_get(dev);
-		if (ret < 0)
-			return ret;
+		if (!csid->powered_on) {
+			ret = pm_runtime_resume_and_get(dev);
+			if (ret < 0) {
+				csid->res->parent_dev_ops->put(camss, csid->id);
+				return ret;
+			}
 
-		ret = regulator_bulk_enable(csid->num_supplies,
-					    csid->supplies);
-		if (ret < 0) {
-			pm_runtime_put_sync(dev);
-			return ret;
-		}
+			ret = regulator_bulk_enable(csid->num_supplies,
+						    csid->supplies);
+			if (ret < 0) {
+				pm_runtime_put_sync(dev);
+				csid->res->parent_dev_ops->put(camss, csid->id);
+				return ret;
+			}
 
-		ret = csid_set_clock_rates(csid);
-		if (ret < 0) {
-			regulator_bulk_disable(csid->num_supplies,
-					       csid->supplies);
-			pm_runtime_put_sync(dev);
-			return ret;
-		}
+			ret = csid_set_clock_rates(csid);
+			if (ret < 0) {
+				regulator_bulk_disable(csid->num_supplies,
+						       csid->supplies);
+				pm_runtime_put_sync(dev);
+				csid->res->parent_dev_ops->put(camss, csid->id);
+				return ret;
+			}
 
-		ret = camss_enable_clocks(csid->nclocks, csid->clock, dev);
-		if (ret < 0) {
-			regulator_bulk_disable(csid->num_supplies,
-					       csid->supplies);
-			pm_runtime_put_sync(dev);
-			return ret;
+			ret = camss_enable_clocks(csid->nclocks, csid->clock, dev);
+			if (ret < 0) {
+				regulator_bulk_disable(csid->num_supplies,
+						       csid->supplies);
+				pm_runtime_put_sync(dev);
+				csid->res->parent_dev_ops->put(camss, csid->id);
+				return ret;
+			}
+
+			enable_irq(csid->irq);
+			if (camss->res->version == CAMSS_8150)
+				csid->powered_on = true;
+		} else {
+			ret = pm_runtime_resume_and_get(dev);
+			if (ret < 0) {
+				csid->res->parent_dev_ops->put(camss, csid->id);
+				return ret;
+			}
+
+			ret = csid_set_clock_rates(csid);
+			if (ret < 0) {
+				pm_runtime_put_sync(dev);
+				csid->res->parent_dev_ops->put(camss, csid->id);
+				return ret;
+			}
 		}
 
 		csid->phy.need_vc_update = true;
 
-		enable_irq(csid->irq);
-
 		ret = csid->res->hw_ops->reset(csid);
 		if (ret < 0) {
-			disable_irq(csid->irq);
-			camss_disable_clocks(csid->nclocks, csid->clock);
-			regulator_bulk_disable(csid->num_supplies,
-					       csid->supplies);
+			if (!csid->powered_on) {
+				disable_irq(csid->irq);
+				camss_disable_clocks(csid->nclocks, csid->clock);
+				regulator_bulk_disable(csid->num_supplies,
+						       csid->supplies);
+			}
 			pm_runtime_put_sync(dev);
+			csid->res->parent_dev_ops->put(camss, csid->id);
 			return ret;
 		}
 
 		csid->res->hw_ops->hw_version(csid);
 	} else {
-		disable_irq(csid->irq);
-		camss_disable_clocks(csid->nclocks, csid->clock);
-		regulator_bulk_disable(csid->num_supplies,
-				       csid->supplies);
+		if (!csid->powered_on) {
+			disable_irq(csid->irq);
+			camss_disable_clocks(csid->nclocks, csid->clock);
+			regulator_bulk_disable(csid->num_supplies,
+					       csid->supplies);
+		}
 		pm_runtime_put_sync(dev);
 		csid->res->parent_dev_ops->put(camss, csid->id);
 	}
@@ -777,7 +846,7 @@ static int csid_set_stream(struct v4l2_subdev *sd, int enable)
 			return -ENOLINK;
 	}
 
-	if (csid->phy.need_vc_update) {
+	if (csid->phy.need_vc_update || !enable) {
 		csid->res->hw_ops->configure_stream(csid, enable);
 		csid->phy.need_vc_update = false;
 	}

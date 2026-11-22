@@ -163,6 +163,7 @@ struct vfe_device {
 	struct vfe_line line[VFE_LINE_NUM_MAX];
 	u32 reg_update;
 	u8 was_streaming;
+	bool powered_on;
 	const struct vfe_subdev_resources *res;
 	const struct vfe_hw_ops_gen1 *ops_gen1;
 	struct vfe_isr_ops isr_ops;

@@ -162,6 +162,7 @@ struct csid_device {
 	struct completion reset_complete;
 	struct csid_testgen_config testgen;
 	bool tpg_linked;
+	bool powered_on;
 	struct csid_phy_config phy;
 	struct v4l2_mbus_framefmt fmt[MSM_CSID_PADS_NUM];
 	struct v4l2_ctrl_handler ctrls;

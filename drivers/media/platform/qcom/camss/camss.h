@@ -11,6 +11,9 @@
 #define QC_MSM_CAMSS_H
 
 #include <linux/device.h>
+#include <linux/dma-mapping.h>
+#include <linux/gpio/consumer.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
 #include <media/v4l2-async.h>
 #include <media/v4l2-device.h>
@@ -89,6 +92,7 @@ enum camss_version {
 	CAMSS_8x39,
 	CAMSS_8x53,
 	CAMSS_8x96,
+	CAMSS_8150,
 	CAMSS_8250,
 	CAMSS_8280XP,
 	CAMSS_8300,
@@ -138,6 +142,15 @@ struct camss {
 	struct device_link *genpd_link;
 	struct icc_path *icc_path[ICC_SM8250_COUNT];
 	const struct camss_resources *res;
+	bool legacy_phy;
+	void *dummy_buf;
+	dma_addr_t dummy_buf_iova;
+	size_t dummy_buf_size;
+	struct gpio_desc *privacy_led_front;
+	struct gpio_desc *privacy_led_rear;
+	struct mutex privacy_led_lock;
+	int front_led_refcnt;
+	int rear_led_refcnt;
 };
 
 struct camss_camera_interface {
@@ -179,5 +192,6 @@ void camss_delete(struct camss *camss);
 void camss_buf_done(struct camss *camss, int hw_id, int port_id);
 void camss_reg_update(struct camss *camss, int hw_id,
 		      int port_id, bool is_clear);
+void camss_set_privacy_led(struct camss *camss, u8 csiphy_id, bool on);
 
 #endif /* QC_MSM_CAMSS_H */

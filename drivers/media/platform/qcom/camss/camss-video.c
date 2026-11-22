@@ -72,6 +72,10 @@ static struct v4l2_subdev *video_remote_subdev(struct camss_video *video,
 {
 	struct media_pad *remote;
 
+	if (!video->vdev.entity.graph_obj.mdev ||
+	    !video->vdev.entity.links.next)
+		return NULL;
+
 	remote = media_pad_remote_pad_first(&video->pad);
 
 	if (!remote || !is_media_entity_v4l2_subdev(remote->entity))
@@ -180,8 +184,11 @@ static int video_buf_prepare(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct camss_video *video = vb2_get_drv_priv(vb->vb2_queue);
+	struct camss_buffer *buffer = container_of(vbuf, struct camss_buffer,
+						   vb);
 	const struct v4l2_pix_format_mplane *format =
 						&video->active_fmt.fmt.pix_mp;
+	struct sg_table *sgt;
 	unsigned int i;
 
 	for (i = 0; i < format->num_planes; i++) {
@@ -189,6 +196,10 @@ static int video_buf_prepare(struct vb2_buffer *vb)
 			return -EINVAL;
 
 		vb2_set_plane_payload(vb, i, format->plane_fmt[i].sizeimage);
+
+		sgt = vb2_dma_sg_plane_desc(vb, i);
+		if (sgt && sgt->sgl)
+			buffer->addr[i] = sg_dma_address(sgt->sgl);
 	}
 
 	vbuf->field = V4L2_FIELD_NONE;
@@ -256,7 +267,9 @@ static int video_start_streaming(struct vb2_queue *q, unsigned int count)
 	struct media_entity *entity;
 	struct media_pad *pad;
 	struct v4l2_subdev *subdev;
-	int ret;
+	struct v4l2_subdev *started[8];
+	int n_started = 0;
+	int i, ret;
 
 	ret = video_device_pipeline_alloc_start(vdev);
 	if (ret < 0) {
@@ -283,10 +296,17 @@ static int video_start_streaming(struct vb2_queue *q, unsigned int count)
 
 		ret = v4l2_subdev_call(subdev, video, s_stream, 1);
 		if (ret < 0 && ret != -ENOIOCTLCMD)
-			goto error;
+			goto error_stop_subdevs;
+
+		if (n_started < ARRAY_SIZE(started))
+			started[n_started++] = subdev;
 	}
 
 	return 0;
+
+error_stop_subdevs:
+	for (i = 0; i < n_started; i++)
+		v4l2_subdev_call(started[i], video, s_stream, 0);
 
 error:
 	video_device_pipeline_stop(vdev);
@@ -303,11 +323,12 @@ static void video_stop_streaming(struct vb2_queue *q)
 	struct video_device *vdev = &video->vdev;
 	struct media_entity *entity;
 	struct media_pad *pad;
-	struct v4l2_subdev *subdev;
-	int ret;
+	struct v4l2_subdev *subdevs[8];
+	int n_subdevs = 0;
+	int i, ret;
 
 	entity = &vdev->entity;
-	while (1) {
+	while (n_subdevs < ARRAY_SIZE(subdevs)) {
 		pad = &entity->pads[0];
 		if (!(pad->flags & MEDIA_PAD_FL_SINK))
 			break;
@@ -317,14 +338,21 @@ static void video_stop_streaming(struct vb2_queue *q)
 			break;
 
 		entity = pad->entity;
-		subdev = media_entity_to_v4l2_subdev(entity);
+		subdevs[n_subdevs++] = media_entity_to_v4l2_subdev(entity);
+	}
 
-		ret = v4l2_subdev_call(subdev, video, s_stream, 0);
-
-		if (ret) {
-			dev_err(video->camss->dev, "Video pipeline stop failed: %d\n", ret);
-			return;
-		}
+	/*
+	 * Stop subdevices in sink-to-source order (VFE -> CSID -> CSIPHY ->
+	 * sensor) so VFE latches WM_CFG = 0 on the next frame boundary while
+	 * upstream blocks are still streaming, without aborting teardown on
+	 * non-fatal warnings.
+	 */
+	for (i = 0; i < n_subdevs; i++) {
+		ret = v4l2_subdev_call(subdevs[i], video, s_stream, 0);
+		if (ret && ret != -ENOIOCTLCMD)
+			dev_warn(video->camss->dev,
+				 "Video pipeline stop subdev %s warning: %d\n",
+				 subdevs[i]->name, ret);
 	}
 
 	video_device_pipeline_stop(vdev);
@@ -466,6 +494,7 @@ static int __video_try_fmt(struct camss_video *video, struct v4l2_format *f)
 	struct v4l2_pix_format_mplane *pix_mp;
 	const struct camss_format_info *fi;
 	struct v4l2_plane_pix_format *p;
+	struct v4l2_format sd_fmt = { 0 };
 	u32 bytesperline[3] = { 0 };
 	u32 sizeimage[3] = { 0 };
 	u32 width, height;
@@ -473,6 +502,15 @@ static int __video_try_fmt(struct camss_video *video, struct v4l2_format *f)
 	int i, j;
 
 	pix_mp = &f->fmt.pix_mp;
+
+	if (!video->line_based && video->vdev.entity.graph_obj.mdev) {
+		sd_fmt.fmt.pix_mp.pixelformat = pix_mp->pixelformat;
+		if (video_get_subdev_format(video, &sd_fmt) == 0) {
+			pix_mp->pixelformat = sd_fmt.fmt.pix_mp.pixelformat;
+			pix_mp->width = sd_fmt.fmt.pix_mp.width;
+			pix_mp->height = sd_fmt.fmt.pix_mp.height;
+		}
+	}
 
 	if (video->line_based)
 		for (i = 0; i < pix_mp->num_planes && i < 3; i++) {

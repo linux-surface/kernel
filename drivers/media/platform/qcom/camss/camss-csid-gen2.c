@@ -7,6 +7,7 @@
  * Copyright (C) 2020 Linaro Ltd.
  */
 #include <linux/completion.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -171,17 +172,22 @@
 #define		TPG_COLOR_BOX_CFG_MODE		0
 #define		TPG_COLOR_BOX_PATTERN_SEL	2
 
+#define CSID_TPG_COMMON_GEN_CFG	0x648
+
 static void __csid_configure_rx(struct csid_device *csid,
 				struct csid_phy_config *phy, int vc)
 {
 	u8 lane_cnt = csid->phy.lane_cnt;
+	u32 lane_assign = phy->lane_assign;
 	int val;
 
-	if (!lane_cnt)
+	if (!lane_cnt || csid->testgen.enabled) {
 		lane_cnt = 4;
+		lane_assign = 0x3210;
+	}
 
 	val = (lane_cnt - 1) << CSI2_RX_CFG0_NUM_ACTIVE_LANES;
-	val |= phy->lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
+	val |= lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
 	val |= phy->csiphy_id << CSI2_RX_CFG0_PHY_NUM_SEL;
 	writel_relaxed(val, csid->base + CSID_CSI2_RX_CFG0);
 
@@ -240,11 +246,14 @@ static void __csid_configure_testgen(struct csid_device *csid, u8 enable, u8 por
 	val |= format->decode_format << TPG_DT_n_CFG_2_ENCODE_FORMAT;
 	writel_relaxed(val, csid->base + CSID_TPG_DT_n_CFG_2(0));
 
-	writel_relaxed(0, csid->base + CSID_TPG_COLOR_BARS_CFG);
+	writel_relaxed(1 << TPG_COLOR_BARS_CFG_SPLIT_EN,
+		       csid->base + CSID_TPG_COLOR_BARS_CFG);
 
 	writel_relaxed(0, csid->base + CSID_TPG_COLOR_BOX_CFG);
+	writel_relaxed(0, csid->base + CSID_TPG_COMMON_GEN_CFG);
 
-	val = enable << TPG_CTRL_TEST_EN;
+	/* Prepare TPG configuration with generator disabled; enabled after RDI is armed */
+	val = 0 << TPG_CTRL_TEST_EN;
 	val |= 1 << TPG_CTRL_FS_PKT_EN;
 	val |= 1 << TPG_CTRL_FE_PKT_EN;
 	val |= (lane_cnt - 1) << TPG_CTRL_NUM_ACTIVE_LANES;
@@ -279,8 +288,15 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	val = 1 << RDI_CFG0_BYTE_CNTR_EN;
 	val |= 1 << RDI_CFG0_FORMAT_MEASURE_EN;
 	val |= 1 << RDI_CFG0_TIMESTAMP_EN;
-	/* note: for non-RDI path, this should be format->decode_format */
-	val |= DECODE_FORMAT_PAYLOAD_ONLY << RDI_CFG0_DECODE_FORMAT;
+	if (input_format->code == MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_LE ||
+	    input_format->code == MEDIA_BUS_FMT_Y10_2X8_PADHI_LE) {
+		val |= format->decode_format << RDI_CFG0_DECODE_FORMAT;
+		val |= PLAIN_FORMAT_PLAIN16 << RDI_CFG0_PLAIN_FORMAT;
+		val |= PLAIN_ALIGNMENT_LSB << RDI_CFG0_PLAIN_ALIGNMENT;
+	} else {
+		/* note: for non-RDI path, this should be format->decode_format */
+		val |= DECODE_FORMAT_PAYLOAD_ONLY << RDI_CFG0_DECODE_FORMAT;
+	}
 	val |= format->data_type << RDI_CFG0_DATA_TYPE;
 	val |= vc << RDI_CFG0_VIRTUAL_CHANNEL;
 	val |= dt_id << RDI_CFG0_DT_ID;
@@ -290,36 +306,54 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	val = 2 << RDI_CFG1_TIMESTAMP_STB_SEL;
 	writel_relaxed(val, csid->base + CSID_RDI_CFG1(port));
 
-	val = 1;
-	writel_relaxed(val, csid->base + CSID_RDI_FRM_DROP_PERIOD(port));
+	/* Disable frame/pixel/line dropping and IRQ subsampling */
+	writel_relaxed(1, csid->base + CSID_RDI_FRM_DROP_PERIOD(port));
+	writel_relaxed(0, csid->base + CSID_RDI_FRM_DROP_PATTERN(port));
 
-	val = 0;
-	writel_relaxed(val, csid->base + CSID_RDI_FRM_DROP_PATTERN(port));
+	writel_relaxed(1, csid->base + CSID_RDI_IRQ_SUBSAMPLE_PERIOD(port));
+	writel_relaxed(0, csid->base + CSID_RDI_IRQ_SUBSAMPLE_PATTERN(port));
 
-	val = 1;
-	writel_relaxed(val, csid->base + CSID_RDI_IRQ_SUBSAMPLE_PERIOD(port));
+	writel_relaxed(0, csid->base + CSID_RDI_RPP_PIX_DROP_PATTERN(port));
+	writel_relaxed(1, csid->base + CSID_RDI_RPP_PIX_DROP_PERIOD(port));
 
-	val = 0;
-	writel_relaxed(val, csid->base + CSID_RDI_IRQ_SUBSAMPLE_PATTERN(port));
-
-	val = 1;
-	writel_relaxed(val, csid->base + CSID_RDI_RPP_PIX_DROP_PERIOD(port));
-
-	val = 0;
-	writel_relaxed(val, csid->base + CSID_RDI_RPP_PIX_DROP_PATTERN(port));
-
-	val = 1;
-	writel_relaxed(val, csid->base + CSID_RDI_RPP_LINE_DROP_PERIOD(port));
-
-	val = 0;
-	writel_relaxed(val, csid->base + CSID_RDI_RPP_LINE_DROP_PATTERN(port));
+	writel_relaxed(0, csid->base + CSID_RDI_RPP_LINE_DROP_PATTERN(port));
+	writel_relaxed(1, csid->base + CSID_RDI_RPP_LINE_DROP_PERIOD(port));
 
 	val = 0;
 	writel_relaxed(val, csid->base + CSID_RDI_CTRL(port));
 
 	val = readl_relaxed(csid->base + CSID_RDI_CFG0(port));
-	val |=  enable << RDI_CFG0_ENABLE;
+	if (enable)
+		val |= BIT(RDI_CFG0_ENABLE);
+	else
+		val &= ~BIT(RDI_CFG0_ENABLE);
 	writel_relaxed(val, csid->base + CSID_RDI_CFG0(port));
+}
+
+static void csid_reset_retain_sw_reg(struct csid_device *csid)
+{
+	u32 status = 0;
+	int to = 1000;
+
+	/*
+	 * Strobe 0x1e preserves SW registers while resetting the data-path
+	 * state machine.
+	 */
+	writel_relaxed(1, csid->base + CSID_TOP_IRQ_CLEAR);
+	writel_relaxed(1, csid->base + CSID_IRQ_CMD);
+	writel_relaxed(0x1e, csid->base + CSID_RST_STROBES);
+	/* Ensure reset strobe reaches hardware before polling IRQ status */
+	wmb();
+
+	while (to-- > 0) {
+		status = readl_relaxed(csid->base + CSID_TOP_IRQ_STATUS);
+		if (status & 0x1)
+			break;
+		udelay(10);
+	}
+
+	writel_relaxed(1, csid->base + CSID_TOP_IRQ_CLEAR);
+	writel_relaxed(1, csid->base + CSID_IRQ_CMD);
 }
 
 static void csid_configure_stream(struct csid_device *csid, u8 enable)
@@ -327,16 +361,60 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
 	struct csid_testgen_config *tg = &csid->testgen;
 	u8 i;
 
+	writel_relaxed(~0u, csid->base + CSID_CSI2_RX_IRQ_CLEAR);
+	writel_relaxed(~0u, csid->base + CSID_CSI2_RDIN_IRQ_CLEAR(0));
+	writel_relaxed(1 << IRQ_CMD_CLEAR, csid->base + CSID_IRQ_CMD);
+
 	/* Loop through all enabled ports and configure a stream for each */
-	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
-		if (csid->phy.en_vc & BIT(i)) {
+	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++) {
+		if (!(csid->phy.en_vc & BIT(i)))
+			continue;
+
+		if (enable) {
 			if (tg->enabled)
 				__csid_configure_testgen(csid, enable, i, 0);
 
-			__csid_configure_rdi_stream(csid, enable, i, 0);
 			__csid_configure_rx(csid, &csid->phy, 0);
+			__csid_configure_rdi_stream(csid, enable, i, 0);
+			/* Ensure RX/RDI programming completes before datapath reset */
+			wmb();
+
+			csid_reset_retain_sw_reg(csid);
+
+			/* Resume RDI channel at frame boundary */
 			__csid_ctrl_rdi(csid, enable, i);
+			/* Ensure RDI resume command completes before TPG enable */
+			wmb();
+
+			if (tg->enabled) {
+				u8 lane_cnt = csid->phy.lane_cnt ? csid->phy.lane_cnt : 4;
+				u32 tpg_val = (1 << TPG_CTRL_TEST_EN) |
+					      (1 << TPG_CTRL_FS_PKT_EN) |
+					      (1 << TPG_CTRL_FE_PKT_EN) |
+					      ((lane_cnt - 1) << TPG_CTRL_NUM_ACTIVE_LANES) |
+					      (0x80 << TPG_CTRL_CYCLES_BETWEEN_PKTS) |
+					      (0x4 << TPG_CTRL_NUM_TRAIL_BYTES);
+
+				writel_relaxed(tpg_val, csid->base + CSID_TPG_CTRL);
+				/* Ensure TPG start reaches hardware */
+				wmb();
+			}
+		} else {
+			if (tg->enabled) {
+				writel_relaxed(0, csid->base + CSID_TPG_CTRL);
+				/* Ensure TPG stop reaches hardware before delay */
+				wmb();
+				udelay(10);
+			}
+			__csid_ctrl_rdi(csid, 0, i);
+			/* Ensure RDI halt reaches hardware before waiting for EOF */
+			wmb();
+			msleep(40);
+			__csid_configure_rdi_stream(csid, 0, i, 0);
+			/* Ensure RDI stream disable completes before returning */
+			wmb();
 		}
+	}
 }
 
 static int csid_configure_testgen_pattern(struct csid_device *csid, s32 val)
