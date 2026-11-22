@@ -247,6 +247,7 @@ struct ipa_data {
 
 extern const struct ipa_data ipa_data_v3_1;
 extern const struct ipa_data ipa_data_v3_5_1;
+extern const struct ipa_data ipa_data_v4_1;
 extern const struct ipa_data ipa_data_v4_2;
 extern const struct ipa_data ipa_data_v4_5;
 extern const struct ipa_data ipa_data_v4_7;
