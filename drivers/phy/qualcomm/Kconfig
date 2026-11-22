@@ -242,3 +242,15 @@ config PHY_QCOM_SGMII_ETH
 	help
 	  Enable this to support the internal SerDes/SGMII PHY on various
 	  Qualcomm chipsets.
+
+config PHY_QCOM_MIPI_CSI2
+	tristate "Qualcomm MIPI CSI-2 D-PHY driver"
+	depends on OF && (ARCH_QCOM || COMPILE_TEST)
+	depends on HAS_IOMEM
+	select GENERIC_PHY
+	select GENERIC_PHY_MIPI_DPHY
+	help
+	  Enable this to support the standalone Qualcomm MIPI CSI-2 D-PHY
+	  receiver blocks used with Qualcomm CAMSS on SM8150, SC8180X, and
+	  X1E80100 SoCs. Each CSIPHY instance is exposed through the generic
+	  PHY framework so CAMSS can configure lane routing and power states.
