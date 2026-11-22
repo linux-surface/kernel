@@ -8,6 +8,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
@@ -55,6 +56,23 @@
 			label = "Volume Up";
 			gpios = <&pmc8180a_gpios 6 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_VOLUMEUP>;
+		};
+	};
+
+	gpio-keys-lid {
+		compatible = "gpio-keys";
+		label = "Lid";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&lid_default>;
+
+		switch-lid {
+			label = "Lid";
+			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_LID>;
+			wakeup-source;
+			wakeup-event-action = <EV_ACT_DEASSERTED>;
 		};
 	};
 
@@ -887,6 +905,14 @@
 	edp_hpd_active: epd-hpd-active-state {
 		pins = "gpio10";
 		function = "edp_hot";
+	};
+
+	lid_default: lid-default-state {
+		pins = "gpio121";
+		function = "gpio";
+
+		input-enable;
+		bias-disable;
 	};
 };
 
