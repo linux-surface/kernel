@@ -238,10 +238,11 @@ static const struct ov7251_pll_cfgs *ov7251_pll_cfgs[] = {
 /*
  * Surface IR flood illuminator.
  *
- * On the Surface Pro 5 the IR LED is driven by the sensor's STROBE pad, not by
- * a GPIO or the TPS68470 LED outputs, and ACPI does not describe it. The mode
- * tables leave the pad disabled (0x3005 = 0x00, 0x3016-0x301c = 0xf0), so the
- * LED never lights and the IR camera (behind an IR-pass filter) sees black.
+ * On the Surface Pro 5 and 6 the IR LED is driven by the sensor's STROBE pad,
+ * not by a GPIO or the TPS68470 LED outputs, and ACPI does not describe it.
+ * The mode tables leave the pad disabled (0x3005 = 0x00, 0x3016-0x301c =
+ * 0xf0), so the LED never lights and the IR camera (behind an IR-pass filter)
+ * sees black.
  *
  * 0x3b81 is the strobe pattern: 0xaa lights the LED on alternate frames, so
  * userspace gets lit and unlit frames for ambient light subtraction.
@@ -264,6 +265,13 @@ static const struct dmi_system_id ov7251_surface_ir_strobe_dmi_ids[] = {
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+		},
+	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_SKU,
+					"Surface_Pro_6_1796_Consumer"),
 		},
 	},
 	{}
