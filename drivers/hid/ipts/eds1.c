@@ -55,6 +55,20 @@ static int ipts_eds1_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
 		return -EFAULT;
 
 	/*
+	 * The value comes from userspace, and every restart retry applies it.
+	 */
+	if (mode != IPTS_MODE_EVENT && mode != IPTS_MODE_POLL)
+		return -EINVAL;
+
+	/*
+	 * After a failed stop the device must not be started again until the next probe. The
+	 * device can still be running then, if a restart queued before the flag was set
+	 * started it.
+	 */
+	if (READ_ONCE(ipts->restart_blocked))
+		return -ENODEV;
+
+	/*
 	 * Only recorded here: restart_work applies it, also when this arrives during a restart.
 	 * The same mode again restarts a device that is not running, for example after the
 	 * restart retries gave up; restart_work does nothing if it runs by then.

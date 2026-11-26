@@ -655,6 +655,14 @@ int ipts_control_stop(struct ipts_context *ipts)
 	 * It is kept only while a HID callback is stuck.
 	 */
 	ret = _ipts_control_stop(ipts);
+
+	/*
+	 * As after a failed stop for a restart: a failed start stops the device through here,
+	 * and the restart retry must not start a device that did not stop or confirm its stop.
+	 */
+	if (ret)
+		WRITE_ONCE(ipts->restart_blocked, true);
+
 	if (ret == -EBUSY)
 		return ret;
 
@@ -683,6 +691,14 @@ static void ipts_control_restart_work(struct work_struct *work)
 		goto out;
 
 	/*
+	 * A mode switch can queue this again while a stop that leaked the buffers runs, before
+	 * that stop sets restart_blocked. The device must not be started again until the next
+	 * probe, so a run queued that way does nothing.
+	 */
+	if (READ_ONCE(ipts->restart_blocked))
+		goto out;
+
+	/*
 	 * A mode switch that arrived while the previous restart ran queues another one. If that
 	 * restart already applied the mode and the device runs, there is nothing to do.
 	 */
@@ -695,8 +711,9 @@ static void ipts_control_restart_work(struct work_struct *work)
 	/*
 	 * Also on a retry, although the failed start left the device stopped: on a stopped device
 	 * this does nothing, but if the start failed after it started the receiver and that did
-	 * not stop, or the device did not confirm its stop, it keeps the device from being
-	 * started again, as for any other restart.
+	 * not stop, it keeps the device from being started again, as for any other restart. If
+	 * the device did not confirm the failed start's stop, that stop set restart_blocked and
+	 * the retry ended above.
 	 */
 	ret = _ipts_control_stop(ipts);
 	if (ret == IPTS_STOP_LEAKED) {
