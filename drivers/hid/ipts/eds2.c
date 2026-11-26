@@ -67,6 +67,16 @@ static int ipts_eds2_get_feature(struct ipts_context *ipts, u8 *buffer, size_t s
 	memset(&ipts->feature_report, 0, sizeof(ipts->feature_report));
 	reinit_completion(&ipts->feature_event);
 
+	/*
+	 * A stop that started before the reinit above already released the completion, so
+	 * do not wait for a reply that will not come.
+	 */
+	smp_mb();
+	if (!READ_ONCE(ipts->hid_active)) {
+		ret = -ENODEV;
+		goto out;
+	}
+
 	ret = ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_NONE, type, buffer, size);
 	if (ret) {
 		dev_err(ipts->dev, "Failed to send hid2me feedback: %d\n", ret);
